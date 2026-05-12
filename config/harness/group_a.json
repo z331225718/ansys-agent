@@ -1,0 +1,15 @@
+{
+  "command": "claude",
+  "args": [
+    "--bare",
+    "--print",
+    "--output-format",
+    "text",
+    "--no-session-persistence",
+    "--tools",
+    ""
+  ],
+  "cwd": "benchmarks/harness_work/group_a",
+  "env": {},
+  "add_dirs": []
+}

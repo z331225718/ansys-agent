@@ -38,6 +38,7 @@ def main() -> None:
     run_benchmark.add_argument("--db", type=Path)
     run_benchmark.add_argument("--config", type=Path)
     run_benchmark.add_argument("--generate", action="store_true")
+    run_benchmark.add_argument("--fresh", action="store_true")
     run_benchmark.add_argument("--groups", nargs="+", choices=["A", "B", "C"])
 
     args = parser.parse_args()
@@ -75,6 +76,7 @@ def main() -> None:
             db_path=db_path,
             groups=selected_groups,
             model_name=model_name,
+            reuse_existing_candidates=not args.fresh,
         )
 
 

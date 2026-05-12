@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import os
+import socket
+import time
 from pathlib import Path
 from typing import Protocol
-from urllib import request
+from urllib import error, request
 
 
 class CodeGenerator(Protocol):
@@ -23,7 +25,15 @@ class FileGenerator:
     def generate(self, context: str, filename: str | None = None) -> str:
         if not filename:
             raise ValueError("filename is required for FileGenerator")
-        return (self.base_dir / filename).read_text(encoding="utf-8")
+        path = self.base_dir / filename
+        if path.exists():
+            return path.read_text(encoding="utf-8")
+        for group in ("_A_attempt_", "_B_attempt_"):
+            if group in filename:
+                fallback = self.base_dir / f"{filename.split(group, 1)[0]}.py"
+                if fallback.exists():
+                    return fallback.read_text(encoding="utf-8")
+        return path.read_text(encoding="utf-8")
 
 
 class OpenAIGenerator:
@@ -34,12 +44,16 @@ class OpenAIGenerator:
         model: str,
         timeout: int = 60,
         temperature: float = 0.0,
+        max_retries: int = 2,
+        retry_delay: float = 2.0,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.model = model
         self.timeout = timeout
         self.temperature = temperature
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
 
     def generate(self, context: str, filename: str | None = None) -> str:
         payload = {
@@ -65,9 +79,20 @@ class OpenAIGenerator:
             },
             method="POST",
         )
-        with request.urlopen(req, timeout=self.timeout) as response:
-            body = json.loads(response.read().decode("utf-8"))
-        return _extract_code_from_chat_completion(body)
+        last_error: Exception | None = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                with request.urlopen(req, timeout=self.timeout) as response:
+                    body = json.loads(response.read().decode("utf-8"))
+                return _extract_code_from_chat_completion(body)
+            except (TimeoutError, socket.timeout, error.URLError) as exc:
+                last_error = exc
+                if attempt >= self.max_retries:
+                    raise
+                time.sleep(self.retry_delay)
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("OpenAI-compatible generation failed without an exception")
 
 
 class AnthropicGenerator:
@@ -87,6 +112,8 @@ def create_generator_from_env() -> CodeGenerator:
             model=os.getenv("OPENAI_MODEL", ""),
             timeout=int(os.getenv("OPENAI_TIMEOUT", "60")),
             temperature=float(os.getenv("OPENAI_TEMPERATURE", "0")),
+            max_retries=int(os.getenv("OPENAI_MAX_RETRIES", "2")),
+            retry_delay=float(os.getenv("OPENAI_RETRY_DELAY", "2")),
         )
     if backend == "anthropic":
         return AnthropicGenerator()

@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from aedt_agent.benchmark.generator import CodeGenerator, DefaultCodeGenerator, FileGenerator, OpenAIGenerator
+from aedt_agent.benchmark.harness_generator import HarnessGenerator, load_harness_group_config
+from aedt_agent.benchmark.official_retriever import GitNexusOfficialRetriever, OfficialKnowledgeRetriever
 
 
 @dataclass(frozen=True)
@@ -15,6 +17,8 @@ class OpenAIConfig:
     model: str = ""
     timeout: int = 60
     temperature: float = 0.0
+    max_retries: int = 2
+    retry_delay: float = 2.0
 
 
 @dataclass(frozen=True)
@@ -30,12 +34,43 @@ class GeneratorConfig:
 
 
 @dataclass(frozen=True)
+class HarnessConfig:
+    backend: str = "claude"
+    command: str = "claude"
+    timeout: int = 600
+    group_a_config: str = "config/harness/group_a.json"
+    group_b_config: str = "config/harness/group_b.json"
+    work_dir: str = "benchmarks/harness_work"
+
+
+@dataclass(frozen=True)
+class OfficialRetrievalConfig:
+    backend: str = "gitnexus_http"
+    gitnexus_url: str = "http://127.0.0.1:4848"
+    pyaedt_repo: str = "/home/zzmjay/code/pyaedt"
+    pyaedt_examples: str = "/home/zzmjay/code/pyaedt-examples"
+    top_k: int = 8
+    timeout: int = 20
+
+
+@dataclass(frozen=True)
+class AEDTConfig:
+    version: str = "2026.1"
+    non_graphical: bool = True
+    ansysem_root: str = "/home/zzmjay/ansys_inc/v261/AnsysEM"
+    awp_root: str = "/home/zzmjay/ansys_inc/v261"
+    timeout: int = 900
+
+
+@dataclass(frozen=True)
 class PathConfig:
     tasks: str
     generated: str
     nodes: str
     db: str
     report: str
+    html_report: str = "benchmarks/reports/stage_a_sample_report.html"
+    run_dir: str = "benchmarks/runs/stage_a_v2_latest"
 
 
 @dataclass(frozen=True)
@@ -43,9 +78,25 @@ class BenchmarkConfig:
     generator: GeneratorConfig
     paths: PathConfig
     groups: list[str]
+    harness: HarnessConfig = HarnessConfig()
+    official_retrieval: OfficialRetrievalConfig = OfficialRetrievalConfig()
+    aedt: AEDTConfig = AEDTConfig()
 
-    def build_generator(self) -> CodeGenerator:
+    def build_generator(self, repo_root: Path | None = None) -> CodeGenerator:
         backend = self.generator.backend.lower()
+        root = Path(repo_root or Path.cwd())
+        if backend == "harness":
+            group_configs = {
+                "A": load_harness_group_config(_resolve_config_path(root, self.harness.group_a_config)),
+                "B": load_harness_group_config(_resolve_config_path(root, self.harness.group_b_config)),
+            }
+            return HarnessGenerator(
+                command=self.harness.command,
+                timeout=self.harness.timeout,
+                work_dir=_resolve_config_path(root, self.harness.work_dir),
+                group_configs=group_configs,
+                repo_root=root,
+            )
         if backend == "openai":
             return OpenAIGenerator(
                 base_url=self.generator.openai.base_url,
@@ -53,10 +104,25 @@ class BenchmarkConfig:
                 model=self.generator.openai.model,
                 timeout=self.generator.openai.timeout,
                 temperature=self.generator.openai.temperature,
+                max_retries=self.generator.openai.max_retries,
+                retry_delay=self.generator.openai.retry_delay,
             )
         if backend == "file":
             return FileGenerator(Path(self.generator.file.base_dir))
         return DefaultCodeGenerator()
+
+    def build_retriever(self) -> OfficialKnowledgeRetriever:
+        retrieval = self.official_retrieval
+        if retrieval.backend in {"gitnexus_http", "gitnexus_cli"}:
+            return GitNexusOfficialRetriever(
+                pyaedt_repo=Path(retrieval.pyaedt_repo),
+                examples_repo=Path(retrieval.pyaedt_examples) if retrieval.pyaedt_examples else None,
+                backend=retrieval.backend,
+                gitnexus_url=retrieval.gitnexus_url,
+                top_k=retrieval.top_k,
+                timeout=retrieval.timeout,
+            )
+        return OfficialKnowledgeRetriever()
 
 
 def load_benchmark_config(path: Path) -> BenchmarkConfig:
@@ -67,6 +133,9 @@ def load_benchmark_config(path: Path) -> BenchmarkConfig:
         data = _deep_merge(data, _load_json(local_path))
 
     generator_data = data.get("generator", {})
+    harness_data = data.get("harness", {})
+    retrieval_data = data.get("official_retrieval", {})
+    aedt_data = data.get("aedt", {})
     openai_data = generator_data.get("openai", {})
     file_data = generator_data.get("file", {})
     paths_data = data["paths"]
@@ -79,6 +148,8 @@ def load_benchmark_config(path: Path) -> BenchmarkConfig:
                 model=str(openai_data.get("model", "")),
                 timeout=int(openai_data.get("timeout", 60)),
                 temperature=float(openai_data.get("temperature", 0.0)),
+                max_retries=int(openai_data.get("max_retries", 2)),
+                retry_delay=float(openai_data.get("retry_delay", 2.0)),
             ),
             file=FileGeneratorConfig(base_dir=str(file_data.get("base_dir", "."))),
         ),
@@ -88,8 +159,33 @@ def load_benchmark_config(path: Path) -> BenchmarkConfig:
             nodes=str(paths_data["nodes"]),
             db=str(paths_data["db"]),
             report=str(paths_data["report"]),
+            html_report=str(paths_data.get("html_report", "benchmarks/reports/stage_a_sample_report.html")),
+            run_dir=str(paths_data.get("run_dir", "benchmarks/runs/stage_a_v2_latest")),
         ),
-        groups=[str(item) for item in data.get("groups", ["A", "B", "C"])],
+        groups=[str(item) for item in data.get("groups", ["A", "B"])],
+        harness=HarnessConfig(
+            backend=str(harness_data.get("backend", "claude")),
+            command=str(harness_data.get("command", "claude")),
+            timeout=int(harness_data.get("timeout", 600)),
+            group_a_config=str(harness_data.get("group_a_config", "config/harness/group_a.json")),
+            group_b_config=str(harness_data.get("group_b_config", "config/harness/group_b.json")),
+            work_dir=str(harness_data.get("work_dir", "benchmarks/harness_work")),
+        ),
+        official_retrieval=OfficialRetrievalConfig(
+            backend=str(retrieval_data.get("backend", "gitnexus_http")),
+            gitnexus_url=str(retrieval_data.get("gitnexus_url", "http://127.0.0.1:4848")),
+            pyaedt_repo=str(retrieval_data.get("pyaedt_repo", "/home/zzmjay/code/pyaedt")),
+            pyaedt_examples=str(retrieval_data.get("pyaedt_examples", "/home/zzmjay/code/pyaedt-examples")),
+            top_k=int(retrieval_data.get("top_k", 8)),
+            timeout=int(retrieval_data.get("timeout", 20)),
+        ),
+        aedt=AEDTConfig(
+            version=str(aedt_data.get("version", "2026.1")),
+            non_graphical=bool(aedt_data.get("non_graphical", True)),
+            ansysem_root=str(aedt_data.get("ansysem_root", "/home/zzmjay/ansys_inc/v261/AnsysEM")),
+            awp_root=str(aedt_data.get("awp_root", "/home/zzmjay/ansys_inc/v261")),
+            timeout=int(aedt_data.get("timeout", 900)),
+        ),
     )
 
 
@@ -105,3 +201,10 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
         else:
             merged[key] = value
     return merged
+
+
+def _resolve_config_path(root: Path, value: str) -> Path:
+    path = Path(value).expanduser()
+    if path.is_absolute():
+        return path
+    return root / path

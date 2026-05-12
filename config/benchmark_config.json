@@ -1,23 +1,50 @@
 {
   "generator": {
-    "backend": "openai",
+    "backend": "harness",
     "openai": {
       "base_url": "",
       "api_key": "",
       "model": "",
       "timeout": 60,
-      "temperature": 0.0
+      "temperature": 0.0,
+      "max_retries": 2,
+      "retry_delay": 2.0
     },
     "file": {
       "base_dir": "benchmarks/reference_scripts"
     }
+  },
+  "harness": {
+    "backend": "claude",
+    "command": "claude",
+    "timeout": 300,
+    "group_a_config": "config/harness/group_a.json",
+    "group_b_config": "config/harness/group_b.json",
+    "work_dir": "benchmarks/harness_work"
+  },
+  "official_retrieval": {
+    "backend": "gitnexus_http",
+    "gitnexus_url": "http://127.0.0.1:4848",
+    "pyaedt_repo": "/home/zzmjay/code/pyaedt",
+    "pyaedt_examples": "/home/zzmjay/code/pyaedt-examples",
+    "top_k": 8,
+    "timeout": 20
+  },
+  "aedt": {
+    "version": "2026.1",
+    "non_graphical": true,
+    "ansysem_root": "/home/zzmjay/ansys_inc/v261/AnsysEM",
+    "awp_root": "/home/zzmjay/ansys_inc/v261",
+    "timeout": 900
   },
   "paths": {
     "tasks": "benchmarks/tasks",
     "generated": "benchmarks/generated",
     "nodes": "nodes/catalog",
     "db": "knowledge/api_semantics/api_semantics.sqlite",
-    "report": "benchmarks/reports/stage_a_sample_report.json"
+    "report": "benchmarks/reports/stage_a_sample_report.json",
+    "html_report": "benchmarks/reports/stage_a_sample_report.html",
+    "run_dir": "benchmarks/runs/stage_a_v2_latest"
   },
-  "groups": ["A", "B", "C"]
+  "groups": ["A", "B"]
 }

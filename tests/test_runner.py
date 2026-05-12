@@ -53,6 +53,87 @@ def test_run_offline_benchmark_can_generate_candidates(tmp_path):
     assert report["tasks"]["L1_create_substrate"]["A"]["generation_mode"] == "online"
 
 
+def test_run_offline_benchmark_reuses_existing_generated_candidate(tmp_path):
+    single_task_dir = tmp_path / "tasks"
+    single_task_dir.mkdir()
+    source_task = Path("benchmarks/tasks/L1_create_substrate.yaml")
+    (single_task_dir / source_task.name).write_text(source_task.read_text(encoding="utf-8"), encoding="utf-8")
+
+    class FailingGenerator:
+        def generate(self, context: str, filename: str | None = None) -> str:
+            raise AssertionError("generator should not be called when candidate already exists")
+
+    generated_dir = tmp_path / "generated"
+    candidate = generated_dir / "group_a" / "L1_create_substrate.py"
+    candidate.parent.mkdir(parents=True, exist_ok=True)
+    candidate.write_text(
+        "app.modeler.create_box([0,0,0],[1,1,1], name='substrate')\n"
+        "app.assign_material('substrate', 'FR4_epoxy')\n",
+        encoding="utf-8",
+    )
+
+    report = run_offline_benchmark(
+        tasks_dir=single_task_dir,
+        generated_dir=generated_dir,
+        node_catalog_dir=Path("nodes/catalog"),
+        report_path=tmp_path / "report.json",
+        generator=FailingGenerator(),
+        db_path=Path("knowledge/api_semantics/api_semantics.sqlite"),
+        groups=["A"],
+    )
+
+    assert report["tasks"]["L1_create_substrate"]["A"]["generation_mode"] == "online"
+
+
+def test_run_offline_benchmark_can_force_regenerate_existing_candidate(tmp_path):
+    single_task_dir = tmp_path / "tasks"
+    single_task_dir.mkdir()
+    source_task = Path("benchmarks/tasks/L1_create_substrate.yaml")
+    (single_task_dir / source_task.name).write_text(source_task.read_text(encoding="utf-8"), encoding="utf-8")
+
+    class StubGenerator:
+        def generate(self, context: str, filename: str | None = None) -> str:
+            return "app.modeler.create_box([0,0,0],[2,2,2], name='substrate')"
+
+    generated_dir = tmp_path / "generated"
+    candidate = generated_dir / "group_a" / "L1_create_substrate.py"
+    candidate.parent.mkdir(parents=True, exist_ok=True)
+    candidate.write_text("old code\n", encoding="utf-8")
+
+    run_offline_benchmark(
+        tasks_dir=single_task_dir,
+        generated_dir=generated_dir,
+        node_catalog_dir=Path("nodes/catalog"),
+        report_path=tmp_path / "report.json",
+        generator=StubGenerator(),
+        db_path=Path("knowledge/api_semantics/api_semantics.sqlite"),
+        groups=["A"],
+        reuse_existing_candidates=False,
+    )
+
+    assert "2,2,2" in candidate.read_text(encoding="utf-8")
+
+
+def test_run_offline_benchmark_reports_progress(tmp_path):
+    events = []
+
+    report = run_offline_benchmark(
+        tasks_dir=Path("benchmarks/tasks"),
+        generated_dir=Path("benchmarks/generated"),
+        node_catalog_dir=Path("nodes/catalog"),
+        report_path=tmp_path / "report.json",
+        groups=["A"],
+        progress_callback=lambda event: events.append(event),
+    )
+
+    assert report["tasks"]
+    assert events
+    assert events[0]["task_id"] == "L1_assign_material"
+    assert events[0]["group"] == "A"
+    assert "current" in events[0]
+    assert "total" in events[0]
+
+
 def test_cli_run_benchmark_with_config(tmp_path, monkeypatch):
     from aedt_agent import cli
 

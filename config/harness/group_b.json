@@ -1,0 +1,28 @@
+{
+  "command": "claude",
+  "args": [
+    "--bare",
+    "--print",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--no-session-persistence",
+    "--strict-mcp-config",
+    "--mcp-config",
+    "/home/zzmjay/code/ansys-agent/config/harness/gitnexus_mcp.json",
+    "--add-dir",
+    "/home/zzmjay/code/pyaedt",
+    "--add-dir",
+    "/home/zzmjay/code/pyaedt-examples",
+    "--tools",
+    "Read,Grep,Glob,ListMcpResourcesTool,ReadMcpResourceTool,mcp__gitnexus__query,mcp__gitnexus__context,mcp__gitnexus__impact,mcp__gitnexus__api_impact,mcp__gitnexus__tool_map,mcp__gitnexus__list_repos",
+    "--disallowedTools",
+    "Bash,Edit,mcp__gitnexus__rename,mcp__gitnexus__group_sync,mcp__gitnexus__detect_changes"
+  ],
+  "cwd": "benchmarks/harness_work/group_b",
+  "env": {},
+  "add_dirs": [
+    "/home/zzmjay/code/pyaedt",
+    "/home/zzmjay/code/pyaedt-examples"
+  ]
+}

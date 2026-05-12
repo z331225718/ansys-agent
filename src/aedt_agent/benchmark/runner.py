@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Callable
 
 from aedt_agent.benchmark.context_builder import build_context
 from aedt_agent.benchmark.generator import CodeGenerator
@@ -27,25 +28,47 @@ def run_offline_benchmark(
     db_path: Path | None = None,
     groups: list[str] | None = None,
     model_name: str | None = None,
+    progress_callback: Callable[[dict], None] | None = None,
+    reuse_existing_candidates: bool = True,
 ) -> dict:
     tasks = load_tasks(tasks_dir)
     registry = NodeRegistry.from_directory(node_catalog_dir)
     selected_groups = groups or list(GROUP_DIRS.keys())
+    total_runs = len(tasks) * len(selected_groups)
     provider = (
         SQLiteKnowledgeProvider(db_path)
         if generator is not None and db_path is not None
         else None
     )
     report: dict[str, dict] = {"tasks": {}}
+    current_run = 0
 
     for task in tasks:
         whitelist = registry.api_whitelist(task.allowed_nodes)
         task_result = {"metadata": {"allowed_nodes": task.allowed_nodes, "level": task.level}}
         for group in selected_groups:
+            current_run += 1
+            if progress_callback is not None:
+                progress_callback(
+                    {
+                        "task_id": task.task_id,
+                        "group": group,
+                        "current": current_run,
+                        "total": total_runs,
+                    }
+                )
             dirname = GROUP_DIRS[group]
             group_dir = generated_dir / dirname
             if generator is not None and provider is not None:
-                code = _generate_candidate_code(task, group, group_dir, generator, provider, registry)
+                code = _generate_candidate_code(
+                    task,
+                    group,
+                    group_dir,
+                    generator,
+                    provider,
+                    registry,
+                    reuse_existing_candidates=reuse_existing_candidates,
+                )
                 generation_mode = "online"
             else:
                 code = _load_candidate_code(task, group_dir)
@@ -95,10 +118,16 @@ def _generate_candidate_code(
     generator: CodeGenerator,
     provider: SQLiteKnowledgeProvider,
     registry: NodeRegistry,
+    reuse_existing_candidates: bool = True,
 ) -> str:
+    candidate_path = group_dir / f"{task.task_id}.py"
+    if reuse_existing_candidates and candidate_path.exists():
+        existing = candidate_path.read_text(encoding="utf-8")
+        if existing.strip():
+            return existing
     context = build_context(group=group, task=task, provider=provider, registry=registry)
     prompt = build_prompt(group=group, requirement=task.requirement, context=context)
     code = generator.generate(prompt, filename=f"{task.task_id}.py")
     group_dir.mkdir(parents=True, exist_ok=True)
-    (group_dir / f"{task.task_id}.py").write_text(code + ("\n" if not code.endswith("\n") else ""), encoding="utf-8")
+    candidate_path.write_text(code + ("\n" if not code.endswith("\n") else ""), encoding="utf-8")
     return code
