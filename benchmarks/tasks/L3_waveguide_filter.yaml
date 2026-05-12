@@ -1,0 +1,12 @@
+task_id: L3_waveguide_filter
+level: L3
+domain: hfss
+requirement: Create a multi-iris waveguide filter with ports, setup, and sweep.
+allowed_nodes: [create_conductor_or_geometry_group, select_face, create_port, create_setup, create_sweep_or_export]
+expected_workflow: [create_conductor_or_geometry_group, select_face, create_port, create_setup, create_sweep_or_export]
+required_api_categories: [geometry, excitation, setup]
+reference_script: benchmarks/reference_scripts/L3_waveguide_filter.py
+validation_script: benchmarks/validation_scripts/validate_L3_waveguide_filter.py
+expected_outputs: [setup, sweep, ports]
+known_failure_modes: [wrong_face_selected_for_port]
+grading: {syntax: true, api: true, semantic: true}

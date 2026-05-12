@@ -1,0 +1,12 @@
+task_id: L1_create_airbox
+level: L1
+domain: hfss
+requirement: Create an airbox or open region around the target geometry.
+allowed_nodes: [create_airbox]
+expected_workflow: [create_airbox]
+required_api_categories: [geometry, boundary]
+reference_script: benchmarks/reference_scripts/L1_create_airbox.py
+validation_script: benchmarks/validation_scripts/validate_L1_create_airbox.py
+expected_outputs: [air_region]
+known_failure_modes: [airbox_too_small]
+grading: {syntax: true, api: true, semantic: true}

@@ -1,0 +1,26 @@
+case_id: antenna_array
+domain: hfss
+task_type: array
+natural_language_task: Build and analyze a component-based antenna array in HFSS.
+workflow_steps:
+  - create_conductor_or_geometry_group
+  - create_setup
+  - create_sweep_or_export
+api_used:
+  - download_3dcomponent
+  - Hfss.create_3d_component_array
+  - Hfss.create_setup
+  - Hfss.analyze
+parameters:
+  design_type: component_array
+  center_frequency: 5GHz
+  max_passes: 3
+reference_script: benchmarks/reference_scripts/antenna_array.py
+validation_script: benchmarks/validation_scripts/validate_antenna_array.py
+expected_state:
+  objects:
+    - circ_patch_array
+  setups:
+    - MySetupAuto
+known_traps: []
+notes: Derived from the official component antenna array example using a JSON array definition and a 3D component.

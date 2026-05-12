@@ -1,0 +1,12 @@
+task_id: L3_patch_antenna_sparameter
+level: L3
+domain: hfss
+requirement: Create a patch antenna and produce an S-parameter-ready setup and sweep.
+allowed_nodes: [create_substrate, create_conductor_or_geometry_group, create_airbox, assign_boundary, create_port, create_setup, create_sweep_or_export]
+expected_workflow: [create_substrate, create_conductor_or_geometry_group, create_airbox, assign_boundary, create_port, create_setup, create_sweep_or_export]
+required_api_categories: [geometry, material, boundary, excitation, setup]
+reference_script: benchmarks/reference_scripts/L3_patch_antenna_sparameter.py
+validation_script: benchmarks/validation_scripts/validate_L3_patch_antenna_sparameter.py
+expected_outputs: [setup, sweep, port]
+known_failure_modes: [missing_ground_plane, airbox_too_small]
+grading: {syntax: true, api: true, semantic: true}

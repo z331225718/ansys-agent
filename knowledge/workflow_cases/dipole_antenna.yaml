@@ -1,0 +1,30 @@
+case_id: dipole_antenna
+domain: hfss
+task_type: antenna
+natural_language_task: Create and analyze a half-wave dipole antenna in HFSS.
+workflow_steps:
+  - create_conductor_or_geometry_group
+  - create_airbox
+  - assign_boundary
+  - create_setup
+  - create_sweep_or_export
+api_used:
+  - Hfss.modeler.insert_3d_component
+  - Hfss.create_open_region
+  - Hfss.create_setup
+  - SetupHFSS.create_frequency_sweep
+  - SetupHFSS.analyze
+parameters:
+  design_type: half_wave_dipole
+  center_frequency: 1.5GHz
+  sweep_range: [1GHz, 2GHz]
+reference_script: benchmarks/reference_scripts/dipole_antenna.py
+validation_script: benchmarks/validation_scripts/validate_dipole_antenna.py
+expected_state:
+  objects:
+    - Dipole_Antenna_DM
+  boundaries:
+    - open_region
+known_traps:
+  - airbox_too_small
+notes: Derived from the official dipole antenna example with create_open_region.

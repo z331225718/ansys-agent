@@ -1,0 +1,12 @@
+trap_id: missing_ground_plane
+domain: hfss
+applies_to:
+  - create_conductor_or_geometry_group
+  - create_port
+symptom: A probe-fed patch or similar printed structure is modeled, but the excitation or return loss is not physically meaningful.
+root_cause: The model omits the ground layer that the feed structure and radiator assume.
+why_silent: Geometry creation and even port assignment may succeed, but the solved structure is no longer the intended antenna.
+detection: For printed antenna cases, verify that a ground conductor exists before creating the probe feed or running the setup.
+prevention: Create the ground layer first and preserve the substrate-ground-signal stackup before adding the feed.
+validation_rule: validate_ground_plane_exists
+source: "Inferred from the official probe-fed patch antenna example, which defines ground, dielectric, and signal layers before creating the probe port."

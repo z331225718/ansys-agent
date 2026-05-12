@@ -1,0 +1,12 @@
+task_id: L2_waveguide_section
+level: L2
+domain: hfss
+requirement: Build a rectangular waveguide section with modal ports at both ends.
+allowed_nodes: [create_conductor_or_geometry_group, select_face, create_port]
+expected_workflow: [create_conductor_or_geometry_group, select_face, create_port]
+required_api_categories: [geometry, excitation]
+reference_script: benchmarks/reference_scripts/L2_waveguide_section.py
+validation_script: benchmarks/validation_scripts/validate_L2_waveguide_section.py
+expected_outputs: [waveguide_section]
+known_failure_modes: [wrong_face_selected_for_port]
+grading: {syntax: true, api: true, semantic: true}

@@ -1,0 +1,12 @@
+task_id: L3_sparameter_export
+level: L3
+domain: hfss
+requirement: Build a solved HFSS model and export Touchstone S-parameter data.
+allowed_nodes: [create_conductor_or_geometry_group, create_setup, create_sweep_or_export]
+expected_workflow: [create_conductor_or_geometry_group, create_setup, create_sweep_or_export]
+required_api_categories: [geometry, setup]
+reference_script: benchmarks/reference_scripts/L3_sparameter_export.py
+validation_script: benchmarks/validation_scripts/validate_L3_sparameter_export.py
+expected_outputs: [touchstone]
+known_failure_modes: []
+grading: {syntax: true, api: true, semantic: true}

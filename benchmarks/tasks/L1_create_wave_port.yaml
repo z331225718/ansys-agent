@@ -1,0 +1,12 @@
+task_id: L1_create_wave_port
+level: L1
+domain: hfss
+requirement: Create a wave port from the intended face and reference conductor.
+allowed_nodes: [select_face, create_port]
+expected_workflow: [select_face, create_port]
+required_api_categories: [excitation]
+reference_script: benchmarks/reference_scripts/L1_create_wave_port.py
+validation_script: benchmarks/validation_scripts/validate_L1_create_wave_port.py
+expected_outputs: [wave_port]
+known_failure_modes: [wrong_face_selected_for_port]
+grading: {syntax: true, api: true, semantic: true}

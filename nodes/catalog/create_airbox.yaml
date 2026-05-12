@@ -1,0 +1,13 @@
+node_id: create_airbox
+summary: Create an air or open region around the model.
+allowed_apis:
+  - Hfss.modeler.create_box
+  - Hfss.modeler.create_region
+  - Hfss.create_open_region
+inputs:
+  required: [padding]
+outputs:
+  creates: [air_region]
+prerequisites:
+  - create_conductor_or_geometry_group
+examples: [hfss_patch_antenna, dipole_antenna]

@@ -1,0 +1,11 @@
+node_id: create_substrate
+summary: Create substrate geometry and assign its dielectric material.
+allowed_apis:
+  - Hfss.modeler.create_box
+  - Hfss.assign_material
+inputs:
+  required: [origin, sizes, material]
+outputs:
+  creates: [substrate]
+prerequisites: []
+examples: [hfss_patch_antenna, dipole_antenna]

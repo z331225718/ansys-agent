@@ -1,0 +1,12 @@
+task_id: L2_differential_pair
+level: L2
+domain: hfss
+requirement: Build a differential pair structure with matched traces and a surrounding air region.
+allowed_nodes: [create_substrate, create_conductor_or_geometry_group, create_airbox, assign_boundary]
+expected_workflow: [create_substrate, create_conductor_or_geometry_group, create_airbox, assign_boundary]
+required_api_categories: [geometry, boundary]
+reference_script: benchmarks/reference_scripts/L2_differential_pair.py
+validation_script: benchmarks/validation_scripts/validate_L2_differential_pair.py
+expected_outputs: [differential_pair]
+known_failure_modes: []
+grading: {syntax: true, api: true, semantic: true}

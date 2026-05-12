@@ -1,0 +1,990 @@
+{
+  "tasks": {
+    "L1_assign_material": {
+      "metadata": {
+        "allowed_nodes": [
+          "create_substrate"
+        ],
+        "level": "L1"
+      },
+      "A": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "B": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "C": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      }
+    },
+    "L1_assign_radiation_boundary": {
+      "metadata": {
+        "allowed_nodes": [
+          "assign_boundary"
+        ],
+        "level": "L1"
+      },
+      "A": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "B": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "C": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      }
+    },
+    "L1_create_airbox": {
+      "metadata": {
+        "allowed_nodes": [
+          "create_airbox"
+        ],
+        "level": "L1"
+      },
+      "A": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "B": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "C": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      }
+    },
+    "L1_create_conductor": {
+      "metadata": {
+        "allowed_nodes": [
+          "create_conductor_or_geometry_group"
+        ],
+        "level": "L1"
+      },
+      "A": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "B": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "C": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      }
+    },
+    "L1_create_lumped_port": {
+      "metadata": {
+        "allowed_nodes": [
+          "select_face",
+          "create_port"
+        ],
+        "level": "L1"
+      },
+      "A": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "B": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "C": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      }
+    },
+    "L1_create_setup": {
+      "metadata": {
+        "allowed_nodes": [
+          "create_setup"
+        ],
+        "level": "L1"
+      },
+      "A": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "B": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "C": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      }
+    },
+    "L1_create_substrate": {
+      "metadata": {
+        "allowed_nodes": [
+          "create_substrate"
+        ],
+        "level": "L1"
+      },
+      "A": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "B": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "C": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      }
+    },
+    "L1_create_sweep": {
+      "metadata": {
+        "allowed_nodes": [
+          "create_setup",
+          "create_sweep_or_export"
+        ],
+        "level": "L1"
+      },
+      "A": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "B": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "C": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      }
+    },
+    "L1_create_wave_port": {
+      "metadata": {
+        "allowed_nodes": [
+          "select_face",
+          "create_port"
+        ],
+        "level": "L1"
+      },
+      "A": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "B": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "C": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      }
+    },
+    "L1_select_face": {
+      "metadata": {
+        "allowed_nodes": [
+          "select_face"
+        ],
+        "level": "L1"
+      },
+      "A": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "B": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "C": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      }
+    },
+    "L2_cavity_resonator": {
+      "metadata": {
+        "allowed_nodes": [
+          "create_conductor_or_geometry_group",
+          "create_setup"
+        ],
+        "level": "L2"
+      },
+      "A": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "B": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "C": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      }
+    },
+    "L2_coaxial_cable": {
+      "metadata": {
+        "allowed_nodes": [
+          "create_conductor_or_geometry_group",
+          "create_airbox",
+          "assign_boundary",
+          "select_face",
+          "create_port"
+        ],
+        "level": "L2"
+      },
+      "A": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "B": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "C": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      }
+    },
+    "L2_cpw_line": {
+      "metadata": {
+        "allowed_nodes": [
+          "create_substrate",
+          "create_conductor_or_geometry_group",
+          "create_airbox",
+          "assign_boundary"
+        ],
+        "level": "L2"
+      },
+      "A": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "B": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "C": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      }
+    },
+    "L2_differential_pair": {
+      "metadata": {
+        "allowed_nodes": [
+          "create_substrate",
+          "create_conductor_or_geometry_group",
+          "create_airbox",
+          "assign_boundary"
+        ],
+        "level": "L2"
+      },
+      "A": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "B": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "C": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      }
+    },
+    "L2_dipole_antenna": {
+      "metadata": {
+        "allowed_nodes": [
+          "create_conductor_or_geometry_group",
+          "create_airbox",
+          "assign_boundary",
+          "create_setup",
+          "create_sweep_or_export"
+        ],
+        "level": "L2"
+      },
+      "A": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "B": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "C": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      }
+    },
+    "L2_microstrip_line": {
+      "metadata": {
+        "allowed_nodes": [
+          "create_substrate",
+          "create_conductor_or_geometry_group",
+          "create_airbox",
+          "assign_boundary"
+        ],
+        "level": "L2"
+      },
+      "A": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "B": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "C": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      }
+    },
+    "L2_patch_with_probe_feed": {
+      "metadata": {
+        "allowed_nodes": [
+          "create_substrate",
+          "create_conductor_or_geometry_group",
+          "create_airbox",
+          "assign_boundary",
+          "create_port"
+        ],
+        "level": "L2"
+      },
+      "A": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": false,
+        "passed": false
+      },
+      "B": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": false,
+        "passed": false
+      },
+      "C": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": false,
+        "passed": false
+      }
+    },
+    "L2_simple_filter": {
+      "metadata": {
+        "allowed_nodes": [
+          "create_conductor_or_geometry_group",
+          "select_face",
+          "create_port",
+          "create_setup"
+        ],
+        "level": "L2"
+      },
+      "A": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "B": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "C": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      }
+    },
+    "L2_stripline": {
+      "metadata": {
+        "allowed_nodes": [
+          "create_substrate",
+          "create_conductor_or_geometry_group",
+          "create_airbox",
+          "assign_boundary"
+        ],
+        "level": "L2"
+      },
+      "A": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "B": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "C": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      }
+    },
+    "L2_waveguide_section": {
+      "metadata": {
+        "allowed_nodes": [
+          "create_conductor_or_geometry_group",
+          "select_face",
+          "create_port"
+        ],
+        "level": "L2"
+      },
+      "A": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "B": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "C": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      }
+    },
+    "L3_antenna_array": {
+      "metadata": {
+        "allowed_nodes": [
+          "create_conductor_or_geometry_group",
+          "create_setup",
+          "create_sweep_or_export"
+        ],
+        "level": "L3"
+      },
+      "A": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "B": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "C": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      }
+    },
+    "L3_patch_antenna_sparameter": {
+      "metadata": {
+        "allowed_nodes": [
+          "create_substrate",
+          "create_conductor_or_geometry_group",
+          "create_airbox",
+          "assign_boundary",
+          "create_port",
+          "create_setup",
+          "create_sweep_or_export"
+        ],
+        "level": "L3"
+      },
+      "A": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": false,
+        "passed": false
+      },
+      "B": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": false,
+        "passed": false
+      },
+      "C": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": false,
+        "passed": false
+      }
+    },
+    "L3_sparameter_export": {
+      "metadata": {
+        "allowed_nodes": [
+          "create_conductor_or_geometry_group",
+          "create_setup",
+          "create_sweep_or_export"
+        ],
+        "level": "L3"
+      },
+      "A": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "B": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "C": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      }
+    },
+    "L3_vivaldi_antenna": {
+      "metadata": {
+        "allowed_nodes": [
+          "create_substrate",
+          "create_conductor_or_geometry_group",
+          "create_airbox",
+          "assign_boundary",
+          "create_port",
+          "create_setup",
+          "create_sweep_or_export"
+        ],
+        "level": "L3"
+      },
+      "A": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": false,
+        "passed": false
+      },
+      "B": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": false,
+        "passed": false
+      },
+      "C": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": false,
+        "passed": false
+      }
+    },
+    "L3_waveguide_filter": {
+      "metadata": {
+        "allowed_nodes": [
+          "create_conductor_or_geometry_group",
+          "select_face",
+          "create_port",
+          "create_setup",
+          "create_sweep_or_export"
+        ],
+        "level": "L3"
+      },
+      "A": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "B": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "C": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      }
+    },
+    "Trap_airbox_too_small": {
+      "metadata": {
+        "allowed_nodes": [
+          "create_airbox",
+          "assign_boundary"
+        ],
+        "level": "Trap"
+      },
+      "A": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "B": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "C": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      }
+    },
+    "Trap_missing_ground": {
+      "metadata": {
+        "allowed_nodes": [
+          "create_substrate",
+          "create_conductor_or_geometry_group",
+          "create_port"
+        ],
+        "level": "Trap"
+      },
+      "A": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": false,
+        "passed": false
+      },
+      "B": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": false,
+        "passed": false
+      },
+      "C": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": false,
+        "passed": false
+      }
+    },
+    "Trap_sweep_misses_freq": {
+      "metadata": {
+        "allowed_nodes": [
+          "create_setup",
+          "create_sweep_or_export"
+        ],
+        "level": "Trap"
+      },
+      "A": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "B": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "C": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      }
+    },
+    "Trap_unit_mismatch": {
+      "metadata": {
+        "allowed_nodes": [
+          "create_substrate",
+          "create_conductor_or_geometry_group"
+        ],
+        "level": "Trap"
+      },
+      "A": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "B": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "C": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      }
+    },
+    "Trap_waveport_wrong_face": {
+      "metadata": {
+        "allowed_nodes": [
+          "select_face",
+          "create_port"
+        ],
+        "level": "Trap"
+      },
+      "A": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "B": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      },
+      "C": {
+        "syntax_pass": true,
+        "security_pass": true,
+        "api_pass": true,
+        "semantic_lite_pass": true,
+        "passed": true
+      }
+    }
+  },
+  "go_nogo": {
+    "metrics": {
+      "api_pass_rate_c": 1.0,
+      "semantic_pass_rate_b": 0.8666666666666667,
+      "semantic_pass_rate_c": 0.8666666666666667,
+      "semantic_lift": 0.0,
+      "trap_capture_rate": 0.8
+    },
+    "go": true
+  },
+  "node_readiness": {
+    "nodes": {
+      "create_substrate": {
+        "coverage": 11,
+        "pass_rate": 0.6363636363636364,
+        "semantic_rate": 0.6363636363636364
+      },
+      "assign_boundary": {
+        "coverage": 11,
+        "pass_rate": 0.7272727272727273,
+        "semantic_rate": 0.7272727272727273
+      },
+      "create_airbox": {
+        "coverage": 11,
+        "pass_rate": 0.7272727272727273,
+        "semantic_rate": 0.7272727272727273
+      },
+      "create_conductor_or_geometry_group": {
+        "coverage": 18,
+        "pass_rate": 0.7777777777777778,
+        "semantic_rate": 0.7777777777777778
+      },
+      "select_face": {
+        "coverage": 8,
+        "pass_rate": 1.0,
+        "semantic_rate": 1.0
+      },
+      "create_port": {
+        "coverage": 11,
+        "pass_rate": 0.6363636363636364,
+        "semantic_rate": 0.6363636363636364
+      },
+      "create_setup": {
+        "coverage": 11,
+        "pass_rate": 0.8181818181818182,
+        "semantic_rate": 0.8181818181818182
+      },
+      "create_sweep_or_export": {
+        "coverage": 8,
+        "pass_rate": 0.75,
+        "semantic_rate": 0.75
+      }
+    },
+    "candidate_ready": [
+      "select_face"
+    ]
+  }
+}

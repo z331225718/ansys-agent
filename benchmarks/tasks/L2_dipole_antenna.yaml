@@ -1,0 +1,12 @@
+task_id: L2_dipole_antenna
+level: L2
+domain: hfss
+requirement: Build a half-wave dipole antenna with an open region and sweep.
+allowed_nodes: [create_conductor_or_geometry_group, create_airbox, assign_boundary, create_setup, create_sweep_or_export]
+expected_workflow: [create_conductor_or_geometry_group, create_airbox, assign_boundary, create_setup, create_sweep_or_export]
+required_api_categories: [geometry, boundary, setup]
+reference_script: benchmarks/reference_scripts/L2_dipole_antenna.py
+validation_script: benchmarks/validation_scripts/validate_L2_dipole_antenna.py
+expected_outputs: [dipole_antenna]
+known_failure_modes: [airbox_too_small]
+grading: {syntax: true, api: true, semantic: true}

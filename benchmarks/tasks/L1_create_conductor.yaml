@@ -1,0 +1,12 @@
+task_id: L1_create_conductor
+level: L1
+domain: hfss
+requirement: Create a conductor primitive for an HFSS model.
+allowed_nodes: [create_conductor_or_geometry_group]
+expected_workflow: [create_conductor_or_geometry_group]
+required_api_categories: [geometry]
+reference_script: benchmarks/reference_scripts/L1_create_conductor.py
+validation_script: benchmarks/validation_scripts/validate_L1_create_conductor.py
+expected_outputs: [conductor]
+known_failure_modes: []
+grading: {syntax: true, api: true, semantic: true}

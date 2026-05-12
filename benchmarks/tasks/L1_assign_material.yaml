@@ -1,0 +1,12 @@
+task_id: L1_assign_material
+level: L1
+domain: hfss
+requirement: Assign the requested material to a named object.
+allowed_nodes: [create_substrate]
+expected_workflow: [create_substrate]
+required_api_categories: [material]
+reference_script: benchmarks/reference_scripts/L1_assign_material.py
+validation_script: benchmarks/validation_scripts/validate_L1_assign_material.py
+expected_outputs: [material_assignment]
+known_failure_modes: []
+grading: {syntax: true, api: true, semantic: true}

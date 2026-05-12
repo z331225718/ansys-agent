@@ -1,0 +1,42 @@
+case_id: hfss_patch_antenna
+domain: hfss
+task_type: antenna
+natural_language_task: Create and analyze a probe-fed patch antenna in HFSS.
+workflow_steps:
+  - create_substrate
+  - create_conductor_or_geometry_group
+  - create_airbox
+  - assign_boundary
+  - create_port
+  - create_setup
+  - create_sweep_or_export
+api_used:
+  - Stackup3D.add_ground_layer
+  - Stackup3D.add_dielectric_layer
+  - Stackup3D.add_signal_layer
+  - Layer3D.add_patch
+  - Hfss.modeler.create_region
+  - Hfss.assign_radiation_boundary_to_objects
+  - Patch3D.create_probe_port
+  - Hfss.create_setup
+parameters:
+  design_type: probe_fed_patch
+  frequency: 10GHz
+  substrate_material: Duroid (tm)
+  airbox_padding_mm: [3, 3, 3, 3, 3, 3]
+reference_script: benchmarks/reference_scripts/hfss_patch_antenna.py
+validation_script: benchmarks/validation_scripts/validate_hfss_patch_antenna.py
+expected_state:
+  objects:
+    - ground
+    - dielectric
+    - signal
+    - Patch
+  boundaries:
+    - radiation
+  excitations:
+    - probe_port
+known_traps:
+  - airbox_too_small
+  - missing_ground_plane
+notes: Derived from the official probe-fed patch antenna example and its setup flow.

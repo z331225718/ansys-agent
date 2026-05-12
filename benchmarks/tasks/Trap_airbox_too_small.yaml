@@ -1,0 +1,12 @@
+task_id: Trap_airbox_too_small
+level: Trap
+domain: hfss
+requirement: Create an antenna model without undersizing the surrounding air region.
+allowed_nodes: [create_airbox, assign_boundary]
+expected_workflow: [create_airbox, assign_boundary]
+required_api_categories: [boundary]
+reference_script: benchmarks/reference_scripts/Trap_airbox_too_small.py
+validation_script: benchmarks/validation_scripts/validate_Trap_airbox_too_small.py
+expected_outputs: [air_region]
+known_failure_modes: [airbox_too_small]
+grading: {syntax: true, api: true, semantic: true}

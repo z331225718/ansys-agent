@@ -1,0 +1,12 @@
+task_id: L1_create_setup
+level: L1
+domain: hfss
+requirement: Create the driven modal HFSS setup.
+allowed_nodes: [create_setup]
+expected_workflow: [create_setup]
+required_api_categories: [setup]
+reference_script: benchmarks/reference_scripts/L1_create_setup.py
+validation_script: benchmarks/validation_scripts/validate_L1_create_setup.py
+expected_outputs: [setup]
+known_failure_modes: []
+grading: {syntax: true, api: true, semantic: true}

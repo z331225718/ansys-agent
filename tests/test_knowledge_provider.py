@@ -1,4 +1,8 @@
+from pathlib import Path
+
+from aedt_agent.knowledge.build_sqlite import build_api_semantics_db
 from aedt_agent.knowledge.models import ApiSemantic, CommonTrap, WorkflowCase
+from aedt_agent.knowledge.sqlite_provider import SQLiteKnowledgeProvider
 
 
 def test_api_semantic_from_dict_parses_lists():
@@ -68,3 +72,79 @@ def test_common_trap_from_dict_has_detection():
 
     assert trap.trap_id == "airbox_too_small"
     assert trap.validation_rule == "validate_airbox_padding"
+
+
+def test_api_semantic_from_dict_copies_params_containers():
+    data = {
+        "fqname": "Hfss.modeler.create_box",
+        "category": "geometry",
+        "params": [{"name": "origin", "metadata": {"units": ["mm"]}}],
+    }
+
+    item = ApiSemantic.from_dict(data)
+    data["params"][0]["name"] = "changed"
+    data["params"][0]["metadata"]["units"].append("cm")
+
+    assert item.params == [{"name": "origin", "metadata": {"units": ["mm"]}}]
+
+
+def test_workflow_case_from_dict_copies_parameters_container():
+    data = {
+        "case_id": "hfss_patch_antenna",
+        "task_type": "antenna",
+        "natural_language_task": "Create patch antenna",
+        "workflow_steps": [],
+        "api_used": [],
+        "parameters": {"frequency": {"value": "2.4GHz", "sweeps": ["nominal"]}},
+        "reference_script": "benchmarks/reference_scripts/hfss_patch_antenna.py",
+        "validation_script": "benchmarks/validation_scripts/validate_hfss_patch_antenna.py",
+        "expected_state": {},
+        "known_traps": [],
+    }
+
+    case = WorkflowCase.from_dict(data)
+    data["parameters"]["frequency"]["value"] = "5GHz"
+    data["parameters"]["frequency"]["sweeps"].append("changed")
+
+    assert case.parameters == {"frequency": {"value": "2.4GHz", "sweeps": ["nominal"]}}
+
+
+def test_sqlite_provider_search_returns_results(tmp_path):
+    db_path = tmp_path / "test.sqlite"
+    build_api_semantics_db(
+        Path("knowledge/api_semantics/api_semantics.schema.sql"),
+        Path("knowledge/api_semantics/api_semantics.seed.jsonl"),
+        db_path,
+    )
+    provider = SQLiteKnowledgeProvider(db_path)
+
+    results = provider.search_api("create_box", limit=5)
+
+    assert len(results) >= 1
+    assert results[0].fqname == "Hfss.modeler.create_box"
+
+
+def test_sqlite_provider_lists_workflow_cases():
+    provider = SQLiteKnowledgeProvider(
+        db_path=Path("nonexistent.sqlite"),
+        workflow_cases_dir=Path("knowledge/workflow_cases"),
+        common_traps_dir=Path("knowledge/common_traps"),
+    )
+
+    cases = provider.list_workflow_cases()
+
+    assert len(cases) >= 3
+    assert any(c.case_id == "hfss_patch_antenna" for c in cases)
+
+
+def test_sqlite_provider_lists_common_traps_filtered():
+    provider = SQLiteKnowledgeProvider(
+        db_path=Path("nonexistent.sqlite"),
+        workflow_cases_dir=Path("knowledge/workflow_cases"),
+        common_traps_dir=Path("knowledge/common_traps"),
+    )
+
+    traps = provider.list_common_traps(filter_ids=["airbox_too_small"])
+
+    assert len(traps) >= 1
+    assert traps[0].trap_id == "airbox_too_small"

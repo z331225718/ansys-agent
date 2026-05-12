@@ -1,0 +1,12 @@
+node_id: assign_boundary
+summary: Assign radiation or conductor-related boundaries to target geometry.
+allowed_apis:
+  - Hfss.assign_radiation_boundary_to_objects
+  - Hfss.assign_perfecte_to_sheets
+inputs:
+  required: [assignment]
+outputs:
+  creates: [boundary]
+prerequisites:
+  - create_airbox
+examples: [hfss_patch_antenna, dipole_antenna]

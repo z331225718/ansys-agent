@@ -1,0 +1,12 @@
+trap_id: wrong_face_selected_for_port
+domain: hfss
+applies_to:
+  - select_face
+  - create_port
+symptom: The port is created, but the modal solution excites the wrong cross-section or an inconsistent polarization.
+root_cause: The selected face or integration line does not correspond to the intended waveguide opening or conductor pair.
+why_silent: Port creation can succeed on a valid face while still encoding the wrong physical excitation.
+detection: Verify the face comes from the intended terminal geometry and the integration line spans the correct field direction.
+prevention: Derive the face from geometry queries such as get_faceid_from_position or object face enumeration before calling wave_port.
+validation_rule: validate_port_face_selection
+source: "Inferred from the official inductive iris waveguide filter example, which computes end-face IDs and explicit integration lines before calling wave_port."

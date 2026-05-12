@@ -1,0 +1,12 @@
+task_id: L2_simple_filter
+level: L2
+domain: hfss
+requirement: Build a simple waveguide filter section with at least one iris and two ports.
+allowed_nodes: [create_conductor_or_geometry_group, select_face, create_port, create_setup]
+expected_workflow: [create_conductor_or_geometry_group, select_face, create_port, create_setup]
+required_api_categories: [geometry, excitation, setup]
+reference_script: benchmarks/reference_scripts/L2_simple_filter.py
+validation_script: benchmarks/validation_scripts/validate_L2_simple_filter.py
+expected_outputs: [simple_filter]
+known_failure_modes: [wrong_face_selected_for_port]
+grading: {syntax: true, api: true, semantic: true}

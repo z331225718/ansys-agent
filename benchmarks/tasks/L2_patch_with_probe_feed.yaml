@@ -1,0 +1,12 @@
+task_id: L2_patch_with_probe_feed
+level: L2
+domain: hfss
+requirement: Build a patch radiator with a probe feed and an open region.
+allowed_nodes: [create_substrate, create_conductor_or_geometry_group, create_airbox, assign_boundary, create_port]
+expected_workflow: [create_substrate, create_conductor_or_geometry_group, create_airbox, assign_boundary, create_port]
+required_api_categories: [geometry, boundary, excitation]
+reference_script: benchmarks/reference_scripts/L2_patch_with_probe_feed.py
+validation_script: benchmarks/validation_scripts/validate_L2_patch_with_probe_feed.py
+expected_outputs: [patch_probe_feed]
+known_failure_modes: [missing_ground_plane, airbox_too_small]
+grading: {syntax: true, api: true, semantic: true}

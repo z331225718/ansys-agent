@@ -1,0 +1,13 @@
+node_id: create_sweep_or_export
+summary: Create a sweep or export solved network data.
+allowed_apis:
+  - SetupHFSS.create_frequency_sweep
+  - SetupHFSS.create_linear_count_sweep
+  - Hfss.export_touchstone
+inputs:
+  required: [setup]
+outputs:
+  creates: [sweep_or_report]
+prerequisites:
+  - create_setup
+examples: [hfss_patch_antenna, waveguide_filter, dipole_antenna]

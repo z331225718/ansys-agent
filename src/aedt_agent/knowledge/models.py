@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -9,7 +10,7 @@ def _list_value(data: dict[str, Any], key: str) -> list[Any]:
     if value is None:
         return []
     if isinstance(value, list):
-        return value
+        return deepcopy(value)
     raise TypeError(f"{key} must be a list")
 
 
@@ -18,7 +19,7 @@ def _dict_value(data: dict[str, Any], key: str) -> dict[str, Any]:
     if value is None:
         return {}
     if isinstance(value, dict):
-        return value
+        return deepcopy(value)
     raise TypeError(f"{key} must be a dict")
 
 

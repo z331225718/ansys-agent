@@ -1,0 +1,36 @@
+case_id: waveguide_filter
+domain: hfss
+task_type: filter
+natural_language_task: Build and solve a four-pole inductive iris waveguide filter in HFSS.
+workflow_steps:
+  - create_conductor_or_geometry_group
+  - select_face
+  - create_port
+  - create_setup
+  - create_sweep_or_export
+api_used:
+  - Hfss.modeler.create_box
+  - Object3d.mirror
+  - Hfss.modeler.get_faceid_from_position
+  - Hfss.wave_port
+  - Hfss.create_setup
+  - SetupHFSS.create_frequency_sweep
+parameters:
+  design_type: inductive_iris_waveguide_filter
+  band: X
+  adaptive_freqs_ghz: [9.8, 10.2]
+  sweep_ghz: [9.5, 10.5]
+reference_script: benchmarks/reference_scripts/waveguide_filter.py
+validation_script: benchmarks/validation_scripts/validate_waveguide_filter.py
+expected_state:
+  objects:
+    - waveguide
+    - irises
+  excitations:
+    - P1
+    - P2
+  setups:
+    - Setup1
+known_traps:
+  - wrong_face_selected_for_port
+notes: Derived from the official inductive iris waveguide filter example.

@@ -1,0 +1,12 @@
+node_id: create_port
+summary: Create a modal excitation such as a wave or lumped port.
+allowed_apis:
+  - Hfss.wave_port
+  - Hfss.lumped_port
+inputs:
+  required: [assignment]
+outputs:
+  creates: [port]
+prerequisites:
+  - select_face
+examples: [hfss_patch_antenna, waveguide_filter]

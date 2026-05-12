@@ -1,0 +1,12 @@
+trap_id: airbox_too_small
+domain: hfss
+applies_to:
+  - create_airbox
+  - assign_boundary
+symptom: S-parameters or radiation results look plausible but shift because the open region is too tight.
+root_cause: The surrounding air region or open region is created with insufficient padding around the radiator.
+why_silent: HFSS can still mesh and solve the model, so the failure often appears as degraded accuracy rather than an explicit error.
+detection: Check that a region or open region is created and that the padding is frequency-aware instead of nearly flush to the radiator.
+prevention: Use create_region or create_open_region with padding chosen from the operating frequency and radiator size.
+validation_rule: validate_airbox_padding
+source: "Inferred from official examples that explicitly create an air region or open region before solving: patch and dipole examples."

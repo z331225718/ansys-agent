@@ -1,0 +1,879 @@
+这份文档已经不是“想法阶段”了，实际上已经形成了一个比较完整的系统架构方向，而且里面最重要的几个判断我认为是对的：
+
+
+
+* 不能依赖 LLM“记忆 API”
+
+* 必须把“代码结构”和“API 语义”分开
+
+* AEDT 和 Abaqus 的运行机制本质不同
+
+* 真正难的是“语义正确性”，不是语法正确性
+
+
+
+所以我觉得下一步不要继续扩写方案文档，而应该开始进入：
+
+
+
+“最小可运行验证（MVP）”阶段。
+
+
+
+你现在最需要验证的，不是“这个架构逻辑上是否成立”，而是：
+
+
+
+1. 图谱是否真能提升 API 命中率
+
+2. 语义层是否真能减少 silent failure
+
+3. MCP + 长连接 AEDT 是否稳定
+
+4. retrieval 的 token/延迟是否可控
+
+
+
+下面我按“优先级”说我建议的下一步。
+
+
+
+⸻
+
+
+
+一、先收缩目标：只做 HFSS 一个子域
+
+
+
+文档现在其实有点“大而全”。
+
+
+
+建议先限定：
+
+
+
+* 只做 HFSS
+
+* 只支持：
+
+* 建模
+
+* 激励
+
+* setup
+
+* sweep
+
+* S 参数导出
+
+
+
+不要碰：
+
+
+
+* Icepak
+
+* Maxwell
+
+* Mechanical
+
+* Optimetrics
+
+* Layout
+
+* EDB
+
+* 后处理复杂场景
+
+
+
+否则图谱规模会迅速爆炸。
+
+
+
+⸻
+
+
+
+二、第一阶段真正该做的：验证“图谱是否有用”
+
+
+
+这是核心。
+
+
+
+你现在文档里最大的不确定性是：
+
+
+
+“知识图谱 + 语义层”到底能不能显著提高生成正确率。
+
+
+
+所以第一阶段不要做 MCP UI。
+
+
+
+而是做：
+
+
+
+Phase 1：离线 API Grounding 实验
+
+
+
+目标：
+
+
+
+比较下面两种代码生成质量：
+
+
+
+Baseline
+
+
+
+裸模型：
+
+
+
+用户: 创建一个 patch antenna
+
+LLM: 直接生成 pyaedt
+
+
+
+Grounded
+
+
+
+先 retrieval：
+
+
+
+retrieve_api("create_patch")
+
+retrieve_examples("hfss_patch")
+
+retrieve_constraints(...)
+
+
+
+再生成。
+
+
+
+然后比较：
+
+
+
+* API 命中率
+
+* 一次运行成功率
+
+* 修复次数
+
+* silent error 数量
+
+
+
+这个实验非常关键。
+
+
+
+因为如果提升不明显，后面整个架构价值会下降。
+
+
+
+⸻
+
+
+
+三、你真正该优先开发的模块
+
+
+
+我建议按这个顺序：
+
+
+
+⸻
+
+
+
+模块 1：API 语义抽取器（最重要）
+
+
+
+这是整个系统最核心的资产。
+
+
+
+建议：
+
+
+
+build_api_semantics.py
+
+
+
+先不要碰图数据库。
+
+
+
+先把：
+
+
+
+* 类
+
+* 方法
+
+* 参数
+
+* docstring
+
+* enum
+
+* warning
+
+* note
+
+
+
+抽出来。
+
+
+
+输出：
+
+
+
+{
+
+"fqname": "Hfss.create_setup",
+
+"signature": "...",
+
+"params": [],
+
+"constraints": [],
+
+"common_errors": [],
+
+"examples": []
+
+}
+
+
+
+⸻
+
+
+
+重点：
+
+
+
+不要一开始追求“自动理解约束”。
+
+
+
+你现在文档里有一点危险：
+
+
+
+想自动提取 usage constraint
+
+
+
+这个难度其实很高。
+
+
+
+真正可行的是：
+
+
+
+第一版：
+
+
+
+自动抽：
+
+
+
+* signature
+
+* type hints
+
+* default values
+
+* docstring
+
+* Raises
+
+* Notes
+
+
+
+人工补：
+
+
+
+* hidden constraints
+
+* common failure
+
+* semantic traps
+
+
+
+这是现实路线。
+
+
+
+⸻
+
+
+
+四、图数据库其实不是第一优先级
+
+
+
+这是我觉得文档里容易“工程过度”的部分。
+
+
+
+你现在：
+
+
+
+* GitNexus
+
+* LadybugDB
+
+* schema
+
+* embeddings
+
+* context graph
+
+
+
+这些东西都很重。
+
+
+
+但问题是：
+
+
+
+你当前真正的 retrieval 需求其实很简单：
+
+
+
+“create_setup 怎么用”
+
+“waveport 的 integration line 怎么定义”
+
+“airbox 什么时候创建”
+
+
+
+本质是：
+
+
+
+API semantic retrieval
+
+
+
+而不是：
+
+
+
+全程序调用图分析
+
+
+
+所以：
+
+
+
+⸻
+
+
+
+我建议：
+
+
+
+第一版：
+
+
+
+SQLite + FTS5
+
+
+
+就够了。
+
+
+
+甚至：
+
+
+
+JSON + embedding
+
+
+
+都够。
+
+
+
+不要一开始上图数据库。
+
+
+
+⸻
+
+
+
+五、案例库的重要性比图谱还高
+
+
+
+这个我非常认同你的判断。
+
+
+
+事实上：
+
+
+
+LLM 学会“workflow pattern”
+
+比
+
+学会“单 API”
+
+
+
+更重要。
+
+
+
+比如：
+
+
+
+HFSS patch antenna 的真正知识是：
+
+
+
+substrate
+
+→ ground
+
+→ patch
+
+→ feed
+
+→ airbox
+
+→ radiation
+
+→ setup
+
+→ sweep
+
+→ analyze
+
+
+
+而不是：
+
+
+
+create_box()
+
+
+
+所以我觉得：
+
+
+
+最重要的数据资产其实是：
+
+
+
+“结构化 workflow casebase”
+
+
+
+不是 API graph。
+
+
+
+⸻
+
+
+
+六、真正困难的问题：semantic validation
+
+
+
+这是整个项目未来最大的壁垒。
+
+
+
+你文档已经意识到了：
+
+
+
+最危险的是“代码能跑但物理是错的”
+
+
+
+这是对的。
+
+
+
+未来真正高级的系统一定会做：
+
+
+
+⸻
+
+
+
+1. Geometry validation
+
+
+
+比如：
+
+
+
+* airbox 太小
+
+* port 没接触
+
+* overlap
+
+* floating conductor
+
+
+
+⸻
+
+
+
+2. Simulation validation
+
+
+
+比如：
+
+
+
+* adaptive 没收敛
+
+* mesh 太粗
+
+* setup 不合理
+
+
+
+⸻
+
+
+
+3. Physics validation
+
+
+
+比如：
+
+
+
+* S11 > 0 dB
+
+* radiation efficiency 异常
+
+* resonance 不存在
+
+
+
+⸻
+
+
+
+这是未来真正有价值的部分。
+
+
+
+但：
+
+
+
+不要现在做。
+
+
+
+现在先：
+
+
+
+API grounding
+
+
+
+⸻
+
+
+
+七、我建议的实际开发路线（非常具体）
+
+
+
+Stage A（1~2 周）
+
+
+
+目标：
+
+
+
+做出最小 grounding pipeline。
+
+
+
+任务
+
+
+
+1. clone pyaedt 源码
+
+
+
+你文档已经写了。
+
+
+
+2. 写 extractor
+
+
+
+输出：
+
+
+
+api_semantics.json
+
+
+
+3. 收集 examples
+
+
+
+重点：
+
+
+
+* HFSS examples
+
+* filters
+
+* antennas
+
+* waveguide
+
+* differential pair
+
+
+
+4. 做 retrieval
+
+
+
+先 BM25/FTS5。
+
+
+
+不要 embedding。
+
+
+
+5. 做 prompt chain
+
+
+
+流程：
+
+
+
+用户需求
+
+→ retrieve API
+
+→ retrieve examples
+
+→ assemble context
+
+→ generate code
+
+
+
+6. 人工评估
+
+
+
+统计：
+
+
+
+* syntax pass
+
+* runtime pass
+
+* semantic pass
+
+
+
+⸻
+
+
+
+Stage B（2~4 周）
+
+
+
+开始引入：
+
+
+
+* MCP
+
+* 持久化 AEDT session
+
+* execute_code
+
+* auto-fix loop
+
+
+
+这里才开始真正联动 AEDT。
+
+
+
+⸻
+
+
+
+Stage C（后续）
+
+
+
+再考虑：
+
+
+
+* graph db
+
+* semantic validator
+
+* planning agent
+
+* workflow decomposition
+
+* multimodal（截图分析）
+
+* autonomous repair
+
+
+
+⸻
+
+
+
+八、我认为你现在最值得做的一件事
+
+
+
+不是继续写设计文档。
+
+
+
+而是：
+
+
+
+做一个 benchmark 数据集
+
+
+
+比如：
+
+
+
+tasks/
+
+hfss_patch_antenna.md
+
+waveguide_filter.md
+
+microstrip_line.md
+
+
+
+每个任务包括：
+
+
+
+* 自然语言需求
+
+* reference script
+
+* expected outputs
+
+* validation criteria
+
+
+
+然后：
+
+
+
+比较：
+
+
+
+裸 GPT
+
+vs
+
+grounded GPT
+
+
+
+这个实验会直接决定：
+
+
+
+* 你的架构值不值得继续
+
+* retrieval 的收益有多大
+
+* 后续应该重点投入哪里
+
+
+
+这个比继续设计 schema 更重要。 这个洞察是否同意，你有什么其他看法

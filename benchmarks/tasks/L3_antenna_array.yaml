@@ -1,0 +1,12 @@
+task_id: L3_antenna_array
+level: L3
+domain: hfss
+requirement: Create a component antenna array and configure a 5 GHz solution setup.
+allowed_nodes: [create_conductor_or_geometry_group, create_setup, create_sweep_or_export]
+expected_workflow: [create_conductor_or_geometry_group, create_setup, create_sweep_or_export]
+required_api_categories: [geometry, setup]
+reference_script: benchmarks/reference_scripts/L3_antenna_array.py
+validation_script: benchmarks/validation_scripts/validate_L3_antenna_array.py
+expected_outputs: [setup]
+known_failure_modes: []
+grading: {syntax: true, api: true, semantic: true}

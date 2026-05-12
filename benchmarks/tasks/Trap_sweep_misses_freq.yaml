@@ -1,0 +1,12 @@
+task_id: Trap_sweep_misses_freq
+level: Trap
+domain: hfss
+requirement: Configure a sweep that actually covers the requested target frequency.
+allowed_nodes: [create_setup, create_sweep_or_export]
+expected_workflow: [create_setup, create_sweep_or_export]
+required_api_categories: [setup]
+reference_script: benchmarks/reference_scripts/Trap_sweep_misses_freq.py
+validation_script: benchmarks/validation_scripts/validate_Trap_sweep_misses_freq.py
+expected_outputs: [sweep]
+known_failure_modes: [sweep_range_misses_target_frequency]
+grading: {syntax: true, api: true, semantic: true}

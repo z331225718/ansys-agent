@@ -1,0 +1,10 @@
+node_id: create_setup
+summary: Create the HFSS analysis setup.
+allowed_apis:
+  - Hfss.create_setup
+inputs:
+  required: [frequency]
+outputs:
+  creates: [setup]
+prerequisites: []
+examples: [hfss_patch_antenna, waveguide_filter, antenna_array, dipole_antenna]

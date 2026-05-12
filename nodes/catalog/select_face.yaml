@@ -1,0 +1,13 @@
+node_id: select_face
+summary: Identify a target face to be used for a port or boundary operation.
+allowed_apis:
+  - Hfss.modeler.get_object_faces
+  - Hfss.modeler.get_face_center
+  - Hfss.modeler.get_faceid_from_position
+inputs:
+  required: [object_name]
+outputs:
+  creates: [face_id]
+prerequisites:
+  - create_conductor_or_geometry_group
+examples: [waveguide_filter]

@@ -1,0 +1,12 @@
+task_id: Trap_missing_ground
+level: Trap
+domain: hfss
+requirement: Build a printed antenna while preserving the ground layer required by the feed.
+allowed_nodes: [create_substrate, create_conductor_or_geometry_group, create_port]
+expected_workflow: [create_substrate, create_conductor_or_geometry_group, create_port]
+required_api_categories: [geometry, excitation]
+reference_script: benchmarks/reference_scripts/Trap_missing_ground.py
+validation_script: benchmarks/validation_scripts/validate_Trap_missing_ground.py
+expected_outputs: [ground]
+known_failure_modes: [missing_ground_plane]
+grading: {syntax: true, api: true, semantic: true}
