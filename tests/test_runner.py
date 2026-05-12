@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 from aedt_agent.benchmark.models import BenchmarkTask, load_tasks
 from aedt_agent.benchmark.runner import run_offline_benchmark
@@ -50,3 +51,39 @@ def test_run_offline_benchmark_can_generate_candidates(tmp_path):
 
     assert (generated_dir / "group_a" / "L1_create_substrate.py").exists()
     assert report["tasks"]["L1_create_substrate"]["A"]["generation_mode"] == "online"
+
+
+def test_cli_run_benchmark_with_config(tmp_path, monkeypatch):
+    from aedt_agent import cli
+
+    generated_dir = tmp_path / "generated"
+    report_path = tmp_path / "report.json"
+    config_path = tmp_path / "benchmark_config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "generator": {
+                    "backend": "file",
+                    "file": {"base_dir": "benchmarks/reference_scripts"},
+                },
+                "paths": {
+                    "tasks": "benchmarks/tasks",
+                    "generated": str(generated_dir),
+                    "nodes": "nodes/catalog",
+                    "db": "knowledge/api_semantics/api_semantics.sqlite",
+                    "report": str(report_path),
+                },
+                "groups": ["A"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["aedt-agent", "run-benchmark", "--config", str(config_path), "--generate"],
+    )
+
+    cli.main()
+
+    assert report_path.exists()
