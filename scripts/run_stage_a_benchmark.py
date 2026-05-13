@@ -46,6 +46,11 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--task", action="append", dest="tasks", help="Run a single task id. Can be repeated.")
     parser.add_argument("--groups", nargs="+", choices=["A", "B"], help="Groups to run, for example: --groups A B")
     parser.add_argument("--max-attempts", type=int, default=3, help="Maximum generation/repair attempts per task/group.")
+    parser.add_argument(
+        "--harness-timeout",
+        type=int,
+        help="Override local harness CLI timeout in seconds. Formal benchmark default comes from config/benchmark_config.json.",
+    )
     args, _unknown = parser.parse_known_args()
     return args
 
@@ -68,10 +73,18 @@ def _model_label(config) -> str:
     return config.generator.openai.model
 
 
+def _with_harness_timeout(config, timeout: int):
+    import dataclasses
+
+    return dataclasses.replace(config, harness=dataclasses.replace(config.harness, timeout=timeout))
+
+
 def main() -> None:
     args = _parse_args()
     repo_root = REPO_ROOT
     config = load_benchmark_config(repo_root / "config/benchmark_config.json")
+    if args.harness_timeout is not None:
+        config = _with_harness_timeout(config, args.harness_timeout)
     run_dir = repo_root / config.paths.run_dir
     mode = "fresh" if args.fresh else "resume"
 

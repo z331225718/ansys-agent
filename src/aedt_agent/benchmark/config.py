@@ -37,7 +37,7 @@ class GeneratorConfig:
 class HarnessConfig:
     backend: str = "claude"
     command: str = "claude"
-    timeout: int = 600
+    timeout: int = 900
     group_a_config: str = "config/harness/group_a.json"
     group_b_config: str = "config/harness/group_b.json"
     work_dir: str = "benchmarks/harness_work"
@@ -166,7 +166,7 @@ def load_benchmark_config(path: Path) -> BenchmarkConfig:
         harness=HarnessConfig(
             backend=str(harness_data.get("backend", "claude")),
             command=str(harness_data.get("command", "claude")),
-            timeout=int(harness_data.get("timeout", 600)),
+            timeout=int(harness_data.get("timeout", 900)),
             group_a_config=str(harness_data.get("group_a_config", "config/harness/group_a.json")),
             group_b_config=str(harness_data.get("group_b_config", "config/harness/group_b.json")),
             work_dir=str(harness_data.get("work_dir", "benchmarks/harness_work")),

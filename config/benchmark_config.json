@@ -17,7 +17,7 @@
   "harness": {
     "backend": "claude",
     "command": "claude",
-    "timeout": 300,
+    "timeout": 900,
     "group_a_config": "config/harness/group_a.json",
     "group_b_config": "config/harness/group_b.json",
     "work_dir": "benchmarks/harness_work"

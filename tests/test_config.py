@@ -200,3 +200,26 @@ def test_config_can_build_harness_generator(tmp_path):
 
     assert isinstance(generator, HarnessGenerator)
     assert generator.timeout == 33
+
+
+def test_harness_timeout_defaults_to_formal_benchmark_value(tmp_path):
+    base = tmp_path / "benchmark_config.json"
+    base.write_text(
+        json.dumps(
+            {
+                "generator": {"backend": "file", "file": {"base_dir": "benchmarks/reference_scripts"}},
+                "paths": {
+                    "tasks": "benchmarks/tasks",
+                    "generated": "benchmarks/generated",
+                    "nodes": "nodes/catalog",
+                    "db": "knowledge/api_semantics/api_semantics.sqlite",
+                    "report": "benchmarks/reports/report.json",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_benchmark_config(base)
+
+    assert config.harness.timeout == 900
