@@ -19,7 +19,7 @@
     "--disallowedTools",
     "Bash,Edit,mcp__gitnexus__rename,mcp__gitnexus__group_sync,mcp__gitnexus__detect_changes"
   ],
-  "cwd": "benchmarks/harness_work/group_b",
+  "cwd": "/tmp/aedt_agent_harness/group_b",
   "env": {},
   "add_dirs": [
     "/home/zzmjay/code/pyaedt",

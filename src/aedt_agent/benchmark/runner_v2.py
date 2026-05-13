@@ -199,7 +199,9 @@ def _build_attempt_prompt(
         parts.append(
             "Before writing code, use the available GitNexus/PyAEDT tools to inspect the official PyAEDT API and examples. "
             "Prefer GitNexus query/context results and official examples over memory. "
-            "Keep retrieval focused: use only the minimum tool calls needed, then write runnable code. "
+            "Only inspect official sources under /home/zzmjay/code/pyaedt and /home/zzmjay/code/pyaedt-examples. "
+            "Do not read /home/zzmjay/code/ansys-agent/benchmarks/generated or prior generated benchmark candidates as references. "
+            "Keep retrieval focused: use at most 2 GitNexus query calls and at most 2 GitNexus context calls, then write runnable code immediately. "
             "If this is a repair attempt, first investigate the AEDT/PyAEDT error log with the tools, then revise the code."
         )
     if attempt > 1:
