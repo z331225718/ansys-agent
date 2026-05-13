@@ -107,6 +107,10 @@ def test_runner_v2_group_b_prompt_requires_harness_tools(tmp_path):
 
     assert generator.calls[0]["group"] == "B"
     assert "GitNexus/PyAEDT tools" in generator.calls[0]["context"]
+    assert "create_rectangle(orientation, origin, sizes" in generator.calls[0]["context"]
+    assert "face.id and face.center" in generator.calls[0]["context"]
+    assert 'app.solution_type = "Modal"' in generator.calls[0]["context"]
+    assert "Use wave_port only for explicit waveguide/wave-port requirements" in generator.calls[0]["context"]
     assert report["groups"]["B"]["pass_rate_3try"] == 1.0
     assert report["groups"]["B"]["tool_usage_rate"] == 1.0
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
@@ -172,6 +173,8 @@ def extract_code(output: str) -> str:
     fenced = re.findall(r"```(?:python|py)?\s*(.*?)```", text, flags=re.IGNORECASE | re.DOTALL)
     candidate = fenced[-1] if fenced else text
     candidate = _trim_metadata(candidate).strip()
+    if not _is_parseable_python(candidate):
+        candidate = _extract_parseable_python_region(candidate)
     if not _looks_like_python(candidate):
         raise ValueError("Harness output did not contain plausible Python code")
     return candidate
@@ -231,6 +234,47 @@ def _trim_metadata(text: str) -> str:
     while lines and lines[0].strip().startswith(("Here is", "Sure,", "I'll ")):
         lines.pop(0)
     return "\n".join(lines)
+
+
+def _extract_parseable_python_region(text: str) -> str:
+    lines = text.strip().splitlines()
+    for start in range(len(lines)):
+        if not _line_can_start_python(lines[start]):
+            continue
+        for end in range(len(lines), start, -1):
+            candidate = "\n".join(lines[start:end]).strip()
+            if _looks_like_python(candidate) and _is_parseable_python(candidate):
+                return candidate
+    return text.strip()
+
+
+def _line_can_start_python(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return False
+    starters = (
+        "#",
+        "app.",
+        "setup",
+        "port",
+        "wg",
+        "body",
+        "face",
+        "for ",
+        "if ",
+        "def ",
+        "import ",
+        "from ",
+    )
+    return stripped[0].isalpha() or stripped.startswith(starters)
+
+
+def _is_parseable_python(text: str) -> bool:
+    try:
+        ast.parse(text)
+    except SyntaxError:
+        return False
+    return True
 
 
 def _looks_like_python(text: str) -> bool:

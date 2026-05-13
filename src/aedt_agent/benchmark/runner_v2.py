@@ -185,7 +185,7 @@ def _build_attempt_prompt(
 ) -> str:
     parts = [
         f"Group {group} PyAEDT benchmark task.",
-        "Generate Python code only. Do not include markdown fences.",
+        "Generate executable Python code only. Do not include markdown fences, prose, explanations, bullet lists, or conclusions.",
         "Use the existing `app` object provided by the benchmark harness.",
         "The AEDT design starts empty except for `app`; create any prerequisite geometry, materials, setups, boundaries, and ports needed by the requirement.",
         "Prefer simple deterministic geometry in millimeters so the script can run in a fresh non-graphical HFSS design.",
@@ -202,7 +202,17 @@ def _build_attempt_prompt(
             "Only inspect official sources under /home/zzmjay/code/pyaedt and /home/zzmjay/code/pyaedt-examples. "
             "Do not read /home/zzmjay/code/ansys-agent/benchmarks/generated or prior generated benchmark candidates as references. "
             "Keep retrieval focused: use at most 2 GitNexus query calls and at most 2 GitNexus context calls, then write runnable code immediately. "
-            "If this is a repair attempt, first investigate the AEDT/PyAEDT error log with the tools, then revise the code."
+            "Use PyAEDT signatures exactly as verified from official sources: create_box(origin, sizes, ...), "
+            "create_rectangle(orientation, origin, sizes, ...), and iterate object.faces as FacePrimitive objects "
+            "with face.id and face.center rather than indexing faces as a dict. "
+            "Always set app.solution_type = \"Modal\" before creating HFSS ports. "
+            "Default to a minimal executable model: do not create analysis setups, sweeps, solves, or exports unless the requirement explicitly asks for them. "
+            "For dipoles, patch/probe feeds, microstrip-like traces, missing-ground traps, and other non-waveguide feeds, prefer a dedicated sheet plus "
+            "app.lumped_port(assignment=sheet.name, create_port_sheet=False, integration_line=[point0, point1], impedance=50, name=\"Port1\"). "
+            "Use wave_port only for explicit waveguide/wave-port requirements. For wave ports, prefer an explicit port sheet or explicit face id, "
+            "an explicit integration_line, and avoid applying PEC to the port face. "
+            "Do not pass FacePrimitive IDs with create_pec_cap=True, and do not use object-name wave_port calls for planar microstrip/patch ports. "
+            "If this is a repair attempt, first fix the traceback line with the smallest code change; do not rewrite unrelated geometry or add explanatory text."
         )
     if attempt > 1:
         parts.append("Previous attempt failed. Fix the code using the AEDT/PyAEDT error log.")

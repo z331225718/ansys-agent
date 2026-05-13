@@ -24,6 +24,22 @@ def test_extract_code_strips_inline_backticks_from_json_result():
     assert extract_code(output) == "app.save_project()"
 
 
+def test_extract_code_recovers_code_after_plain_text_preamble():
+    output = """Now I have the fix.
+
+1. Use the official signature.
+
+A = 22.86
+port_sheet = app.modeler.create_rectangle("XY", [-A / 2, 0, 0], [A, 10], name="port_face")
+app.wave_port(assignment=port_sheet.name, integration_line=[[0, 0, 0], [0, 10, 0]], name="Port1")
+"""
+
+    code = extract_code(output)
+
+    assert code.startswith("A = 22.86")
+    assert "Now I have" not in code
+
+
 def test_harness_generator_invokes_cli_and_writes_artifacts(tmp_path):
     calls = []
 
