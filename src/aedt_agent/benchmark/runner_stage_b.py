@@ -188,7 +188,8 @@ def _run_group_c(tasks_dir, run_dir, generator, kernel, task_ids, max_attempts, 
 
 def _build_group_c_prompt(task, kernel: McpToolKernel, previous_log: str) -> str:
     node_catalog = []
-    for node_id in task.allowed_nodes:
+    allowed_node_ids = _expand_allowed_node_ids(task.allowed_nodes, kernel)
+    for node_id in allowed_node_ids:
         try:
             node_catalog.append(kernel.describe_node(node_id))
         except Exception:
@@ -197,7 +198,10 @@ def _build_group_c_prompt(task, kernel: McpToolKernel, previous_log: str) -> str
         "Generate a Stage B node plan as JSON only. Do not output Python or markdown.",
         "The JSON schema is: {\"plan\": [{\"id\": \"optional_step_id\", \"node_id\": \"create_substrate\", \"inputs\": {}}]}",
         "Use only the allowed node IDs listed below. Match required input names exactly.",
+        "The AEDT design starts empty. If a task references a face, port, boundary, or object, create the prerequisite geometry first using an allowed prerequisite node.",
         "To pass a previous node output into a later input, use {\"$ref\": \"step_id.output.selected_face_id\"}.",
+        "For wave-port tasks, a minimal valid plan should create simple geometry or a port sheet, select an exterior face when needed, then call create_port with port_type \"wave\".",
+        "Geometry node inputs must be JSON data, not Python strings. Example: {\"geometry\": [{\"kind\": \"box\", \"origin\": [0, 0, 0], \"size\": [10, 10, 10], \"name\": \"block1\", \"material\": \"copper\"}]}",
         f"Allowed nodes:\n{json.dumps(node_catalog, indent=2, ensure_ascii=False)}",
         f"Expected workflow:\n{json.dumps(task.expected_workflow, ensure_ascii=False)}",
         f"Expected outputs:\n{json.dumps(task.expected_outputs, ensure_ascii=False)}",
@@ -206,6 +210,29 @@ def _build_group_c_prompt(task, kernel: McpToolKernel, previous_log: str) -> str
     if previous_log:
         parts.append("Previous node plan failed. Use this real error to repair the JSON plan:\n" + previous_log)
     return "\n\n".join(parts)
+
+
+def _expand_allowed_node_ids(node_ids: list[str], kernel: McpToolKernel) -> list[str]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+
+    def visit(node_id: str) -> None:
+        if node_id in seen:
+            return
+        try:
+            node = kernel.registry.get(node_id)
+        except KeyError:
+            seen.add(node_id)
+            ordered.append(node_id)
+            return
+        for prerequisite in node.prerequisites:
+            visit(prerequisite)
+        seen.add(node_id)
+        ordered.append(node_id)
+
+    for node_id in node_ids:
+        visit(node_id)
+    return ordered
 
 
 def _resolve_refs(value, step_outputs):

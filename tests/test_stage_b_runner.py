@@ -1,6 +1,7 @@
 from pathlib import Path
 
-from aedt_agent.benchmark.runner_stage_b import run_stage_b_node_benchmark
+from aedt_agent.benchmark.models import BenchmarkTask
+from aedt_agent.benchmark.runner_stage_b import _build_group_c_prompt, _expand_allowed_node_ids, run_stage_b_node_benchmark
 from aedt_agent.mcp.tools import create_fake_kernel
 
 
@@ -84,3 +85,23 @@ def test_stage_b_runner_resolves_node_output_refs(tmp_path):
     task_result = report["tasks"]["L1_create_wave_port"]["C"]
     assert task_result["final_pass"] is True
     assert task_result["node_steps"][-1]["inputs"]["assignment"] > 0
+
+
+def test_group_c_prompt_expands_prerequisite_nodes():
+    kernel = create_fake_kernel(Path("nodes/catalog"))
+    task = BenchmarkTask(
+        task_id="L1_create_wave_port",
+        level="L1",
+        domain="hfss",
+        requirement="Create a wave port from the intended face.",
+        allowed_nodes=["select_face", "create_port"],
+        expected_workflow=["select_face", "create_port"],
+        expected_outputs=["wave_port"],
+    )
+
+    allowed = _expand_allowed_node_ids(task.allowed_nodes, kernel)
+    prompt = _build_group_c_prompt(task, kernel, previous_log="")
+
+    assert allowed == ["create_conductor_or_geometry_group", "select_face", "create_port"]
+    assert "The AEDT design starts empty" in prompt
+    assert "create_conductor_or_geometry_group" in prompt

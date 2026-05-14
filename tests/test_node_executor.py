@@ -67,6 +67,31 @@ def test_node_executor_selects_face_from_object(tmp_path):
     assert result.output["selected_face_id"] > 0
 
 
+def test_node_executor_accepts_common_geometry_aliases(tmp_path):
+    manager, executor = _executor(tmp_path)
+    session = manager.create_session("p1", "d1")
+
+    result = executor.execute_node(
+        session.ref.session_id,
+        "create_conductor_or_geometry_group",
+        {
+            "geometry": [
+                {
+                    "type": "box",
+                    "position": [0, 0, 0],
+                    "dimensions": [10, 10, 1],
+                    "name": "metal",
+                    "matname": "copper",
+                }
+            ]
+        },
+    )
+
+    state = manager.snapshot(session.ref.session_id)
+    assert result.status == ExecutionStatus.SUCCEEDED
+    assert state["objects"]["metal"]["material"] == "copper"
+
+
 def test_node_executor_rejects_bad_schema(tmp_path):
     manager, executor = _executor(tmp_path)
     session = manager.create_session("p1", "d1")

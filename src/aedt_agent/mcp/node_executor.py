@@ -98,6 +98,7 @@ def _create_geometry_group(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
     for index, item in enumerate(inputs["geometry"]):
         if not isinstance(item, dict):
             raise TypeError("geometry entries must be mappings")
+        item = _normalize_geometry_item(item)
         kind = item.get("kind", "box")
         name = str(item.get("name", f"Geometry{index + 1}"))
         material = item.get("material", "copper")
@@ -114,6 +115,21 @@ def _create_geometry_group(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
         created.append(obj.name)
         _assign_material_if_available(app, obj.name, material)
     return _node_output(objects=created, postchecks=["objects_exist"])
+
+
+def _normalize_geometry_item(item: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(item)
+    if "kind" not in normalized and "type" in normalized:
+        normalized["kind"] = normalized["type"]
+    if "origin" not in normalized and "position" in normalized:
+        normalized["origin"] = normalized["position"]
+    if "size" not in normalized and "sizes" in normalized:
+        normalized["size"] = normalized["sizes"]
+    if "size" not in normalized and "dimensions" in normalized:
+        normalized["size"] = normalized["dimensions"]
+    if "material" not in normalized and "matname" in normalized:
+        normalized["material"] = normalized["matname"]
+    return normalized
 
 
 def _create_airbox(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
