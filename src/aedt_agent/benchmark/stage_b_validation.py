@@ -14,6 +14,8 @@ def run_stage_b_validation(
     design_id: str,
     model_info: dict[str, Any],
     expected_outputs: list[str],
+    node_steps: list[dict[str, Any]] | None = None,
+    known_failure_modes: list[str] | None = None,
 ) -> dict[str, Any]:
     try:
         module = _load_validation_module(validation_script)
@@ -25,6 +27,8 @@ def run_stage_b_validation(
             design_id=design_id,
             model_info=model_info,
             expected_outputs=expected_outputs,
+            node_steps=node_steps or [],
+            known_failure_modes=known_failure_modes or [],
         )
         if isinstance(result, dict):
             passed = bool(result.get("passed"))
@@ -55,6 +59,8 @@ def _call_validate(
     design_id: str,
     model_info: dict[str, Any],
     expected_outputs: list[str],
+    node_steps: list[dict[str, Any]],
+    known_failure_modes: list[str],
 ) -> Any:
     signature = inspect.signature(validate)
     kwargs: dict[str, Any] = {}
@@ -63,4 +69,8 @@ def _call_validate(
         kwargs["model_info"] = model_info
     if accepts_kwargs or "expected_outputs" in signature.parameters:
         kwargs["expected_outputs"] = expected_outputs
+    if accepts_kwargs or "node_steps" in signature.parameters:
+        kwargs["node_steps"] = node_steps
+    if accepts_kwargs or "known_failure_modes" in signature.parameters:
+        kwargs["known_failure_modes"] = known_failure_modes
     return validate(session_id, project_id, design_id, **kwargs)

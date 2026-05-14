@@ -1,4 +1,12 @@
-def validate(session_id, project_id, design_id, model_info=None, expected_outputs=None):
+def validate(
+    session_id,
+    project_id,
+    design_id,
+    model_info=None,
+    expected_outputs=None,
+    node_steps=None,
+    known_failure_modes=None,
+):
     assert session_id
     assert project_id
     assert design_id
@@ -10,6 +18,12 @@ def validate(session_id, project_id, design_id, model_info=None, expected_output
             checks.append(f"{expected}_present")
         else:
             failures.append(f"missing expected output: {expected}")
+    if "wrong_face_selected_for_port" in (known_failure_modes or []):
+        port_check = _validate_port_uses_selected_face(node_steps or [])
+        if port_check:
+            checks.append(port_check)
+        else:
+            failures.append("wave port assignment is not traceable to a selected face")
     return {
         "passed": not failures,
         "checks": checks,
@@ -77,3 +91,25 @@ def _mapping_value_contains(mapping, needles):
         if any(needle in text for needle in needles):
             return True
     return False
+
+
+def _validate_port_uses_selected_face(node_steps):
+    selected_face_ids = set()
+    for step in node_steps:
+        if step.get("node_id") != "select_face":
+            continue
+        output = step.get("output", {})
+        selected_face_id = output.get("selected_face_id")
+        if selected_face_id is not None:
+            selected_face_ids.add(selected_face_id)
+    if not selected_face_ids:
+        return ""
+    for step in node_steps:
+        if step.get("node_id") != "create_port":
+            continue
+        inputs = step.get("inputs", {})
+        if str(inputs.get("port_type", "")).lower() not in {"wave", "wave_port"}:
+            continue
+        if inputs.get("assignment") in selected_face_ids:
+            return "wave_port_uses_selected_face"
+    return ""

@@ -149,6 +149,8 @@ def _run_group_c(tasks_dir, run_dir, generator, kernel, task_ids, max_attempts, 
                         design_id=session["design_id"],
                         model_info=model_info,
                         expected_outputs=task.expected_outputs,
+                        node_steps=step_results,
+                        known_failure_modes=task.known_failure_modes,
                     )
                     validation_ok = bool(validation_result.get("passed"))
                     (task_dir / f"attempt_{attempt}_validation.json").write_text(
