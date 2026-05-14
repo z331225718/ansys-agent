@@ -1,6 +1,6 @@
 # Stage B 当前记忆
 
-更新日期：2026-05-14
+更新日期：2026-05-15
 
 ## 项目状态
 
@@ -8,9 +8,9 @@
 - GitHub：`https://github.com/z331225718/ansys-agent`
 - 当前分支：`stage-a-grounding-benchmark`
 - 最新已推送提交：
+  - `2dc995c Isolate stage b node attempts`
+  - `c783e83 Record stage b project memory`
   - `32e285a Strengthen stage b wave port validation`
-  - `9449d1d Improve stage b port node planning`
-  - `7630a66 Advance stage b real node validation`
 
 ## Stage B 目标
 
@@ -38,6 +38,12 @@ Stage B 不是继续比较裸 LLM 写 Python，而是验证节点化路径是否
   - 不只检查 `wave_port_present`
   - 还检查 `create_port.assignment` 是否能追溯到 `select_face.output.selected_face_id`
   - 通过 check 名：`wave_port_uses_selected_face`
+- 2026-05-15 新增：
+  - 每次 C 组 attempt 使用独立 AEDT project/session，避免失败尝试污染修复尝试。
+  - 先生成/解析 node plan，再启动 AEDT，避免 generation/parse 失败时浪费 AEDT session。
+  - 节点输出增加便利字段：`object_name/object_names/port_name/boundary_name/setup_name/sweep_name`。
+  - `create_airbox.padding` 支持数值列表并归一化为最大 padding。
+  - `assign_boundary` 和 `create_port` 可以接受上游节点完整 output 作为 `assignment/reference`，执行时提取合适对象。
 
 ## 已验证结果
 
@@ -49,7 +55,7 @@ Stage B 不是继续比较裸 LLM 写 Python，而是验证节点化路径是否
 
 最新结果：
 
-- `118 passed, 2 skipped`
+- `120 passed, 2 skipped`
 
 真实 AEDT / harness smoke：
 
@@ -84,16 +90,7 @@ Stage B 不是继续比较裸 LLM 写 Python，而是验证节点化路径是否
   - `wave_port_present`
   - `wave_port_uses_selected_face`
 
-## 重要经验
-
-- C 组不能只给 task 的 `allowed_nodes`，因为真实 AEDT 会话是空模型。涉及端口/边界/face 的任务必须允许 prerequisite nodes 先创建最小几何。
-- LLM 常把节点输入写成 PyAEDT 代码字符串，或者使用 `position/type/dimensions` 这类字段。Stage B 应该用 schema 示例和有限 normalization 吸收这类低价值错误。
-- Trap 任务不能只验证对象是否存在。至少要验证节点间数据流是否符合预期，例如端口 assignment 来自选中的 face。
-- 当前 Trap 判卷仍不是完整电磁语义判断；它是比“端口存在”更强的结构性检查。后续若要正式报告，需要继续增强几何/物理 validation。
-
-## 下一步
-
-建议执行 5-task C-only smoke，先不跑 B，节省 token 和 AEDT 时间：
+5-task C-only smoke v2：
 
 ```bash
 .venv/bin/python scripts/run_stage_b_benchmark.py \
@@ -104,12 +101,47 @@ Stage B 不是继续比较裸 LLM 写 Python，而是验证节点化路径是否
   --task L2_microstrip_line \
   --task Trap_waveport_wrong_face \
   --max-attempts 3 \
-  --run-dir benchmarks/runs/stage_b_c_5task_smoke
+  --run-dir benchmarks/runs/stage_b_c_5task_smoke_v2
+```
+
+结果：
+
+- `task_count`: 5
+- `first_pass_rate`: 1.0
+- `pass_rate_3try`: 1.0
+- `avg_attempts_to_success`: 1.0
+- `avg_attempts_all`: 1.0
+- `avg_node_count`: 2.4
+- `free_code_execution_count`: 0
+- `failure_categories`: `{}`
+
+## 重要经验
+
+- C 组不能只给 task 的 `allowed_nodes`，因为真实 AEDT 会话是空模型。涉及端口/边界/face 的任务必须允许 prerequisite nodes 先创建最小几何。
+- LLM 常把节点输入写成 PyAEDT 代码字符串，或者使用 `position/type/dimensions` 这类字段。Stage B 应该用 schema 示例和有限 normalization 吸收这类低价值错误。
+- Trap 任务不能只验证对象是否存在。至少要验证节点间数据流是否符合预期，例如端口 assignment 来自选中的 face。
+- 当前 Trap 判卷仍不是完整电磁语义判断；它是比“端口存在”更强的结构性检查。后续若要正式报告，需要继续增强几何/物理 validation。
+- 多次 attempt 必须隔离 AEDT session。之前同一 task 的修复尝试复用同一 session，会导致第二轮在第一轮残留对象上成功，benchmark 证据不干净。
+
+## 下一步
+
+5-task C-only smoke 已经稳定通过。下一步建议跑正式 B/C 对照小集，确认节点化 C 相对 Stage A Group B baseline 的真实收益：
+
+```bash
+.venv/bin/python scripts/run_stage_b_benchmark.py \
+  --groups B C \
+  --task L1_create_substrate \
+  --task L1_create_setup \
+  --task L1_create_wave_port \
+  --task L2_microstrip_line \
+  --task Trap_waveport_wrong_face \
+  --max-attempts 3 \
+  --run-dir benchmarks/runs/stage_b_bc_5task_compare
 ```
 
 观察重点：
 
-- first-pass rate 是否稳定高于 Stage A Group B baseline 的 80%。
-- 失败是否集中在 schema/normalization，而不是 AEDT API 调用。
-- `L2_microstrip_line` 是否需要更强的 airbox/radiation validation。
-- 如果 5-task C-only 稳定，再跑 B/C 对照并生成中文 Stage B HTML 报告。
+- B/C 的 first-pass、3 次内成功率、平均成功轮次。
+- B 组自由代码是否仍会出现 PyAEDT API 调用错误。
+- C 组是否保持 `free_code_execution_count = 0`。
+- 对照跑完后生成中文 Stage B HTML 报告。
