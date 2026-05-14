@@ -24,7 +24,7 @@ def test_validate_node_inputs_reports_wrong_type():
     result = validate_node_inputs("create_port", {"port_type": "lumped", "assignment": {"face": 1}})
 
     assert result.passed is False
-    assert "wrong type for assignment: expected str or int" in result.errors
+    assert "wrong value for assignment: expected node output reference" in result.errors
 
 
 def test_describe_node_schema_lists_required_inputs():

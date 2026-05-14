@@ -133,7 +133,7 @@ def _normalize_geometry_item(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _create_airbox(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
-    padding = inputs["padding"]
+    padding = _normalize_padding(inputs["padding"])
     name = inputs["name"]
     if hasattr(app.modeler, "create_region"):
         obj = app.modeler.create_region(padding=padding, name=name)
@@ -145,13 +145,14 @@ def _create_airbox(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
 def _assign_boundary(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
     boundary_type = inputs["boundary_type"].lower()
     name = inputs["name"]
+    assignment = _normalize_assignment(inputs["assignment"], prefer_list=True)
     if boundary_type in {"radiation", "open"}:
         if hasattr(app, "assign_radiation_boundary_to_objects"):
-            created = app.assign_radiation_boundary_to_objects(inputs["assignment"], name=name)
+            created = app.assign_radiation_boundary_to_objects(assignment, name=name)
         else:
             created = app.create_open_region(name=name)
     elif boundary_type in {"perfect_e", "pec"}:
-        created = app.assign_perfecte_to_sheets(inputs["assignment"], name=name)
+        created = app.assign_perfecte_to_sheets(assignment, name=name)
     else:
         raise ValueError(f"unsupported boundary_type: {inputs['boundary_type']}")
     return _node_output(boundaries=[str(created)], postchecks=["boundary_created"])
@@ -161,9 +162,10 @@ def _create_port(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
     app.solution_type = "Modal"
     port_type = inputs["port_type"].lower()
     name = inputs["name"]
+    assignment = _normalize_assignment(inputs["assignment"])
     if port_type in {"lumped", "lumped_port", "microstrip_lumped_port_default"}:
         port = app.lumped_port(
-            assignment=inputs["assignment"],
+            assignment=assignment,
             name=name,
             create_port_sheet=False,
             integration_line=inputs.get("integration_line"),
@@ -174,11 +176,36 @@ def _create_port(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
         if inputs.get("integration_line") is not None:
             kwargs["integration_line"] = inputs["integration_line"]
         if inputs.get("reference") is not None:
-            kwargs["reference"] = inputs["reference"]
-        port = app.wave_port(inputs["assignment"], **kwargs)
+            kwargs["reference"] = _normalize_assignment(inputs["reference"])
+        port = app.wave_port(assignment, **kwargs)
     else:
         raise ValueError(f"unsupported port_type: {inputs['port_type']}")
     return _node_output(ports=[str(port)], postchecks=["port_created"])
+
+
+def _normalize_padding(value: Any) -> int | float:
+    if isinstance(value, list):
+        numeric = [item for item in value if isinstance(item, (int, float))]
+        if not numeric:
+            raise TypeError("padding list must contain numeric values")
+        return max(numeric)
+    return value
+
+
+def _normalize_assignment(value: Any, prefer_list: bool = False) -> Any:
+    if not isinstance(value, dict):
+        return value
+    if value.get("selected_face_id") is not None:
+        return value["selected_face_id"]
+    if value.get("object_name") is not None:
+        return value["object_name"]
+    created = value.get("created")
+    if isinstance(created, dict):
+        for key in ("objects", "ports", "boundaries", "setups", "sweeps"):
+            names = created.get(key)
+            if isinstance(names, list) and names:
+                return names if prefer_list else names[0]
+    raise ValueError("Could not normalize node output as assignment")
 
 
 def _select_face(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
@@ -247,16 +274,35 @@ def _node_output(
     sweeps: list[str] | None = None,
     postchecks: list[str] | None = None,
 ) -> dict[str, Any]:
-    return {
+    created = {
+        "objects": objects or [],
+        "ports": ports or [],
+        "boundaries": boundaries or [],
+        "setups": setups or [],
+        "sweeps": sweeps or [],
+    }
+    output = {
         "created": {
-            "objects": objects or [],
-            "ports": ports or [],
-            "boundaries": boundaries or [],
-            "setups": setups or [],
-            "sweeps": sweeps or [],
+            "objects": list(created["objects"]),
+            "ports": list(created["ports"]),
+            "boundaries": list(created["boundaries"]),
+            "setups": list(created["setups"]),
+            "sweeps": list(created["sweeps"]),
         },
         "postcheck": {"passed": True, "checks": postchecks or []},
     }
+    if created["objects"]:
+        output["object_name"] = created["objects"][0]
+        output["object_names"] = list(created["objects"])
+    if created["ports"]:
+        output["port_name"] = created["ports"][0]
+    if created["boundaries"]:
+        output["boundary_name"] = created["boundaries"][0]
+    if created["setups"]:
+        output["setup_name"] = created["setups"][0]
+    if created["sweeps"]:
+        output["sweep_name"] = created["sweeps"][0]
+    return output
 
 
 def _rejected(error_type: str, message: str) -> ExecutionResult:

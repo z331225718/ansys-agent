@@ -90,6 +90,46 @@ def test_node_executor_accepts_common_geometry_aliases(tmp_path):
     state = manager.snapshot(session.ref.session_id)
     assert result.status == ExecutionStatus.SUCCEEDED
     assert state["objects"]["metal"]["material"] == "copper"
+    assert result.output["object_name"] == "metal"
+
+
+def test_node_executor_accepts_airbox_padding_list_and_output_assignment(tmp_path):
+    manager, executor = _executor(tmp_path)
+    session = manager.create_session("p1", "d1")
+
+    airbox = executor.execute_node(
+        session.ref.session_id,
+        "create_airbox",
+        {"padding": [5, 5, 5], "name": "AirBox"},
+    )
+    boundary = executor.execute_node(
+        session.ref.session_id,
+        "assign_boundary",
+        {"boundary_type": "Radiation", "assignment": airbox.output, "name": "Radiation"},
+    )
+
+    state = manager.snapshot(session.ref.session_id)
+    assert airbox.status == ExecutionStatus.SUCCEEDED
+    assert boundary.status == ExecutionStatus.SUCCEEDED
+    assert "Radiation" in state["boundaries"]
+
+
+def test_node_executor_accepts_created_object_reference_for_port(tmp_path):
+    manager, executor = _executor(tmp_path)
+    session = manager.create_session("p1", "d1")
+    geometry = executor.execute_node(
+        session.ref.session_id,
+        "create_conductor_or_geometry_group",
+        {"geometry": [{"kind": "box", "origin": [0, 0, 0], "size": [1, 1, 1], "name": "metal"}]},
+    )
+
+    result = executor.execute_node(
+        session.ref.session_id,
+        "create_port",
+        {"port_type": "wave", "assignment": geometry.output, "reference": geometry.output},
+    )
+
+    assert result.status == ExecutionStatus.SUCCEEDED
 
 
 def test_node_executor_rejects_bad_schema(tmp_path):

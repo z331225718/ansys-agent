@@ -70,43 +70,43 @@ def _run_group_c(tasks_dir, run_dir, generator, kernel, task_ids, max_attempts, 
         task = tasks_by_id[task_id]
         task_dir = run_dir / task_id / "C"
         task_dir.mkdir(parents=True, exist_ok=True)
-        session = kernel.create_session(project_id=f"stage-b-{task_id}", design_id="HFSSDesign1")
         attempts = []
         node_steps = []
         previous_log = ""
         final_pass = False
         success_on_attempt = None
         failure_type = ""
-        try:
-            for attempt in range(1, max_attempts + 1):
-                if progress_callback:
-                    progress_callback({"phase": "attempt_start", "task_id": task_id, "group": "C", "attempt": attempt, "max_attempts": max_attempts})
-                started_at = time.monotonic()
-                prompt = _build_group_c_prompt(task, kernel, previous_log)
-                (task_dir / f"attempt_{attempt}_prompt.txt").write_text(prompt, encoding="utf-8")
-                try:
-                    if hasattr(generator, "generate_text_attempt"):
-                        generation = generator.generate_text_attempt(
-                            prompt,
-                            task_id=task_id,
-                            group="C",
-                            attempt=attempt,
-                            artifact_dir=task_dir,
-                            filename=f"{task_id}_C_attempt_{attempt}.json",
-                            previous_log=previous_log,
-                        )
-                        raw = generation.code
-                    else:
-                        raw = generator.generate(prompt, filename=f"{task_id}_C_attempt_{attempt}.json")
-                    (task_dir / f"attempt_{attempt}_plan_raw.txt").write_text(raw, encoding="utf-8")
-                    plan = extract_node_plan(raw)
-                except (NodePlanParseError, Exception) as exc:
-                    failure_type = "generation_error"
-                    previous_log = str(exc)
-                    attempt_record = _attempt_record(attempt, False, failure_type, previous_log, started_at)
-                    attempts.append(attempt_record)
-                    continue
+        for attempt in range(1, max_attempts + 1):
+            if progress_callback:
+                progress_callback({"phase": "attempt_start", "task_id": task_id, "group": "C", "attempt": attempt, "max_attempts": max_attempts})
+            started_at = time.monotonic()
+            prompt = _build_group_c_prompt(task, kernel, previous_log)
+            (task_dir / f"attempt_{attempt}_prompt.txt").write_text(prompt, encoding="utf-8")
+            try:
+                if hasattr(generator, "generate_text_attempt"):
+                    generation = generator.generate_text_attempt(
+                        prompt,
+                        task_id=task_id,
+                        group="C",
+                        attempt=attempt,
+                        artifact_dir=task_dir,
+                        filename=f"{task_id}_C_attempt_{attempt}.json",
+                        previous_log=previous_log,
+                    )
+                    raw = generation.code
+                else:
+                    raw = generator.generate(prompt, filename=f"{task_id}_C_attempt_{attempt}.json")
+                (task_dir / f"attempt_{attempt}_plan_raw.txt").write_text(raw, encoding="utf-8")
+                plan = extract_node_plan(raw)
+            except (NodePlanParseError, Exception) as exc:
+                failure_type = "generation_error"
+                previous_log = str(exc)
+                attempt_record = _attempt_record(attempt, False, failure_type, previous_log, started_at)
+                attempts.append(attempt_record)
+                continue
 
+            session = kernel.create_session(project_id=f"stage-b-{task_id}-attempt-{attempt}", design_id="HFSSDesign1")
+            try:
                 step_results = []
                 step_outputs = {}
                 all_steps_ok = True
@@ -161,27 +161,27 @@ def _run_group_c(tasks_dir, run_dir, generator, kernel, task_ids, max_attempts, 
                         all_steps_ok = False
                         failure_type = str(validation_result.get("failure_type") or "validation_fail")
                         previous_log = str(validation_result.get("log") or validation_result)
-                if all_steps_ok:
-                    final_pass = True
-                    success_on_attempt = attempt
-                    failure_type = ""
-                attempts.append(
-                    _attempt_record(
-                        attempt,
-                        all_steps_ok,
-                        failure_type,
-                        previous_log,
-                        started_at,
-                        validation_ok=validation_ok,
-                        validation_result=validation_result,
-                    )
+            finally:
+                kernel.release_session(session["session_id"])
+            if all_steps_ok:
+                final_pass = True
+                success_on_attempt = attempt
+                failure_type = ""
+            attempts.append(
+                _attempt_record(
+                    attempt,
+                    all_steps_ok,
+                    failure_type,
+                    previous_log,
+                    started_at,
+                    validation_ok=validation_ok,
+                    validation_result=validation_result,
                 )
-                if progress_callback:
-                    progress_callback({"phase": "attempt_end", "task_id": task_id, "group": "C", "attempt": attempt, "max_attempts": max_attempts, "final_pass": all_steps_ok, "failure_type": failure_type})
-                if final_pass:
-                    break
-        finally:
-            kernel.release_session(session["session_id"])
+            )
+            if progress_callback:
+                progress_callback({"phase": "attempt_end", "task_id": task_id, "group": "C", "attempt": attempt, "max_attempts": max_attempts, "final_pass": all_steps_ok, "failure_type": failure_type})
+            if final_pass:
+                break
         result_data = {"final_pass": final_pass, "success_on_attempt": success_on_attempt, "attempts": attempts, "node_steps": node_steps, "failure_type": failure_type}
         task_results[task_id] = {"metadata": {"level": task.level, "validation_script": task.validation_script}, "C": result_data}
         metric_inputs.append({"task_id": task_id, **result_data})

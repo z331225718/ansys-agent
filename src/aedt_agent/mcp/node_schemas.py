@@ -34,18 +34,18 @@ NODE_SCHEMAS: dict[str, NodeInputSchema] = {
         defaults={},
     ),
     "create_airbox": NodeInputSchema(
-        required={"padding": (int, float)},
+        required={"padding": (int, float, list)},
         optional={"name": str},
         defaults={"name": "AirBox"},
     ),
     "assign_boundary": NodeInputSchema(
-        required={"assignment": (str, list), "boundary_type": str},
+        required={"assignment": (str, list, dict), "boundary_type": str},
         optional={"name": str},
         defaults={"name": "Boundary"},
     ),
     "create_port": NodeInputSchema(
-        required={"port_type": str, "assignment": (str, int)},
-        optional={"name": str, "integration_line": list, "reference": str, "impedance": (int, float, str)},
+        required={"port_type": str, "assignment": (str, int, dict)},
+        optional={"name": str, "integration_line": list, "reference": (str, int, list, dict), "impedance": (int, float, str)},
         defaults={"name": "Port1", "impedance": 50},
     ),
     "select_face": NodeInputSchema(
@@ -96,6 +96,10 @@ def validate_node_inputs(node_id: str, inputs: dict[str, Any]) -> SchemaValidati
     for key, expected_type in {**schema.required, **schema.optional}.items():
         if key in normalized and not isinstance(normalized[key], expected_type):
             errors.append(f"wrong type for {key}: expected {_type_name(expected_type)}")
+    if node_id in {"create_port", "assign_boundary"}:
+        for key in ("assignment", "reference"):
+            if key in normalized and isinstance(normalized[key], dict) and not _looks_like_node_output(normalized[key]):
+                errors.append(f"wrong value for {key}: expected node output reference")
     return SchemaValidationResult(not errors, inputs=normalized if not errors else {}, errors=errors)
 
 
@@ -107,3 +111,7 @@ def _type_name(value: type | tuple[type, ...]) -> str:
     if isinstance(value, tuple):
         return " or ".join(item.__name__ for item in value)
     return value.__name__
+
+
+def _looks_like_node_output(value: dict[str, Any]) -> bool:
+    return any(key in value for key in ("selected_face_id", "object_name", "created"))
