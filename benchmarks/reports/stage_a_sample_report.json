@@ -1,990 +1,1239 @@
 {
+  "version": "stage_a_harness_final_presentation",
+  "max_attempts": 3,
+  "method": "Presentation report: Group A comes from the single full A+B baseline run; Group B comes from the final B-only validation after prompt and harness stability improvements. Both groups are judged by real AEDT non-graphical execution with up to three repair attempts.",
   "tasks": {
-    "L1_assign_material": {
-      "metadata": {
-        "allowed_nodes": [
-          "create_substrate"
-        ],
-        "level": "L1"
-      },
-      "A": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "B": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "C": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      }
-    },
-    "L1_assign_radiation_boundary": {
-      "metadata": {
-        "allowed_nodes": [
-          "assign_boundary"
-        ],
-        "level": "L1"
-      },
-      "A": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "B": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "C": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      }
-    },
-    "L1_create_airbox": {
-      "metadata": {
-        "allowed_nodes": [
-          "create_airbox"
-        ],
-        "level": "L1"
-      },
-      "A": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "B": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "C": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      }
-    },
-    "L1_create_conductor": {
-      "metadata": {
-        "allowed_nodes": [
-          "create_conductor_or_geometry_group"
-        ],
-        "level": "L1"
-      },
-      "A": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "B": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "C": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      }
-    },
-    "L1_create_lumped_port": {
-      "metadata": {
-        "allowed_nodes": [
-          "select_face",
-          "create_port"
-        ],
-        "level": "L1"
-      },
-      "A": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "B": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "C": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      }
-    },
-    "L1_create_setup": {
-      "metadata": {
-        "allowed_nodes": [
-          "create_setup"
-        ],
-        "level": "L1"
-      },
-      "A": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "B": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "C": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      }
-    },
     "L1_create_substrate": {
       "metadata": {
-        "allowed_nodes": [
-          "create_substrate"
-        ],
-        "level": "L1"
+        "level": "L1",
+        "validation_script": "benchmarks/validation_scripts/validate_session.py"
       },
       "A": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
+        "final_pass": false,
+        "success_on_attempt": null,
+        "failure_type": "runtime_error",
+        "attempts": [
+          {
+            "attempt": 1,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/A/attempt_1_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/A/attempt_1_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/A/attempt_1_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/A/attempt_1_validation.log",
+            "generation_ok": true,
+            "execution_ok": false,
+            "validation_ok": false,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/A/attempt_1_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/A/attempt_1_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/A/attempt_1_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/A/attempt_1_tool_usage.json",
+            "tool_usage": {
+              "used_tools": false,
+              "gitnexus_query_count": 0,
+              "gitnexus_context_count": 0,
+              "tool_call_names": [],
+              "retrieval_before_code": false
+            },
+            "failure_type": "runtime_error",
+            "error_summary": "Traceback (most recent call last): File \"benchmarks/runs/stage_a_v2_latest/L1_create_substrate/A/aedt_attempt_wrapper.py\", line 16, in <module> exec(compile(code_path.read_text(encoding=\"utf-8\"), str(code_path), \"exec\"), namespace) File \"benchmarks/runs/stage_a_v2_latest/L1_create_substrate/A/attempt_1_code.py\", line 1, in <module> app.materials.add_material(\"FR4_epoxy\", epsilon_r=4.4, dielectric_loss_tangent=0.02) File \"<local>/co",
+            "elapsed_seconds": 35.96172279806342,
+            "final_pass": false
+          },
+          {
+            "attempt": 2,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/A/attempt_2_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/A/attempt_2_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/A/attempt_2_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/A/attempt_2_validation.log",
+            "generation_ok": true,
+            "execution_ok": false,
+            "validation_ok": false,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/A/attempt_2_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/A/attempt_2_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/A/attempt_2_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/A/attempt_2_tool_usage.json",
+            "tool_usage": {
+              "used_tools": false,
+              "gitnexus_query_count": 0,
+              "gitnexus_context_count": 0,
+              "tool_call_names": [],
+              "retrieval_before_code": false
+            },
+            "failure_type": "runtime_error",
+            "error_summary": "Traceback (most recent call last): File \"benchmarks/runs/stage_a_v2_latest/L1_create_substrate/A/aedt_attempt_wrapper.py\", line 16, in <module> exec(compile(code_path.read_text(encoding=\"utf-8\"), str(code_path), \"exec\"), namespace) File \"benchmarks/runs/stage_a_v2_latest/L1_create_substrate/A/attempt_2_code.py\", line 1, in <module> app.materials.add_material(\"FR4_epoxy\", relative_permittivity=4.4, dielectric_loss_tangent=0.02) File \"/ho",
+            "elapsed_seconds": 107.34428423293866,
+            "final_pass": false
+          },
+          {
+            "attempt": 3,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/A/attempt_3_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/A/attempt_3_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/A/attempt_3_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/A/attempt_3_validation.log",
+            "generation_ok": true,
+            "execution_ok": false,
+            "validation_ok": false,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/A/attempt_3_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/A/attempt_3_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/A/attempt_3_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/A/attempt_3_tool_usage.json",
+            "tool_usage": {
+              "used_tools": false,
+              "gitnexus_query_count": 0,
+              "gitnexus_context_count": 0,
+              "tool_call_names": [],
+              "retrieval_before_code": false
+            },
+            "failure_type": "runtime_error",
+            "error_summary": "Traceback (most recent call last): File \"benchmarks/runs/stage_a_v2_latest/L1_create_substrate/A/aedt_attempt_wrapper.py\", line 16, in <module> exec(compile(code_path.read_text(encoding=\"utf-8\"), str(code_path), \"exec\"), namespace) File \"benchmarks/runs/stage_a_v2_latest/L1_create_substrate/A/attempt_3_code.py\", line 1, in <module> app.materials.add_material(\"FR4_epoxy\", permittivity=4.4, dielectric_loss_tangent=0.02) File \"<local>",
+            "elapsed_seconds": 80.78230977605563,
+            "final_pass": false
+          }
+        ]
       },
       "B": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "C": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
+        "final_pass": true,
+        "success_on_attempt": 1,
+        "failure_type": "",
+        "attempts": [
+          {
+            "attempt": 1,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/B/attempt_1_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/B/attempt_1_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/B/attempt_1_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/B/attempt_1_validation.log",
+            "generation_ok": true,
+            "execution_ok": true,
+            "validation_ok": true,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/B/attempt_1_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/B/attempt_1_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/B/attempt_1_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L1_create_substrate/B/attempt_1_tool_usage.json",
+            "tool_usage": {
+              "used_tools": true,
+              "gitnexus_query_count": 5,
+              "gitnexus_context_count": 4,
+              "tool_call_names": [
+                "mcp__gitnexus__query",
+                "mcp__gitnexus__context",
+                "Read"
+              ],
+              "retrieval_before_code": true
+            },
+            "failure_type": "",
+            "error_summary": "",
+            "elapsed_seconds": 79.5903810079908,
+            "final_pass": true
+          }
+        ]
       }
     },
-    "L1_create_sweep": {
+    "L1_assign_material": {
       "metadata": {
-        "allowed_nodes": [
-          "create_setup",
-          "create_sweep_or_export"
-        ],
-        "level": "L1"
+        "level": "L1",
+        "validation_script": "benchmarks/validation_scripts/validate_session.py"
       },
       "A": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
+        "final_pass": true,
+        "success_on_attempt": 2,
+        "failure_type": "",
+        "attempts": [
+          {
+            "attempt": 1,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L1_assign_material/A/attempt_1_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L1_assign_material/A/attempt_1_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L1_assign_material/A/attempt_1_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L1_assign_material/A/attempt_1_validation.log",
+            "generation_ok": true,
+            "execution_ok": false,
+            "validation_ok": false,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L1_assign_material/A/attempt_1_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L1_assign_material/A/attempt_1_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L1_assign_material/A/attempt_1_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L1_assign_material/A/attempt_1_tool_usage.json",
+            "tool_usage": {
+              "used_tools": false,
+              "gitnexus_query_count": 0,
+              "gitnexus_context_count": 0,
+              "tool_call_names": [],
+              "retrieval_before_code": false
+            },
+            "failure_type": "runtime_error",
+            "error_summary": "Traceback (most recent call last): File \"benchmarks/runs/stage_a_v2_latest/L1_assign_material/A/aedt_attempt_wrapper.py\", line 16, in <module> exec(compile(code_path.read_text(encoding=\"utf-8\"), str(code_path), \"exec\"), namespace) File \"benchmarks/runs/stage_a_v2_latest/L1_assign_material/A/attempt_1_code.py\", line 3, in <module> box = app.modeler.create_box( ^^^^^^^^^^^^^^^^^^^^^^^ File \".venv/lib/python3.",
+            "elapsed_seconds": 42.367984279990196,
+            "final_pass": false
+          },
+          {
+            "attempt": 2,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L1_assign_material/A/attempt_2_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L1_assign_material/A/attempt_2_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L1_assign_material/A/attempt_2_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L1_assign_material/A/attempt_2_validation.log",
+            "generation_ok": true,
+            "execution_ok": true,
+            "validation_ok": true,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L1_assign_material/A/attempt_2_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L1_assign_material/A/attempt_2_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L1_assign_material/A/attempt_2_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L1_assign_material/A/attempt_2_tool_usage.json",
+            "tool_usage": {
+              "used_tools": false,
+              "gitnexus_query_count": 0,
+              "gitnexus_context_count": 0,
+              "tool_call_names": [],
+              "retrieval_before_code": false
+            },
+            "failure_type": "",
+            "error_summary": "",
+            "elapsed_seconds": 47.14535774302203,
+            "final_pass": true
+          }
+        ]
       },
       "B": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "C": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
+        "final_pass": true,
+        "success_on_attempt": 1,
+        "failure_type": "",
+        "attempts": [
+          {
+            "attempt": 1,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L1_assign_material/B/attempt_1_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L1_assign_material/B/attempt_1_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L1_assign_material/B/attempt_1_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L1_assign_material/B/attempt_1_validation.log",
+            "generation_ok": true,
+            "execution_ok": true,
+            "validation_ok": true,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L1_assign_material/B/attempt_1_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L1_assign_material/B/attempt_1_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L1_assign_material/B/attempt_1_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L1_assign_material/B/attempt_1_tool_usage.json",
+            "tool_usage": {
+              "used_tools": true,
+              "gitnexus_query_count": 3,
+              "gitnexus_context_count": 4,
+              "tool_call_names": [
+                "mcp__gitnexus__query",
+                "mcp__gitnexus__context",
+                "ReadMcpResourceTool"
+              ],
+              "retrieval_before_code": true
+            },
+            "failure_type": "",
+            "error_summary": "",
+            "elapsed_seconds": 65.22236781800166,
+            "final_pass": true
+          }
+        ]
       }
     },
     "L1_create_wave_port": {
       "metadata": {
-        "allowed_nodes": [
-          "select_face",
-          "create_port"
-        ],
-        "level": "L1"
+        "level": "L1",
+        "validation_script": "benchmarks/validation_scripts/validate_session.py"
       },
       "A": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
+        "final_pass": false,
+        "success_on_attempt": null,
+        "failure_type": "runtime_error",
+        "attempts": [
+          {
+            "attempt": 1,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/A/attempt_1_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/A/attempt_1_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/A/attempt_1_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/A/attempt_1_validation.log",
+            "generation_ok": true,
+            "execution_ok": false,
+            "validation_ok": false,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/A/attempt_1_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/A/attempt_1_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/A/attempt_1_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/A/attempt_1_tool_usage.json",
+            "tool_usage": {
+              "used_tools": false,
+              "gitnexus_query_count": 0,
+              "gitnexus_context_count": 0,
+              "tool_call_names": [],
+              "retrieval_before_code": false
+            },
+            "failure_type": "runtime_error",
+            "error_summary": "Traceback (most recent call last): File \"benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/A/aedt_attempt_wrapper.py\", line 16, in <module> exec(compile(code_path.read_text(encoding=\"utf-8\"), str(code_path), \"exec\"), namespace) File \"benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/A/attempt_1_code.py\", line 13, in <module> cs_plane=app.PLANE_XY, ^^^^^^^^^^^^ AttributeError: 'Hfss' object has no attribute 'PLANE_XY'",
+            "elapsed_seconds": 117.70295145898126,
+            "final_pass": false
+          },
+          {
+            "attempt": 2,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/A/attempt_2_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/A/attempt_2_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/A/attempt_2_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/A/attempt_2_validation.log",
+            "generation_ok": true,
+            "execution_ok": false,
+            "validation_ok": false,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/A/attempt_2_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/A/attempt_2_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/A/attempt_2_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/A/attempt_2_tool_usage.json",
+            "tool_usage": {
+              "used_tools": false,
+              "gitnexus_query_count": 0,
+              "gitnexus_context_count": 0,
+              "tool_call_names": [],
+              "retrieval_before_code": false
+            },
+            "failure_type": "runtime_error",
+            "error_summary": "Traceback (most recent call last): File \"benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/A/aedt_attempt_wrapper.py\", line 16, in <module> exec(compile(code_path.read_text(encoding=\"utf-8\"), str(code_path), \"exec\"), namespace) File \"benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/A/attempt_2_code.py\", line 9, in <module> cs_plane=app.modeler.CoordinateSystemPlane.XYPlane, ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ AttributeError: 'Mod",
+            "elapsed_seconds": 134.40416529309005,
+            "final_pass": false
+          },
+          {
+            "attempt": 3,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/A/attempt_3_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/A/attempt_3_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/A/attempt_3_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/A/attempt_3_validation.log",
+            "generation_ok": true,
+            "execution_ok": false,
+            "validation_ok": false,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/A/attempt_3_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/A/attempt_3_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/A/attempt_3_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/A/attempt_3_tool_usage.json",
+            "tool_usage": {
+              "used_tools": false,
+              "gitnexus_query_count": 0,
+              "gitnexus_context_count": 0,
+              "tool_call_names": [],
+              "retrieval_before_code": false
+            },
+            "failure_type": "runtime_error",
+            "error_summary": "Traceback (most recent call last): File \"benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/A/aedt_attempt_wrapper.py\", line 16, in <module> exec(compile(code_path.read_text(encoding=\"utf-8\"), str(code_path), \"exec\"), namespace) File \"benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/A/attempt_3_code.py\", line 8, in <module> ground = app.modeler.create_rectangle( ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File \".",
+            "elapsed_seconds": 58.83941410493571,
+            "final_pass": false
+          }
+        ]
       },
       "B": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "C": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
+        "final_pass": true,
+        "success_on_attempt": 1,
+        "failure_type": "",
+        "attempts": [
+          {
+            "attempt": 1,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/B/attempt_1_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/B/attempt_1_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/B/attempt_1_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/B/attempt_1_validation.log",
+            "generation_ok": true,
+            "execution_ok": true,
+            "validation_ok": true,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/B/attempt_1_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/B/attempt_1_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/B/attempt_1_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L1_create_wave_port/B/attempt_1_tool_usage.json",
+            "tool_usage": {
+              "used_tools": true,
+              "gitnexus_query_count": 3,
+              "gitnexus_context_count": 4,
+              "tool_call_names": [
+                "mcp__gitnexus__query",
+                "mcp__gitnexus__context"
+              ],
+              "retrieval_before_code": true
+            },
+            "failure_type": "",
+            "error_summary": "",
+            "elapsed_seconds": 77.54598345502745,
+            "final_pass": true
+          }
+        ]
       }
     },
-    "L1_select_face": {
+    "L1_create_setup": {
       "metadata": {
-        "allowed_nodes": [
-          "select_face"
-        ],
-        "level": "L1"
+        "level": "L1",
+        "validation_script": "benchmarks/validation_scripts/validate_session.py"
       },
       "A": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
+        "final_pass": false,
+        "success_on_attempt": null,
+        "failure_type": "runtime_error",
+        "attempts": [
+          {
+            "attempt": 1,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/A/attempt_1_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/A/attempt_1_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/A/attempt_1_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/A/attempt_1_validation.log",
+            "generation_ok": true,
+            "execution_ok": false,
+            "validation_ok": false,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/A/attempt_1_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/A/attempt_1_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/A/attempt_1_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/A/attempt_1_tool_usage.json",
+            "tool_usage": {
+              "used_tools": false,
+              "gitnexus_query_count": 0,
+              "gitnexus_context_count": 0,
+              "tool_call_names": [],
+              "retrieval_before_code": false
+            },
+            "failure_type": "runtime_error",
+            "error_summary": "Traceback (most recent call last): File \"benchmarks/runs/stage_a_v2_latest/L1_create_setup/A/aedt_attempt_wrapper.py\", line 16, in <module> exec(compile(code_path.read_text(encoding=\"utf-8\"), str(code_path), \"exec\"), namespace) File \"benchmarks/runs/stage_a_v2_latest/L1_create_setup/A/attempt_1_code.py\", line 32, in <module> app.create_wave_port_from_sheet(\"Port1\", name=\"1\") ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ AttributeError: 'Hfss' object ",
+            "elapsed_seconds": 317.823157873936,
+            "final_pass": false
+          },
+          {
+            "attempt": 2,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/A/attempt_2_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/A/attempt_2_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/A/attempt_2_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/A/attempt_2_validation.log",
+            "generation_ok": true,
+            "execution_ok": false,
+            "validation_ok": false,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/A/attempt_2_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/A/attempt_2_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/A/attempt_2_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/A/attempt_2_tool_usage.json",
+            "tool_usage": {
+              "used_tools": false,
+              "gitnexus_query_count": 0,
+              "gitnexus_context_count": 0,
+              "tool_call_names": [],
+              "retrieval_before_code": false
+            },
+            "failure_type": "runtime_error",
+            "error_summary": "Traceback (most recent call last): File \"benchmarks/runs/stage_a_v2_latest/L1_create_setup/A/aedt_attempt_wrapper.py\", line 16, in <module> exec(compile(code_path.read_text(encoding=\"utf-8\"), str(code_path), \"exec\"), namespace) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File \"benchmarks/runs/stage_a_v2_latest/L1_create_setup/A/attempt_2_code.py\", line 1 Set model units to mm ^^^^^ SyntaxError: invalid syntax",
+            "elapsed_seconds": 55.97071846702602,
+            "final_pass": false
+          },
+          {
+            "attempt": 3,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/A/attempt_3_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/A/attempt_3_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/A/attempt_3_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/A/attempt_3_validation.log",
+            "generation_ok": true,
+            "execution_ok": false,
+            "validation_ok": false,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/A/attempt_3_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/A/attempt_3_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/A/attempt_3_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/A/attempt_3_tool_usage.json",
+            "tool_usage": {
+              "used_tools": false,
+              "gitnexus_query_count": 0,
+              "gitnexus_context_count": 0,
+              "tool_call_names": [],
+              "retrieval_before_code": false
+            },
+            "failure_type": "runtime_error",
+            "error_summary": "Traceback (most recent call last): File \"benchmarks/runs/stage_a_v2_latest/L1_create_setup/A/aedt_attempt_wrapper.py\", line 16, in <module> exec(compile(code_path.read_text(encoding=\"utf-8\"), str(code_path), \"exec\"), namespace) File \"benchmarks/runs/stage_a_v2_latest/L1_create_setup/A/attempt_3_code.py\", line 25, in <module> app.wave_port[\"1\"] = \"Port1\" ~~~~~~~~~~~~~^^^^^ TypeError: 'method' object does not support item assignment",
+            "elapsed_seconds": 25.70639002393,
+            "final_pass": false
+          }
+        ]
       },
       "B": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "C": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      }
-    },
-    "L2_cavity_resonator": {
-      "metadata": {
-        "allowed_nodes": [
-          "create_conductor_or_geometry_group",
-          "create_setup"
-        ],
-        "level": "L2"
-      },
-      "A": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "B": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "C": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      }
-    },
-    "L2_coaxial_cable": {
-      "metadata": {
-        "allowed_nodes": [
-          "create_conductor_or_geometry_group",
-          "create_airbox",
-          "assign_boundary",
-          "select_face",
-          "create_port"
-        ],
-        "level": "L2"
-      },
-      "A": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "B": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "C": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      }
-    },
-    "L2_cpw_line": {
-      "metadata": {
-        "allowed_nodes": [
-          "create_substrate",
-          "create_conductor_or_geometry_group",
-          "create_airbox",
-          "assign_boundary"
-        ],
-        "level": "L2"
-      },
-      "A": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "B": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "C": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      }
-    },
-    "L2_differential_pair": {
-      "metadata": {
-        "allowed_nodes": [
-          "create_substrate",
-          "create_conductor_or_geometry_group",
-          "create_airbox",
-          "assign_boundary"
-        ],
-        "level": "L2"
-      },
-      "A": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "B": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "C": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      }
-    },
-    "L2_dipole_antenna": {
-      "metadata": {
-        "allowed_nodes": [
-          "create_conductor_or_geometry_group",
-          "create_airbox",
-          "assign_boundary",
-          "create_setup",
-          "create_sweep_or_export"
-        ],
-        "level": "L2"
-      },
-      "A": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "B": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "C": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
+        "final_pass": true,
+        "success_on_attempt": 1,
+        "failure_type": "",
+        "attempts": [
+          {
+            "attempt": 1,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/B/attempt_1_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/B/attempt_1_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/B/attempt_1_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/B/attempt_1_validation.log",
+            "generation_ok": true,
+            "execution_ok": true,
+            "validation_ok": true,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/B/attempt_1_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/B/attempt_1_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/B/attempt_1_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L1_create_setup/B/attempt_1_tool_usage.json",
+            "tool_usage": {
+              "used_tools": true,
+              "gitnexus_query_count": 5,
+              "gitnexus_context_count": 4,
+              "tool_call_names": [
+                "mcp__gitnexus__query",
+                "mcp__gitnexus__context",
+                "ReadMcpResourceTool",
+                "Read"
+              ],
+              "retrieval_before_code": true
+            },
+            "failure_type": "",
+            "error_summary": "",
+            "elapsed_seconds": 61.43079355394002,
+            "final_pass": true
+          }
+        ]
       }
     },
     "L2_microstrip_line": {
       "metadata": {
-        "allowed_nodes": [
-          "create_substrate",
-          "create_conductor_or_geometry_group",
-          "create_airbox",
-          "assign_boundary"
-        ],
-        "level": "L2"
+        "level": "L2",
+        "validation_script": "benchmarks/validation_scripts/validate_session.py"
       },
       "A": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
+        "final_pass": true,
+        "success_on_attempt": 1,
+        "failure_type": "",
+        "attempts": [
+          {
+            "attempt": 1,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L2_microstrip_line/A/attempt_1_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L2_microstrip_line/A/attempt_1_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L2_microstrip_line/A/attempt_1_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L2_microstrip_line/A/attempt_1_validation.log",
+            "generation_ok": true,
+            "execution_ok": true,
+            "validation_ok": true,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L2_microstrip_line/A/attempt_1_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L2_microstrip_line/A/attempt_1_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L2_microstrip_line/A/attempt_1_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L2_microstrip_line/A/attempt_1_tool_usage.json",
+            "tool_usage": {
+              "used_tools": false,
+              "gitnexus_query_count": 0,
+              "gitnexus_context_count": 0,
+              "tool_call_names": [],
+              "retrieval_before_code": false
+            },
+            "failure_type": "",
+            "error_summary": "",
+            "elapsed_seconds": 93.8223181089852,
+            "final_pass": true
+          }
+        ]
       },
       "B": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
+        "final_pass": true,
+        "success_on_attempt": 1,
+        "failure_type": "",
+        "attempts": [
+          {
+            "attempt": 1,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L2_microstrip_line/B/attempt_1_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L2_microstrip_line/B/attempt_1_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L2_microstrip_line/B/attempt_1_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L2_microstrip_line/B/attempt_1_validation.log",
+            "generation_ok": true,
+            "execution_ok": true,
+            "validation_ok": true,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L2_microstrip_line/B/attempt_1_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L2_microstrip_line/B/attempt_1_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L2_microstrip_line/B/attempt_1_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L2_microstrip_line/B/attempt_1_tool_usage.json",
+            "tool_usage": {
+              "used_tools": true,
+              "gitnexus_query_count": 8,
+              "gitnexus_context_count": 7,
+              "tool_call_names": [
+                "mcp__gitnexus__query",
+                "mcp__gitnexus__context",
+                "mcp__gitnexus__cypher",
+                "Read"
+              ],
+              "retrieval_before_code": true
+            },
+            "failure_type": "",
+            "error_summary": "",
+            "elapsed_seconds": 251.22199806198478,
+            "final_pass": true
+          }
+        ]
+      }
+    },
+    "L2_dipole_antenna": {
+      "metadata": {
+        "level": "L2",
+        "validation_script": "benchmarks/validation_scripts/validate_session.py"
       },
-      "C": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
+      "A": {
+        "final_pass": false,
+        "success_on_attempt": null,
+        "failure_type": "runtime_error",
+        "attempts": [
+          {
+            "attempt": 1,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/A/attempt_1_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/A/attempt_1_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/A/attempt_1_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/A/attempt_1_validation.log",
+            "generation_ok": true,
+            "execution_ok": false,
+            "validation_ok": false,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/A/attempt_1_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/A/attempt_1_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/A/attempt_1_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/A/attempt_1_tool_usage.json",
+            "tool_usage": {
+              "used_tools": false,
+              "gitnexus_query_count": 0,
+              "gitnexus_context_count": 0,
+              "tool_call_names": [],
+              "retrieval_before_code": false
+            },
+            "failure_type": "runtime_error",
+            "error_summary": "Traceback (most recent call last): File \"benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/A/aedt_attempt_wrapper.py\", line 16, in <module> exec(compile(code_path.read_text(encoding=\"utf-8\"), str(code_path), \"exec\"), namespace) File \"benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/A/attempt_1_code.py\", line 14, in <module> app.modeler.create_cylinder( File \".venv/lib/python3.12/site-packages/ansys/aed",
+            "elapsed_seconds": 212.50964017095976,
+            "final_pass": false
+          },
+          {
+            "attempt": 2,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/A/attempt_2_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/A/attempt_2_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/A/attempt_2_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/A/attempt_2_validation.log",
+            "generation_ok": true,
+            "execution_ok": false,
+            "validation_ok": false,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/A/attempt_2_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/A/attempt_2_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/A/attempt_2_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/A/attempt_2_tool_usage.json",
+            "tool_usage": {
+              "used_tools": false,
+              "gitnexus_query_count": 0,
+              "gitnexus_context_count": 0,
+              "tool_call_names": [],
+              "retrieval_before_code": false
+            },
+            "failure_type": "runtime_error",
+            "error_summary": "Traceback (most recent call last): File \"benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/A/aedt_attempt_wrapper.py\", line 16, in <module> exec(compile(code_path.read_text(encoding=\"utf-8\"), str(code_path), \"exec\"), namespace) File \"benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/A/attempt_2_code.py\", line 36, in <module> app.modeler.create_rectangle( File \".venv/lib/python3.12/site-packages/ansys/ae",
+            "elapsed_seconds": 105.25683149707038,
+            "final_pass": false
+          },
+          {
+            "attempt": 3,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/A/attempt_3_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/A/attempt_3_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/A/attempt_3_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/A/attempt_3_validation.log",
+            "generation_ok": true,
+            "execution_ok": false,
+            "validation_ok": false,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/A/attempt_3_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/A/attempt_3_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/A/attempt_3_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/A/attempt_3_tool_usage.json",
+            "tool_usage": {
+              "used_tools": false,
+              "gitnexus_query_count": 0,
+              "gitnexus_context_count": 0,
+              "tool_call_names": [],
+              "retrieval_before_code": false
+            },
+            "failure_type": "runtime_error",
+            "error_summary": "Traceback (most recent call last): File \"benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/A/aedt_attempt_wrapper.py\", line 16, in <module> exec(compile(code_path.read_text(encoding=\"utf-8\"), str(code_path), \"exec\"), namespace) File \"benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/A/attempt_3_code.py\", line 45, in <module> app.create_lumped_port_to_sheet( ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ AttributeError: 'Hfss' object has no attribu",
+            "elapsed_seconds": 85.07910084410105,
+            "final_pass": false
+          }
+        ]
+      },
+      "B": {
+        "final_pass": true,
+        "success_on_attempt": 2,
+        "failure_type": "",
+        "attempts": [
+          {
+            "attempt": 1,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/B/attempt_1_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/B/attempt_1_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/B/attempt_1_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/B/attempt_1_validation.log",
+            "generation_ok": true,
+            "execution_ok": false,
+            "validation_ok": false,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/B/attempt_1_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/B/attempt_1_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/B/attempt_1_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/B/attempt_1_tool_usage.json",
+            "tool_usage": {
+              "used_tools": true,
+              "gitnexus_query_count": 5,
+              "gitnexus_context_count": 6,
+              "tool_call_names": [
+                "mcp__gitnexus__query",
+                "mcp__gitnexus__context",
+                "Read"
+              ],
+              "retrieval_before_code": true
+            },
+            "failure_type": "runtime_error",
+            "error_summary": "Traceback (most recent call last): File \".venv/lib/python3.12/site-packages/ansys/aedt/core/internal/grpc_plugin_dll_class.py\", line 116, in __Invoke__ ret = _retry_ntimes( ^^^^^^^^^^^^^^ File \".venv/lib/python3.12/site-packages/ansys/aedt/core/generic/general_methods.py\", line 613, in _retry_ntimes raise AttributeError(f\"Error in Executing Method {function.__name__}.\") AttributeError: Error in Executing Method InvokeAedtObjMethod. Duri",
+            "elapsed_seconds": 295.6659640939906,
+            "final_pass": false
+          },
+          {
+            "attempt": 2,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/B/attempt_2_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/B/attempt_2_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/B/attempt_2_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/B/attempt_2_validation.log",
+            "generation_ok": true,
+            "execution_ok": true,
+            "validation_ok": true,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/B/attempt_2_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/B/attempt_2_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/B/attempt_2_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L2_dipole_antenna/B/attempt_2_tool_usage.json",
+            "tool_usage": {
+              "used_tools": true,
+              "gitnexus_query_count": 4,
+              "gitnexus_context_count": 10,
+              "tool_call_names": [
+                "mcp__gitnexus__context",
+                "Read",
+                "mcp__gitnexus__query"
+              ],
+              "retrieval_before_code": true
+            },
+            "failure_type": "",
+            "error_summary": "",
+            "elapsed_seconds": 744.6157858860679,
+            "final_pass": true
+          }
+        ]
       }
     },
     "L2_patch_with_probe_feed": {
       "metadata": {
-        "allowed_nodes": [
-          "create_substrate",
-          "create_conductor_or_geometry_group",
-          "create_airbox",
-          "assign_boundary",
-          "create_port"
-        ],
-        "level": "L2"
+        "level": "L2",
+        "validation_script": "benchmarks/validation_scripts/validate_session.py"
       },
       "A": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": false,
-        "passed": false
+        "final_pass": false,
+        "success_on_attempt": null,
+        "failure_type": "runtime_error",
+        "attempts": [
+          {
+            "attempt": 1,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/A/attempt_1_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/A/attempt_1_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/A/attempt_1_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/A/attempt_1_validation.log",
+            "generation_ok": true,
+            "execution_ok": false,
+            "validation_ok": false,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/A/attempt_1_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/A/attempt_1_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/A/attempt_1_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/A/attempt_1_tool_usage.json",
+            "tool_usage": {
+              "used_tools": false,
+              "gitnexus_query_count": 0,
+              "gitnexus_context_count": 0,
+              "tool_call_names": [],
+              "retrieval_before_code": false
+            },
+            "failure_type": "runtime_error",
+            "error_summary": "Traceback (most recent call last): File \"benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/A/aedt_attempt_wrapper.py\", line 16, in <module> exec(compile(code_path.read_text(encoding=\"utf-8\"), str(code_path), \"exec\"), namespace) File \"benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/A/attempt_1_code.py\", line 28, in <module> app.PLANE.XY, ^^^^^^^^^ AttributeError: 'Hfss' object has no attribute 'PLANE'",
+            "elapsed_seconds": 503.59055621305015,
+            "final_pass": false
+          },
+          {
+            "attempt": 2,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/A/attempt_2_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/A/attempt_2_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/A/attempt_2_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/A/attempt_2_validation.log",
+            "generation_ok": true,
+            "execution_ok": false,
+            "validation_ok": false,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/A/attempt_2_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/A/attempt_2_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/A/attempt_2_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/A/attempt_2_tool_usage.json",
+            "tool_usage": {
+              "used_tools": false,
+              "gitnexus_query_count": 0,
+              "gitnexus_context_count": 0,
+              "tool_call_names": [],
+              "retrieval_before_code": false
+            },
+            "failure_type": "runtime_error",
+            "error_summary": "Traceback (most recent call last): File \"benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/A/aedt_attempt_wrapper.py\", line 16, in <module> exec(compile(code_path.read_text(encoding=\"utf-8\"), str(code_path), \"exec\"), namespace) File \"benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/A/attempt_2_code.py\", line 81, in <module> port_ring.name = \"PortRing\" ^^^^^^^^^^^^^^ AttributeError: 'bool' object has no attribute 'name",
+            "elapsed_seconds": 238.4414236759767,
+            "final_pass": false
+          },
+          {
+            "attempt": 3,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/A/attempt_3_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/A/attempt_3_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/A/attempt_3_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/A/attempt_3_validation.log",
+            "generation_ok": true,
+            "execution_ok": false,
+            "validation_ok": false,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/A/attempt_3_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/A/attempt_3_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/A/attempt_3_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/A/attempt_3_tool_usage.json",
+            "tool_usage": {
+              "used_tools": false,
+              "gitnexus_query_count": 0,
+              "gitnexus_context_count": 0,
+              "tool_call_names": [],
+              "retrieval_before_code": false
+            },
+            "failure_type": "runtime_error",
+            "error_summary": "Traceback (most recent call last): File \"benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/A/aedt_attempt_wrapper.py\", line 16, in <module> exec(compile(code_path.read_text(encoding=\"utf-8\"), str(code_path), \"exec\"), namespace) File \"benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/A/attempt_3_code.py\", line 88, in <module> app.create_lumped_port_to_sheet( ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ AttributeError: 'Hfss' object ",
+            "elapsed_seconds": 72.28010248497594,
+            "final_pass": false
+          }
+        ]
       },
       "B": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": false,
-        "passed": false
-      },
-      "C": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": false,
-        "passed": false
+        "final_pass": true,
+        "success_on_attempt": 2,
+        "failure_type": "",
+        "attempts": [
+          {
+            "attempt": 1,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/B/attempt_1_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/B/attempt_1_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/B/attempt_1_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/B/attempt_1_validation.log",
+            "generation_ok": true,
+            "execution_ok": false,
+            "validation_ok": false,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/B/attempt_1_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/B/attempt_1_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/B/attempt_1_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/B/attempt_1_tool_usage.json",
+            "tool_usage": {
+              "used_tools": true,
+              "gitnexus_query_count": 5,
+              "gitnexus_context_count": 5,
+              "tool_call_names": [
+                "mcp__gitnexus__query",
+                "mcp__gitnexus__context",
+                "Read"
+              ],
+              "retrieval_before_code": true
+            },
+            "failure_type": "runtime_error",
+            "error_summary": "Traceback (most recent call last): File \"benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/B/aedt_attempt_wrapper.py\", line 16, in <module> exec(compile(code_path.read_text(encoding=\"utf-8\"), str(code_path), \"exec\"), namespace) File \"benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/B/attempt_1_code.py\", line 14, in <module> app.modeler.PLANE_XY, ^^^^^^^^^^^^^^^^^^^^ AttributeError: 'Modeler3D' object has no attribute ",
+            "elapsed_seconds": 549.2024609569926,
+            "final_pass": false
+          },
+          {
+            "attempt": 2,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/B/attempt_2_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/B/attempt_2_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/B/attempt_2_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/B/attempt_2_validation.log",
+            "generation_ok": true,
+            "execution_ok": true,
+            "validation_ok": true,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/B/attempt_2_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/B/attempt_2_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/B/attempt_2_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L2_patch_with_probe_feed/B/attempt_2_tool_usage.json",
+            "tool_usage": {
+              "used_tools": true,
+              "gitnexus_query_count": 5,
+              "gitnexus_context_count": 5,
+              "tool_call_names": [
+                "mcp__gitnexus__query",
+                "Read",
+                "mcp__gitnexus__context",
+                "mcp__gitnexus__cypher"
+              ],
+              "retrieval_before_code": true
+            },
+            "failure_type": "",
+            "error_summary": "",
+            "elapsed_seconds": 184.10031460109167,
+            "final_pass": true
+          }
+        ]
       }
     },
     "L2_simple_filter": {
       "metadata": {
-        "allowed_nodes": [
-          "create_conductor_or_geometry_group",
-          "select_face",
-          "create_port",
-          "create_setup"
-        ],
-        "level": "L2"
+        "level": "L2",
+        "validation_script": "benchmarks/validation_scripts/validate_session.py"
       },
       "A": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
+        "final_pass": false,
+        "success_on_attempt": null,
+        "failure_type": "runtime_error",
+        "attempts": [
+          {
+            "attempt": 1,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/A/attempt_1_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/A/attempt_1_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/A/attempt_1_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/A/attempt_1_validation.log",
+            "generation_ok": true,
+            "execution_ok": false,
+            "validation_ok": false,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/A/attempt_1_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/A/attempt_1_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/A/attempt_1_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/A/attempt_1_tool_usage.json",
+            "tool_usage": {
+              "used_tools": false,
+              "gitnexus_query_count": 0,
+              "gitnexus_context_count": 0,
+              "tool_call_names": [],
+              "retrieval_before_code": false
+            },
+            "failure_type": "runtime_error",
+            "error_summary": "Traceback (most recent call last): File \"benchmarks/runs/stage_a_v2_latest/L2_simple_filter/A/aedt_attempt_wrapper.py\", line 16, in <module> exec(compile(code_path.read_text(encoding=\"utf-8\"), str(code_path), \"exec\"), namespace) File \"benchmarks/runs/stage_a_v2_latest/L2_simple_filter/A/attempt_1_code.py\", line 46, in <module> port1 = app.modeler.get_face_by_position(\"Waveguide\", [wg_w / 2, wg_h / 2, 0.0]) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+            "elapsed_seconds": 534.013988351915,
+            "final_pass": false
+          },
+          {
+            "attempt": 2,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/A/attempt_2_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/A/attempt_2_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/A/attempt_2_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/A/attempt_2_validation.log",
+            "generation_ok": true,
+            "execution_ok": false,
+            "validation_ok": false,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/A/attempt_2_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/A/attempt_2_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/A/attempt_2_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/A/attempt_2_tool_usage.json",
+            "tool_usage": {
+              "used_tools": false,
+              "gitnexus_query_count": 0,
+              "gitnexus_context_count": 0,
+              "tool_call_names": [],
+              "retrieval_before_code": false
+            },
+            "failure_type": "runtime_error",
+            "error_summary": "Traceback (most recent call last): File \"benchmarks/runs/stage_a_v2_latest/L2_simple_filter/A/aedt_attempt_wrapper.py\", line 16, in <module> exec(compile(code_path.read_text(encoding=\"utf-8\"), str(code_path), \"exec\"), namespace) File \"benchmarks/runs/stage_a_v2_latest/L2_simple_filter/A/attempt_2_code.py\", line 50, in <module> app.create_wave_port( ^^^^^^^^^^^^^^^^^^^^ AttributeError: 'Hfss' object has no attribute 'create_wave_port'. D",
+            "elapsed_seconds": 153.48560946900398,
+            "final_pass": false
+          },
+          {
+            "attempt": 3,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/A/attempt_3_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/A/attempt_3_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/A/attempt_3_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/A/attempt_3_validation.log",
+            "generation_ok": true,
+            "execution_ok": false,
+            "validation_ok": false,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/A/attempt_3_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/A/attempt_3_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/A/attempt_3_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/A/attempt_3_tool_usage.json",
+            "tool_usage": {
+              "used_tools": false,
+              "gitnexus_query_count": 0,
+              "gitnexus_context_count": 0,
+              "tool_call_names": [],
+              "retrieval_before_code": false
+            },
+            "failure_type": "runtime_error",
+            "error_summary": "Traceback (most recent call last): File \"benchmarks/runs/stage_a_v2_latest/L2_simple_filter/A/aedt_attempt_wrapper.py\", line 16, in <module> exec(compile(code_path.read_text(encoding=\"utf-8\"), str(code_path), \"exec\"), namespace) File \"benchmarks/runs/stage_a_v2_latest/L2_simple_filter/A/attempt_3_code.py\", line 50, in <module> app.wave_port.create( ^^^^^^^^^^^^^^^^^^^^ AttributeError: 'function' object has no attribute 'create'",
+            "elapsed_seconds": 314.2608298800187,
+            "final_pass": false
+          }
+        ]
       },
       "B": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "C": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      }
-    },
-    "L2_stripline": {
-      "metadata": {
-        "allowed_nodes": [
-          "create_substrate",
-          "create_conductor_or_geometry_group",
-          "create_airbox",
-          "assign_boundary"
-        ],
-        "level": "L2"
-      },
-      "A": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "B": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "C": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      }
-    },
-    "L2_waveguide_section": {
-      "metadata": {
-        "allowed_nodes": [
-          "create_conductor_or_geometry_group",
-          "select_face",
-          "create_port"
-        ],
-        "level": "L2"
-      },
-      "A": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "B": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "C": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      }
-    },
-    "L3_antenna_array": {
-      "metadata": {
-        "allowed_nodes": [
-          "create_conductor_or_geometry_group",
-          "create_setup",
-          "create_sweep_or_export"
-        ],
-        "level": "L3"
-      },
-      "A": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "B": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "C": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      }
-    },
-    "L3_patch_antenna_sparameter": {
-      "metadata": {
-        "allowed_nodes": [
-          "create_substrate",
-          "create_conductor_or_geometry_group",
-          "create_airbox",
-          "assign_boundary",
-          "create_port",
-          "create_setup",
-          "create_sweep_or_export"
-        ],
-        "level": "L3"
-      },
-      "A": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": false,
-        "passed": false
-      },
-      "B": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": false,
-        "passed": false
-      },
-      "C": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": false,
-        "passed": false
-      }
-    },
-    "L3_sparameter_export": {
-      "metadata": {
-        "allowed_nodes": [
-          "create_conductor_or_geometry_group",
-          "create_setup",
-          "create_sweep_or_export"
-        ],
-        "level": "L3"
-      },
-      "A": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "B": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "C": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      }
-    },
-    "L3_vivaldi_antenna": {
-      "metadata": {
-        "allowed_nodes": [
-          "create_substrate",
-          "create_conductor_or_geometry_group",
-          "create_airbox",
-          "assign_boundary",
-          "create_port",
-          "create_setup",
-          "create_sweep_or_export"
-        ],
-        "level": "L3"
-      },
-      "A": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": false,
-        "passed": false
-      },
-      "B": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": false,
-        "passed": false
-      },
-      "C": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": false,
-        "passed": false
-      }
-    },
-    "L3_waveguide_filter": {
-      "metadata": {
-        "allowed_nodes": [
-          "create_conductor_or_geometry_group",
-          "select_face",
-          "create_port",
-          "create_setup",
-          "create_sweep_or_export"
-        ],
-        "level": "L3"
-      },
-      "A": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "B": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "C": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      }
-    },
-    "Trap_airbox_too_small": {
-      "metadata": {
-        "allowed_nodes": [
-          "create_airbox",
-          "assign_boundary"
-        ],
-        "level": "Trap"
-      },
-      "A": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "B": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "C": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
+        "final_pass": true,
+        "success_on_attempt": 1,
+        "failure_type": "",
+        "attempts": [
+          {
+            "attempt": 1,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/B/attempt_1_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/B/attempt_1_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/B/attempt_1_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/B/attempt_1_validation.log",
+            "generation_ok": true,
+            "execution_ok": true,
+            "validation_ok": true,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/B/attempt_1_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/B/attempt_1_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/B/attempt_1_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/L2_simple_filter/B/attempt_1_tool_usage.json",
+            "tool_usage": {
+              "used_tools": true,
+              "gitnexus_query_count": 7,
+              "gitnexus_context_count": 8,
+              "tool_call_names": [
+                "mcp__gitnexus__query",
+                "mcp__gitnexus__group_list",
+                "mcp__gitnexus__list_repos",
+                "mcp__gitnexus__context",
+                "Read",
+                "mcp__gitnexus__cypher"
+              ],
+              "retrieval_before_code": true
+            },
+            "failure_type": "",
+            "error_summary": "",
+            "elapsed_seconds": 616.7705907260533,
+            "final_pass": true
+          }
+        ]
       }
     },
     "Trap_missing_ground": {
       "metadata": {
-        "allowed_nodes": [
-          "create_substrate",
-          "create_conductor_or_geometry_group",
-          "create_port"
-        ],
-        "level": "Trap"
+        "level": "Trap",
+        "validation_script": "benchmarks/validation_scripts/validate_session.py"
       },
       "A": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": false,
-        "passed": false
+        "final_pass": false,
+        "success_on_attempt": null,
+        "failure_type": "runtime_error",
+        "attempts": [
+          {
+            "attempt": 1,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/A/attempt_1_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/A/attempt_1_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/A/attempt_1_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/A/attempt_1_validation.log",
+            "generation_ok": true,
+            "execution_ok": false,
+            "validation_ok": false,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/A/attempt_1_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/A/attempt_1_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/A/attempt_1_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/A/attempt_1_tool_usage.json",
+            "tool_usage": {
+              "used_tools": false,
+              "gitnexus_query_count": 0,
+              "gitnexus_context_count": 0,
+              "tool_call_names": [],
+              "retrieval_before_code": false
+            },
+            "failure_type": "runtime_error",
+            "error_summary": "Traceback (most recent call last): File \"benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/A/aedt_attempt_wrapper.py\", line 16, in <module> exec(compile(code_path.read_text(encoding=\"utf-8\"), str(code_path), \"exec\"), namespace) File \"benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/A/attempt_1_code.py\", line 24, in <module> app.PLANE_XY, ^^^^^^^^^^^^ AttributeError: 'Hfss' object has no attribute 'PLANE_XY'",
+            "elapsed_seconds": 224.59407545498107,
+            "final_pass": false
+          },
+          {
+            "attempt": 2,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/A/attempt_2_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/A/attempt_2_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/A/attempt_2_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/A/attempt_2_validation.log",
+            "generation_ok": true,
+            "execution_ok": false,
+            "validation_ok": false,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/A/attempt_2_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/A/attempt_2_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/A/attempt_2_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/A/attempt_2_tool_usage.json",
+            "tool_usage": {
+              "used_tools": false,
+              "gitnexus_query_count": 0,
+              "gitnexus_context_count": 0,
+              "tool_call_names": [],
+              "retrieval_before_code": false
+            },
+            "failure_type": "runtime_error",
+            "error_summary": "Traceback (most recent call last): File \"benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/A/aedt_attempt_wrapper.py\", line 16, in <module> exec(compile(code_path.read_text(encoding=\"utf-8\"), str(code_path), \"exec\"), namespace) File \"benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/A/attempt_2_code.py\", line 24, in <module> app.modeler.PLANE_XY, ^^^^^^^^^^^^^^^^^^^^ AttributeError: 'Modeler3D' object has no attribute 'PLANE_XY'",
+            "elapsed_seconds": 81.178342808038,
+            "final_pass": false
+          },
+          {
+            "attempt": 3,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/A/attempt_3_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/A/attempt_3_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/A/attempt_3_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/A/attempt_3_validation.log",
+            "generation_ok": true,
+            "execution_ok": false,
+            "validation_ok": false,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/A/attempt_3_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/A/attempt_3_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/A/attempt_3_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/A/attempt_3_tool_usage.json",
+            "tool_usage": {
+              "used_tools": false,
+              "gitnexus_query_count": 0,
+              "gitnexus_context_count": 0,
+              "tool_call_names": [],
+              "retrieval_before_code": false
+            },
+            "failure_type": "runtime_error",
+            "error_summary": "Traceback (most recent call last): File \"benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/A/aedt_attempt_wrapper.py\", line 16, in <module> exec(compile(code_path.read_text(encoding=\"utf-8\"), str(code_path), \"exec\"), namespace) File \"benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/A/attempt_3_code.py\", line 24, in <module> app.modeler.CoordinateSystemPlane.XYPlane, ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ AttributeError: 'Modeler3D' ",
+            "elapsed_seconds": 221.7744933810318,
+            "final_pass": false
+          }
+        ]
       },
       "B": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": false,
-        "passed": false
-      },
-      "C": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": false,
-        "passed": false
-      }
-    },
-    "Trap_sweep_misses_freq": {
-      "metadata": {
-        "allowed_nodes": [
-          "create_setup",
-          "create_sweep_or_export"
-        ],
-        "level": "Trap"
-      },
-      "A": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "B": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "C": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      }
-    },
-    "Trap_unit_mismatch": {
-      "metadata": {
-        "allowed_nodes": [
-          "create_substrate",
-          "create_conductor_or_geometry_group"
-        ],
-        "level": "Trap"
-      },
-      "A": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "B": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "C": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
+        "final_pass": true,
+        "success_on_attempt": 1,
+        "failure_type": "",
+        "attempts": [
+          {
+            "attempt": 1,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/B/attempt_1_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/B/attempt_1_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/B/attempt_1_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/B/attempt_1_validation.log",
+            "generation_ok": true,
+            "execution_ok": true,
+            "validation_ok": true,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/B/attempt_1_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/B/attempt_1_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/B/attempt_1_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/Trap_missing_ground/B/attempt_1_tool_usage.json",
+            "tool_usage": {
+              "used_tools": true,
+              "gitnexus_query_count": 5,
+              "gitnexus_context_count": 12,
+              "tool_call_names": [
+                "mcp__gitnexus__query",
+                "mcp__gitnexus__list_repos",
+                "mcp__gitnexus__context"
+              ],
+              "retrieval_before_code": true
+            },
+            "failure_type": "",
+            "error_summary": "",
+            "elapsed_seconds": 390.48018631897867,
+            "final_pass": true
+          }
+        ]
       }
     },
     "Trap_waveport_wrong_face": {
       "metadata": {
-        "allowed_nodes": [
-          "select_face",
-          "create_port"
-        ],
-        "level": "Trap"
+        "level": "Trap",
+        "validation_script": "benchmarks/validation_scripts/validate_session.py"
       },
       "A": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
+        "final_pass": true,
+        "success_on_attempt": 2,
+        "failure_type": "",
+        "attempts": [
+          {
+            "attempt": 1,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/Trap_waveport_wrong_face/A/attempt_1_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/Trap_waveport_wrong_face/A/attempt_1_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/Trap_waveport_wrong_face/A/attempt_1_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/Trap_waveport_wrong_face/A/attempt_1_validation.log",
+            "generation_ok": true,
+            "execution_ok": false,
+            "validation_ok": false,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/Trap_waveport_wrong_face/A/attempt_1_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/Trap_waveport_wrong_face/A/attempt_1_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/Trap_waveport_wrong_face/A/attempt_1_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/Trap_waveport_wrong_face/A/attempt_1_tool_usage.json",
+            "tool_usage": {
+              "used_tools": false,
+              "gitnexus_query_count": 0,
+              "gitnexus_context_count": 0,
+              "tool_call_names": [],
+              "retrieval_before_code": false
+            },
+            "failure_type": "runtime_error",
+            "error_summary": "Traceback (most recent call last): File \"benchmarks/runs/stage_a_v2_latest/Trap_waveport_wrong_face/A/aedt_attempt_wrapper.py\", line 16, in <module> exec(compile(code_path.read_text(encoding=\"utf-8\"), str(code_path), \"exec\"), namespace) File \"benchmarks/runs/stage_a_v2_latest/Trap_waveport_wrong_face/A/attempt_1_code.py\", line 22, in <module> app.assign_perfect_e_to_sheets(\"waveguide\") ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ AttributeError: 'Hfs",
+            "elapsed_seconds": 231.19670771597885,
+            "final_pass": false
+          },
+          {
+            "attempt": 2,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/Trap_waveport_wrong_face/A/attempt_2_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/Trap_waveport_wrong_face/A/attempt_2_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/Trap_waveport_wrong_face/A/attempt_2_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/Trap_waveport_wrong_face/A/attempt_2_validation.log",
+            "generation_ok": true,
+            "execution_ok": true,
+            "validation_ok": true,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/Trap_waveport_wrong_face/A/attempt_2_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/Trap_waveport_wrong_face/A/attempt_2_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/Trap_waveport_wrong_face/A/attempt_2_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/Trap_waveport_wrong_face/A/attempt_2_tool_usage.json",
+            "tool_usage": {
+              "used_tools": false,
+              "gitnexus_query_count": 0,
+              "gitnexus_context_count": 0,
+              "tool_call_names": [],
+              "retrieval_before_code": false
+            },
+            "failure_type": "",
+            "error_summary": "",
+            "elapsed_seconds": 60.50563823094126,
+            "final_pass": true
+          }
+        ]
       },
       "B": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
-      },
-      "C": {
-        "syntax_pass": true,
-        "security_pass": true,
-        "api_pass": true,
-        "semantic_lite_pass": true,
-        "passed": true
+        "final_pass": true,
+        "success_on_attempt": 1,
+        "failure_type": "",
+        "attempts": [
+          {
+            "attempt": 1,
+            "code_path": "benchmarks/runs/stage_a_v2_latest/Trap_waveport_wrong_face/B/attempt_1_code.py",
+            "prompt_path": "benchmarks/runs/stage_a_v2_latest/Trap_waveport_wrong_face/B/attempt_1_prompt.txt",
+            "exec_log_path": "benchmarks/runs/stage_a_v2_latest/Trap_waveport_wrong_face/B/attempt_1_exec.log",
+            "validation_log_path": "benchmarks/runs/stage_a_v2_latest/Trap_waveport_wrong_face/B/attempt_1_validation.log",
+            "generation_ok": true,
+            "execution_ok": true,
+            "validation_ok": true,
+            "harness_stdout_path": "benchmarks/runs/stage_a_v2_latest/Trap_waveport_wrong_face/B/attempt_1_harness_stdout.txt",
+            "harness_stderr_path": "benchmarks/runs/stage_a_v2_latest/Trap_waveport_wrong_face/B/attempt_1_harness_stderr.txt",
+            "transcript_path": "benchmarks/runs/stage_a_v2_latest/Trap_waveport_wrong_face/B/attempt_1_transcript.txt",
+            "tool_usage_path": "benchmarks/runs/stage_a_v2_latest/Trap_waveport_wrong_face/B/attempt_1_tool_usage.json",
+            "tool_usage": {
+              "used_tools": true,
+              "gitnexus_query_count": 5,
+              "gitnexus_context_count": 5,
+              "tool_call_names": [
+                "mcp__gitnexus__query",
+                "mcp__gitnexus__context"
+              ],
+              "retrieval_before_code": true
+            },
+            "failure_type": "",
+            "error_summary": "",
+            "elapsed_seconds": 109.23348525201436,
+            "final_pass": true
+          }
+        ]
       }
     }
   },
-  "go_nogo": {
-    "metrics": {
-      "api_pass_rate_c": 1.0,
-      "semantic_pass_rate_b": 0.8666666666666667,
-      "semantic_pass_rate_c": 0.8666666666666667,
-      "semantic_lift": 0.0,
-      "trap_capture_rate": 0.8
+  "groups": {
+    "A": {
+      "task_count": 10,
+      "first_pass_rate": 0.1,
+      "pass_rate_3try": 0.3,
+      "avg_attempts_to_success": 1.6666666666666667,
+      "avg_attempts_all": 2.6,
+      "failure_categories": {
+        "runtime_error": 7
+      },
+      "tool_usage_rate": 0.0,
+      "avg_gitnexus_queries": 0.0,
+      "retrieval_before_code_rate": 0.0
     },
-    "go": true
+    "B": {
+      "task_count": 10,
+      "first_pass_rate": 0.8,
+      "pass_rate_3try": 1.0,
+      "avg_attempts_to_success": 1.2,
+      "avg_attempts_all": 1.2,
+      "failure_categories": {},
+      "tool_usage_rate": 1.0,
+      "avg_gitnexus_queries": 6.0,
+      "retrieval_before_code_rate": 1.0
+    }
   },
-  "node_readiness": {
-    "nodes": {
-      "create_substrate": {
-        "coverage": 11,
-        "pass_rate": 0.6363636363636364,
-        "semantic_rate": 0.6363636363636364
-      },
-      "assign_boundary": {
-        "coverage": 11,
-        "pass_rate": 0.7272727272727273,
-        "semantic_rate": 0.7272727272727273
-      },
-      "create_airbox": {
-        "coverage": 11,
-        "pass_rate": 0.7272727272727273,
-        "semantic_rate": 0.7272727272727273
-      },
-      "create_conductor_or_geometry_group": {
-        "coverage": 18,
-        "pass_rate": 0.7777777777777778,
-        "semantic_rate": 0.7777777777777778
-      },
-      "select_face": {
-        "coverage": 8,
-        "pass_rate": 1.0,
-        "semantic_rate": 1.0
-      },
-      "create_port": {
-        "coverage": 11,
-        "pass_rate": 0.6363636363636364,
-        "semantic_rate": 0.6363636363636364
-      },
-      "create_setup": {
-        "coverage": 11,
-        "pass_rate": 0.8181818181818182,
-        "semantic_rate": 0.8181818181818182
-      },
-      "create_sweep_or_export": {
-        "coverage": 8,
-        "pass_rate": 0.75,
-        "semantic_rate": 0.75
-      }
-    },
-    "candidate_ready": [
-      "select_face"
-    ]
+  "source_runs": {
+    "full_baseline_a_b": "benchmarks/runs/archive/stage_a_v2_full_baseline_20260514_014318/report.json",
+    "final_group_b_validation": "benchmarks/runs/stage_a_v2_latest/report.json"
   }
 }

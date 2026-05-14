@@ -46,7 +46,7 @@ def _sample_report():
 
 
 def test_render_html_report_v2_explains_a_b_and_attempt_metrics():
-    html = render_html_report_v2(_sample_report(), model_name="deepseek-v4-flash")
+    html = render_html_report_v2(_sample_report(), model_name="model-under-test")
 
     assert "AEDT Execution Benchmark" in html
     assert "Group A" in html

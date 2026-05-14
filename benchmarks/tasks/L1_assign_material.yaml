@@ -6,7 +6,7 @@ allowed_nodes: [create_substrate]
 expected_workflow: [create_substrate]
 required_api_categories: [material]
 reference_script: benchmarks/reference_scripts/L1_assign_material.py
-validation_script: benchmarks/validation_scripts/validate_L1_assign_material.py
+validation_script: benchmarks/validation_scripts/validate_session.py
 expected_outputs: [material_assignment]
 known_failure_modes: []
 grading: {syntax: true, api: true, semantic: true}

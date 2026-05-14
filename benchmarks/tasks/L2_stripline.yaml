@@ -6,7 +6,7 @@ allowed_nodes: [create_substrate, create_conductor_or_geometry_group, create_air
 expected_workflow: [create_substrate, create_conductor_or_geometry_group, create_airbox, assign_boundary]
 required_api_categories: [geometry, material, boundary]
 reference_script: benchmarks/reference_scripts/L2_stripline.py
-validation_script: benchmarks/validation_scripts/validate_L2_stripline.py
+validation_script: benchmarks/validation_scripts/validate_session.py
 expected_outputs: [stripline]
 known_failure_modes: []
 grading: {syntax: true, api: true, semantic: true}

@@ -6,7 +6,7 @@ allowed_nodes: [select_face]
 expected_workflow: [select_face]
 required_api_categories: [geometry]
 reference_script: benchmarks/reference_scripts/L1_select_face.py
-validation_script: benchmarks/validation_scripts/validate_L1_select_face.py
+validation_script: benchmarks/validation_scripts/validate_session.py
 expected_outputs: [face_id]
 known_failure_modes: [wrong_face_selected_for_port]
 grading: {syntax: true, api: true, semantic: true}

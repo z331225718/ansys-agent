@@ -6,7 +6,7 @@ allowed_nodes: [create_substrate, create_conductor_or_geometry_group, create_air
 expected_workflow: [create_substrate, create_conductor_or_geometry_group, create_airbox, assign_boundary, create_port, create_setup, create_sweep_or_export]
 required_api_categories: [geometry, excitation, boundary, setup]
 reference_script: benchmarks/reference_scripts/L3_vivaldi_antenna.py
-validation_script: benchmarks/validation_scripts/validate_L3_vivaldi_antenna.py
+validation_script: benchmarks/validation_scripts/validate_session.py
 expected_outputs: [setup, sweep]
 known_failure_modes: [airbox_too_small]
 grading: {syntax: true, api: true, semantic: true}

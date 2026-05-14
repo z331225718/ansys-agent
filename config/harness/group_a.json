@@ -9,7 +9,7 @@
     "--tools",
     ""
   ],
-  "cwd": "/tmp/aedt_agent_harness/group_a",
+  "cwd": "benchmarks/harness_work/group_a",
   "env": {},
   "add_dirs": []
 }

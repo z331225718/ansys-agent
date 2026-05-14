@@ -6,7 +6,7 @@ allowed_nodes: [create_substrate, create_conductor_or_geometry_group]
 expected_workflow: [create_substrate, create_conductor_or_geometry_group]
 required_api_categories: [geometry, material]
 reference_script: benchmarks/reference_scripts/Trap_unit_mismatch.py
-validation_script: benchmarks/validation_scripts/validate_Trap_unit_mismatch.py
+validation_script: benchmarks/validation_scripts/validate_session.py
 expected_outputs: [geometry]
 known_failure_modes: [material_or_unit_mismatch]
 grading: {syntax: true, api: true, semantic: true}

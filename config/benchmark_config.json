@@ -25,16 +25,16 @@
   "official_retrieval": {
     "backend": "gitnexus_http",
     "gitnexus_url": "http://127.0.0.1:4848",
-    "pyaedt_repo": "/home/zzmjay/code/pyaedt",
-    "pyaedt_examples": "/home/zzmjay/code/pyaedt-examples",
+    "pyaedt_repo": "../pyaedt",
+    "pyaedt_examples": "../pyaedt-examples",
     "top_k": 8,
     "timeout": 20
   },
   "aedt": {
     "version": "2026.1",
     "non_graphical": true,
-    "ansysem_root": "/home/zzmjay/ansys_inc/v261/AnsysEM",
-    "awp_root": "/home/zzmjay/ansys_inc/v261",
+    "ansysem_root": "~/ansys_inc/v261/AnsysEM",
+    "awp_root": "~/ansys_inc/v261",
     "timeout": 900
   },
   "paths": {

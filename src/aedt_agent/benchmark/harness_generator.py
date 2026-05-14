@@ -46,6 +46,7 @@ class HarnessGenerator:
         group_configs: dict[str, HarnessGroupConfig],
         subprocess_runner: Callable = subprocess.run,
         repo_root: Path | None = None,
+        variables: dict[str, str] | None = None,
     ) -> None:
         self.command = command
         self.timeout = timeout
@@ -53,6 +54,7 @@ class HarnessGenerator:
         self.group_configs = group_configs
         self.subprocess_runner = subprocess_runner
         self.repo_root = Path(repo_root or Path.cwd())
+        self.variables = variables or {}
 
     def generate(self, context: str, filename: str | None = None) -> str:
         artifact_dir = self.work_dir / "adhoc"
@@ -80,7 +82,7 @@ class HarnessGenerator:
         del filename, previous_code, previous_log
         cfg = self.group_configs.get(group, HarnessGroupConfig())
         artifact_dir.mkdir(parents=True, exist_ok=True)
-        cwd = self._resolve_path(cfg.cwd) if cfg.cwd else self.work_dir / task_id / group / f"attempt_{attempt}"
+        cwd = self._resolve_path(self._expand_value(cfg.cwd, context)) if cfg.cwd else self.work_dir / task_id / group / f"attempt_{attempt}"
         cwd.mkdir(parents=True, exist_ok=True)
 
         stdout_path = artifact_dir / f"attempt_{attempt}_harness_stdout.txt"
@@ -91,7 +93,7 @@ class HarnessGenerator:
         command = [cfg.command or self.command, *self._expand_args(cfg.args, context)]
         input_text = None if _args_include_prompt(cfg.args) else context
         env = dict(os.environ)
-        env.update({key: str(value) for key, value in cfg.env.items()})
+        env.update({key: self._expand_value(str(value), context) for key, value in cfg.env.items()})
 
         try:
             completed = self.subprocess_runner(
@@ -162,9 +164,12 @@ class HarnessGenerator:
         return self.repo_root / path
 
     def _expand_args(self, args: list[str], prompt: str) -> list[str]:
-        expanded = []
-        for arg in args:
-            expanded.append(arg.replace("{prompt}", prompt))
+        return [self._expand_value(arg, prompt) for arg in args]
+
+    def _expand_value(self, value: str, prompt: str) -> str:
+        expanded = value.replace("{prompt}", prompt)
+        for key, replacement in self.variables.items():
+            expanded = expanded.replace("{" + key + "}", replacement)
         return expanded
 
 

@@ -6,7 +6,7 @@ allowed_nodes: [select_face, create_port]
 expected_workflow: [select_face, create_port]
 required_api_categories: [excitation]
 reference_script: benchmarks/reference_scripts/Trap_waveport_wrong_face.py
-validation_script: benchmarks/validation_scripts/validate_Trap_waveport_wrong_face.py
+validation_script: benchmarks/validation_scripts/validate_session.py
 expected_outputs: [wave_port]
 known_failure_modes: [wrong_face_selected_for_port]
 grading: {syntax: true, api: true, semantic: true}

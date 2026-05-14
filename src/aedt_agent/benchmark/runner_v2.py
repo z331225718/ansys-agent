@@ -199,8 +199,8 @@ def _build_attempt_prompt(
         parts.append(
             "Before writing code, use the available GitNexus/PyAEDT tools to inspect the official PyAEDT API and examples. "
             "Prefer GitNexus query/context results and official examples over memory. "
-            "Only inspect official sources under /home/zzmjay/code/pyaedt and /home/zzmjay/code/pyaedt-examples. "
-            "Do not read /home/zzmjay/code/ansys-agent/benchmarks/generated or prior generated benchmark candidates as references. "
+            "Only inspect the official PyAEDT source tree and PyAEDT examples directories exposed by the harness. "
+            "Do not read generated benchmark candidates or prior benchmark outputs as references. "
             "Keep retrieval focused: use at most 2 GitNexus query calls and at most 2 GitNexus context calls, then write runnable code immediately. "
             "Use PyAEDT signatures exactly as verified from official sources: create_box(origin, sizes, ...), "
             "create_rectangle(orientation, origin, sizes, ...), and iterate object.faces as FacePrimitive objects "

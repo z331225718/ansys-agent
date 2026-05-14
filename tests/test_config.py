@@ -42,7 +42,7 @@ def test_load_benchmark_config_merges_local_override(tmp_path):
                     "openai": {
                         "base_url": "https://example.test/v1",
                         "api_key": "secret",
-                        "model": "deepseek-v4-flash",
+                        "model": "model-under-test",
                         "max_retries": 3,
                         "retry_delay": 1.5,
                     }
@@ -57,7 +57,7 @@ def test_load_benchmark_config_merges_local_override(tmp_path):
     assert config.generator.backend == "openai"
     assert config.generator.openai.base_url == "https://example.test/v1"
     assert config.generator.openai.api_key == "secret"
-    assert config.generator.openai.model == "deepseek-v4-flash"
+    assert config.generator.openai.model == "model-under-test"
     assert config.generator.openai.max_retries == 3
     assert config.generator.openai.retry_delay == 1.5
 
@@ -72,7 +72,7 @@ def test_config_can_build_openai_generator(tmp_path):
                     "openai": {
                         "base_url": "https://example.test/v1",
                         "api_key": "secret",
-                        "model": "deepseek-v4-flash",
+                        "model": "model-under-test",
                         "timeout": 45,
                         "temperature": 0.1,
                         "max_retries": 2,
@@ -107,8 +107,8 @@ def test_config_can_build_gitnexus_retriever(tmp_path):
                 "official_retrieval": {
                     "backend": "gitnexus_http",
                     "gitnexus_url": "http://127.0.0.1:4848",
-                    "pyaedt_repo": "/home/zzmjay/code/pyaedt",
-                    "pyaedt_examples": "/home/zzmjay/code/pyaedt-examples",
+                    "pyaedt_repo": "../pyaedt",
+                    "pyaedt_examples": "../pyaedt-examples",
                     "top_k": 6,
                     "timeout": 20,
                 },
@@ -141,8 +141,8 @@ def test_config_exposes_aedt_environment(tmp_path):
                 "aedt": {
                     "version": "2026.1",
                     "non_graphical": True,
-                    "ansysem_root": "/home/zzmjay/ansys_inc/v261/AnsysEM",
-                    "awp_root": "/home/zzmjay/ansys_inc/v261",
+                    "ansysem_root": "~/ansys_inc/v261/AnsysEM",
+                    "awp_root": "~/ansys_inc/v261",
                     "timeout": 123,
                 },
                 "paths": {

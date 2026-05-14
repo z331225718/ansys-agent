@@ -27,8 +27,8 @@ Group A:
 Group B:
 - Same harness CLI and model as Group A.
 - GitNexus MCP enabled.
-- Read-only access to `/home/zzmjay/code/pyaedt`.
-- Read-only access to `/home/zzmjay/code/pyaedt-examples`.
+- Read-only access to the local PyAEDT source checkout.
+- Read-only access to the local PyAEDT examples checkout.
 - Prompt requires using GitNexus/PyAEDT official context before writing code.
 - Repair attempts must use the prior AEDT error log to query tools again.
 

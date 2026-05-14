@@ -6,7 +6,7 @@ allowed_nodes: [assign_boundary]
 expected_workflow: [assign_boundary]
 required_api_categories: [boundary]
 reference_script: benchmarks/reference_scripts/L1_assign_radiation_boundary.py
-validation_script: benchmarks/validation_scripts/validate_L1_assign_radiation_boundary.py
+validation_script: benchmarks/validation_scripts/validate_session.py
 expected_outputs: [radiation_boundary]
 known_failure_modes: []
 grading: {syntax: true, api: true, semantic: true}

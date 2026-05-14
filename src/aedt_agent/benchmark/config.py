@@ -47,8 +47,8 @@ class HarnessConfig:
 class OfficialRetrievalConfig:
     backend: str = "gitnexus_http"
     gitnexus_url: str = "http://127.0.0.1:4848"
-    pyaedt_repo: str = "/home/zzmjay/code/pyaedt"
-    pyaedt_examples: str = "/home/zzmjay/code/pyaedt-examples"
+    pyaedt_repo: str = "../pyaedt"
+    pyaedt_examples: str = "../pyaedt-examples"
     top_k: int = 8
     timeout: int = 20
 
@@ -57,8 +57,8 @@ class OfficialRetrievalConfig:
 class AEDTConfig:
     version: str = "2026.1"
     non_graphical: bool = True
-    ansysem_root: str = "/home/zzmjay/ansys_inc/v261/AnsysEM"
-    awp_root: str = "/home/zzmjay/ansys_inc/v261"
+    ansysem_root: str = "~/ansys_inc/v261/AnsysEM"
+    awp_root: str = "~/ansys_inc/v261"
     timeout: int = 900
 
 
@@ -96,6 +96,11 @@ class BenchmarkConfig:
                 work_dir=_resolve_config_path(root, self.harness.work_dir),
                 group_configs=group_configs,
                 repo_root=root,
+                variables={
+                    "repo_root": str(root),
+                    "pyaedt_repo": str(_resolve_config_path(root, self.official_retrieval.pyaedt_repo)),
+                    "pyaedt_examples": str(_resolve_config_path(root, self.official_retrieval.pyaedt_examples)),
+                },
             )
         if backend == "openai":
             return OpenAIGenerator(
@@ -174,16 +179,16 @@ def load_benchmark_config(path: Path) -> BenchmarkConfig:
         official_retrieval=OfficialRetrievalConfig(
             backend=str(retrieval_data.get("backend", "gitnexus_http")),
             gitnexus_url=str(retrieval_data.get("gitnexus_url", "http://127.0.0.1:4848")),
-            pyaedt_repo=str(retrieval_data.get("pyaedt_repo", "/home/zzmjay/code/pyaedt")),
-            pyaedt_examples=str(retrieval_data.get("pyaedt_examples", "/home/zzmjay/code/pyaedt-examples")),
+            pyaedt_repo=str(retrieval_data.get("pyaedt_repo", "../pyaedt")),
+            pyaedt_examples=str(retrieval_data.get("pyaedt_examples", "../pyaedt-examples")),
             top_k=int(retrieval_data.get("top_k", 8)),
             timeout=int(retrieval_data.get("timeout", 20)),
         ),
         aedt=AEDTConfig(
             version=str(aedt_data.get("version", "2026.1")),
             non_graphical=bool(aedt_data.get("non_graphical", True)),
-            ansysem_root=str(aedt_data.get("ansysem_root", "/home/zzmjay/ansys_inc/v261/AnsysEM")),
-            awp_root=str(aedt_data.get("awp_root", "/home/zzmjay/ansys_inc/v261")),
+            ansysem_root=str(aedt_data.get("ansysem_root", "~/ansys_inc/v261/AnsysEM")),
+            awp_root=str(aedt_data.get("awp_root", "~/ansys_inc/v261")),
             timeout=int(aedt_data.get("timeout", 900)),
         ),
     )

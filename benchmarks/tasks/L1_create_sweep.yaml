@@ -6,7 +6,7 @@ allowed_nodes: [create_setup, create_sweep_or_export]
 expected_workflow: [create_setup, create_sweep_or_export]
 required_api_categories: [setup]
 reference_script: benchmarks/reference_scripts/L1_create_sweep.py
-validation_script: benchmarks/validation_scripts/validate_L1_create_sweep.py
+validation_script: benchmarks/validation_scripts/validate_session.py
 expected_outputs: [sweep]
 known_failure_modes: []
 grading: {syntax: true, api: true, semantic: true}

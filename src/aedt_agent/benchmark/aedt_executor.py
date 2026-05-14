@@ -27,8 +27,8 @@ class AEDTSubprocessExecutor:
         self.timeout = timeout
         self.version = version
         self.non_graphical = non_graphical
-        self.ansysem_root = ansysem_root
-        self.awp_root = awp_root
+        self.ansysem_root = str(Path(ansysem_root).expanduser()) if ansysem_root else ""
+        self.awp_root = str(Path(awp_root).expanduser()) if awp_root else ""
         self.subprocess_runner = subprocess_runner
 
     def execute(self, code_path: Path, validation_script: Path, work_dir: Path) -> dict:

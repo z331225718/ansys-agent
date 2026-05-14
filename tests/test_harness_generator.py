@@ -76,6 +76,46 @@ def test_harness_generator_invokes_cli_and_writes_artifacts(tmp_path):
     assert (tmp_path / "run" / "attempt_1_tool_usage.json").exists()
 
 
+def test_harness_generator_expands_config_placeholders(tmp_path):
+    calls = []
+
+    def fake_run(command, input, cwd, env, timeout, capture_output, text):
+        calls.append((command, input, cwd, env, timeout, capture_output, text))
+        return subprocess.CompletedProcess(command, 0, stdout="app.save_project()", stderr="")
+
+    generator = HarnessGenerator(
+        command="fake-harness",
+        timeout=12,
+        work_dir=tmp_path / "work",
+        group_configs={
+            "B": HarnessGroupConfig(
+                args=["--mcp-config", "{repo_root}/config/harness/gitnexus_mcp.json", "--add-dir", "{pyaedt_repo}"],
+                cwd="benchmarks/harness_work/group_b",
+                env={"PYEDT_EXAMPLES": "{pyaedt_examples}"},
+            )
+        },
+        subprocess_runner=fake_run,
+        repo_root=tmp_path,
+        variables={
+            "repo_root": str(tmp_path),
+            "pyaedt_repo": str(tmp_path / "pyaedt"),
+            "pyaedt_examples": str(tmp_path / "pyaedt-examples"),
+        },
+    )
+
+    generator.generate_attempt("prompt", "T1", "B", 1, tmp_path / "run")
+
+    assert calls[0][0] == [
+        "fake-harness",
+        "--mcp-config",
+        str(tmp_path / "config/harness/gitnexus_mcp.json"),
+        "--add-dir",
+        str(tmp_path / "pyaedt"),
+    ]
+    assert calls[0][2] == tmp_path / "benchmarks/harness_work/group_b"
+    assert calls[0][3]["PYEDT_EXAMPLES"] == str(tmp_path / "pyaedt-examples")
+
+
 def test_harness_generator_raises_generation_error_for_non_code(tmp_path):
     def fake_run(**kwargs):
         return subprocess.CompletedProcess(kwargs["args"], 0, stdout="hello", stderr="")

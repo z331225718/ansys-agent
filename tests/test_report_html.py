@@ -31,10 +31,10 @@ def _sample_report():
 
 
 def test_render_html_report_contains_key_sections():
-    html = render_html_report(_sample_report(), model_name="deepseek-v4-flash")
+    html = render_html_report(_sample_report(), model_name="model-under-test")
 
     assert "Stage A Benchmark Report" in html
-    assert "deepseek-v4-flash" in html
+    assert "model-under-test" in html
     assert "Task Matrix" in html
     assert "Node Readiness" in html
     assert "How To Read This Report" in html

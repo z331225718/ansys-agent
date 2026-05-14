@@ -9,4 +9,5 @@ config/*.local.json
 .superpowers/
 benchmarks/harness_work/
 benchmarks/runs/
+benchmarks/generated/**/*.py
 tmp/

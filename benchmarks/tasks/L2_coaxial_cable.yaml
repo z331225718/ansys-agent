@@ -6,7 +6,7 @@ allowed_nodes: [create_conductor_or_geometry_group, create_airbox, assign_bounda
 expected_workflow: [create_conductor_or_geometry_group, create_airbox, assign_boundary, select_face, create_port]
 required_api_categories: [geometry, excitation, boundary]
 reference_script: benchmarks/reference_scripts/L2_coaxial_cable.py
-validation_script: benchmarks/validation_scripts/validate_L2_coaxial_cable.py
+validation_script: benchmarks/validation_scripts/validate_session.py
 expected_outputs: [coaxial_cable]
 known_failure_modes: [wrong_face_selected_for_port]
 grading: {syntax: true, api: true, semantic: true}
