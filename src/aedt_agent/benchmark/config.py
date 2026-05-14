@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from aedt_agent.benchmark.generator import CodeGenerator, DefaultCodeGenerator, FileGenerator, OpenAIGenerator
-from aedt_agent.benchmark.harness_generator import HarnessGenerator, load_harness_group_config
+from aedt_agent.benchmark.harness_generator import HarnessGenerator, HarnessGroupConfig, load_harness_group_config
 from aedt_agent.benchmark.official_retriever import GitNexusOfficialRetriever, OfficialKnowledgeRetriever
 
 
@@ -40,6 +40,7 @@ class HarnessConfig:
     timeout: int = 900
     group_a_config: str = "config/harness/group_a.json"
     group_b_config: str = "config/harness/group_b.json"
+    group_c_config: str = "config/harness/group_c.json"
     work_dir: str = "benchmarks/harness_work"
 
 
@@ -89,6 +90,7 @@ class BenchmarkConfig:
             group_configs = {
                 "A": load_harness_group_config(_resolve_config_path(root, self.harness.group_a_config)),
                 "B": load_harness_group_config(_resolve_config_path(root, self.harness.group_b_config)),
+                "C": _load_optional_harness_group_config(root, self.harness.group_c_config),
             }
             return HarnessGenerator(
                 command=self.harness.command,
@@ -174,6 +176,7 @@ def load_benchmark_config(path: Path) -> BenchmarkConfig:
             timeout=int(harness_data.get("timeout", 900)),
             group_a_config=str(harness_data.get("group_a_config", "config/harness/group_a.json")),
             group_b_config=str(harness_data.get("group_b_config", "config/harness/group_b.json")),
+            group_c_config=str(harness_data.get("group_c_config", "config/harness/group_c.json")),
             work_dir=str(harness_data.get("work_dir", "benchmarks/harness_work")),
         ),
         official_retrieval=OfficialRetrievalConfig(
@@ -213,3 +216,10 @@ def _resolve_config_path(root: Path, value: str) -> Path:
     if path.is_absolute():
         return path
     return root / path
+
+
+def _load_optional_harness_group_config(root: Path, value: str) -> HarnessGroupConfig:
+    path = _resolve_config_path(root, value)
+    if not path.exists():
+        return HarnessGroupConfig()
+    return load_harness_group_config(path)

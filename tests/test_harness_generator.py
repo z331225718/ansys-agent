@@ -116,6 +116,28 @@ def test_harness_generator_expands_config_placeholders(tmp_path):
     assert calls[0][3]["PYEDT_EXAMPLES"] == str(tmp_path / "pyaedt-examples")
 
 
+def test_harness_generator_can_return_non_python_text_for_node_plans(tmp_path):
+    def fake_run(command, input, cwd, env, timeout, capture_output, text):
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=json.dumps({"type": "result", "result": '{"plan": []}'}),
+            stderr="",
+        )
+
+    generator = HarnessGenerator(
+        command="fake-harness",
+        timeout=12,
+        work_dir=tmp_path / "work",
+        group_configs={"C": HarnessGroupConfig(args=["--print"])},
+        subprocess_runner=fake_run,
+    )
+
+    result = generator.generate_text_attempt("prompt", "T1", "C", 1, tmp_path / "run")
+
+    assert result.code == '{"plan": []}'
+
+
 def test_harness_generator_raises_generation_error_for_non_code(tmp_path):
     def fake_run(**kwargs):
         return subprocess.CompletedProcess(kwargs["args"], 0, stdout="hello", stderr="")

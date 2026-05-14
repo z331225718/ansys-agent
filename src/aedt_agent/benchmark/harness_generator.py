@@ -79,6 +79,53 @@ class HarnessGenerator:
         previous_code: str = "",
         previous_log: str = "",
     ) -> HarnessGeneration:
+        return self._generate_attempt(
+            context=context,
+            task_id=task_id,
+            group=group,
+            attempt=attempt,
+            artifact_dir=artifact_dir,
+            filename=filename,
+            previous_code=previous_code,
+            previous_log=previous_log,
+            extract_python=True,
+        )
+
+    def generate_text_attempt(
+        self,
+        context: str,
+        task_id: str,
+        group: str,
+        attempt: int,
+        artifact_dir: Path,
+        filename: str | None = None,
+        previous_code: str = "",
+        previous_log: str = "",
+    ) -> HarnessGeneration:
+        return self._generate_attempt(
+            context=context,
+            task_id=task_id,
+            group=group,
+            attempt=attempt,
+            artifact_dir=artifact_dir,
+            filename=filename,
+            previous_code=previous_code,
+            previous_log=previous_log,
+            extract_python=False,
+        )
+
+    def _generate_attempt(
+        self,
+        context: str,
+        task_id: str,
+        group: str,
+        attempt: int,
+        artifact_dir: Path,
+        filename: str | None = None,
+        previous_code: str = "",
+        previous_log: str = "",
+        extract_python: bool = True,
+    ) -> HarnessGeneration:
         del filename, previous_code, previous_log
         cfg = self.group_configs.get(group, HarnessGroupConfig())
         artifact_dir.mkdir(parents=True, exist_ok=True)
@@ -145,7 +192,7 @@ class HarnessGenerator:
                 generation,
             )
 
-        code = extract_code(transcript)
+        code = extract_code(transcript) if extract_python else extract_text(transcript)
         tool_usage = analyze_tool_usage(transcript, code)
         tool_usage_path.write_text(json.dumps(tool_usage, indent=2), encoding="utf-8")
         return HarnessGeneration(
@@ -183,6 +230,10 @@ def extract_code(output: str) -> str:
     if not _looks_like_python(candidate):
         raise ValueError("Harness output did not contain plausible Python code")
     return candidate
+
+
+def extract_text(output: str) -> str:
+    return (_text_from_json_stream(output) or output).strip()
 
 
 def load_harness_group_config(path: Path) -> HarnessGroupConfig:

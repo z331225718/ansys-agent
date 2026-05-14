@@ -20,6 +20,7 @@
     "timeout": 900,
     "group_a_config": "config/harness/group_a.json",
     "group_b_config": "config/harness/group_b.json",
+    "group_c_config": "config/harness/group_c.json",
     "work_dir": "benchmarks/harness_work"
   },
   "official_retrieval": {

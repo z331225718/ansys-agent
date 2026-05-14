@@ -1,0 +1,17 @@
+{
+  "nodes": [
+    "create_substrate",
+    "create_conductor_or_geometry_group",
+    "create_airbox",
+    "assign_boundary",
+    "create_port",
+    "create_setup",
+    "create_sweep_or_export"
+  ],
+  "formal_entrypoint": "execute_node",
+  "dev_only_tools": ["execute_script_restricted"],
+  "benchmark_policy": {
+    "group_c_allows_free_python": false,
+    "real_aedt_required_for_acceptance": true
+  }
+}

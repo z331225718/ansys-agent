@@ -15,6 +15,9 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
 ]
+mcp = [
+    "fastmcp>=2.0.0",
+]
 
 [project.scripts]
 aedt-agent = "aedt_agent.cli:main"
