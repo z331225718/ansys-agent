@@ -49,7 +49,7 @@ def test_run_stage_a_script_writes_html_report_and_progress(tmp_path, monkeypatc
 
     assert report_path.exists()
     assert html_path.exists()
-    assert "AEDT Execution Benchmark" in html_path.read_text(encoding="utf-8")
+    assert "AEDT 执行基准测试" in html_path.read_text(encoding="utf-8")
     assert "[1/" in stdout.getvalue()
 
 

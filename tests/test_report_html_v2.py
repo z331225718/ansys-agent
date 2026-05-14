@@ -48,11 +48,11 @@ def _sample_report():
 def test_render_html_report_v2_explains_a_b_and_attempt_metrics():
     html = render_html_report_v2(_sample_report(), model_name="model-under-test")
 
-    assert "AEDT Execution Benchmark" in html
-    assert "Group A" in html
-    assert "Group B" in html
-    assert "Success within 3 attempts" in html
-    assert "Average attempts to success" in html
+    assert "AEDT 执行基准测试" in html
+    assert "A 组" in html
+    assert "B 组" in html
+    assert "三次内成功率" in html
+    assert "成功任务平均尝试次数" in html
     assert "L1_create_substrate" in html
     assert "Node Readiness" not in html
 

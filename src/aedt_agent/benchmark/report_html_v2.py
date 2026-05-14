@@ -25,11 +25,11 @@ def render_html_report_v2(report: dict, model_name: str = "") -> str:
     rows = [_task_row(task_id, task_data, available_groups) for task_id, task_data in sorted(tasks.items())]
 
     return f"""<!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PyAEDT Agent Benchmark Report</title>
+  <title>PyAEDT Agent 基准测试报告</title>
   <style>
     :root {{
       --bg: #f4f6f8;
@@ -85,73 +85,73 @@ def render_html_report_v2(report: dict, model_name: str = "") -> str:
 <body>
   <main class="page">
     <section class="hero">
-      <h1>PyAEDT Agent Grounding Benchmark</h1>
-      <p class="lede">Generated at {escape(generated_at)}. AEDT Execution Benchmark for the Stage A experiment: compare a bare LLM coding harness against the same harness grounded with GitNexus MCP, official PyAEDT source, and official examples, then judge generated code by running it in local AEDT non-graphical mode.</p>
+      <h1>PyAEDT Agent 官方知识增强基准测试</h1>
+      <p class="lede">生成时间：{escape(generated_at)}。这是 Stage A 的 AEDT 执行基准测试：对比“裸 LLM 代码生成 harness”和“接入 GitNexus MCP、PyAEDT 官方源码、官方 examples 后的 grounding harness”，并通过本地 AEDT non-graphical 模式真实运行生成代码来判定结果。</p>
     </section>
 
     <section class="grid">{''.join(cards)}</section>
 
     <section class="panel callout">
-      <h2>Executive Summary</h2>
+      <h2>结论摘要</h2>
       <p>{escape(comparison)}</p>
     </section>
 
     <section class="panel">
-      <h2>What We Built</h2>
+      <h2>我们做了什么</h2>
       <div class="split">
-        <div class="box"><strong>Real AEDT judging</strong>Each candidate script runs in AEDT 2026.1 non-graphical mode through PyAEDT. A pass requires both Python execution and task validation to succeed.</div>
-        <div class="box"><strong>Two comparable groups</strong>Group A uses the same model and harness with no tools. Group B uses the same model plus GitNexus MCP, read-only PyAEDT source, and pyaedt-examples access.</div>
-        <div class="box"><strong>Repair loop</strong>Each task allows up to three attempts. When an attempt fails, the AEDT/PyAEDT traceback is returned to the harness for targeted repair.</div>
-        <div class="box"><strong>Grounding controls</strong>Group B is instructed to query official sources before coding, avoid prior generated candidates, and use verified PyAEDT API signatures and port patterns.</div>
+        <div class="box"><strong>真实 AEDT 判卷</strong>每个候选脚本都会通过 PyAEDT 在 AEDT 2026.1 non-graphical 模式下运行。只有 Python 执行成功且任务验证通过，才记为通过。</div>
+        <div class="box"><strong>两个可比较实验组</strong>A 组使用同一个模型和 harness，但不提供工具。B 组使用同一个模型，同时接入 GitNexus MCP、只读 PyAEDT 源码和 pyaedt-examples。</div>
+        <div class="box"><strong>失败修复循环</strong>每个任务最多允许三次尝试。某次尝试失败后，会把 AEDT/PyAEDT traceback 返回给 harness，让模型基于真实错误做定向修复。</div>
+        <div class="box"><strong>Grounding 约束</strong>B 组被要求先查询官方来源再写代码，不能参考历史生成候选，并优先使用确认过的 PyAEDT API 签名和端口建模模式。</div>
       </div>
     </section>
 
     <section class="panel">
-      <h2>How The Benchmark Runs</h2>
+      <h2>Benchmark 如何运行</h2>
       <ol>
-        <li>Select the Stage A task set and create a fresh HFSS design for each attempt.</li>
-        <li>Ask the local harness CLI to generate Python using the existing <span class="mono">app</span> object.</li>
-        <li>For Group B, require retrieval from GitNexus/PyAEDT official sources before code generation.</li>
-        <li>Execute the script in AEDT non-graphical mode and capture stdout, stderr, AEDT logs, transcripts, and tool usage.</li>
-        <li>If execution or validation fails, feed the error log back for another attempt, up to three attempts.</li>
-        <li>Aggregate first-pass rate, three-attempt pass rate, attempts-to-success, failure categories, and retrieval behavior.</li>
+        <li>选择 Stage A 任务集，并为每次尝试创建一个干净的 HFSS design。</li>
+        <li>调用本地 harness CLI，让它基于已有 <span class="mono">app</span> 对象生成 Python 代码。</li>
+        <li>对 B 组，强制在生成代码前检索 GitNexus/PyAEDT 官方来源。</li>
+        <li>在 AEDT non-graphical 模式下执行脚本，并记录 stdout、stderr、AEDT 日志、harness transcript 和工具使用情况。</li>
+        <li>如果执行或验证失败，把错误日志反馈给模型继续修复，最多三次。</li>
+        <li>汇总首轮成功率、三次内成功率、平均成功尝试次数、失败类别和检索行为。</li>
       </ol>
     </section>
 
     <section class="panel">
-      <h2>Configuration Compared</h2>
+      <h2>对比配置</h2>
       <div class="split">
-        <div class="box"><strong>Group A: bare semantic generation</strong>No official repository access, no MCP tools, no examples. This measures what the model can produce from the task wording and prior error logs alone.</div>
-        <div class="box"><strong>Group B: grounded generation</strong>GitNexus MCP over the PyAEDT repository, read-only official examples, official API signature lookup, and stricter prompt rules for PyAEDT geometry, ports, and repair behavior.</div>
+        <div class="box"><strong>A 组：纯语义生成</strong>不提供官方仓库访问、不提供 MCP 工具、不提供 examples。它衡量模型仅依靠任务文字和上一轮错误日志能生成到什么程度。</div>
+        <div class="box"><strong>B 组：官方知识增强生成</strong>接入 PyAEDT 仓库上的 GitNexus MCP、只读官方 examples、官方 API 签名检索，并对 PyAEDT 几何、端口和修复行为加入更严格的 prompt 约束。</div>
       </div>
     </section>
 
     <section class="panel">
-      <h2>Group Metrics</h2>
+      <h2>分组指标</h2>
       <table>
-        <thead><tr><th>Group</th><th>Tasks</th><th>First-pass success</th><th>Success within 3 attempts</th><th>Average attempts to success</th><th>Average attempts all</th><th>Tool usage</th><th>Avg GitNexus queries</th><th>Retrieval before code</th><th>Failure categories</th></tr></thead>
+        <thead><tr><th>分组</th><th>任务数</th><th>首轮成功率</th><th>三次内成功率</th><th>成功任务平均尝试次数</th><th>全部任务平均尝试次数</th><th>工具使用率</th><th>平均 GitNexus 查询数</th><th>代码前检索率</th><th>失败类别</th></tr></thead>
         <tbody>{_group_rows(groups, available_groups)}</tbody>
       </table>
     </section>
 
     <section class="panel">
-      <h2>Task-Level Results</h2>
+      <h2>任务级结果</h2>
       <table>
-        <thead><tr><th>Task</th><th>Level</th>{''.join(f'<th>Group {escape(group)}</th>' for group in available_groups)}</tr></thead>
+        <thead><tr><th>任务</th><th>难度</th>{''.join(f'<th>{escape(group)} 组</th>' for group in available_groups)}</tr></thead>
         <tbody>{''.join(rows)}</tbody>
       </table>
     </section>
 
     <section class="panel">
-      <h2>Interpretation</h2>
+      <h2>结果解读</h2>
       <div class="split">
-        <div class="box"><strong>What improved</strong>Grounding reduced API-shape mistakes such as wrong PyAEDT argument names, invalid face iteration, and unsafe wave-port patterns. The repair loop converted many runtime failures into successful later attempts.</div>
-        <div class="box"><strong>What remains hard</strong>Some antenna and port tasks remain sensitive to exact AEDT boundary setup. These failures are useful because they identify where future node decomposition or stronger templates should focus.</div>
-        <div class="box"><strong>Why offline judging was removed</strong>The benchmark now measures real executable behavior against local AEDT instead of static string checks, so pass/fail reflects whether the generated automation actually runs.</div>
+        <div class="box"><strong>提升来自哪里</strong>Grounding 减少了 API 形态错误，例如 PyAEDT 参数名错误、face 遍历方式错误、wave port 使用方式不安全等。失败修复循环也把一部分 runtime failure 转化成后续尝试成功。</div>
+        <div class="box"><strong>仍然困难的地方</strong>部分天线和端口任务仍然对 AEDT boundary 设置非常敏感。这些失败有价值，因为它们指出了后续 node 分解或强模板应该优先覆盖的位置。</div>
+        <div class="box"><strong>为什么去掉离线判卷</strong>当前 benchmark 不再依赖静态字符串检查，而是用本地 AEDT 真实执行行为判定，所以 pass/fail 反映的是生成出来的自动化脚本是否真的能跑。</div>
       </div>
     </section>
 
-    <p class="footer">Artifacts linked in the task table point to local run files when available: generated code, AEDT execution logs, harness transcripts, and tool-usage summaries.</p>
+    <p class="footer">任务表中的链接会指向本地运行产物：生成代码、AEDT 执行日志、harness transcript 和工具使用摘要。</p>
   </main>
 </body>
 </html>
@@ -166,22 +166,22 @@ def _available_groups(report: dict) -> list[str]:
 
 
 def _summary_cards(groups: dict, model_name: str) -> list[str]:
-    cards = [_metric_card("Harness", model_name or "N/A")]
+    cards = [_metric_card("生成 Harness", model_name or "N/A")]
     for group in GROUP_ORDER:
         if group not in groups:
             continue
         metrics = groups[group]
         cards.extend(
             [
-                _metric_card(f"{group}: first-pass", _pct(metrics.get("first_pass_rate", 0.0))),
-                _metric_card(f"{group}: 3-attempt pass", _pct(metrics.get("pass_rate_3try", 0.0))),
+                _metric_card(f"{group} 组首轮成功率", _pct(metrics.get("first_pass_rate", 0.0))),
+                _metric_card(f"{group} 组三次内成功率", _pct(metrics.get("pass_rate_3try", 0.0))),
             ]
         )
     if "B" in groups:
         cards.extend(
             [
-                _metric_card("B avg success attempt", _num(groups["B"].get("avg_attempts_to_success", 0.0))),
-                _metric_card("B avg GitNexus queries", _num(groups["B"].get("avg_gitnexus_queries", 0.0))),
+                _metric_card("B 组平均成功轮次", _num(groups["B"].get("avg_attempts_to_success", 0.0))),
+                _metric_card("B 组平均 GitNexus 查询数", _num(groups["B"].get("avg_gitnexus_queries", 0.0))),
             ]
         )
     return cards
@@ -194,18 +194,18 @@ def _comparison(groups: dict) -> str:
         first_a = float(groups["A"].get("first_pass_rate", 0.0))
         first_b = float(groups["B"].get("first_pass_rate", 0.0))
         return (
-            f"Group B reached {_pct(b)} success within three attempts versus Group A at {_pct(a)}, "
-            f"a {_pct_points(b - a)} lift. First-pass success moved from {_pct(first_a)} to {_pct(first_b)}. "
-            "This indicates that official-source grounding plus repair feedback improves executable PyAEDT code generation."
+            f"B 组三次内成功率达到 {_pct(b)}，A 组为 {_pct(a)}，提升 {_pct_points(b - a)}。"
+            f"首轮成功率从 {_pct(first_a)} 提升到 {_pct(first_b)}。"
+            "这说明官方来源 grounding 与真实错误日志修复反馈，能够显著提高可执行 PyAEDT 代码生成质量。"
         )
     if "B" in groups:
         b = groups["B"]
         return (
-            f"Final Group B validation reached {_pct(b.get('pass_rate_3try', 0.0))} success within three attempts "
-            f"with {_pct(b.get('first_pass_rate', 0.0))} first-pass success and an average successful attempt of "
-            f"{_num(b.get('avg_attempts_to_success', 0.0))}."
+            f"最终 B 组三次内成功率为 {_pct(b.get('pass_rate_3try', 0.0))}，"
+            f"首轮成功率为 {_pct(b.get('first_pass_rate', 0.0))}，"
+            f"成功任务的平均成功轮次为 {_num(b.get('avg_attempts_to_success', 0.0))}。"
         )
-    return "No group metrics were found in this report."
+    return "报告中没有找到分组指标。"
 
 
 def _group_rows(groups: dict, available_groups: list[str]) -> str:
@@ -214,7 +214,7 @@ def _group_rows(groups: dict, available_groups: list[str]) -> str:
         metrics = groups.get(group, {})
         rows.append(
             "<tr>"
-            f"<td>Group {escape(group)}</td>"
+            f"<td>{escape(group)} 组</td>"
             f"<td>{metrics.get('task_count', 0)}</td>"
             f"<td>{_pct(metrics.get('first_pass_rate', 0.0))}</td>"
             f"<td>{_pct(metrics.get('pass_rate_3try', 0.0))}</td>"
@@ -241,22 +241,22 @@ def _task_row(task_id: str, task_data: dict, available_groups: list[str]) -> str
 
 def _task_group_cell(result: dict) -> str:
     if not result:
-        return "<td><span class='pill warn'>NOT RUN</span></td>"
+        return "<td><span class='pill warn'>未运行</span></td>"
     final_pass = _result_passed(result)
     status = "pass" if final_pass else "fail"
-    label = "PASS" if final_pass else "FAIL"
+    label = "通过" if final_pass else "失败"
     success = result.get("success_on_attempt")
     attempts = result.get("attempts", [])
     if success:
-        detail = f"success attempt: {success}"
+        detail = f"成功轮次：第 {success} 次"
     elif attempts:
-        detail = f"failure: {result.get('failure_type', 'unknown')}"
+        detail = f"失败类型：{result.get('failure_type', 'unknown')}"
     else:
-        detail = "legacy result" if "passed" in result else "not run"
+        detail = "旧版结果" if "passed" in result else "未运行"
     return (
         f"<td><span class='pill {status}'>{label}</span>"
         f"<div class='subtle'>{escape(detail)}</div>"
-        f"<div class='subtle'>attempts: {len(attempts) if attempts else _legacy_attempt_count(result)}</div>"
+        f"<div class='subtle'>尝试次数：{len(attempts) if attempts else _legacy_attempt_count(result)}</div>"
         f"{_attempt_links(attempts)}</td>"
     )
 
@@ -280,13 +280,13 @@ def _metric_card(label: str, value: str) -> str:
 def _attempt_links(attempts: list[dict]) -> str:
     links = []
     for attempt in attempts:
-        label = f"attempt {attempt.get('attempt', '?')}"
+        label = f"第 {attempt.get('attempt', '?')} 次尝试"
         pieces = []
         for key, text in (
-            ("code_path", "code"),
-            ("exec_log_path", "exec"),
-            ("transcript_path", "transcript"),
-            ("tool_usage_path", "tools"),
+            ("code_path", "代码"),
+            ("exec_log_path", "执行日志"),
+            ("transcript_path", "过程记录"),
+            ("tool_usage_path", "工具"),
         ):
             path = attempt.get(key)
             if path:
@@ -310,7 +310,7 @@ def _pct(value: float) -> str:
 
 
 def _pct_points(value: float) -> str:
-    return f"{float(value) * 100:+.1f} percentage points"
+    return f"{float(value) * 100:+.1f} 个百分点"
 
 
 def _num(value: float) -> str:
