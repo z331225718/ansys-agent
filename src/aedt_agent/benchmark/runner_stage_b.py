@@ -7,6 +7,7 @@ from typing import Callable
 
 from aedt_agent.benchmark.node_plan_parser import NodePlanParseError, extract_node_plan
 from aedt_agent.benchmark.runner_v2 import run_aedt_benchmark_v2
+from aedt_agent.benchmark.stage_b_validation import run_stage_b_validation
 from aedt_agent.mcp.tools import McpToolKernel
 from aedt_agent.mcp.types import ExecutionStatus
 
@@ -81,7 +82,7 @@ def _run_group_c(tasks_dir, run_dir, generator, kernel, task_ids, max_attempts, 
                 if progress_callback:
                     progress_callback({"phase": "attempt_start", "task_id": task_id, "group": "C", "attempt": attempt, "max_attempts": max_attempts})
                 started_at = time.monotonic()
-                prompt = _build_group_c_prompt(task.requirement, previous_log)
+                prompt = _build_group_c_prompt(task, kernel, previous_log)
                 (task_dir / f"attempt_{attempt}_prompt.txt").write_text(prompt, encoding="utf-8")
                 try:
                     if hasattr(generator, "generate_text_attempt"):
@@ -107,10 +108,28 @@ def _run_group_c(tasks_dir, run_dir, generator, kernel, task_ids, max_attempts, 
                     continue
 
                 step_results = []
+                step_outputs = {}
                 all_steps_ok = True
                 for step in plan.plan:
-                    result = kernel.execute_node(step.node_id, step.inputs, session["session_id"])
-                    step_record = {"node_id": step.node_id, "inputs": step.inputs, "status": result.status.value, "output": result.output, "error_type": result.error_type, "error_message": result.error_message}
+                    try:
+                        resolved_inputs = _resolve_refs(step.inputs, step_outputs)
+                    except Exception as exc:
+                        all_steps_ok = False
+                        failure_type = "node_reference_error"
+                        previous_log = str(exc)
+                        break
+                    result = kernel.execute_node(step.node_id, resolved_inputs, session["session_id"])
+                    step_key = step.step_id or f"step_{len(step_results) + 1}"
+                    step_record = {
+                        "id": step_key,
+                        "node_id": step.node_id,
+                        "inputs": resolved_inputs,
+                        "status": result.status.value,
+                        "output": result.output,
+                        "error_type": result.error_type,
+                        "error_message": result.error_message,
+                    }
+                    step_outputs[step_key] = {"output": result.output}
                     node_steps.append(step_record)
                     step_results.append(step_record)
                     if result.status != ExecutionStatus.SUCCEEDED:
@@ -119,11 +138,42 @@ def _run_group_c(tasks_dir, run_dir, generator, kernel, task_ids, max_attempts, 
                         previous_log = result.error_message or result.traceback
                         break
                 (task_dir / f"attempt_{attempt}_node_results.json").write_text(json.dumps(step_results, indent=2, ensure_ascii=False), encoding="utf-8")
+                validation_result = {}
+                validation_ok = False
+                if all_steps_ok:
+                    model_info = kernel.get_model_info(session["session_id"])
+                    validation_result = run_stage_b_validation(
+                        validation_script=Path(task.validation_script),
+                        session_id=session["session_id"],
+                        project_id=session["project_id"],
+                        design_id=session["design_id"],
+                        model_info=model_info,
+                        expected_outputs=task.expected_outputs,
+                    )
+                    validation_ok = bool(validation_result.get("passed"))
+                    (task_dir / f"attempt_{attempt}_validation.json").write_text(
+                        json.dumps(validation_result, indent=2, ensure_ascii=False),
+                        encoding="utf-8",
+                    )
+                    if not validation_ok:
+                        all_steps_ok = False
+                        failure_type = str(validation_result.get("failure_type") or "validation_fail")
+                        previous_log = str(validation_result.get("log") or validation_result)
                 if all_steps_ok:
                     final_pass = True
                     success_on_attempt = attempt
                     failure_type = ""
-                attempts.append(_attempt_record(attempt, all_steps_ok, failure_type, previous_log, started_at))
+                attempts.append(
+                    _attempt_record(
+                        attempt,
+                        all_steps_ok,
+                        failure_type,
+                        previous_log,
+                        started_at,
+                        validation_ok=validation_ok,
+                        validation_result=validation_result,
+                    )
+                )
                 if progress_callback:
                     progress_callback({"phase": "attempt_end", "task_id": task_id, "group": "C", "attempt": attempt, "max_attempts": max_attempts, "final_pass": all_steps_ok, "failure_type": failure_type})
                 if final_pass:
@@ -136,22 +186,61 @@ def _run_group_c(tasks_dir, run_dir, generator, kernel, task_ids, max_attempts, 
     return {"tasks": task_results, "group_metrics": compute_stage_b_metrics(metric_inputs)}
 
 
-def _build_group_c_prompt(requirement: str, previous_log: str) -> str:
+def _build_group_c_prompt(task, kernel: McpToolKernel, previous_log: str) -> str:
+    node_catalog = []
+    for node_id in task.allowed_nodes:
+        try:
+            node_catalog.append(kernel.describe_node(node_id))
+        except Exception:
+            node_catalog.append({"node_id": node_id, "unsupported": True})
     parts = [
         "Generate a Stage B node plan as JSON only. Do not output Python or markdown.",
-        "The JSON schema is: {\"plan\": [{\"node_id\": \"create_substrate\", \"inputs\": {}}]}",
-        "Use only supported node IDs from the node catalog.",
-        f"Requirement:\n{requirement}",
+        "The JSON schema is: {\"plan\": [{\"id\": \"optional_step_id\", \"node_id\": \"create_substrate\", \"inputs\": {}}]}",
+        "Use only the allowed node IDs listed below. Match required input names exactly.",
+        "To pass a previous node output into a later input, use {\"$ref\": \"step_id.output.selected_face_id\"}.",
+        f"Allowed nodes:\n{json.dumps(node_catalog, indent=2, ensure_ascii=False)}",
+        f"Expected workflow:\n{json.dumps(task.expected_workflow, ensure_ascii=False)}",
+        f"Expected outputs:\n{json.dumps(task.expected_outputs, ensure_ascii=False)}",
+        f"Requirement:\n{task.requirement}",
     ]
     if previous_log:
         parts.append("Previous node plan failed. Use this real error to repair the JSON plan:\n" + previous_log)
     return "\n\n".join(parts)
 
 
-def _attempt_record(attempt: int, final_pass: bool, failure_type: str, log: str, started_at: float) -> dict:
+def _resolve_refs(value, step_outputs):
+    if isinstance(value, dict):
+        if set(value) == {"$ref"}:
+            return _lookup_ref(str(value["$ref"]), step_outputs)
+        return {key: _resolve_refs(item, step_outputs) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_resolve_refs(item, step_outputs) for item in value]
+    return value
+
+
+def _lookup_ref(ref: str, step_outputs):
+    current = step_outputs
+    for part in ref.split("."):
+        if not isinstance(current, dict) or part not in current:
+            raise KeyError(f"Unknown node output reference: {ref}")
+        current = current[part]
+    return current
+
+
+def _attempt_record(
+    attempt: int,
+    final_pass: bool,
+    failure_type: str,
+    log: str,
+    started_at: float,
+    validation_ok: bool = False,
+    validation_result: dict | None = None,
+) -> dict:
     return {
         "attempt": attempt,
         "final_pass": final_pass,
+        "validation_ok": validation_ok,
+        "validation_result": validation_result or {},
         "failure_type": failure_type,
         "error_summary": " ".join(log.split())[:500],
         "elapsed_seconds": time.monotonic() - started_at,

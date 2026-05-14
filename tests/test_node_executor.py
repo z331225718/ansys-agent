@@ -48,6 +48,25 @@ def test_node_executor_rejects_unknown_node(tmp_path):
     assert result.error_type == "UnknownNode"
 
 
+def test_node_executor_selects_face_from_object(tmp_path):
+    manager, executor = _executor(tmp_path)
+    session = manager.create_session("p1", "d1")
+    executor.execute_node(
+        session.ref.session_id,
+        "create_substrate",
+        {"origin": [0, 0, 0], "size": [1, 1, 1], "material": "FR4_epoxy"},
+    )
+
+    result = executor.execute_node(
+        session.ref.session_id,
+        "select_face",
+        {"object_name": "Substrate", "axis": "x", "side": "max"},
+    )
+
+    assert result.status == ExecutionStatus.SUCCEEDED
+    assert result.output["selected_face_id"] > 0
+
+
 def test_node_executor_rejects_bad_schema(tmp_path):
     manager, executor = _executor(tmp_path)
     session = manager.create_session("p1", "d1")

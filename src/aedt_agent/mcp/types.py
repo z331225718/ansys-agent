@@ -46,6 +46,7 @@ class ExecutionResult:
 class NodeStep:
     node_id: str
     inputs: dict[str, Any]
+    step_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -67,5 +68,8 @@ class NodePlan:
                 raise TypeError("node_id must be a non-empty string")
             if not isinstance(inputs, dict):
                 raise TypeError("inputs must be a mapping")
-            steps.append(NodeStep(node_id=node_id, inputs=dict(inputs)))
+            step_id = raw_step.get("id") or raw_step.get("step_id") or ""
+            if step_id is not None and not isinstance(step_id, str):
+                raise TypeError("step id must be a string")
+            steps.append(NodeStep(node_id=node_id, inputs=dict(inputs), step_id=step_id))
         return cls(plan=steps)

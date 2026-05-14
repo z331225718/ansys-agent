@@ -18,6 +18,7 @@ Group C asks the harness for a JSON node plan instead of Python code:
 {
   "plan": [
     {
+      "id": "substrate",
       "node_id": "create_substrate",
       "inputs": {
         "origin": [0, 0, 0],
@@ -29,7 +30,13 @@ Group C asks the harness for a JSON node plan instead of Python code:
 }
 ```
 
-The benchmark runner parses the plan, calls `execute_node` for each step, records JSONL audit events, and rejects free-code fallback.
+The benchmark runner parses the plan, calls `execute_node` for each step, records JSONL audit events, and rejects free-code fallback. A later node can consume an earlier node output through a reference such as:
+
+```json
+{"$ref": "feed_face.output.selected_face_id"}
+```
+
+Candidate C is counted as passing only when all nodes execute and the task validation script passes against the real model snapshot from `get_model_info()`.
 
 ## Local Plumbing Check
 
@@ -46,6 +53,14 @@ This command verifies the Stage B runner, parser, fake node kernel, audit log, a
 ```
 
 ## Real AEDT Acceptance
+
+`PyaedtAdapter` auto-detects the local 2026.1 install under `~/ansys_inc/v261` when `ANSYSEM_ROOT261` and `AWP_ROOT261` are not already exported. The explicit config values in `config/benchmark_config.json` are still passed by the benchmark script.
+
+Run the real adapter smoke test:
+
+```bash
+RUN_REAL_AEDT=1 .venv/bin/python -m pytest tests/test_pyaedt_adapter_contract.py tests/test_real_aedt_nodes.py -q -s
+```
 
 Real acceptance must run without `--fake-node-kernel` and should start with the smoke set:
 

@@ -49,6 +49,8 @@ def _build_real_kernel(config, audit_path: Path) -> McpToolKernel:
             design_id=design_id,
             version=config.aedt.version,
             non_graphical=config.aedt.non_graphical,
+            ansysem_root=config.aedt.ansysem_root,
+            awp_root=config.aedt.awp_root,
         )
     )
     queue = ExecutionQueue(timeout_seconds=config.aedt.timeout)

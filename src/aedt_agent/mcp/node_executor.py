@@ -64,6 +64,8 @@ class NodeExecutor:
             return lambda app: _assign_boundary(app, inputs)
         if node_id == "create_port":
             return lambda app: _create_port(app, inputs)
+        if node_id == "select_face":
+            return lambda app: _select_face(app, inputs)
         if node_id == "create_setup":
             return lambda app: _create_setup(app, inputs)
         if node_id == "create_sweep_or_export":
@@ -163,6 +165,23 @@ def _create_port(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
     return _node_output(ports=[str(port)], postchecks=["port_created"])
 
 
+def _select_face(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
+    object_name = inputs["object_name"]
+    axis = inputs.get("axis", "x").lower()
+    side = inputs.get("side", "max").lower()
+    axis_index = {"x": 0, "y": 1, "z": 2}.get(axis, 0)
+    faces = _get_object_faces(app, object_name)
+    if not faces:
+        raise ValueError(f"object has no faces: {object_name}")
+    selected = max(faces, key=lambda face: face["center"][axis_index]) if side == "max" else min(faces, key=lambda face: face["center"][axis_index])
+    return {
+        "created": {"objects": [], "ports": [], "boundaries": [], "setups": [], "sweeps": []},
+        "selected_face_id": selected["id"],
+        "selected_face_center": selected["center"],
+        "postcheck": {"passed": True, "checks": ["face_selected"]},
+    }
+
+
 def _create_setup(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
     frequency = inputs["frequency"]
     if isinstance(frequency, (int, float)):
@@ -181,6 +200,22 @@ def _create_sweep(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
         name=inputs["name"],
     )
     return _node_output(sweeps=[str(sweep)], postchecks=["sweep_created"])
+
+
+def _get_object_faces(app: Any, object_name: str) -> list[dict[str, Any]]:
+    faces: list[dict[str, Any]] = []
+    try:
+        obj = app.modeler[object_name]
+        for face in getattr(obj, "faces", []):
+            faces.append({"id": int(face.id), "center": list(face.center)})
+    except Exception:
+        try:
+            face_ids = app.modeler.get_object_faces(object_name)
+            for face_id in face_ids:
+                faces.append({"id": int(face_id), "center": list(app.modeler.get_face_center(face_id))})
+        except Exception:
+            return []
+    return faces
 
 
 def _assign_material_if_available(app: Any, name: str, material: str) -> None:

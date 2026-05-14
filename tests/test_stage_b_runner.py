@@ -9,6 +9,22 @@ class StaticPlanGenerator:
         return '{"plan": [{"node_id": "create_substrate", "inputs": {"origin": [0, 0, 0], "size": [20, 15, 0.8], "material": "FR4_epoxy"}}]}'
 
 
+class WrongPlanGenerator:
+    def generate(self, context, filename=None):
+        return '{"plan": [{"node_id": "create_setup", "inputs": {"frequency": "5GHz"}}]}'
+
+
+class RefPlanGenerator:
+    def generate(self, context, filename=None):
+        return (
+            '{"plan": ['
+            '{"id": "box", "node_id": "create_substrate", "inputs": {"origin": [0, 0, 0], "size": [20, 15, 0.8], "material": "FR4_epoxy"}},'
+            '{"id": "face", "node_id": "select_face", "inputs": {"object_name": "Substrate", "axis": "x", "side": "max"}},'
+            '{"node_id": "create_port", "inputs": {"port_type": "wave", "assignment": {"$ref": "face.output.selected_face_id"}}}'
+            ']}'
+        )
+
+
 class UnusedExecutor:
     def execute(self, code_path, validation_script, work_dir):
         raise AssertionError("Group B executor should not be used when running only C")
@@ -31,3 +47,40 @@ def test_stage_b_runner_executes_group_c_node_plan(tmp_path):
     assert report["groups"]["C"]["pass_rate_3try"] == 1.0
     assert report["groups"]["C"]["free_code_execution_count"] == 0
     assert (tmp_path / "audit.jsonl").exists()
+
+
+def test_stage_b_runner_requires_validation_after_node_execution(tmp_path):
+    report = run_stage_b_node_benchmark(
+        tasks_dir=Path("benchmarks/tasks"),
+        run_dir=tmp_path / "runs",
+        group_b_generator=WrongPlanGenerator(),
+        group_c_generator=WrongPlanGenerator(),
+        group_b_executor=UnusedExecutor(),
+        kernel=create_fake_kernel(Path("nodes/catalog"), audit_path=tmp_path / "audit.jsonl"),
+        groups=["C"],
+        task_ids=["L1_create_substrate"],
+        max_attempts=1,
+    )
+
+    task_result = report["tasks"]["L1_create_substrate"]["C"]
+    assert task_result["final_pass"] is False
+    assert task_result["failure_type"] == "validation_fail"
+    assert task_result["attempts"][0]["validation_ok"] is False
+
+
+def test_stage_b_runner_resolves_node_output_refs(tmp_path):
+    report = run_stage_b_node_benchmark(
+        tasks_dir=Path("benchmarks/tasks"),
+        run_dir=tmp_path / "runs",
+        group_b_generator=RefPlanGenerator(),
+        group_c_generator=RefPlanGenerator(),
+        group_b_executor=UnusedExecutor(),
+        kernel=create_fake_kernel(Path("nodes/catalog"), audit_path=tmp_path / "audit.jsonl"),
+        groups=["C"],
+        task_ids=["L1_create_wave_port"],
+        max_attempts=1,
+    )
+
+    task_result = report["tasks"]["L1_create_wave_port"]["C"]
+    assert task_result["final_pass"] is True
+    assert task_result["node_steps"][-1]["inputs"]["assignment"] > 0

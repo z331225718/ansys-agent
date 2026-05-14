@@ -48,6 +48,11 @@ NODE_SCHEMAS: dict[str, NodeInputSchema] = {
         optional={"name": str, "integration_line": list, "reference": str, "impedance": (int, float, str)},
         defaults={"name": "Port1", "impedance": 50},
     ),
+    "select_face": NodeInputSchema(
+        required={"object_name": str},
+        optional={"axis": str, "side": str},
+        defaults={"axis": "x", "side": "max"},
+    ),
     "create_setup": NodeInputSchema(
         required={"frequency": (str, int, float)},
         optional={"name": str, "max_passes": int},
