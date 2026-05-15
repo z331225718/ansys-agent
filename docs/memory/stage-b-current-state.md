@@ -8,9 +8,9 @@
 - GitHub：`https://github.com/z331225718/ansys-agent`
 - 当前分支：`stage-a-grounding-benchmark`
 - 最新已推送提交：
+  - `e88937c Add stage b html report`
+  - `3d000c7 Normalize stage b port integration lines`
   - `2dc995c Isolate stage b node attempts`
-  - `c783e83 Record stage b project memory`
-  - `32e285a Strengthen stage b wave port validation`
 
 ## Stage B 目标
 
@@ -45,6 +45,8 @@ Stage B 不是继续比较裸 LLM 写 Python，而是验证节点化路径是否
   - `create_airbox.padding` 支持数值列表并归一化为最大 padding。
   - `assign_boundary` 和 `create_port` 可以接受上游节点完整 output 作为 `assignment/reference`，执行时提取合适对象。
   - `create_port.integration_line` 支持 `{"start": [...], "end": [...]}` 并归一化为两点列表。
+  - 增加 Stage B 中文 HTML 报告生成器：`src/aedt_agent/benchmark/report_html_stage_b.py`。
+  - `scripts/run_stage_b_benchmark.py` 现在会在 run dir 下同时写出 `stage_b_report.html`。
 
 ## 已验证结果
 
@@ -86,6 +88,10 @@ Stage B 不是继续比较裸 LLM 写 Python，而是验证节点化路径是否
 结果：
 
 - `Trap_waveport_wrong_face`：PASS，1/3
+
+当前可展示 HTML 报告：
+
+- `benchmarks/reports/stage_b_5task_compare.html`
 - validation checks：
   - `session_available`
   - `wave_port_present`
@@ -171,7 +177,12 @@ Stage B 不是继续比较裸 LLM 写 Python，而是验证节点化路径是否
 
 ## 下一步
 
-下一步建议生成中文 Stage B HTML 报告，展示：
+中文 Stage B HTML 报告已生成。下一步建议做两件事：
+
+1. 复查报告表述是否适合对外汇报，尤其是不要把当前 Trap validation 夸大为完整物理正确性。
+2. 决定是否扩展到 10-task C-only 或 B/C 全量对照。
+
+报告已经展示：
 
 - Stage A baseline。
 - 5-task B/C compare 指标。
