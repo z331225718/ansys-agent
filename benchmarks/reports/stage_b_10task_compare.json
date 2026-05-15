@@ -1,0 +1,2564 @@
+{
+  "version": "stage_b_node_v1_presentation_10task",
+  "max_attempts": 3,
+  "method": "B 组使用 GitNexus + 官方源码/示例检索后的自由 Python 代码；C 组使用同一 harness 生成 JSON node plan，并由本地受控节点在真实 AEDT 2026.1 non-graphical 中执行。两组均最多三次修复，判定来自真实 AEDT 执行和 validation script。",
+  "run_sources": {
+    "group_b": "benchmarks/runs/stage_b_b_10task_after_node_fixes/stage_b_report.json",
+    "group_c": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json"
+  },
+  "groups": {
+    "B": {
+      "task_count": 10,
+      "first_pass_rate": 0.7,
+      "pass_rate_3try": 0.9,
+      "avg_attempts_to_success": 1.3333333333333333,
+      "avg_attempts_all": 1.5,
+      "failure_categories": {
+        "generation_error": 1
+      },
+      "tool_usage_rate": 1.0,
+      "avg_gitnexus_queries": 6.9,
+      "retrieval_before_code_rate": 1.0
+    },
+    "C": {
+      "task_count": 10,
+      "first_pass_rate": 0.8,
+      "pass_rate_3try": 1.0,
+      "avg_attempts_to_success": 1.2,
+      "avg_attempts_all": 1.2,
+      "avg_node_count": 4.3,
+      "node_coverage_rate": 1.0,
+      "unsupported_task_count": 0,
+      "free_code_execution_count": 0,
+      "failure_categories": {}
+    }
+  },
+  "tasks": {
+    "L1_assign_material": {
+      "metadata": {
+        "level": "L1",
+        "validation_script": "benchmarks/validation_scripts/validate_session.py"
+      },
+      "B": {
+        "final_pass": true,
+        "success_on_attempt": 1,
+        "failure_type": "",
+        "attempts": [
+          {
+            "attempt": 1,
+            "generation_ok": true,
+            "execution_ok": true,
+            "validation_ok": true,
+            "tool_usage": {
+              "used_tools": true,
+              "gitnexus_query_count": 5,
+              "gitnexus_context_count": 3,
+              "tool_call_names": [
+                "mcp__gitnexus__query",
+                "mcp__gitnexus__context"
+              ],
+              "retrieval_before_code": true
+            },
+            "failure_type": "",
+            "error_summary": "",
+            "elapsed_seconds": 55.31724640598986,
+            "final_pass": true
+          }
+        ]
+      },
+      "C": {
+        "final_pass": true,
+        "success_on_attempt": 1,
+        "attempts": [
+          {
+            "attempt": 1,
+            "final_pass": true,
+            "validation_ok": true,
+            "validation_result": {
+              "passed": true,
+              "checks": [
+                "session_available",
+                "material_assignment_present"
+              ],
+              "failures": [],
+              "failure_type": "",
+              "log": ""
+            },
+            "failure_type": "",
+            "error_summary": "",
+            "elapsed_seconds": 30.267263400019147
+          }
+        ],
+        "node_steps": [
+          {
+            "id": "step1",
+            "node_id": "create_substrate",
+            "inputs": {
+              "material": "FR4_epoxy",
+              "origin": [
+                0,
+                0,
+                0
+              ],
+              "size": [
+                50,
+                50,
+                1.6
+              ],
+              "name": "Substrate"
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [
+                  "Substrate"
+                ],
+                "ports": [],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "object_exists",
+                  "material_matches"
+                ]
+              },
+              "object_name": "Substrate",
+              "object_names": [
+                "Substrate"
+              ],
+              "session_id": "session-7de241f3f24f4341ab3b732365292393",
+              "node_id": "create_substrate"
+            },
+            "error_type": "",
+            "error_message": ""
+          }
+        ],
+        "failure_type": ""
+      }
+    },
+    "L1_create_setup": {
+      "metadata": {
+        "level": "L1",
+        "validation_script": "benchmarks/validation_scripts/validate_session.py"
+      },
+      "B": {
+        "final_pass": true,
+        "success_on_attempt": 1,
+        "failure_type": "",
+        "attempts": [
+          {
+            "attempt": 1,
+            "generation_ok": true,
+            "execution_ok": true,
+            "validation_ok": true,
+            "tool_usage": {
+              "used_tools": true,
+              "gitnexus_query_count": 5,
+              "gitnexus_context_count": 5,
+              "tool_call_names": [
+                "mcp__gitnexus__query",
+                "mcp__gitnexus__context"
+              ],
+              "retrieval_before_code": true
+            },
+            "failure_type": "",
+            "error_summary": "",
+            "elapsed_seconds": 54.161612204043195,
+            "final_pass": true
+          }
+        ]
+      },
+      "C": {
+        "final_pass": true,
+        "success_on_attempt": 1,
+        "attempts": [
+          {
+            "attempt": 1,
+            "final_pass": true,
+            "validation_ok": true,
+            "validation_result": {
+              "passed": true,
+              "checks": [
+                "session_available",
+                "setup_present"
+              ],
+              "failures": [],
+              "failure_type": "",
+              "log": ""
+            },
+            "failure_type": "",
+            "error_summary": "",
+            "elapsed_seconds": 25.501817894983105
+          }
+        ],
+        "node_steps": [
+          {
+            "id": "setup1",
+            "node_id": "create_setup",
+            "inputs": {
+              "frequency": "10GHz",
+              "name": "Setup1",
+              "max_passes": 10
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [],
+                "ports": [],
+                "boundaries": [],
+                "setups": [
+                  "Setup1 : LastAdaptive"
+                ],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "setup_created"
+                ]
+              },
+              "setup_name": "Setup1 : LastAdaptive",
+              "session_id": "session-cdbf877f39024aefa80ff923eef45f07",
+              "node_id": "create_setup"
+            },
+            "error_type": "",
+            "error_message": ""
+          }
+        ],
+        "failure_type": ""
+      }
+    },
+    "L1_create_substrate": {
+      "metadata": {
+        "level": "L1",
+        "validation_script": "benchmarks/validation_scripts/validate_session.py"
+      },
+      "B": {
+        "final_pass": true,
+        "success_on_attempt": 1,
+        "failure_type": "",
+        "attempts": [
+          {
+            "attempt": 1,
+            "generation_ok": true,
+            "execution_ok": true,
+            "validation_ok": true,
+            "tool_usage": {
+              "used_tools": true,
+              "gitnexus_query_count": 3,
+              "gitnexus_context_count": 4,
+              "tool_call_names": [
+                "mcp__gitnexus__query",
+                "mcp__gitnexus__context"
+              ],
+              "retrieval_before_code": true
+            },
+            "failure_type": "",
+            "error_summary": "",
+            "elapsed_seconds": 61.27994667494204,
+            "final_pass": true
+          }
+        ]
+      },
+      "C": {
+        "final_pass": true,
+        "success_on_attempt": 1,
+        "attempts": [
+          {
+            "attempt": 1,
+            "final_pass": true,
+            "validation_ok": true,
+            "validation_result": {
+              "passed": true,
+              "checks": [
+                "session_available",
+                "substrate_present"
+              ],
+              "failures": [],
+              "failure_type": "",
+              "log": ""
+            },
+            "failure_type": "",
+            "error_summary": "",
+            "elapsed_seconds": 24.310096886008978
+          }
+        ],
+        "node_steps": [
+          {
+            "id": "step1",
+            "node_id": "create_substrate",
+            "inputs": {
+              "material": "FR4_epoxy",
+              "origin": [
+                0,
+                0,
+                0
+              ],
+              "size": [
+                50,
+                50,
+                1.6
+              ],
+              "name": "Substrate",
+              "units": "mm"
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [
+                  "Substrate"
+                ],
+                "ports": [],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "object_exists",
+                  "material_matches"
+                ]
+              },
+              "object_name": "Substrate",
+              "object_names": [
+                "Substrate"
+              ],
+              "session_id": "session-bb56cf0165b740e98fc92015a5b17728",
+              "node_id": "create_substrate"
+            },
+            "error_type": "",
+            "error_message": ""
+          }
+        ],
+        "failure_type": ""
+      }
+    },
+    "L1_create_wave_port": {
+      "metadata": {
+        "level": "L1",
+        "validation_script": "benchmarks/validation_scripts/validate_session.py"
+      },
+      "B": {
+        "final_pass": true,
+        "success_on_attempt": 1,
+        "failure_type": "",
+        "attempts": [
+          {
+            "attempt": 1,
+            "generation_ok": true,
+            "execution_ok": true,
+            "validation_ok": true,
+            "tool_usage": {
+              "used_tools": true,
+              "gitnexus_query_count": 3,
+              "gitnexus_context_count": 5,
+              "tool_call_names": [
+                "mcp__gitnexus__query",
+                "mcp__gitnexus__context"
+              ],
+              "retrieval_before_code": true
+            },
+            "failure_type": "",
+            "error_summary": "",
+            "elapsed_seconds": 170.0359836439602,
+            "final_pass": true
+          }
+        ]
+      },
+      "C": {
+        "final_pass": true,
+        "success_on_attempt": 1,
+        "attempts": [
+          {
+            "attempt": 1,
+            "final_pass": true,
+            "validation_ok": true,
+            "validation_result": {
+              "passed": true,
+              "checks": [
+                "session_available",
+                "wave_port_present",
+                "wave_port_uses_selected_face"
+              ],
+              "failures": [],
+              "failure_type": "",
+              "log": ""
+            },
+            "failure_type": "",
+            "error_summary": "",
+            "elapsed_seconds": 114.2315513069043
+          }
+        ],
+        "node_steps": [
+          {
+            "id": "geom",
+            "node_id": "create_conductor_or_geometry_group",
+            "inputs": {
+              "geometry": [
+                {
+                  "kind": "box",
+                  "origin": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "size": [
+                    10,
+                    10,
+                    5
+                  ],
+                  "name": "block",
+                  "material": "copper"
+                }
+              ]
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [
+                  "block"
+                ],
+                "ports": [],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "objects_exist"
+                ]
+              },
+              "object_name": "block",
+              "object_names": [
+                "block"
+              ],
+              "session_id": "session-3162000033fd4a04a1252aa14c6b2912",
+              "node_id": "create_conductor_or_geometry_group"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "face",
+            "node_id": "select_face",
+            "inputs": {
+              "object_name": "block",
+              "axis": "x",
+              "side": "max"
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [],
+                "ports": [],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "object_name": "block",
+              "selected_face_id": 12,
+              "selected_face_center": [
+                10.0,
+                5.0,
+                2.5
+              ],
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "face_selected"
+                ]
+              },
+              "session_id": "session-3162000033fd4a04a1252aa14c6b2912",
+              "node_id": "select_face"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "port",
+            "node_id": "create_port",
+            "inputs": {
+              "assignment": 12,
+              "port_type": "wave"
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [],
+                "ports": [
+                  "Port1"
+                ],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "port_created"
+                ]
+              },
+              "port_name": "Port1",
+              "session_id": "session-3162000033fd4a04a1252aa14c6b2912",
+              "node_id": "create_port"
+            },
+            "error_type": "",
+            "error_message": ""
+          }
+        ],
+        "failure_type": ""
+      }
+    },
+    "L2_dipole_antenna": {
+      "metadata": {
+        "level": "L2",
+        "validation_script": "benchmarks/validation_scripts/validate_session.py"
+      },
+      "B": {
+        "final_pass": false,
+        "success_on_attempt": null,
+        "failure_type": "generation_error",
+        "attempts": [
+          {
+            "attempt": 1,
+            "generation_ok": true,
+            "execution_ok": false,
+            "validation_ok": false,
+            "tool_usage": {
+              "used_tools": true,
+              "gitnexus_query_count": 5,
+              "gitnexus_context_count": 6,
+              "tool_call_names": [
+                "mcp__gitnexus__query",
+                "mcp__gitnexus__context",
+                "Read"
+              ],
+              "retrieval_before_code": true
+            },
+            "failure_type": "runtime_error",
+            "error_summary": "Traceback (most recent call last): File \"<repo>/benchmarks/runs/stage_b_b_10task_after_node_fixes/baseline_b/L2_dipole_antenna/B/aedt_attempt_wrapper.py\", line 16, in <module> exec(compile(code_path.read_text(encoding=\"utf-8\"), str(code_path), \"exec\"), namespace) File \"<repo>/benchmarks/runs/stage_b_b_10task_after_node_fixes/baseline_b/L2_dipole_antenna/B/attempt_1_code.py\", line 11, in <module> app.modeler.CoordinateSystemPlane.XYPlane, ^^^^^^^^^^^^",
+            "elapsed_seconds": 195.57411085593048,
+            "final_pass": false
+          },
+          {
+            "attempt": 2,
+            "generation_ok": true,
+            "execution_ok": false,
+            "validation_ok": false,
+            "tool_usage": {
+              "used_tools": true,
+              "gitnexus_query_count": 9,
+              "gitnexus_context_count": 4,
+              "tool_call_names": [
+                "mcp__gitnexus__query",
+                "mcp__gitnexus__list_repos",
+                "mcp__gitnexus__group_list",
+                "mcp__gitnexus__context"
+              ],
+              "retrieval_before_code": true
+            },
+            "failure_type": "runtime_error",
+            "error_summary": "Traceback (most recent call last): File \"<repo>/.venv/lib/python3.12/site-packages/ansys/aedt/core/internal/grpc_plugin_dll_class.py\", line 116, in __Invoke__ ret = _retry_ntimes( ^^^^^^^^^^^^^^ File \"<repo>/.venv/lib/python3.12/site-packages/ansys/aedt/core/generic/general_methods.py\", line 613, in _retry_ntimes raise AttributeError(f\"Error in Executing Method {function.__name__}.\") AttributeError: Error in Executing Method InvokeAedtObjMethod. Duri",
+            "elapsed_seconds": 85.4634114940418,
+            "final_pass": false
+          },
+          {
+            "attempt": 3,
+            "generation_ok": false,
+            "execution_ok": false,
+            "validation_ok": false,
+            "tool_usage": {
+              "used_tools": true,
+              "gitnexus_query_count": 5,
+              "gitnexus_context_count": 15,
+              "tool_call_names": [
+                "mcp__gitnexus__context",
+                "mcp__gitnexus__query"
+              ],
+              "retrieval_before_code": true
+            },
+            "failure_type": "generation_error",
+            "error_summary": "Harness CLI timed out after 900s",
+            "elapsed_seconds": 900.0287193229888,
+            "final_pass": false
+          }
+        ]
+      },
+      "C": {
+        "final_pass": true,
+        "success_on_attempt": 2,
+        "attempts": [
+          {
+            "attempt": 1,
+            "final_pass": false,
+            "validation_ok": false,
+            "validation_result": {},
+            "failure_type": "node_reference_error",
+            "error_summary": "'Unknown node output reference: create_stp.output.name'",
+            "elapsed_seconds": 114.80029213696253
+          },
+          {
+            "attempt": 2,
+            "final_pass": true,
+            "validation_ok": true,
+            "validation_result": {
+              "passed": true,
+              "checks": [
+                "session_available",
+                "dipole_antenna_present"
+              ],
+              "failures": [],
+              "failure_type": "",
+              "log": ""
+            },
+            "failure_type": "",
+            "error_summary": "'Unknown node output reference: create_stp.output.name'",
+            "elapsed_seconds": 170.25717972998973
+          }
+        ],
+        "node_steps": [
+          {
+            "id": "create_geo",
+            "node_id": "create_conductor_or_geometry_group",
+            "inputs": {
+              "geometry": [
+                {
+                  "kind": "box",
+                  "origin": [
+                    -0.5,
+                    -0.5,
+                    0.5
+                  ],
+                  "size": [
+                    1,
+                    1,
+                    30
+                  ],
+                  "name": "arm_upper",
+                  "material": "copper"
+                },
+                {
+                  "kind": "box",
+                  "origin": [
+                    -0.5,
+                    -0.5,
+                    -30.5
+                  ],
+                  "size": [
+                    1,
+                    1,
+                    30
+                  ],
+                  "name": "arm_lower",
+                  "material": "copper"
+                }
+              ],
+              "group_name": "dipole_antenna"
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [
+                  "arm_upper",
+                  "arm_lower"
+                ],
+                "ports": [],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "objects_exist"
+                ]
+              },
+              "object_name": "arm_upper",
+              "object_names": [
+                "arm_upper",
+                "arm_lower"
+              ],
+              "session_id": "session-fd6770650cd847399c3f7603b557f1c9",
+              "node_id": "create_conductor_or_geometry_group"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "create_ab",
+            "node_id": "create_airbox",
+            "inputs": {
+              "padding": 40
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [
+                  "AirBox"
+                ],
+                "ports": [],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "air_region_created"
+                ]
+              },
+              "object_name": "AirBox",
+              "object_names": [
+                "AirBox"
+              ],
+              "session_id": "session-fd6770650cd847399c3f7603b557f1c9",
+              "node_id": "create_airbox"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "assign_bnd",
+            "node_id": "assign_boundary",
+            "inputs": {
+              "assignment": "AirBox",
+              "boundary_type": "radiation"
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [],
+                "ports": [],
+                "boundaries": [
+                  "Boundary"
+                ],
+                "setups": [],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "boundary_created"
+                ]
+              },
+              "boundary_name": "Boundary",
+              "session_id": "session-fd6770650cd847399c3f7603b557f1c9",
+              "node_id": "assign_boundary"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "create_stp",
+            "node_id": "create_setup",
+            "inputs": {
+              "frequency": "2.4GHz"
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [],
+                "ports": [],
+                "boundaries": [],
+                "setups": [
+                  "Setup1 : LastAdaptive"
+                ],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "setup_created"
+                ]
+              },
+              "setup_name": "Setup1 : LastAdaptive",
+              "session_id": "session-fd6770650cd847399c3f7603b557f1c9",
+              "node_id": "create_setup"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "dipole_geom",
+            "node_id": "create_conductor_or_geometry_group",
+            "inputs": {
+              "geometry": [
+                {
+                  "kind": "cylinder",
+                  "origin": [
+                    0,
+                    0,
+                    -30
+                  ],
+                  "radius": 0.5,
+                  "height": 30,
+                  "name": "dipole_arm_lower",
+                  "material": "copper",
+                  "axis": "Z"
+                },
+                {
+                  "kind": "cylinder",
+                  "origin": [
+                    0,
+                    0,
+                    1
+                  ],
+                  "radius": 0.5,
+                  "height": 30,
+                  "name": "dipole_arm_upper",
+                  "material": "copper",
+                  "axis": "Z"
+                }
+              ],
+              "group_name": "dipole_antenna"
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [
+                  "dipole_arm_lower",
+                  "dipole_arm_upper"
+                ],
+                "ports": [],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "objects_exist"
+                ]
+              },
+              "object_name": "dipole_arm_lower",
+              "object_names": [
+                "dipole_arm_lower",
+                "dipole_arm_upper"
+              ],
+              "session_id": "session-7cf3e255bb4f454983f084284a4c55dc",
+              "node_id": "create_conductor_or_geometry_group"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "airbox",
+            "node_id": "create_airbox",
+            "inputs": {
+              "padding": [
+                30,
+                30,
+                30,
+                30,
+                30,
+                30
+              ],
+              "name": "AirBox"
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [
+                  "AirBox"
+                ],
+                "ports": [],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "air_region_created"
+                ]
+              },
+              "object_name": "AirBox",
+              "object_names": [
+                "AirBox"
+              ],
+              "session_id": "session-7cf3e255bb4f454983f084284a4c55dc",
+              "node_id": "create_airbox"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "rad_boundary",
+            "node_id": "assign_boundary",
+            "inputs": {
+              "assignment": "AirBox",
+              "boundary_type": "radiation",
+              "name": "Radiation"
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [],
+                "ports": [],
+                "boundaries": [
+                  "Radiation"
+                ],
+                "setups": [],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "boundary_created"
+                ]
+              },
+              "boundary_name": "Radiation",
+              "session_id": "session-7cf3e255bb4f454983f084284a4c55dc",
+              "node_id": "assign_boundary"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "setup1",
+            "node_id": "create_setup",
+            "inputs": {
+              "frequency": "2.4GHz",
+              "max_passes": 20,
+              "name": "Setup1"
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [],
+                "ports": [],
+                "boundaries": [],
+                "setups": [
+                  "Setup1 : LastAdaptive"
+                ],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "setup_created"
+                ]
+              },
+              "setup_name": "Setup1 : LastAdaptive",
+              "session_id": "session-7cf3e255bb4f454983f084284a4c55dc",
+              "node_id": "create_setup"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "sweep1",
+            "node_id": "create_sweep_or_export",
+            "inputs": {
+              "setup": "Setup1",
+              "name": "Sweep1",
+              "start": "1GHz",
+              "stop": "5GHz",
+              "points": 101
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [],
+                "ports": [],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": [
+                  "Setup1 : Sweep1"
+                ]
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "sweep_created"
+                ]
+              },
+              "sweep_name": "Setup1 : Sweep1",
+              "session_id": "session-7cf3e255bb4f454983f084284a4c55dc",
+              "node_id": "create_sweep_or_export"
+            },
+            "error_type": "",
+            "error_message": ""
+          }
+        ],
+        "failure_type": ""
+      }
+    },
+    "L2_microstrip_line": {
+      "metadata": {
+        "level": "L2",
+        "validation_script": "benchmarks/validation_scripts/validate_session.py"
+      },
+      "B": {
+        "final_pass": true,
+        "success_on_attempt": 1,
+        "failure_type": "",
+        "attempts": [
+          {
+            "attempt": 1,
+            "generation_ok": true,
+            "execution_ok": true,
+            "validation_ok": true,
+            "tool_usage": {
+              "used_tools": true,
+              "gitnexus_query_count": 4,
+              "gitnexus_context_count": 5,
+              "tool_call_names": [
+                "mcp__gitnexus__query",
+                "mcp__gitnexus__context",
+                "Read",
+                "ListMcpResourcesTool",
+                "ReadMcpResourceTool",
+                "mcp__gitnexus__cypher"
+              ],
+              "retrieval_before_code": true
+            },
+            "failure_type": "",
+            "error_summary": "",
+            "elapsed_seconds": 136.57124955102336,
+            "final_pass": true
+          }
+        ]
+      },
+      "C": {
+        "final_pass": true,
+        "success_on_attempt": 1,
+        "attempts": [
+          {
+            "attempt": 1,
+            "final_pass": true,
+            "validation_ok": true,
+            "validation_result": {
+              "passed": true,
+              "checks": [
+                "session_available",
+                "microstrip_line_present"
+              ],
+              "failures": [],
+              "failure_type": "",
+              "log": ""
+            },
+            "failure_type": "",
+            "error_summary": "",
+            "elapsed_seconds": 100.26105453295168
+          }
+        ],
+        "node_steps": [
+          {
+            "id": "create_sub",
+            "node_id": "create_substrate",
+            "inputs": {
+              "material": "FR4_epoxy",
+              "origin": [
+                0,
+                0,
+                0
+              ],
+              "size": [
+                40,
+                20,
+                0.762
+              ],
+              "units": "mm"
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [
+                  "Substrate"
+                ],
+                "ports": [],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "object_exists",
+                  "material_matches"
+                ]
+              },
+              "object_name": "Substrate",
+              "object_names": [
+                "Substrate"
+              ],
+              "session_id": "session-f1b776f3b3154e4a8b8d9489f40a798e",
+              "node_id": "create_substrate"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "create_cond",
+            "node_id": "create_conductor_or_geometry_group",
+            "inputs": {
+              "geometry": [
+                {
+                  "kind": "box",
+                  "origin": [
+                    0,
+                    9.25,
+                    0.762
+                  ],
+                  "size": [
+                    40,
+                    1.5,
+                    0.035
+                  ],
+                  "name": "microstrip_line",
+                  "material": "copper"
+                }
+              ]
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [
+                  "microstrip_line"
+                ],
+                "ports": [],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "objects_exist"
+                ]
+              },
+              "object_name": "microstrip_line",
+              "object_names": [
+                "microstrip_line"
+              ],
+              "session_id": "session-f1b776f3b3154e4a8b8d9489f40a798e",
+              "node_id": "create_conductor_or_geometry_group"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "create_air",
+            "node_id": "create_airbox",
+            "inputs": {
+              "padding": [
+                10,
+                10,
+                10
+              ],
+              "name": "AirBox"
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [
+                  "AirBox"
+                ],
+                "ports": [],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "air_region_created"
+                ]
+              },
+              "object_name": "AirBox",
+              "object_names": [
+                "AirBox"
+              ],
+              "session_id": "session-f1b776f3b3154e4a8b8d9489f40a798e",
+              "node_id": "create_airbox"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "assign_bnd",
+            "node_id": "assign_boundary",
+            "inputs": {
+              "assignment": "AirBox",
+              "boundary_type": "Radiation"
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [],
+                "ports": [],
+                "boundaries": [
+                  "Boundary"
+                ],
+                "setups": [],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "boundary_created"
+                ]
+              },
+              "boundary_name": "Boundary",
+              "session_id": "session-f1b776f3b3154e4a8b8d9489f40a798e",
+              "node_id": "assign_boundary"
+            },
+            "error_type": "",
+            "error_message": ""
+          }
+        ],
+        "failure_type": ""
+      }
+    },
+    "L2_patch_with_probe_feed": {
+      "metadata": {
+        "level": "L2",
+        "validation_script": "benchmarks/validation_scripts/validate_session.py"
+      },
+      "B": {
+        "final_pass": true,
+        "success_on_attempt": 2,
+        "failure_type": "",
+        "attempts": [
+          {
+            "attempt": 1,
+            "generation_ok": true,
+            "execution_ok": false,
+            "validation_ok": false,
+            "tool_usage": {
+              "used_tools": true,
+              "gitnexus_query_count": 5,
+              "gitnexus_context_count": 6,
+              "tool_call_names": [
+                "mcp__gitnexus__query",
+                "mcp__gitnexus__context"
+              ],
+              "retrieval_before_code": true
+            },
+            "failure_type": "runtime_error",
+            "error_summary": "Traceback (most recent call last): File \"<repo>/.venv/lib/python3.12/site-packages/ansys/aedt/core/internal/grpc_plugin_dll_class.py\", line 116, in __Invoke__ ret = _retry_ntimes( ^^^^^^^^^^^^^^ File \"<repo>/.venv/lib/python3.12/site-packages/ansys/aedt/core/generic/general_methods.py\", line 613, in _retry_ntimes raise AttributeError(f\"Error in Executing Method {function.__name__}.\") AttributeError: Error in Executing Method InvokeAedtObjMethod. Duri",
+            "elapsed_seconds": 424.0876739360392,
+            "final_pass": false
+          },
+          {
+            "attempt": 2,
+            "generation_ok": true,
+            "execution_ok": true,
+            "validation_ok": true,
+            "tool_usage": {
+              "used_tools": true,
+              "gitnexus_query_count": 5,
+              "gitnexus_context_count": 8,
+              "tool_call_names": [
+                "mcp__gitnexus__context",
+                "mcp__gitnexus__query"
+              ],
+              "retrieval_before_code": true
+            },
+            "failure_type": "",
+            "error_summary": "",
+            "elapsed_seconds": 513.5332821740303,
+            "final_pass": true
+          }
+        ]
+      },
+      "C": {
+        "final_pass": true,
+        "success_on_attempt": 1,
+        "attempts": [
+          {
+            "attempt": 1,
+            "final_pass": true,
+            "validation_ok": true,
+            "validation_result": {
+              "passed": true,
+              "checks": [
+                "session_available",
+                "patch_probe_feed_present"
+              ],
+              "failures": [],
+              "failure_type": "",
+              "log": ""
+            },
+            "failure_type": "",
+            "error_summary": "",
+            "elapsed_seconds": 285.36992018599994
+          }
+        ],
+        "node_steps": [
+          {
+            "id": "sub",
+            "node_id": "create_substrate",
+            "inputs": {
+              "material": "FR4_epoxy",
+              "origin": [
+                0,
+                0,
+                0
+              ],
+              "size": [
+                40,
+                40,
+                1.6
+              ],
+              "units": "mm"
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [
+                  "Substrate"
+                ],
+                "ports": [],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "object_exists",
+                  "material_matches"
+                ]
+              },
+              "object_name": "Substrate",
+              "object_names": [
+                "Substrate"
+              ],
+              "session_id": "session-ecdf5ad1868048138b05500cb99a473a",
+              "node_id": "create_substrate"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "geom",
+            "node_id": "create_conductor_or_geometry_group",
+            "inputs": {
+              "geometry": [
+                {
+                  "kind": "rectangle",
+                  "origin": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "size": [
+                    40,
+                    40
+                  ],
+                  "name": "ground",
+                  "material": "copper"
+                },
+                {
+                  "kind": "rectangle",
+                  "origin": [
+                    10,
+                    10,
+                    1.6
+                  ],
+                  "size": [
+                    20,
+                    20
+                  ],
+                  "name": "patch",
+                  "material": "copper"
+                },
+                {
+                  "kind": "rectangle",
+                  "origin": [
+                    18,
+                    14,
+                    0
+                  ],
+                  "size": [
+                    2,
+                    2
+                  ],
+                  "name": "port_sheet",
+                  "material": "copper"
+                }
+              ]
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [
+                  "ground",
+                  "patch",
+                  "port_sheet"
+                ],
+                "ports": [],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "objects_exist"
+                ]
+              },
+              "object_name": "ground",
+              "object_names": [
+                "ground",
+                "patch",
+                "port_sheet"
+              ],
+              "session_id": "session-ecdf5ad1868048138b05500cb99a473a",
+              "node_id": "create_conductor_or_geometry_group"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "air",
+            "node_id": "create_airbox",
+            "inputs": {
+              "padding": [
+                10,
+                10,
+                10
+              ]
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [
+                  "AirBox"
+                ],
+                "ports": [],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "air_region_created"
+                ]
+              },
+              "object_name": "AirBox",
+              "object_names": [
+                "AirBox"
+              ],
+              "session_id": "session-ecdf5ad1868048138b05500cb99a473a",
+              "node_id": "create_airbox"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "rad",
+            "node_id": "assign_boundary",
+            "inputs": {
+              "assignment": "AirBox",
+              "boundary_type": "radiation"
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [],
+                "ports": [],
+                "boundaries": [
+                  "Boundary"
+                ],
+                "setups": [],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "boundary_created"
+                ]
+              },
+              "boundary_name": "Boundary",
+              "session_id": "session-ecdf5ad1868048138b05500cb99a473a",
+              "node_id": "assign_boundary"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "port",
+            "node_id": "create_port",
+            "inputs": {
+              "assignment": "port_sheet",
+              "port_type": "lumped",
+              "name": "Port1"
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [],
+                "ports": [
+                  "Port1"
+                ],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "port_created"
+                ]
+              },
+              "port_name": "Port1",
+              "session_id": "session-ecdf5ad1868048138b05500cb99a473a",
+              "node_id": "create_port"
+            },
+            "error_type": "",
+            "error_message": ""
+          }
+        ],
+        "failure_type": ""
+      }
+    },
+    "L2_simple_filter": {
+      "metadata": {
+        "level": "L2",
+        "validation_script": "benchmarks/validation_scripts/validate_session.py"
+      },
+      "B": {
+        "final_pass": true,
+        "success_on_attempt": 1,
+        "failure_type": "",
+        "attempts": [
+          {
+            "attempt": 1,
+            "generation_ok": true,
+            "execution_ok": true,
+            "validation_ok": true,
+            "tool_usage": {
+              "used_tools": true,
+              "gitnexus_query_count": 10,
+              "gitnexus_context_count": 7,
+              "tool_call_names": [
+                "mcp__gitnexus__query",
+                "mcp__gitnexus__group_list",
+                "mcp__gitnexus__list_repos",
+                "mcp__gitnexus__context",
+                "Read",
+                "mcp__gitnexus__cypher"
+              ],
+              "retrieval_before_code": true
+            },
+            "failure_type": "",
+            "error_summary": "",
+            "elapsed_seconds": 424.07432640204206,
+            "final_pass": true
+          }
+        ]
+      },
+      "C": {
+        "final_pass": true,
+        "success_on_attempt": 2,
+        "attempts": [
+          {
+            "attempt": 1,
+            "final_pass": false,
+            "validation_ok": false,
+            "validation_result": {},
+            "failure_type": "schema_error",
+            "error_summary": "unknown input: start; unknown input: stop",
+            "elapsed_seconds": 189.27435820095707
+          },
+          {
+            "attempt": 2,
+            "final_pass": true,
+            "validation_ok": true,
+            "validation_result": {
+              "passed": true,
+              "checks": [
+                "session_available",
+                "simple_filter_present",
+                "wave_port_uses_selected_face"
+              ],
+              "failures": [],
+              "failure_type": "",
+              "log": ""
+            },
+            "failure_type": "",
+            "error_summary": "unknown input: start; unknown input: stop",
+            "elapsed_seconds": 120.40488456503954
+          }
+        ],
+        "node_steps": [
+          {
+            "id": "create_geometry",
+            "node_id": "create_conductor_or_geometry_group",
+            "inputs": {
+              "geometry": [
+                {
+                  "kind": "box",
+                  "origin": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "size": [
+                    22.86,
+                    10.16,
+                    40
+                  ],
+                  "name": "waveguide_body",
+                  "material": "vacuum"
+                },
+                {
+                  "kind": "box",
+                  "origin": [
+                    0,
+                    0,
+                    19.5
+                  ],
+                  "size": [
+                    8,
+                    10.16,
+                    1
+                  ],
+                  "name": "iris_left",
+                  "material": "copper"
+                },
+                {
+                  "kind": "box",
+                  "origin": [
+                    14.86,
+                    0,
+                    19.5
+                  ],
+                  "size": [
+                    8,
+                    10.16,
+                    1
+                  ],
+                  "name": "iris_right",
+                  "material": "copper"
+                }
+              ]
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [
+                  "waveguide_body",
+                  "iris_left",
+                  "iris_right"
+                ],
+                "ports": [],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "objects_exist"
+                ]
+              },
+              "object_name": "waveguide_body",
+              "object_names": [
+                "waveguide_body",
+                "iris_left",
+                "iris_right"
+              ],
+              "session_id": "session-8c39ae5c7afa4b6bbb0ccbecf86ed0ef",
+              "node_id": "create_conductor_or_geometry_group"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "select_port1",
+            "node_id": "select_face",
+            "inputs": {
+              "object_name": "waveguide_body",
+              "axis": "z",
+              "side": "min"
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [],
+                "ports": [],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "object_name": "waveguide_body",
+              "selected_face_id": 8,
+              "selected_face_center": [
+                11.43,
+                5.08,
+                0.0
+              ],
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "face_selected"
+                ]
+              },
+              "session_id": "session-8c39ae5c7afa4b6bbb0ccbecf86ed0ef",
+              "node_id": "select_face"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "create_port1",
+            "node_id": "create_port",
+            "inputs": {
+              "assignment": 8,
+              "port_type": "wave",
+              "name": "Port1",
+              "impedance": 50
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [],
+                "ports": [
+                  "Port1"
+                ],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "port_created"
+                ]
+              },
+              "port_name": "Port1",
+              "session_id": "session-8c39ae5c7afa4b6bbb0ccbecf86ed0ef",
+              "node_id": "create_port"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "select_port2",
+            "node_id": "select_face",
+            "inputs": {
+              "object_name": "waveguide_body",
+              "axis": "z",
+              "side": "max"
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [],
+                "ports": [],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "object_name": "waveguide_body",
+              "selected_face_id": 7,
+              "selected_face_center": [
+                11.43,
+                5.08,
+                40.0
+              ],
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "face_selected"
+                ]
+              },
+              "session_id": "session-8c39ae5c7afa4b6bbb0ccbecf86ed0ef",
+              "node_id": "select_face"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "create_port2",
+            "node_id": "create_port",
+            "inputs": {
+              "assignment": 7,
+              "port_type": "wave",
+              "name": "Port2",
+              "impedance": 50
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [],
+                "ports": [
+                  "Port2"
+                ],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "port_created"
+                ]
+              },
+              "port_name": "Port2",
+              "session_id": "session-8c39ae5c7afa4b6bbb0ccbecf86ed0ef",
+              "node_id": "create_port"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "create_setup",
+            "node_id": "create_setup",
+            "inputs": {
+              "frequency": "10GHz",
+              "start": "8GHz",
+              "stop": "12GHz",
+              "max_passes": 10
+            },
+            "status": "rejected",
+            "output": {},
+            "error_type": "schema_error",
+            "error_message": "unknown input: start; unknown input: stop"
+          },
+          {
+            "id": "geo",
+            "node_id": "create_conductor_or_geometry_group",
+            "inputs": {
+              "geometry": [
+                {
+                  "kind": "box",
+                  "origin": [
+                    -30,
+                    -11.43,
+                    -5.08
+                  ],
+                  "size": [
+                    60,
+                    22.86,
+                    10.16
+                  ],
+                  "name": "waveguide_body",
+                  "material": "vacuum"
+                },
+                {
+                  "kind": "box",
+                  "origin": [
+                    -2,
+                    -11.43,
+                    3.08
+                  ],
+                  "size": [
+                    4,
+                    22.86,
+                    2
+                  ],
+                  "name": "iris_top",
+                  "material": "pec"
+                },
+                {
+                  "kind": "box",
+                  "origin": [
+                    -2,
+                    -11.43,
+                    -5.08
+                  ],
+                  "size": [
+                    4,
+                    22.86,
+                    2
+                  ],
+                  "name": "iris_bottom",
+                  "material": "pec"
+                }
+              ]
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [
+                  "waveguide_body",
+                  "iris_top",
+                  "iris_bottom"
+                ],
+                "ports": [],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "objects_exist"
+                ]
+              },
+              "object_name": "waveguide_body",
+              "object_names": [
+                "waveguide_body",
+                "iris_top",
+                "iris_bottom"
+              ],
+              "session_id": "session-68d0f3eee32d40e4ab2ae5354da6a965",
+              "node_id": "create_conductor_or_geometry_group"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "face1",
+            "node_id": "select_face",
+            "inputs": {
+              "object_name": "waveguide_body",
+              "axis": "x",
+              "side": "min"
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [],
+                "ports": [],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "object_name": "waveguide_body",
+              "selected_face_id": 10,
+              "selected_face_center": [
+                -30.0,
+                0.0,
+                0.0
+              ],
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "face_selected"
+                ]
+              },
+              "session_id": "session-68d0f3eee32d40e4ab2ae5354da6a965",
+              "node_id": "select_face"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "port1",
+            "node_id": "create_port",
+            "inputs": {
+              "assignment": 10,
+              "port_type": "wave",
+              "name": "Port1",
+              "impedance": 50
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [],
+                "ports": [
+                  "Port1"
+                ],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "port_created"
+                ]
+              },
+              "port_name": "Port1",
+              "session_id": "session-68d0f3eee32d40e4ab2ae5354da6a965",
+              "node_id": "create_port"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "face2",
+            "node_id": "select_face",
+            "inputs": {
+              "object_name": "waveguide_body",
+              "axis": "x",
+              "side": "max"
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [],
+                "ports": [],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "object_name": "waveguide_body",
+              "selected_face_id": 12,
+              "selected_face_center": [
+                30.0,
+                0.0,
+                0.0
+              ],
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "face_selected"
+                ]
+              },
+              "session_id": "session-68d0f3eee32d40e4ab2ae5354da6a965",
+              "node_id": "select_face"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "port2",
+            "node_id": "create_port",
+            "inputs": {
+              "assignment": 12,
+              "port_type": "wave",
+              "name": "Port2",
+              "impedance": 50
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [],
+                "ports": [
+                  "Port2"
+                ],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "port_created"
+                ]
+              },
+              "port_name": "Port2",
+              "session_id": "session-68d0f3eee32d40e4ab2ae5354da6a965",
+              "node_id": "create_port"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "setup",
+            "node_id": "create_setup",
+            "inputs": {
+              "frequency": "10GHz",
+              "name": "Setup1",
+              "max_passes": 10
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [],
+                "ports": [],
+                "boundaries": [],
+                "setups": [
+                  "Setup1 : LastAdaptive"
+                ],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "setup_created"
+                ]
+              },
+              "setup_name": "Setup1 : LastAdaptive",
+              "session_id": "session-68d0f3eee32d40e4ab2ae5354da6a965",
+              "node_id": "create_setup"
+            },
+            "error_type": "",
+            "error_message": ""
+          }
+        ],
+        "failure_type": ""
+      }
+    },
+    "Trap_missing_ground": {
+      "metadata": {
+        "level": "Trap",
+        "validation_script": "benchmarks/validation_scripts/validate_session.py"
+      },
+      "B": {
+        "final_pass": true,
+        "success_on_attempt": 3,
+        "failure_type": "",
+        "attempts": [
+          {
+            "attempt": 1,
+            "generation_ok": true,
+            "execution_ok": false,
+            "validation_ok": false,
+            "tool_usage": {
+              "used_tools": true,
+              "gitnexus_query_count": 3,
+              "gitnexus_context_count": 6,
+              "tool_call_names": [
+                "mcp__gitnexus__query",
+                "mcp__gitnexus__context"
+              ],
+              "retrieval_before_code": true
+            },
+            "failure_type": "runtime_error",
+            "error_summary": "Traceback (most recent call last): File \"<repo>/benchmarks/runs/stage_b_b_10task_after_node_fixes/baseline_b/Trap_missing_ground/B/aedt_attempt_wrapper.py\", line 16, in <module> exec(compile(code_path.read_text(encoding=\"utf-8\"), str(code_path), \"exec\"), namespace) File \"<repo>/benchmarks/runs/stage_b_b_10task_after_node_fixes/baseline_b/Trap_missing_ground/B/attempt_1_code.py\", line 53, in <module> port_sheet = app.modeler.create_rectangle( ^^^^^^^^",
+            "elapsed_seconds": 167.36971422692295,
+            "final_pass": false
+          },
+          {
+            "attempt": 2,
+            "generation_ok": true,
+            "execution_ok": false,
+            "validation_ok": false,
+            "tool_usage": {
+              "used_tools": true,
+              "gitnexus_query_count": 3,
+              "gitnexus_context_count": 4,
+              "tool_call_names": [
+                "mcp__gitnexus__query",
+                "mcp__gitnexus__context",
+                "Read"
+              ],
+              "retrieval_before_code": true
+            },
+            "failure_type": "runtime_error",
+            "error_summary": "Traceback (most recent call last): File \"<repo>/.venv/lib/python3.12/site-packages/ansys/aedt/core/internal/grpc_plugin_dll_class.py\", line 116, in __Invoke__ ret = _retry_ntimes( ^^^^^^^^^^^^^^ File \"<repo>/.venv/lib/python3.12/site-packages/ansys/aedt/core/generic/general_methods.py\", line 613, in _retry_ntimes raise AttributeError(f\"Error in Executing Method {function.__name__}.\") AttributeError: Error in Executing Method InvokeAedtObjMethod. Duri",
+            "elapsed_seconds": 66.07273810508195,
+            "final_pass": false
+          },
+          {
+            "attempt": 3,
+            "generation_ok": true,
+            "execution_ok": true,
+            "validation_ok": true,
+            "tool_usage": {
+              "used_tools": true,
+              "gitnexus_query_count": 1,
+              "gitnexus_context_count": 6,
+              "tool_call_names": [
+                "mcp__gitnexus__context",
+                "Read",
+                "ListMcpResourcesTool"
+              ],
+              "retrieval_before_code": true
+            },
+            "failure_type": "",
+            "error_summary": "",
+            "elapsed_seconds": 323.05048638000153,
+            "final_pass": true
+          }
+        ]
+      },
+      "C": {
+        "final_pass": true,
+        "success_on_attempt": 1,
+        "attempts": [
+          {
+            "attempt": 1,
+            "final_pass": true,
+            "validation_ok": true,
+            "validation_result": {
+              "passed": true,
+              "checks": [
+                "session_available",
+                "ground_present"
+              ],
+              "failures": [],
+              "failure_type": "",
+              "log": ""
+            },
+            "failure_type": "",
+            "error_summary": "",
+            "elapsed_seconds": 175.0378384940559
+          }
+        ],
+        "node_steps": [
+          {
+            "id": "sub",
+            "node_id": "create_substrate",
+            "inputs": {
+              "material": "FR4_epoxy",
+              "origin": [
+                0,
+                0,
+                0
+              ],
+              "size": [
+                60,
+                50,
+                1.6
+              ],
+              "name": "Substrate",
+              "units": "mm"
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [
+                  "Substrate"
+                ],
+                "ports": [],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "object_exists",
+                  "material_matches"
+                ]
+              },
+              "object_name": "Substrate",
+              "object_names": [
+                "Substrate"
+              ],
+              "session_id": "session-79f359ff22e244429ada4abeb0471e7b",
+              "node_id": "create_substrate"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "geo",
+            "node_id": "create_conductor_or_geometry_group",
+            "inputs": {
+              "geometry": [
+                {
+                  "kind": "rectangle",
+                  "origin": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "size": [
+                    60,
+                    50
+                  ],
+                  "name": "ground",
+                  "material": "copper",
+                  "axis": "z"
+                },
+                {
+                  "kind": "rectangle",
+                  "origin": [
+                    17.5,
+                    12.5,
+                    1.6
+                  ],
+                  "size": [
+                    25,
+                    25
+                  ],
+                  "name": "patch",
+                  "material": "copper",
+                  "axis": "z"
+                }
+              ]
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [
+                  "ground",
+                  "patch"
+                ],
+                "ports": [],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "objects_exist"
+                ]
+              },
+              "object_name": "ground",
+              "object_names": [
+                "ground",
+                "patch"
+              ],
+              "session_id": "session-79f359ff22e244429ada4abeb0471e7b",
+              "node_id": "create_conductor_or_geometry_group"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "face",
+            "node_id": "select_face",
+            "inputs": {
+              "object_name": "Substrate",
+              "axis": "y",
+              "side": "min"
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [],
+                "ports": [],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "object_name": "Substrate",
+              "selected_face_id": 9,
+              "selected_face_center": [
+                30.0,
+                0.0,
+                0.8
+              ],
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "face_selected"
+                ]
+              },
+              "session_id": "session-79f359ff22e244429ada4abeb0471e7b",
+              "node_id": "select_face"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "port",
+            "node_id": "create_port",
+            "inputs": {
+              "assignment": 9,
+              "port_type": "wave",
+              "name": "Port1",
+              "impedance": 50
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [],
+                "ports": [
+                  "Port1"
+                ],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "port_created"
+                ]
+              },
+              "port_name": "Port1",
+              "session_id": "session-79f359ff22e244429ada4abeb0471e7b",
+              "node_id": "create_port"
+            },
+            "error_type": "",
+            "error_message": ""
+          }
+        ],
+        "failure_type": ""
+      }
+    },
+    "Trap_waveport_wrong_face": {
+      "metadata": {
+        "level": "Trap",
+        "validation_script": "benchmarks/validation_scripts/validate_session.py"
+      },
+      "B": {
+        "final_pass": true,
+        "success_on_attempt": 1,
+        "failure_type": "",
+        "attempts": [
+          {
+            "attempt": 1,
+            "generation_ok": true,
+            "execution_ok": true,
+            "validation_ok": true,
+            "tool_usage": {
+              "used_tools": true,
+              "gitnexus_query_count": 3,
+              "gitnexus_context_count": 5,
+              "tool_call_names": [
+                "mcp__gitnexus__list_repos",
+                "mcp__gitnexus__query",
+                "mcp__gitnexus__context",
+                "Read"
+              ],
+              "retrieval_before_code": true
+            },
+            "failure_type": "",
+            "error_summary": "",
+            "elapsed_seconds": 474.56107200693805,
+            "final_pass": true
+          }
+        ]
+      },
+      "C": {
+        "final_pass": true,
+        "success_on_attempt": 1,
+        "attempts": [
+          {
+            "attempt": 1,
+            "final_pass": true,
+            "validation_ok": true,
+            "validation_result": {
+              "passed": true,
+              "checks": [
+                "session_available",
+                "wave_port_present",
+                "wave_port_uses_selected_face"
+              ],
+              "failures": [],
+              "failure_type": "",
+              "log": ""
+            },
+            "failure_type": "",
+            "error_summary": "",
+            "elapsed_seconds": 104.5263066199841
+          }
+        ],
+        "node_steps": [
+          {
+            "id": "create_geom",
+            "node_id": "create_conductor_or_geometry_group",
+            "inputs": {
+              "geometry": [
+                {
+                  "kind": "box",
+                  "origin": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "size": [
+                    50,
+                    22.86,
+                    10.16
+                  ],
+                  "name": "waveguide",
+                  "material": "pec"
+                }
+              ]
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [
+                  "waveguide"
+                ],
+                "ports": [],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "objects_exist"
+                ]
+              },
+              "object_name": "waveguide",
+              "object_names": [
+                "waveguide"
+              ],
+              "session_id": "session-5dc1a0ab1b0c44d1acd1005838d47c27",
+              "node_id": "create_conductor_or_geometry_group"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "sel_face",
+            "node_id": "select_face",
+            "inputs": {
+              "object_name": "waveguide",
+              "axis": "x",
+              "side": "min"
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [],
+                "ports": [],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "object_name": "waveguide",
+              "selected_face_id": 10,
+              "selected_face_center": [
+                0.0,
+                11.43,
+                5.08
+              ],
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "face_selected"
+                ]
+              },
+              "session_id": "session-5dc1a0ab1b0c44d1acd1005838d47c27",
+              "node_id": "select_face"
+            },
+            "error_type": "",
+            "error_message": ""
+          },
+          {
+            "id": "wave_port",
+            "node_id": "create_port",
+            "inputs": {
+              "assignment": 10,
+              "port_type": "wave",
+              "integration_line": [
+                [
+                  0,
+                  11.43,
+                  0
+                ],
+                [
+                  0,
+                  11.43,
+                  10.16
+                ]
+              ],
+              "name": "Port1",
+              "impedance": 50
+            },
+            "status": "succeeded",
+            "output": {
+              "created": {
+                "objects": [],
+                "ports": [
+                  "Port1"
+                ],
+                "boundaries": [],
+                "setups": [],
+                "sweeps": []
+              },
+              "postcheck": {
+                "passed": true,
+                "checks": [
+                  "port_created"
+                ]
+              },
+              "port_name": "Port1",
+              "session_id": "session-5dc1a0ab1b0c44d1acd1005838d47c27",
+              "node_id": "create_port"
+            },
+            "error_type": "",
+            "error_message": ""
+          }
+        ],
+        "failure_type": ""
+      }
+    }
+  },
+  "free_code_execution_count": 0
+}

@@ -114,4 +114,4 @@ def _type_name(value: type | tuple[type, ...]) -> str:
 
 
 def _looks_like_node_output(value: dict[str, Any]) -> bool:
-    return any(key in value for key in ("selected_face_id", "object_name", "created"))
+    return any(key in value for key in ("selected_face_id", "object_name", "created", "output"))

@@ -4,7 +4,7 @@ from pathlib import Path
 from aedt_agent.mcp.audit_log import AuditLogger
 from aedt_agent.mcp.execution_queue import ExecutionQueue
 from aedt_agent.mcp.fake_aedt import FakeAedtAdapter
-from aedt_agent.mcp.node_executor import NodeExecutor
+from aedt_agent.mcp.node_executor import NodeExecutor, _create_sweep
 from aedt_agent.mcp.session_manager import SessionManager
 from aedt_agent.mcp.types import ExecutionStatus
 from aedt_agent.nodes.registry import NodeRegistry
@@ -93,6 +93,33 @@ def test_node_executor_accepts_common_geometry_aliases(tmp_path):
     assert result.output["object_name"] == "metal"
 
 
+def test_node_executor_accepts_cylinder_geometry_as_box_approximation(tmp_path):
+    manager, executor = _executor(tmp_path)
+    session = manager.create_session("p1", "d1")
+
+    result = executor.execute_node(
+        session.ref.session_id,
+        "create_conductor_or_geometry_group",
+        {
+            "geometry": [
+                {
+                    "kind": "cylinder",
+                    "origin": [0, 0, 0],
+                    "radius": 0.5,
+                    "height": 10,
+                    "axis": "z",
+                    "name": "probe",
+                    "material": "copper",
+                }
+            ]
+        },
+    )
+
+    state = manager.snapshot(session.ref.session_id)
+    assert result.status == ExecutionStatus.SUCCEEDED
+    assert state["objects"]["probe"]["sizes"] == [1.0, 1.0, 10]
+
+
 def test_node_executor_accepts_airbox_padding_list_and_output_assignment(tmp_path):
     manager, executor = _executor(tmp_path)
     session = manager.create_session("p1", "d1")
@@ -127,6 +154,20 @@ def test_node_executor_accepts_created_object_reference_for_port(tmp_path):
         session.ref.session_id,
         "create_port",
         {"port_type": "wave", "assignment": geometry.output, "reference": geometry.output},
+    )
+
+    assert result.status == ExecutionStatus.SUCCEEDED
+
+
+def test_node_executor_accepts_wrapped_output_reference_for_boundary(tmp_path):
+    manager, executor = _executor(tmp_path)
+    session = manager.create_session("p1", "d1")
+    airbox = executor.execute_node(session.ref.session_id, "create_airbox", {"padding": 5, "name": "AirBox"})
+
+    result = executor.execute_node(
+        session.ref.session_id,
+        "assign_boundary",
+        {"boundary_type": "Radiation", "assignment": {"output": airbox.output}},
     )
 
     assert result.status == ExecutionStatus.SUCCEEDED
@@ -177,3 +218,86 @@ def test_node_executor_creates_lumped_port_with_modal_solution(tmp_path):
     state = manager.snapshot(session.ref.session_id)
     assert result.status == ExecutionStatus.SUCCEEDED
     assert state["ports"]["P1"]["type"] == "lumped"
+
+
+def test_node_executor_remaps_lumped_port_face_id_to_object_name(tmp_path):
+    manager, executor = _executor(tmp_path)
+    session = manager.create_session("p1", "d1")
+    geometry = executor.execute_node(
+        session.ref.session_id,
+        "create_conductor_or_geometry_group",
+        {"geometry": [{"kind": "rectangle", "origin": [0, 0, 0], "size": [1, 1], "name": "port_sheet"}]},
+    )
+    face = executor.execute_node(
+        session.ref.session_id,
+        "select_face",
+        {"object_name": geometry.output["object_name"], "axis": "z", "side": "max"},
+    )
+
+    result = executor.execute_node(
+        session.ref.session_id,
+        "create_port",
+        {"port_type": "lumped", "assignment": face.output["selected_face_id"], "name": "P1"},
+    )
+
+    state = manager.snapshot(session.ref.session_id)
+    assert result.status == ExecutionStatus.SUCCEEDED
+    assert state["ports"]["P1"]["assignment"] == "port_sheet"
+
+
+def test_create_sweep_uses_unit_signature_when_available():
+    class UnitSweepApp:
+        def create_linear_count_sweep(self, setup, unit, start_frequency, stop_frequency, num_of_freq_points=None, name=None):
+            self.call = {
+                "setup": setup,
+                "unit": unit,
+                "start_frequency": start_frequency,
+                "stop_frequency": stop_frequency,
+                "num_of_freq_points": num_of_freq_points,
+                "name": name,
+            }
+            return name
+
+    app = UnitSweepApp()
+
+    result = _create_sweep(app, {"setup": "Setup1", "start": "1GHz", "stop": "5GHz", "points": 101, "name": "Sweep1"})
+
+    assert result["sweep_name"] == "Sweep1"
+    assert app.call["unit"] == "GHz"
+    assert app.call["start_frequency"] == 1.0
+    assert app.call["stop_frequency"] == 5.0
+
+
+def test_node_executor_records_failure_when_snapshot_after_fails(tmp_path):
+    class SnapshotAfterFailureAdapter(FakeAedtAdapter):
+        def __init__(self, project_id, design_id):
+            super().__init__(project_id, design_id)
+            self.snapshots = 0
+
+        def snapshot_state(self):
+            self.snapshots += 1
+            if self.snapshots > 1:
+                raise RuntimeError("snapshot failed")
+            return super().snapshot_state()
+
+        def execute_node_callable(self, fn):
+            raise ValueError("node failed")
+
+    manager = SessionManager(lambda project_id, design_id: SnapshotAfterFailureAdapter(project_id, design_id))
+    executor = NodeExecutor(
+        registry=NodeRegistry.from_directory(Path("nodes/catalog")),
+        session_manager=manager,
+        queue=ExecutionQueue(timeout_seconds=1),
+        audit_logger=AuditLogger(tmp_path / "audit.jsonl"),
+    )
+    session = manager.create_session("p1", "d1")
+
+    result = executor.execute_node(
+        session.ref.session_id,
+        "create_setup",
+        {"frequency": "1GHz"},
+    )
+
+    assert result.status == ExecutionStatus.FAILED
+    audit_event = json.loads((tmp_path / "audit.jsonl").read_text(encoding="utf-8"))
+    assert "snapshot_error" in audit_event["state_after"]

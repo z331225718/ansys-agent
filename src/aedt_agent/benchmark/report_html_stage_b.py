@@ -21,6 +21,7 @@ def render_html_report_stage_b(report: dict[str, Any], model_name: str = "") -> 
     tasks = report.get("tasks", {})
     rows = "".join(_task_row(task_id, task_data) for task_id, task_data in sorted(tasks.items()))
     failure_items = "".join(_failure_item(task_id, task_data) for task_id, task_data in sorted(tasks.items()))
+    task_count = max((metrics.get("task_count", 0) for metrics in groups.values()), default=len(tasks))
 
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -71,6 +72,8 @@ def render_html_report_stage_b(report: dict[str, Any], model_name: str = "") -> 
     .pill.fail {{ color: var(--fail); background: rgba(177,54,54,0.12); }}
     .pill.warn {{ color: var(--warn); background: rgba(138,90,0,0.12); }}
     .subtle {{ color: var(--muted); font-size: 12px; margin-top: 5px; line-height: 1.35; }}
+    .lead {{ font-size: 16px; color: var(--text); margin-top: 10px; }}
+    .finding {{ border-left: 4px solid var(--accent); padding-left: 12px; }}
     .footer {{ color: var(--muted); font-size: 12px; margin-top: 18px; }}
     @media print {{
       body {{ background: #fff; }}
@@ -84,6 +87,7 @@ def render_html_report_stage_b(report: dict[str, Any], model_name: str = "") -> 
     <section class="hero">
       <h1>Stage B 节点化 AEDT Benchmark 报告</h1>
       <p>生成时间：{escape(generated_at)}。模型/执行 harness：{escape(model_name or "N/A")}。本报告对比 Stage A 的 grounded free-code 路径 B 组与 Stage B 的受控节点路径 C 组，判据来自真实 AEDT 2026.1 non-graphical 执行和 validation。</p>
+      <p class="lead">本轮目标不是比较不同 LLM，而是验证：把 PyAEDT 调用收敛为受控节点以后，是否能在同一个 harness、同一批任务、同样最多三次修复的条件下，提高自动建模任务的稳定性。</p>
     </section>
 
     <section class="grid">{_summary_cards(groups)}</section>
@@ -91,6 +95,30 @@ def render_html_report_stage_b(report: dict[str, Any], model_name: str = "") -> 
     <section class="panel callout">
       <h2>结论摘要</h2>
       <p>{escape(_conclusion(groups))}</p>
+    </section>
+
+    <section class="panel">
+      <h2>实验设计</h2>
+      <div class="split">
+        <div class="box"><strong>任务集合</strong>固定 {escape(str(task_count))} 个 AEDT/PyAEDT 建模任务，覆盖 L1 基础操作、L2 组合建模和 Trap 类结构性错误检查。</div>
+        <div class="box"><strong>Group B：工具增强自由代码</strong>Claude Code harness 允许读取官方 PyAEDT 源码、pyaedt-examples，并通过 GitNexus 查询 API 上下文；最终输出可在 <span class="mono">app</span> 对象上执行的 Python。</div>
+        <div class="box"><strong>Group C：受控节点计划</strong>同一个 harness 输出 JSON node plan，本地 runner 只按白名单节点执行，如 <span class="mono">create_port</span>、<span class="mono">create_setup</span>、<span class="mono">create_sweep_or_export</span>。</div>
+        <div class="box"><strong>三次修复机制</strong>每个任务最多三次。失败时把真实 schema、节点、AEDT runtime 或 validation 错误反馈给下一轮，记录首轮成功率、三次内成功率和平均成功轮次。</div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>判定依据</h2>
+      <div class="split">
+        <div class="box"><strong>通过条件</strong>候选方案必须在真实 AEDT 2026.1 non-graphical 会话中执行完成，并通过对应 validation script 检查模型状态、对象、材料、端口、边界或 setup/sweep。</div>
+        <div class="box"><strong>失败条件</strong>生成失败、schema 不匹配、节点引用错误、PyAEDT/AEDT runtime error、timeout 或 validation 不通过都会计为失败，并进入下一轮修复。</div>
+        <div class="box"><strong>边界说明</strong>当前 validation 是结构性判卷，不等价于完整电磁物理正确性证明；Trap 任务用于检查可自动化拦截的典型结构错误。</div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>关键发现</h2>
+      <div class="split">{_finding_boxes(groups)}</div>
     </section>
 
     <section class="panel">
@@ -129,7 +157,7 @@ def render_html_report_stage_b(report: dict[str, Any], model_name: str = "") -> 
       <div class="split">
         <div class="box"><strong>C 组收益</strong>节点路径把高风险 PyAEDT 调用收敛到受控实现里。LLM 只负责生成结构化计划，schema、引用解析、节点输出和 validation 可以系统性修复。</div>
         <div class="box"><strong>B 组风险</strong>自由代码可以在简单几何和 setup 上表现很好，但 wave port 这类 AEDT boundary 调用仍容易出现 runtime error，甚至触发长时间 harness timeout。</div>
-        <div class="box"><strong>当前限制</strong>Trap validation 已检查端口 assignment 是否来自 selected face，但仍不是完整电磁语义判卷。正式结论中应把它表述为结构性检查，而不是完整物理正确性证明。</div>
+        <div class="box"><strong>当前限制</strong>Trap validation 已检查端口 assignment 等结构约束，但仍不是完整电磁语义判卷。正式结论中应把它表述为结构性检查，而不是完整物理正确性证明。</div>
       </div>
     </section>
 
@@ -153,7 +181,36 @@ def _summary_cards(groups: dict[str, Any]) -> str:
     if "C" in groups:
         cards.append(_card("C 组自由代码次数", str(groups["C"].get("free_code_execution_count", 0))))
         cards.append(_card("C 组平均节点数", _num(groups["C"].get("avg_node_count", 0.0))))
+    if "B" in groups and "C" in groups:
+        cards.append(_card("三次成功率差值", _delta_pct(groups["C"].get("pass_rate_3try", 0.0), groups["B"].get("pass_rate_3try", 0.0))))
+        cards.append(_card("首轮成功率差值", _delta_pct(groups["C"].get("first_pass_rate", 0.0), groups["B"].get("first_pass_rate", 0.0))))
     return "".join(cards)
+
+
+def _finding_boxes(groups: dict[str, Any]) -> str:
+    b = groups.get("B", {})
+    c = groups.get("C", {})
+    if not b or not c:
+        return "<div class='box finding'><strong>数据不足</strong>需要同时运行 B/C 两组后才能生成关键发现。</div>"
+    findings = [
+        (
+            "三次内成功率",
+            f"B 组 {_pct(b.get('pass_rate_3try', 0.0))}，C 组 {_pct(c.get('pass_rate_3try', 0.0))}，差值 {_delta_pct(c.get('pass_rate_3try', 0.0), b.get('pass_rate_3try', 0.0))}。",
+        ),
+        (
+            "首轮稳定性",
+            f"B 组 {_pct(b.get('first_pass_rate', 0.0))}，C 组 {_pct(c.get('first_pass_rate', 0.0))}，节点路径减少了自由代码直接撞 AEDT API 的概率。",
+        ),
+        (
+            "修复成本",
+            f"B 组全部任务平均轮次 {_num(b.get('avg_attempts_all', 0.0))}，C 组 {_num(c.get('avg_attempts_all', 0.0))}；C 组失败反馈更集中在节点/schema 层。",
+        ),
+        (
+            "受控执行",
+            f"C 组自由代码执行次数 {c.get('free_code_execution_count', 0)}，节点覆盖率 {_pct(c.get('node_coverage_rate', 0.0))}。",
+        ),
+    ]
+    return "".join(f"<div class='box finding'><strong>{escape(title)}</strong>{escape(text)}</div>" for title, text in findings)
 
 
 def _group_rows(groups: dict[str, Any]) -> str:
@@ -244,7 +301,8 @@ def _conclusion(groups: dict[str, Any]) -> str:
         f"在本次小集对照中，B 组三次内成功率为 {_pct(b.get('pass_rate_3try', 0.0))}，"
         f"C 组为 {_pct(c.get('pass_rate_3try', 0.0))}。"
         f"C 组保持自由代码执行次数 {c.get('free_code_execution_count', 0)}，"
-        "说明节点化路径能把高风险 AEDT API 调用集中在受控节点中，并在 wave port 类任务上提供更稳定的修复边界。"
+        f"平均成功轮次为 {_num(c.get('avg_attempts_to_success', 0.0))}。"
+        "结果支持继续推进 Stage B：把高风险 AEDT API 调用集中到受控节点中，并让 LLM 只负责可校验的结构化计划。"
     )
 
 
@@ -257,6 +315,15 @@ def _pct(value: Any) -> str:
         return f"{float(value) * 100:.1f}%"
     except (TypeError, ValueError):
         return "0.0%"
+
+
+def _delta_pct(left: Any, right: Any) -> str:
+    try:
+        value = (float(left) - float(right)) * 100
+    except (TypeError, ValueError):
+        value = 0.0
+    sign = "+" if value >= 0 else ""
+    return f"{sign}{value:.1f} pp"
 
 
 def _num(value: Any) -> str:

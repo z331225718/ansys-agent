@@ -58,6 +58,9 @@ def test_render_stage_b_html_report_explains_node_comparison():
     assert "自由代码执行次数" in html
     assert "AssignWavePort" in html
     assert "当前限制" in html
+    assert "实验设计" in html
+    assert "判定依据" in html
+    assert "关键发现" in html
 
 
 def test_write_stage_b_html_report_creates_file(tmp_path):

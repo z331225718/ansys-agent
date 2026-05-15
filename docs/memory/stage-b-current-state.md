@@ -47,6 +47,11 @@ Stage B 不是继续比较裸 LLM 写 Python，而是验证节点化路径是否
   - `create_port.integration_line` 支持 `{"start": [...], "end": [...]}` 并归一化为两点列表。
   - 增加 Stage B 中文 HTML 报告生成器：`src/aedt_agent/benchmark/report_html_stage_b.py`。
   - `scripts/run_stage_b_benchmark.py` 现在会在 run dir 下同时写出 `stage_b_report.html`。
+  - `create_sweep_or_export` 兼容 PyAEDT 2026.1 的 `unit` 参数签名，并把 `"1GHz"` 这类字符串拆成数值和单位。
+  - `select_face` 输出补充 `object_name`；`create_port` 在 lumped port 收到 face id 时会回溯所属 sheet/object，避免 AEDT 报 `a geometry selection is required for assignment`。
+  - 节点 audit 的 snapshot 失败会记录 `snapshot_error`，不再让失败后的 AEDT 状态读取直接中断 benchmark。
+  - `create_conductor_or_geometry_group` 对 LLM 常输出的 cylinder 输入做 box 近似，减少与节点 schema 无关的低价值失败。
+  - C 组提示词明确要求 lumped port 优先使用 port sheet 对象名，sweep 使用频率字符串。
 
 ## 已验证结果
 
@@ -92,6 +97,7 @@ Stage B 不是继续比较裸 LLM 写 Python，而是验证节点化路径是否
 当前可展示 HTML 报告：
 
 - `benchmarks/reports/stage_b_5task_compare.html`
+- `benchmarks/reports/stage_b_10task_compare.html`
 - validation checks：
   - `session_available`
   - `wave_port_present`
@@ -166,6 +172,55 @@ Stage B 不是继续比较裸 LLM 写 Python，而是验证节点化路径是否
 
 - `Trap_waveport_wrong_face`：PASS，1/3
 
+10-task C-only after node fixes：
+
+```bash
+.venv/bin/python scripts/run_stage_b_benchmark.py \
+  --groups C \
+  --max-attempts 3 \
+  --run-dir benchmarks/runs/stage_b_c_10task_after_node_fixes
+```
+
+结果：
+
+- `task_count`: 10
+- `first_pass_rate`: 0.8
+- `pass_rate_3try`: 1.0
+- `avg_attempts_to_success`: 1.2
+- `avg_attempts_all`: 1.2
+- `avg_node_count`: 4.3
+- `node_coverage_rate`: 1.0
+- `free_code_execution_count`: 0
+- 失败类别：`{}`
+
+10-task B-only after node fixes：
+
+```bash
+.venv/bin/python scripts/run_stage_b_benchmark.py \
+  --groups B \
+  --max-attempts 3 \
+  --run-dir benchmarks/runs/stage_b_b_10task_after_node_fixes
+```
+
+结果：
+
+- `task_count`: 10
+- `first_pass_rate`: 0.7
+- `pass_rate_3try`: 0.9
+- `avg_attempts_to_success`: 1.3333333333333333
+- `avg_attempts_all`: 1.5
+- `tool_usage_rate`: 1.0
+- `avg_gitnexus_queries`: 6.9
+- `retrieval_before_code_rate`: 1.0
+- 失败任务：`L2_dipole_antenna`
+- 失败类别：`{"generation_error": 1}`
+
+10-task 对照汇报版报告：
+
+- JSON：`benchmarks/reports/stage_b_10task_compare.json`
+- HTML：`benchmarks/reports/stage_b_10task_compare.html`
+- 报告结论：B 组三次内成功率 90%，C 组三次内成功率 100%；B 组首轮 70%，C 组首轮 80%；C 组自由代码执行次数 0，平均成功轮次 1.2。
+
 ## 重要经验
 
 - C 组不能只给 task 的 `allowed_nodes`，因为真实 AEDT 会话是空模型。涉及端口/边界/face 的任务必须允许 prerequisite nodes 先创建最小几何。
@@ -177,15 +232,14 @@ Stage B 不是继续比较裸 LLM 写 Python，而是验证节点化路径是否
 
 ## 下一步
 
-中文 Stage B HTML 报告已生成。下一步建议做两件事：
+中文 Stage B 10-task 汇报版 HTML 已生成。下一步建议：
 
-1. 复查报告表述是否适合对外汇报，尤其是不要把当前 Trap validation 夸大为完整物理正确性。
-2. 决定是否扩展到 10-task C-only 或 B/C 全量对照。
+1. 复查 `benchmarks/reports/stage_b_10task_compare.html` 的表述和截图效果。
+2. 若要继续 Stage B，实现更细的节点 schema/validation；若进入下一阶段，再考虑节点分解、更多物理语义判卷和更大任务集。
 
 报告已经展示：
 
-- Stage A baseline。
-- 5-task B/C compare 指标。
-- B 组 `L1_create_wave_port` 失败原因。
-- C 组节点化如何通过 schema/节点输出/validation 控制风险。
-- 当前 validation 仍有限，尤其是 Trap 的电磁语义仍只是结构性检查，不应夸大。
+- B/C 10-task 对照指标。
+- B 组 `L2_dipole_antenna` 三轮失败原因。
+- C 组节点化如何通过 schema、节点输出、真实 AEDT 执行和 validation 控制风险。
+- 当前 validation 仍有限，Trap 的电磁语义仍只是结构性检查，不应夸大。

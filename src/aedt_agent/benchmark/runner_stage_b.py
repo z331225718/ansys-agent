@@ -203,6 +203,8 @@ def _build_group_c_prompt(task, kernel: McpToolKernel, previous_log: str) -> str
         "The AEDT design starts empty. If a task references a face, port, boundary, or object, create the prerequisite geometry first using an allowed prerequisite node.",
         "To pass a previous node output into a later input, use {\"$ref\": \"step_id.output.selected_face_id\"}.",
         "For wave-port tasks, a minimal valid plan should create simple geometry or a port sheet, select an exterior face when needed, then call create_port with port_type \"wave\".",
+        "For lumped-port tasks, create a named sheet/object for the port and prefer that object name as create_port.assignment. If you select a face from a port sheet, referencing step.output.object_name is safer than passing a bare face id.",
+        "For sweeps, provide start and stop as frequency strings such as \"1GHz\" and \"5GHz\"; the node handles PyAEDT's exact signature.",
         "Geometry node inputs must be JSON data, not Python strings. Example: {\"geometry\": [{\"kind\": \"box\", \"origin\": [0, 0, 0], \"size\": [10, 10, 10], \"name\": \"block1\", \"material\": \"copper\"}]}",
         f"Allowed nodes:\n{json.dumps(node_catalog, indent=2, ensure_ascii=False)}",
         f"Expected workflow:\n{json.dumps(task.expected_workflow, ensure_ascii=False)}",
@@ -250,10 +252,32 @@ def _resolve_refs(value, step_outputs):
 def _lookup_ref(ref: str, step_outputs):
     current = step_outputs
     for part in ref.split("."):
-        if not isinstance(current, dict) or part not in current:
+        if not isinstance(current, dict):
             raise KeyError(f"Unknown node output reference: {ref}")
+        if part not in current:
+            alias = _lookup_output_alias(current, part)
+            if alias is None:
+                raise KeyError(f"Unknown node output reference: {ref}")
+            current = alias
+            continue
         current = current[part]
+    if isinstance(current, dict) and set(current) == {"output"}:
+        return current["output"]
     return current
+
+
+def _lookup_output_alias(current: dict, part: str):
+    output = current.get("output") if "output" in current else current
+    if not isinstance(output, dict):
+        return None
+    if part in {"name", "object", "object_id", "conductor_id", "airbox_id", "selected_face_id"}:
+        if output.get("object_name") is not None:
+            return output["object_name"]
+    if part == "port_id" and output.get("port_name") is not None:
+        return output["port_name"]
+    if part == "boundary_id" and output.get("boundary_name") is not None:
+        return output["boundary_name"]
+    return None
 
 
 def _attempt_record(

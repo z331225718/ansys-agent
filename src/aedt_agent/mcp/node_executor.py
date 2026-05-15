@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
@@ -33,14 +34,14 @@ class NodeExecutor:
             return _rejected("schema_error", "; ".join(validation.errors))
 
         session = self.session_manager.get_session(session_id)
-        state_before = session.adapter.snapshot_state()
+        state_before = _safe_snapshot(session.adapter)
         node_fn = self._node_callable(node_id, validation.inputs)
         result = self.queue.submit_callable(
             session=session.ref,
             fn=lambda: session.adapter.execute_node_callable(node_fn),
             node_id=node_id,
         )
-        state_after = session.adapter.snapshot_state()
+        state_after = _safe_snapshot(session.adapter)
         if self.audit_logger is not None:
             self.audit_logger.record(
                 event_type="execute_node",
@@ -110,6 +111,13 @@ def _create_geometry_group(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
                 name=name,
                 material=material,
             )
+        elif kind == "cylinder":
+            obj = app.modeler.create_box(
+                item["origin"],
+                _cylinder_box_size(item),
+                name=name,
+                material=material,
+            )
         else:
             obj = app.modeler.create_box(item["origin"], item["size"], name=name, material=material)
         created.append(obj.name)
@@ -130,6 +138,18 @@ def _normalize_geometry_item(item: dict[str, Any]) -> dict[str, Any]:
     if "material" not in normalized and "matname" in normalized:
         normalized["material"] = normalized["matname"]
     return normalized
+
+
+def _cylinder_box_size(item: dict[str, Any]) -> list[Any]:
+    radius = item.get("radius", 0.5)
+    height = item.get("height", item.get("size", [1, 1, 1])[-1] if isinstance(item.get("size"), list) else 1)
+    axis = str(item.get("axis", "z")).lower()
+    diameter = 2 * radius if isinstance(radius, (int, float)) else radius
+    if axis == "x":
+        return [height, diameter, diameter]
+    if axis == "y":
+        return [diameter, height, diameter]
+    return [diameter, diameter, height]
 
 
 def _create_airbox(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
@@ -164,11 +184,13 @@ def _create_port(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
     name = inputs["name"]
     assignment = _normalize_assignment(inputs["assignment"])
     if port_type in {"lumped", "lumped_port", "microstrip_lumped_port_default"}:
+        if isinstance(assignment, int):
+            assignment = _object_name_for_face_id(app, assignment) or assignment
         port = app.lumped_port(
             assignment=assignment,
             name=name,
             create_port_sheet=False,
-            integration_line=_normalize_integration_line(inputs.get("integration_line")),
+            integration_line=_normalize_integration_line(inputs.get("integration_line", 0)),
             impedance=inputs.get("impedance", 50),
         )
     elif port_type in {"wave", "wave_port", "wave_port_on_sheet", "wave_port_on_face_id"}:
@@ -195,6 +217,8 @@ def _normalize_padding(value: Any) -> int | float:
 def _normalize_assignment(value: Any, prefer_list: bool = False) -> Any:
     if not isinstance(value, dict):
         return value
+    if "output" in value:
+        return _normalize_assignment(value["output"], prefer_list=prefer_list)
     if value.get("selected_face_id") is not None:
         return value["selected_face_id"]
     if value.get("object_name") is not None:
@@ -225,6 +249,7 @@ def _select_face(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
     selected = max(faces, key=lambda face: face["center"][axis_index]) if side == "max" else min(faces, key=lambda face: face["center"][axis_index])
     return {
         "created": {"objects": [], "ports": [], "boundaries": [], "setups": [], "sweeps": []},
+        "object_name": object_name,
         "selected_face_id": selected["id"],
         "selected_face_center": selected["center"],
         "postcheck": {"passed": True, "checks": ["face_selected"]},
@@ -240,14 +265,16 @@ def _create_setup(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
 
 
 def _create_sweep(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
-    sweep = app.create_linear_count_sweep(
-        inputs["setup"],
-        units="GHz",
-        start_frequency=inputs["start"],
-        stop_frequency=inputs["stop"],
-        num_of_freq_points=inputs["points"],
-        name=inputs["name"],
-    )
+    kwargs = {
+        "start_frequency": _frequency_value(inputs["start"]),
+        "stop_frequency": _frequency_value(inputs["stop"]),
+        "num_of_freq_points": inputs["points"],
+        "name": inputs["name"],
+    }
+    signature = inspect.signature(app.create_linear_count_sweep)
+    unit_arg = "unit" if "unit" in signature.parameters else "units"
+    kwargs[unit_arg] = _frequency_unit(inputs["start"], inputs["stop"])
+    sweep = app.create_linear_count_sweep(inputs["setup"], **kwargs)
     return _node_output(sweeps=[str(sweep)], postchecks=["sweep_created"])
 
 
@@ -265,6 +292,43 @@ def _get_object_faces(app: Any, object_name: str) -> list[dict[str, Any]]:
         except Exception:
             return []
     return faces
+
+
+def _object_name_for_face_id(app: Any, face_id: int) -> str | None:
+    for object_name in getattr(app.modeler, "object_names", []) or []:
+        if any(face["id"] == face_id for face in _get_object_faces(app, str(object_name))):
+            return str(object_name)
+    objects = getattr(app, "objects", None)
+    if isinstance(objects, dict):
+        for object_name, obj in objects.items():
+            for face in getattr(obj, "faces", []):
+                if int(getattr(face, "id", -1)) == face_id:
+                    return str(object_name)
+    return None
+
+
+def _frequency_value(value: Any) -> Any:
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        for suffix in ("ghz", "mhz", "khz", "hz"):
+            if lowered.endswith(suffix):
+                number = value.strip()[: -len(suffix)]
+                try:
+                    return float(number)
+                except ValueError:
+                    return value
+    return value
+
+
+def _frequency_unit(*values: Any) -> str:
+    units = {"ghz": "GHz", "mhz": "MHz", "khz": "KHz", "hz": "Hz"}
+    for value in values:
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            for suffix, unit in units.items():
+                if lowered.endswith(suffix):
+                    return unit
+    return "GHz"
 
 
 def _assign_material_if_available(app: Any, name: str, material: str) -> None:
@@ -309,6 +373,13 @@ def _node_output(
     if created["sweeps"]:
         output["sweep_name"] = created["sweeps"][0]
     return output
+
+
+def _safe_snapshot(adapter: Any) -> dict[str, Any]:
+    try:
+        return adapter.snapshot_state()
+    except Exception as exc:
+        return {"snapshot_error": f"{type(exc).__name__}: {exc}"}
 
 
 def _rejected(error_type: str, message: str) -> ExecutionResult:

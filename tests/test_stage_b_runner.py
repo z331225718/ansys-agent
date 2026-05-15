@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from aedt_agent.benchmark.models import BenchmarkTask
-from aedt_agent.benchmark.runner_stage_b import _build_group_c_prompt, _expand_allowed_node_ids, run_stage_b_node_benchmark
+from aedt_agent.benchmark.runner_stage_b import _build_group_c_prompt, _expand_allowed_node_ids, _resolve_refs, run_stage_b_node_benchmark
 from aedt_agent.mcp.tools import create_fake_kernel
 
 
@@ -105,3 +105,15 @@ def test_group_c_prompt_expands_prerequisite_nodes():
     assert allowed == ["create_conductor_or_geometry_group", "select_face", "create_port"]
     assert "The AEDT design starts empty" in prompt
     assert "create_conductor_or_geometry_group" in prompt
+
+
+def test_resolve_refs_accepts_common_output_aliases():
+    step_outputs = {
+        "geom": {"output": {"object_name": "conductor1"}},
+        "air": {"output": {"object_name": "AirBox"}},
+    }
+
+    assert _resolve_refs({"$ref": "geom.output.conductor_id"}, step_outputs) == "conductor1"
+    assert _resolve_refs({"$ref": "geom.output.name"}, step_outputs) == "conductor1"
+    assert _resolve_refs({"$ref": "air.output.airbox_id"}, step_outputs) == "AirBox"
+    assert _resolve_refs({"$ref": "air"}, step_outputs)["object_name"] == "AirBox"
