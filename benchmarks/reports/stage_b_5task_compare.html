@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stage B 节点化 AEDT Benchmark 报告</title>
+  <style>
+    :root {
+      --bg: #f5f6f8;
+      --panel: #ffffff;
+      --text: #17202a;
+      --muted: #5c6675;
+      --line: #d9dee7;
+      --pass: #136f46;
+      --fail: #b13636;
+      --warn: #8a5a00;
+      --accent: #1f5f8f;
+      --accent2: #2f766f;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .page { max-width: 1380px; margin: 0 auto; padding: 30px 24px 48px; }
+    .hero { background: var(--panel); border: 1px solid var(--line); border-left: 7px solid var(--accent); border-radius: 8px; padding: 26px; }
+    h1 { margin: 0 0 10px; font-size: 30px; letter-spacing: 0; }
+    h2 { margin: 0 0 14px; font-size: 20px; letter-spacing: 0; }
+    h3 { margin: 0 0 8px; font-size: 15px; letter-spacing: 0; }
+    p, li { color: var(--muted); line-height: 1.55; }
+    p { margin: 0; }
+    ul, ol { margin: 0; padding-left: 20px; }
+    li + li { margin-top: 6px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(185px, 1fr)); gap: 14px; margin: 22px 0; }
+    .card, .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+    .card { padding: 16px; min-height: 104px; }
+    .panel { padding: 18px; margin-top: 18px; }
+    .label { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+    .value { font-size: 26px; font-weight: 700; }
+    .split { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+    .box { background: #fafbfc; border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
+    .box strong { display: block; margin-bottom: 6px; color: var(--text); }
+    .callout { border-left: 5px solid var(--accent2); background: #f7fbfa; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: 10px 12px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { border-top: none; color: var(--muted); background: #fafbfc; }
+    .task-id, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .pill { display: inline-block; padding: 4px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+    .pill.pass { color: var(--pass); background: rgba(19,111,70,0.12); }
+    .pill.fail { color: var(--fail); background: rgba(177,54,54,0.12); }
+    .pill.warn { color: var(--warn); background: rgba(138,90,0,0.12); }
+    .subtle { color: var(--muted); font-size: 12px; margin-top: 5px; line-height: 1.35; }
+    .footer { color: var(--muted); font-size: 12px; margin-top: 18px; }
+    @media print {
+      body { background: #fff; }
+      .page { max-width: none; padding: 18px; }
+      .panel, .hero, .card { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <h1>Stage B 节点化 AEDT Benchmark 报告</h1>
+      <p>生成时间：2026-05-15 08:17:35 CST。模型/执行 harness：claude:claude。本报告对比 Stage A 的 grounded free-code 路径 B 组与 Stage B 的受控节点路径 C 组，判据来自真实 AEDT 2026.1 non-graphical 执行和 validation。</p>
+    </section>
+
+    <section class="grid"><div class='card'><div class='label'>B 组首轮成功率</div><div class='value'>80.0%</div></div><div class='card'><div class='label'>B 组三次内成功率</div><div class='value'>80.0%</div></div><div class='card'><div class='label'>C 组首轮成功率</div><div class='value'>80.0%</div></div><div class='card'><div class='label'>C 组三次内成功率</div><div class='value'>100.0%</div></div><div class='card'><div class='label'>C 组自由代码次数</div><div class='value'>0</div></div><div class='card'><div class='label'>C 组平均节点数</div><div class='value'>3.00</div></div></section>
+
+    <section class="panel callout">
+      <h2>结论摘要</h2>
+      <p>在本次小集对照中，B 组三次内成功率为 80.0%，C 组为 100.0%。C 组保持自由代码执行次数 0，说明节点化路径能把高风险 AEDT API 调用集中在受控节点中，并在 wave port 类任务上提供更稳定的修复边界。</p>
+    </section>
+
+    <section class="panel">
+      <h2>我们做了什么</h2>
+      <div class="split">
+        <div class="box"><strong>Group B：官方知识增强自由代码</strong>Claude Code harness 接入 GitNexus、PyAEDT 官方源码和 pyaedt-examples，生成可直接在已有 <span class="mono">app</span> 对象上执行的 Python。</div>
+        <div class="box"><strong>Group C：受控节点计划</strong>同一个 harness 只允许输出 JSON node plan，本地 runner 按顺序调用 <span class="mono">execute_node</span>，不允许自由 Python fallback。</div>
+        <div class="box"><strong>真实 AEDT 判卷</strong>每次尝试在 AEDT non-graphical 中执行，并用 validation script 检查真实模型状态。C 组每次 attempt 使用独立 AEDT session，避免修复尝试被前一次残留污染。</div>
+        <div class="box"><strong>修复反馈</strong>最多三次尝试。失败后把 schema、节点、AEDT 或 validation 错误反馈给 harness，让下一轮基于真实错误修复。</div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>分组指标</h2>
+      <table>
+        <thead><tr><th>分组</th><th>任务数</th><th>首轮成功率</th><th>三次内成功率</th><th>平均成功轮次</th><th>全部任务平均轮次</th><th>平均节点数</th><th>自由代码次数</th><th>失败类别</th></tr></thead>
+        <tbody><tr><td>B 组</td><td>5</td><td>80.0%</td><td>80.0%</td><td>1.00</td><td>1.40</td><td>0.00</td><td>-</td><td>{&#x27;runtime_error&#x27;: 1}</td></tr><tr><td>C 组</td><td>5</td><td>80.0%</td><td>100.0%</td><td>1.20</td><td>1.20</td><td>3.00</td><td>0</td><td>{}</td></tr></tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h2>任务级结果</h2>
+      <table>
+        <thead><tr><th>任务</th><th>难度</th><th>B 组自由代码</th><th>C 组节点计划</th></tr></thead>
+        <tbody><tr><td class='task-id'>L1_create_setup</td><td>L1</td><td><span class='pill pass'>通过</span><div class='subtle'>成功轮次：1</div><div class='subtle'>尝试次数：1</div><div class='subtle'>GitNexus 查询：3</div></td><td><span class='pill pass'>通过</span><div class='subtle'>成功轮次：1</div><div class='subtle'>尝试次数：1</div><div class='subtle'>节点步数：1</div></td></tr><tr><td class='task-id'>L1_create_substrate</td><td>L1</td><td><span class='pill pass'>通过</span><div class='subtle'>成功轮次：1</div><div class='subtle'>尝试次数：1</div><div class='subtle'>GitNexus 查询：5</div></td><td><span class='pill pass'>通过</span><div class='subtle'>成功轮次：1</div><div class='subtle'>尝试次数：1</div><div class='subtle'>节点步数：1</div></td></tr><tr><td class='task-id'>L1_create_wave_port</td><td>L1</td><td><span class='pill fail'>失败</span><div class='subtle'>成功轮次：-</div><div class='subtle'>尝试次数：3</div><div class='subtle'>失败类型：runtime_error</div><div class='subtle'>GitNexus 查询：3</div></td><td><span class='pill pass'>通过</span><div class='subtle'>成功轮次：1</div><div class='subtle'>尝试次数：1</div><div class='subtle'>节点步数：3</div></td></tr><tr><td class='task-id'>L2_microstrip_line</td><td>L2</td><td><span class='pill pass'>通过</span><div class='subtle'>成功轮次：1</div><div class='subtle'>尝试次数：1</div><div class='subtle'>GitNexus 查询：7</div></td><td><span class='pill pass'>通过</span><div class='subtle'>成功轮次：1</div><div class='subtle'>尝试次数：1</div><div class='subtle'>节点步数：4</div></td></tr><tr><td class='task-id'>Trap_waveport_wrong_face</td><td>Trap</td><td><span class='pill pass'>通过</span><div class='subtle'>成功轮次：1</div><div class='subtle'>尝试次数：1</div><div class='subtle'>GitNexus 查询：7</div></td><td><span class='pill pass'>通过</span><div class='subtle'>成功轮次：2</div><div class='subtle'>尝试次数：2</div><div class='subtle'>节点步数：6</div></td></tr></tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h2>关键失败案例</h2>
+      <ul><li><strong>L1_create_wave_port / B 组</strong><br>第 1 次：runtime_error，Traceback (most recent call last): File &quot;/home/zzmjay/code/ansys-agent/.venv/lib/python3.12/site-packages/ansys/aedt/core/internal/grpc_plugin_dll_class.py&quot;, line 116, in __Invoke__ ret = _retry_ntimes( ^^^^^^^^^^^^^^ File &quot;/home/zzmjay/code/ansys-agent/.venv/lib/python3.12/site-packages/ansys/aedt/core/generic/general_methods.py&quot;, line 613, in _retry_ntimes raise AttributeError(f&quot;Error in Executing Method {function.__name__}.&quot;) AttributeError: Error in Executing Method InvokeAedtObjMethod. Duri<br>第 2 次：generation_error，Harness CLI timed out after 900s<br>第 3 次：runtime_error，Traceback (most recent call last): File &quot;/home/zzmjay/code/ansys-agent/.venv/lib/python3.12/site-packages/ansys/aedt/core/internal/grpc_plugin_dll_class.py&quot;, line 116, in __Invoke__ ret = _retry_ntimes( ^^^^^^^^^^^^^^ File &quot;/home/zzmjay/code/ansys-agent/.venv/lib/python3.12/site-packages/ansys/aedt/core/generic/general_methods.py&quot;, line 613, in _retry_ntimes raise AttributeError(f&quot;Error in Executing Method {function.__name__}.&quot;) AttributeError: Error in Executing Method InvokeAedtObjMethod. Duri</li></ul>
+    </section>
+
+    <section class="panel">
+      <h2>工程解读</h2>
+      <div class="split">
+        <div class="box"><strong>C 组收益</strong>节点路径把高风险 PyAEDT 调用收敛到受控实现里。LLM 只负责生成结构化计划，schema、引用解析、节点输出和 validation 可以系统性修复。</div>
+        <div class="box"><strong>B 组风险</strong>自由代码可以在简单几何和 setup 上表现很好，但 wave port 这类 AEDT boundary 调用仍容易出现 runtime error，甚至触发长时间 harness timeout。</div>
+        <div class="box"><strong>当前限制</strong>Trap validation 已检查端口 assignment 是否来自 selected face，但仍不是完整电磁语义判卷。正式结论中应把它表述为结构性检查，而不是完整物理正确性证明。</div>
+      </div>
+    </section>
+
+    <p class="footer">报告版本：stage_b_node_v1；最大尝试次数：3。</p>
+  </main>
+</body>
+</html>

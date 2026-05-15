@@ -9,6 +9,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from aedt_agent.benchmark.aedt_executor import AEDTSubprocessExecutor
 from aedt_agent.benchmark.config import load_benchmark_config
+from aedt_agent.benchmark.report_html_stage_b import write_html_report_stage_b
 from aedt_agent.benchmark.runner_stage_b import run_stage_b_node_benchmark
 from aedt_agent.mcp.pyaedt_adapter import PyaedtAdapter
 from aedt_agent.mcp.session_manager import SessionManager
@@ -102,6 +103,8 @@ def main() -> None:
         progress_callback=_print_progress,
     )
     print(f"Stage B report written to: {run_dir / 'stage_b_report.json'}")
+    html_path = write_html_report_stage_b(report, run_dir / "stage_b_report.html", model_name=_model_label(config))
+    print(f"Stage B HTML report written to: {html_path}")
     print(f"Group metrics: {report['groups']}")
 
 
@@ -111,6 +114,12 @@ class _StaticNodePlanGenerator:
             '{"plan": [{"node_id": "create_substrate", '
             '"inputs": {"origin": [0, 0, 0], "size": [20, 15, 0.8], "material": "FR4_epoxy"}}]}'
         )
+
+
+def _model_label(config) -> str:
+    if config.generator.backend.lower() == "harness":
+        return f"{config.harness.backend}:{config.harness.command}"
+    return config.generator.openai.model
 
 
 if __name__ == "__main__":
