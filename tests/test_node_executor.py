@@ -132,6 +132,28 @@ def test_node_executor_accepts_created_object_reference_for_port(tmp_path):
     assert result.status == ExecutionStatus.SUCCEEDED
 
 
+def test_node_executor_accepts_integration_line_start_end_mapping(tmp_path):
+    manager, executor = _executor(tmp_path)
+    session = manager.create_session("p1", "d1")
+    geometry = executor.execute_node(
+        session.ref.session_id,
+        "create_conductor_or_geometry_group",
+        {"geometry": [{"kind": "box", "origin": [0, 0, 0], "size": [1, 1, 1], "name": "metal"}]},
+    )
+
+    result = executor.execute_node(
+        session.ref.session_id,
+        "create_port",
+        {
+            "port_type": "wave",
+            "assignment": geometry.output,
+            "integration_line": {"start": [0, 0, 0], "end": [0, 1, 0]},
+        },
+    )
+
+    assert result.status == ExecutionStatus.SUCCEEDED
+
+
 def test_node_executor_rejects_bad_schema(tmp_path):
     manager, executor = _executor(tmp_path)
     session = manager.create_session("p1", "d1")

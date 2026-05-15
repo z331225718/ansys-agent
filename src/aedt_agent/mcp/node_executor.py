@@ -168,13 +168,13 @@ def _create_port(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
             assignment=assignment,
             name=name,
             create_port_sheet=False,
-            integration_line=inputs.get("integration_line"),
+            integration_line=_normalize_integration_line(inputs.get("integration_line")),
             impedance=inputs.get("impedance", 50),
         )
     elif port_type in {"wave", "wave_port", "wave_port_on_sheet", "wave_port_on_face_id"}:
         kwargs = {"name": name}
         if inputs.get("integration_line") is not None:
-            kwargs["integration_line"] = inputs["integration_line"]
+            kwargs["integration_line"] = _normalize_integration_line(inputs["integration_line"])
         if inputs.get("reference") is not None:
             kwargs["reference"] = _normalize_assignment(inputs["reference"])
         port = app.wave_port(assignment, **kwargs)
@@ -206,6 +206,12 @@ def _normalize_assignment(value: Any, prefer_list: bool = False) -> Any:
             if isinstance(names, list) and names:
                 return names if prefer_list else names[0]
     raise ValueError("Could not normalize node output as assignment")
+
+
+def _normalize_integration_line(value: Any) -> Any:
+    if isinstance(value, dict) and "start" in value and "end" in value:
+        return [value["start"], value["end"]]
+    return value
 
 
 def _select_face(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:

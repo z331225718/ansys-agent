@@ -45,7 +45,7 @@ NODE_SCHEMAS: dict[str, NodeInputSchema] = {
     ),
     "create_port": NodeInputSchema(
         required={"port_type": str, "assignment": (str, int, dict)},
-        optional={"name": str, "integration_line": list, "reference": (str, int, list, dict), "impedance": (int, float, str)},
+        optional={"name": str, "integration_line": (list, dict), "reference": (str, int, list, dict), "impedance": (int, float, str)},
         defaults={"name": "Port1", "impedance": 50},
     ),
     "select_face": NodeInputSchema(
