@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AEDT Agent 阶段汇报</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --text: #17202a;
+      --muted: #5b6675;
+      --line: #d9dee7;
+      --blue: #1f5f8f;
+      --green: #1f7a55;
+      --red: #b23a48;
+      --amber: #9a6a00;
+      --ink: #26313f;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { max-width: 1220px; margin: 0 auto; padding: 30px 24px 56px; }
+    section { margin-top: 18px; }
+    .hero { background: var(--panel); border: 1px solid var(--line); border-left: 8px solid var(--blue); border-radius: 8px; padding: 28px; }
+    h1 { margin: 0 0 10px; font-size: 34px; letter-spacing: 0; }
+    h2 { margin: 0 0 14px; font-size: 22px; letter-spacing: 0; }
+    h3 { margin: 0 0 8px; font-size: 16px; letter-spacing: 0; }
+    p, li { color: var(--muted); line-height: 1.58; }
+    p { margin: 0; }
+    .lead { font-size: 17px; color: var(--text); max-width: 920px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+    .panel, .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+    .panel { padding: 20px; }
+    .card { padding: 16px; }
+    .metric { font-size: 30px; font-weight: 800; color: var(--ink); margin-top: 8px; }
+    .label { color: var(--muted); font-size: 13px; }
+    .badge { display: inline-block; padding: 4px 8px; border-radius: 999px; background: #e9f1f8; color: var(--blue); font-weight: 700; font-size: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+    th, td { padding: 11px 12px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { background: #f8fafc; border-top: none; color: var(--ink); }
+    .arch { display: grid; grid-template-columns: repeat(6, minmax(120px, 1fr)); gap: 10px; align-items: stretch; }
+    .box { border: 1px solid var(--line); background: #fbfcfd; border-radius: 8px; padding: 14px; min-height: 82px; display: flex; flex-direction: column; justify-content: center; }
+    .box strong { color: var(--text); display: block; margin-bottom: 4px; }
+    .arrow { display: flex; align-items: center; justify-content: center; color: var(--blue); font-weight: 800; font-size: 20px; }
+    .loop { margin-top: 10px; border-left: 4px solid var(--amber); padding: 8px 12px; background: #fffaf0; border-radius: 0 8px 8px 0; color: var(--muted); }
+    .stage-flow { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; gap: 12px; align-items: center; }
+    .stage { padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: #fbfcfd; min-height: 132px; }
+    .stage strong { display: block; font-size: 18px; margin-bottom: 8px; }
+    .stage.done { border-top: 5px solid var(--green); }
+    .stage.now { border-top: 5px solid var(--blue); }
+    .stage.next { border-top: 5px solid var(--amber); }
+    .bars { display: grid; gap: 14px; }
+    .bar-row { display: grid; grid-template-columns: 190px 1fr 52px; gap: 10px; align-items: center; }
+    .bar-bg { height: 18px; border-radius: 999px; background: #e8edf3; overflow: hidden; }
+    .bar { height: 100%; border-radius: 999px; }
+    .bar.red { background: var(--red); }
+    .bar.blue { background: var(--blue); }
+    .bar.green { background: var(--green); }
+    .note { border-left: 5px solid var(--blue); background: #f7fbff; padding: 14px; border-radius: 0 8px 8px 0; }
+    .targets { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+    .target { border: 1px solid var(--line); border-radius: 8px; padding: 14px; background: #fbfcfd; }
+    .target .from { color: var(--muted); font-size: 13px; }
+    .target .to { color: var(--green); font-weight: 800; margin-top: 6px; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: #eef2f6; padding: 1px 4px; border-radius: 4px; }
+    @media (max-width: 840px) {
+      .arch, .stage-flow { grid-template-columns: 1fr; }
+      .arrow { transform: rotate(90deg); }
+      .bar-row { grid-template-columns: 1fr; }
+    }
+    @media print {
+      body { background: #fff; }
+      main { max-width: none; padding: 18px; }
+      .panel, .card, table { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <section class="hero">
+    <span class="badge">面向非 Ansys 仿真团队</span>
+    <h1>AEDT Agent 阶段汇报</h1>
+    <p class="lead">我们在做一个 CAE 仿真自动化 agent：把工程师的自然语言任务，转成可执行、可验证、可追踪的 AEDT/PyAEDT 自动化流程。</p>
+  </section>
+
+  <section class="grid">
+    <div class="card"><div class="label">Stage A：裸生成三次内成功率</div><div class="metric">30%</div></div>
+    <div class="card"><div class="label">Stage A：官方知识增强后三次内成功率</div><div class="metric">100%</div></div>
+    <div class="card"><div class="label">Stage B：受控节点三次内成功率</div><div class="metric">100%</div></div>
+    <div class="card"><div class="label">Stage B：受控节点自由代码次数</div><div class="metric">0</div></div>
+  </section>
+
+  <section class="panel">
+    <h2>1. Agent 架构</h2>
+    <div class="arch">
+      <div class="box"><strong>用户需求</strong><span>自然语言任务</span></div>
+      <div class="box"><strong>Agent / Harness</strong><span>规划、生成、修复</span></div>
+      <div class="box"><strong>知识检索</strong><span>官方文档 / examples / GitNexus</span></div>
+      <div class="box"><strong>执行层</strong><span>PyAEDT 自由代码或受控节点</span></div>
+      <div class="box"><strong>AEDT</strong><span>2026.1 non-graphical</span></div>
+      <div class="box"><strong>Validation</strong><span>真实模型状态检查</span></div>
+    </div>
+    <div class="loop">失败时，把真实错误日志反馈给 agent，最多自动修复三次；成功时输出报告、audit 和可复现结果。</div>
+  </section>
+
+  <section class="panel">
+    <h2>2. Stage A / B / C 差别</h2>
+    <div class="stage-flow">
+      <div class="stage done"><strong>Stage A</strong><p>证明“官方知识 + 图谱检索”是否能显著提高 LLM 写 PyAEDT 的成功率。</p><p><b>状态：</b>完成</p></div>
+      <div class="arrow">→</div>
+      <div class="stage now"><strong>Stage B</strong><p>证明把高风险 PyAEDT 调用封装成受控节点后，是否更稳定、更可审计。</p><p><b>状态：</b>MVP 完成</p></div>
+      <div class="arrow">→</div>
+      <div class="stage next"><strong>Stage C</strong><p>产品化为稳定的仿真 workflow：DAG、恢复、物理语义校验和结果检查。</p><p><b>状态：</b>下一阶段</p></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>3. 当前效果</h2>
+    <div class="grid">
+      <div>
+        <h3>Stage A：知识检索是否有用</h3>
+        <div class="bars">
+          <div class="bar-row"><span>Group A 裸生成</span><div class="bar-bg"><div class="bar red" style="width:30%"></div></div><strong>30%</strong></div>
+          <div class="bar-row"><span>Group B 官方知识 + GitNexus</span><div class="bar-bg"><div class="bar green" style="width:100%"></div></div><strong>100%</strong></div>
+        </div>
+      </div>
+      <div>
+        <h3>Stage B：受控节点是否有用</h3>
+        <div class="bars">
+          <div class="bar-row"><span>Group B 工具增强自由代码</span><div class="bar-bg"><div class="bar blue" style="width:90%"></div></div><strong>90%</strong></div>
+          <div class="bar-row"><span>Group C 受控节点计划</span><div class="bar-bg"><div class="bar green" style="width:100%"></div></div><strong>100%</strong></div>
+        </div>
+      </div>
+    </div>
+    <p class="note">所有结果来自 10 个固定 benchmark 任务，最多三次自动修复，判据是真实 AEDT non-graphical 执行 + validation。</p>
+  </section>
+
+  <section class="panel">
+    <h2>4. 为什么节点化重要</h2>
+    <table>
+      <tbody>
+        <tr><th>自由代码路径的问题</th><th>受控节点路径的改进</th></tr>
+        <tr><td>LLM 可能调用不存在或版本不匹配的 API</td><td>节点内部封装真实 PyAEDT 调用和版本兼容</td></tr>
+        <tr><td>端口、边界、face selection 容易 runtime error</td><td>节点有 schema、postcheck、audit 和错误归因</td></tr>
+        <tr><td>失败原因散落在任意 Python 代码中</td><td>失败集中在节点输入、引用、validation，便于修复</td></tr>
+        <tr><td>安全边界弱</td><td>Group C 自由代码执行次数为 0</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>5. 当前边界</h2>
+    <div class="note">当前 validation 是结构性判卷，不等同于完整电磁物理正确性证明。</div>
+    <table>
+      <tbody>
+        <tr><th>当前能检查</th><th>未来要增强</th></tr>
+        <tr><td>对象、材料、端口、边界、setup/sweep 是否创建</td><td>电磁语义、求解结果、工程合理性</td></tr>
+        <tr><td>关键引用关系是否合理</td><td>复杂模型、后处理、长时间任务恢复</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>6. 未来目标</h2>
+    <div class="targets">
+      <div class="target"><div class="from">当前：10-task MVP</div><div class="to">目标：更多真实工程模板</div></div>
+      <div class="target"><div class="from">当前：串行 node plan</div><div class="to">目标：DAG workflow</div></div>
+      <div class="target"><div class="from">当前：结构性 validation</div><div class="to">目标：结构 + 物理 + 结果检查</div></div>
+      <div class="target"><div class="from">当前：benchmark/report</div><div class="to">目标：可复用仿真 agent 服务</div></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>7. 当前交付物</h2>
+    <table>
+      <tbody>
+        <tr><td>非仿真团队汇报版</td><td><code>docs/aedt-agent-executive-report.md</code></td></tr>
+        <tr><td>汇报 HTML</td><td><code>benchmarks/reports/aedt_agent_executive_report.html</code></td></tr>
+        <tr><td>完整技术报告</td><td><code>docs/aedt-agent-stage-progress-report.md</code></td></tr>
+        <tr><td>Stage B 对照报告</td><td><code>benchmarks/reports/stage_b_10task_compare.html</code></td></tr>
+        <tr><td>复现文档</td><td><code>docs/stage-b-controlled-node-benchmark.md</code></td></tr>
+      </tbody>
+    </table>
+  </section>
+</main>
+</body>
+</html>
