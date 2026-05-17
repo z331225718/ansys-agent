@@ -58,15 +58,34 @@ class PyaedtAdapter:
 
 
 def _safe_boundary_names(app: Any, boundary_types: tuple[str, ...]) -> dict[str, dict[str, str]]:
-    output: dict[str, dict[str, str]] = {}
+    output: dict[str, dict[str, Any]] = {}
     try:
         for boundary in getattr(app, "boundaries", []):
             boundary_type = str(getattr(boundary, "type", ""))
             if boundary_type in boundary_types:
-                output[str(getattr(boundary, "name", ""))] = {"type": boundary_type}
+                output[str(getattr(boundary, "name", ""))] = _boundary_details(boundary, boundary_type)
     except Exception:
         return {}
     return output
+
+
+def _boundary_details(boundary: Any, boundary_type: str) -> dict[str, Any]:
+    details: dict[str, Any] = {"type": boundary_type}
+    props = getattr(boundary, "props", None)
+    if isinstance(props, dict):
+        safe_props = {str(key).rstrip(":="): _json_safe(value) for key, value in props.items()}
+        details["props"] = safe_props
+        assignment = _first_present(safe_props, ("Faces", "Objects", "Sheets", "Assignment"))
+        if assignment is not None:
+            details["assignment"] = assignment
+    return details
+
+
+def _first_present(data: dict[str, Any], keys: tuple[str, ...]) -> Any:
+    for key in keys:
+        if key in data:
+            return data[key]
+    return None
 
 
 def _safe_sweep_names(app: Any) -> dict[str, dict[str, str]]:
@@ -80,6 +99,16 @@ def _safe_sweep_names(app: Any) -> dict[str, dict[str, str]]:
     except Exception:
         return {}
     return output
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key).rstrip(":="): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
 
 
 def _ensure_aedt_environment(version: str, ansysem_root: str = "", awp_root: str = "") -> None:

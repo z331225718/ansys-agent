@@ -1,0 +1,44 @@
+{
+  "adapter": "real",
+  "artifacts": [
+    "workflow_run.json",
+    "validation.json",
+    "audit.jsonl",
+    "report.html"
+  ],
+  "model_validation": {
+    "checks": [
+      {
+        "details": {},
+        "message": "object exists: AirBox",
+        "passed": true,
+        "rule": "object_exists",
+        "target": "AirBox"
+      },
+      {
+        "details": {},
+        "message": "boundary exists: Radiation",
+        "passed": true,
+        "rule": "boundary_exists",
+        "target": "Radiation"
+      },
+      {
+        "details": {
+          "assignment": [
+            "AirBox"
+          ]
+        },
+        "message": "radiation boundary Radiation references model object",
+        "passed": true,
+        "rule": "airbox_radiation_relation_valid",
+        "target": "Radiation"
+      }
+    ],
+    "failed_checks": [],
+    "passed": true,
+    "summary": "Validation passed (3/3 checks)."
+  },
+  "status": "succeeded",
+  "step_count": 3,
+  "template": "radiation_airbox_setup"
+}

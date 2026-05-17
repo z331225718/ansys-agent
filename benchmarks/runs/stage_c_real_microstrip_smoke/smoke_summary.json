@@ -1,0 +1,40 @@
+{
+  "adapter": "real",
+  "artifacts": [
+    "workflow_run.json",
+    "validation.json",
+    "audit.jsonl",
+    "report.html"
+  ],
+  "model_validation": {
+    "checks": [
+      {
+        "details": {},
+        "message": "object exists: Substrate",
+        "passed": true,
+        "rule": "object_exists",
+        "target": "Substrate"
+      },
+      {
+        "details": {},
+        "message": "setup exists: Setup1",
+        "passed": true,
+        "rule": "setup_exists",
+        "target": "Setup1"
+      },
+      {
+        "details": {},
+        "message": "sweep exists: Sweep1",
+        "passed": true,
+        "rule": "sweep_exists",
+        "target": "Sweep1"
+      }
+    ],
+    "failed_checks": [],
+    "passed": true,
+    "summary": "Validation passed (3/3 checks)."
+  },
+  "status": "succeeded",
+  "step_count": 4,
+  "template": "microstrip_sparameter"
+}

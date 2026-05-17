@@ -1,0 +1,498 @@
+{
+  "available_tests": [
+    "test_inspector_validation.py",
+    "test_node_catalog.py",
+    "test_workflow_validator.py"
+  ],
+  "gate_inputs": {
+    "benchmark_regression_passed": false,
+    "real_aedt_smoke_passed": false,
+    "workflow_validator_passed": false
+  },
+  "proposals": [
+    {
+      "affected_tasks": [],
+      "blockers": [
+        "候选 workflow/schema 还没有通过 validator gate",
+        "需要真实 AEDT smoke 或人工 manual gate",
+        "stable 发布必须人工审核"
+      ],
+      "candidate_node_id": "composite_substrate_conductor-geometry-group_airbox_assign-boundary",
+      "evidence": [
+        {
+          "count": 1,
+          "kind": "node_subgraph",
+          "node_ids": [
+            "create_substrate",
+            "create_conductor_or_geometry_group",
+            "create_airbox",
+            "assign_boundary",
+            "create_port"
+          ],
+          "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json",
+          "summary": "create_substrate -> create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_port",
+          "tasks": []
+        }
+      ],
+      "evidence_summary": [
+        "create_substrate -> create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_port"
+      ],
+      "gate_status": "needs_review",
+      "notes": [
+        "Composite nodes reduce drag steps for experienced users but require careful schema design."
+      ],
+      "problem_pattern": "Repeated node subgraph: create_substrate -> create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_port",
+      "proposal_id": "proposal-0a34dc0c23",
+      "recommended_action": "add_node",
+      "required_tests": [
+        "test_node_catalog.py",
+        "test_workflow_validator.py",
+        "real_aedt_smoke_or_manual_gate"
+      ],
+      "review_status": "proposed",
+      "risk_level": "medium"
+    },
+    {
+      "affected_tasks": [],
+      "blockers": [
+        "候选 workflow/schema 还没有通过 validator gate",
+        "需要真实 AEDT smoke 或人工 manual gate",
+        "stable 发布必须人工审核"
+      ],
+      "candidate_node_id": "composite_conductor-geometry-group_airbox_assign-boundary_setup",
+      "evidence": [
+        {
+          "count": 1,
+          "kind": "node_subgraph",
+          "node_ids": [
+            "create_conductor_or_geometry_group",
+            "create_airbox",
+            "assign_boundary",
+            "create_setup"
+          ],
+          "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_node_audit.jsonl",
+          "summary": "create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_setup",
+          "tasks": []
+        }
+      ],
+      "evidence_summary": [
+        "create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_setup"
+      ],
+      "gate_status": "needs_review",
+      "notes": [
+        "Composite nodes reduce drag steps for experienced users but require careful schema design."
+      ],
+      "problem_pattern": "Repeated node subgraph: create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_setup",
+      "proposal_id": "proposal-1bffee0384",
+      "recommended_action": "add_node",
+      "required_tests": [
+        "test_node_catalog.py",
+        "test_workflow_validator.py",
+        "real_aedt_smoke_or_manual_gate"
+      ],
+      "review_status": "proposed",
+      "risk_level": "medium"
+    },
+    {
+      "affected_tasks": [],
+      "blockers": [
+        "候选 workflow/schema 还没有通过 validator gate",
+        "需要真实 AEDT smoke 或人工 manual gate",
+        "stable 发布必须人工审核"
+      ],
+      "candidate_node_id": "composite_conductor-geometry-group_select-face_port_select-face",
+      "evidence": [
+        {
+          "count": 1,
+          "kind": "node_subgraph",
+          "node_ids": [
+            "create_conductor_or_geometry_group",
+            "select_face",
+            "create_port",
+            "select_face",
+            "create_port",
+            "create_setup",
+            "create_conductor_or_geometry_group",
+            "select_face",
+            "create_port",
+            "select_face",
+            "create_port",
+            "create_setup"
+          ],
+          "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json",
+          "summary": "create_conductor_or_geometry_group -> select_face -> create_port -> select_face -> create_port -> create_setup -> create_conductor_or_geometry_group -> select_face -> create_port -> select_face -> create_port -> create_setup",
+          "tasks": []
+        }
+      ],
+      "evidence_summary": [
+        "create_conductor_or_geometry_group -> select_face -> create_port -> select_face -> create_port -> create_setup -> create_conductor_or_geometry_group -> select_face -> create_port -> select_face -> create_port -> create_setup"
+      ],
+      "gate_status": "needs_review",
+      "notes": [
+        "Composite nodes reduce drag steps for experienced users but require careful schema design."
+      ],
+      "problem_pattern": "Repeated node subgraph: create_conductor_or_geometry_group -> select_face -> create_port -> select_face -> create_port -> create_setup -> create_conductor_or_geometry_group -> select_face -> create_port -> select_face -> create_port -> create_setup",
+      "proposal_id": "proposal-35c5dd7ec6",
+      "recommended_action": "add_node",
+      "required_tests": [
+        "test_node_catalog.py",
+        "test_workflow_validator.py",
+        "real_aedt_smoke_or_manual_gate"
+      ],
+      "review_status": "proposed",
+      "risk_level": "medium"
+    },
+    {
+      "affected_tasks": [],
+      "blockers": [
+        "候选 workflow/schema 还没有通过 validator gate",
+        "需要真实 AEDT smoke 或人工 manual gate",
+        "stable 发布必须人工审核"
+      ],
+      "candidate_node_id": "composite_conductor-geometry-group_airbox_assign-boundary_setup",
+      "evidence": [
+        {
+          "count": 1,
+          "kind": "node_subgraph",
+          "node_ids": [
+            "create_conductor_or_geometry_group",
+            "create_airbox",
+            "assign_boundary",
+            "create_setup",
+            "create_conductor_or_geometry_group",
+            "create_airbox",
+            "assign_boundary",
+            "create_setup",
+            "create_sweep_or_export"
+          ],
+          "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json",
+          "summary": "create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_setup -> create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_setup -> create_sweep_or_export",
+          "tasks": []
+        }
+      ],
+      "evidence_summary": [
+        "create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_setup -> create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_setup -> create_sweep_or_export"
+      ],
+      "gate_status": "needs_review",
+      "notes": [
+        "Composite nodes reduce drag steps for experienced users but require careful schema design."
+      ],
+      "problem_pattern": "Repeated node subgraph: create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_setup -> create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_setup -> create_sweep_or_export",
+      "proposal_id": "proposal-36f521fe88",
+      "recommended_action": "add_node",
+      "required_tests": [
+        "test_node_catalog.py",
+        "test_workflow_validator.py",
+        "real_aedt_smoke_or_manual_gate"
+      ],
+      "review_status": "proposed",
+      "risk_level": "medium"
+    },
+    {
+      "affected_tasks": [],
+      "blockers": [
+        "候选 workflow/schema 还没有通过 validator gate",
+        "需要真实 AEDT smoke 或人工 manual gate",
+        "stable 发布必须人工审核"
+      ],
+      "candidate_node_id": "composite_substrate_conductor-geometry-group_airbox_assign-boundary",
+      "evidence": [
+        {
+          "count": 1,
+          "kind": "node_subgraph",
+          "node_ids": [
+            "create_substrate",
+            "create_conductor_or_geometry_group",
+            "create_airbox",
+            "assign_boundary"
+          ],
+          "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json",
+          "summary": "create_substrate -> create_conductor_or_geometry_group -> create_airbox -> assign_boundary",
+          "tasks": []
+        }
+      ],
+      "evidence_summary": [
+        "create_substrate -> create_conductor_or_geometry_group -> create_airbox -> assign_boundary"
+      ],
+      "gate_status": "needs_review",
+      "notes": [
+        "Composite nodes reduce drag steps for experienced users but require careful schema design."
+      ],
+      "problem_pattern": "Repeated node subgraph: create_substrate -> create_conductor_or_geometry_group -> create_airbox -> assign_boundary",
+      "proposal_id": "proposal-3a8d734f6d",
+      "recommended_action": "add_node",
+      "required_tests": [
+        "test_node_catalog.py",
+        "test_workflow_validator.py",
+        "real_aedt_smoke_or_manual_gate"
+      ],
+      "review_status": "proposed",
+      "risk_level": "medium"
+    },
+    {
+      "affected_tasks": [],
+      "blockers": [
+        "候选 workflow/schema 还没有通过 validator gate",
+        "需要真实 AEDT smoke 或人工 manual gate",
+        "stable 发布必须人工审核"
+      ],
+      "candidate_node_id": "composite_conductor-geometry-group_airbox_assign-boundary_setup",
+      "evidence": [
+        {
+          "count": 1,
+          "kind": "node_subgraph",
+          "node_ids": [
+            "create_conductor_or_geometry_group",
+            "create_airbox",
+            "assign_boundary",
+            "create_setup",
+            "create_sweep_or_export"
+          ],
+          "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_node_audit.jsonl",
+          "summary": "create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_setup -> create_sweep_or_export",
+          "tasks": []
+        }
+      ],
+      "evidence_summary": [
+        "create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_setup -> create_sweep_or_export"
+      ],
+      "gate_status": "needs_review",
+      "notes": [
+        "Composite nodes reduce drag steps for experienced users but require careful schema design."
+      ],
+      "problem_pattern": "Repeated node subgraph: create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_setup -> create_sweep_or_export",
+      "proposal_id": "proposal-3cff4ad490",
+      "recommended_action": "add_node",
+      "required_tests": [
+        "test_node_catalog.py",
+        "test_workflow_validator.py",
+        "real_aedt_smoke_or_manual_gate"
+      ],
+      "review_status": "proposed",
+      "risk_level": "medium"
+    },
+    {
+      "affected_tasks": [],
+      "blockers": [
+        "候选 workflow/schema 还没有通过 validator gate",
+        "需要真实 AEDT smoke 或人工 manual gate",
+        "stable 发布必须人工审核"
+      ],
+      "candidate_node_id": "composite_conductor-geometry-group_select-face_port_select-face",
+      "evidence": [
+        {
+          "count": 1,
+          "kind": "node_subgraph",
+          "node_ids": [
+            "create_conductor_or_geometry_group",
+            "select_face",
+            "create_port",
+            "select_face",
+            "create_port",
+            "create_setup"
+          ],
+          "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_node_audit.jsonl",
+          "summary": "create_conductor_or_geometry_group -> select_face -> create_port -> select_face -> create_port -> create_setup",
+          "tasks": []
+        }
+      ],
+      "evidence_summary": [
+        "create_conductor_or_geometry_group -> select_face -> create_port -> select_face -> create_port -> create_setup"
+      ],
+      "gate_status": "needs_review",
+      "notes": [
+        "Composite nodes reduce drag steps for experienced users but require careful schema design."
+      ],
+      "problem_pattern": "Repeated node subgraph: create_conductor_or_geometry_group -> select_face -> create_port -> select_face -> create_port -> create_setup",
+      "proposal_id": "proposal-4ff27a58b5",
+      "recommended_action": "add_node",
+      "required_tests": [
+        "test_node_catalog.py",
+        "test_workflow_validator.py",
+        "real_aedt_smoke_or_manual_gate"
+      ],
+      "review_status": "proposed",
+      "risk_level": "medium"
+    },
+    {
+      "affected_tasks": [],
+      "blockers": [
+        "候选 workflow/schema 还没有通过 validator gate",
+        "需要真实 AEDT smoke 或人工 manual gate",
+        "stable 发布必须人工审核"
+      ],
+      "candidate_node_id": "composite_conductor-geometry-group_select-face_port",
+      "evidence": [
+        {
+          "count": 2,
+          "kind": "node_subgraph",
+          "node_ids": [
+            "create_conductor_or_geometry_group",
+            "select_face",
+            "create_port"
+          ],
+          "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json",
+          "summary": "create_conductor_or_geometry_group -> select_face -> create_port",
+          "tasks": []
+        }
+      ],
+      "evidence_summary": [
+        "create_conductor_or_geometry_group -> select_face -> create_port"
+      ],
+      "gate_status": "needs_review",
+      "notes": [
+        "Composite nodes reduce drag steps for experienced users but require careful schema design."
+      ],
+      "problem_pattern": "Repeated node subgraph: create_conductor_or_geometry_group -> select_face -> create_port",
+      "proposal_id": "proposal-543a671595",
+      "recommended_action": "add_node",
+      "required_tests": [
+        "test_node_catalog.py",
+        "test_workflow_validator.py",
+        "real_aedt_smoke_or_manual_gate"
+      ],
+      "review_status": "proposed",
+      "risk_level": "medium"
+    },
+    {
+      "affected_tasks": [],
+      "blockers": [
+        "候选 workflow/schema 还没有通过 validator gate",
+        "需要真实 AEDT smoke 或人工 manual gate",
+        "stable 发布必须人工审核"
+      ],
+      "candidate_node_id": "composite_conductor-geometry-group_select-face_port_select-face",
+      "evidence": [
+        {
+          "count": 1,
+          "kind": "node_subgraph",
+          "node_ids": [
+            "create_conductor_or_geometry_group",
+            "select_face",
+            "create_port",
+            "select_face",
+            "create_port"
+          ],
+          "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_node_audit.jsonl",
+          "summary": "create_conductor_or_geometry_group -> select_face -> create_port -> select_face -> create_port",
+          "tasks": []
+        }
+      ],
+      "evidence_summary": [
+        "create_conductor_or_geometry_group -> select_face -> create_port -> select_face -> create_port"
+      ],
+      "gate_status": "needs_review",
+      "notes": [
+        "Composite nodes reduce drag steps for experienced users but require careful schema design."
+      ],
+      "problem_pattern": "Repeated node subgraph: create_conductor_or_geometry_group -> select_face -> create_port -> select_face -> create_port",
+      "proposal_id": "proposal-57ec3b30ef",
+      "recommended_action": "add_node",
+      "required_tests": [
+        "test_node_catalog.py",
+        "test_workflow_validator.py",
+        "real_aedt_smoke_or_manual_gate"
+      ],
+      "review_status": "proposed",
+      "risk_level": "medium"
+    },
+    {
+      "affected_tasks": [],
+      "blockers": [
+        "候选 workflow/schema 还没有通过 validator gate",
+        "需要真实 AEDT smoke 或人工 manual gate",
+        "stable 发布必须人工审核"
+      ],
+      "candidate_node_id": "composite_substrate_conductor-geometry-group_select-face_port",
+      "evidence": [
+        {
+          "count": 1,
+          "kind": "node_subgraph",
+          "node_ids": [
+            "create_substrate",
+            "create_conductor_or_geometry_group",
+            "select_face",
+            "create_port"
+          ],
+          "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json",
+          "summary": "create_substrate -> create_conductor_or_geometry_group -> select_face -> create_port",
+          "tasks": []
+        }
+      ],
+      "evidence_summary": [
+        "create_substrate -> create_conductor_or_geometry_group -> select_face -> create_port"
+      ],
+      "gate_status": "needs_review",
+      "notes": [
+        "Composite nodes reduce drag steps for experienced users but require careful schema design."
+      ],
+      "problem_pattern": "Repeated node subgraph: create_substrate -> create_conductor_or_geometry_group -> select_face -> create_port",
+      "proposal_id": "proposal-a5d4a12dd1",
+      "recommended_action": "add_node",
+      "required_tests": [
+        "test_node_catalog.py",
+        "test_workflow_validator.py",
+        "real_aedt_smoke_or_manual_gate"
+      ],
+      "review_status": "proposed",
+      "risk_level": "medium"
+    },
+    {
+      "affected_tasks": [
+        "L2_dipole_antenna",
+        "L2_simple_filter"
+      ],
+      "blockers": [
+        "缺少必需测试：test_node_executor.py, test_node_schemas.py",
+        "候选 workflow/schema 还没有通过 validator gate",
+        "需要 benchmark regression 证据",
+        "stable 发布必须人工审核"
+      ],
+      "candidate_node_id": "existing_node_normalization",
+      "evidence": [
+        {
+          "count": 2,
+          "kind": "repeated_repair",
+          "node_ids": [],
+          "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json",
+          "summary": "C_multi_attempt",
+          "tasks": [
+            "L2_dipole_antenna",
+            "L2_simple_filter"
+          ]
+        }
+      ],
+      "evidence_summary": [
+        "C_multi_attempt"
+      ],
+      "gate_status": "needs_review",
+      "notes": [],
+      "problem_pattern": "Repeated repair loop: C_multi_attempt",
+      "proposal_id": "proposal-a7a4ae0c75",
+      "recommended_action": "add_normalization",
+      "required_tests": [
+        "test_node_schemas.py",
+        "test_node_executor.py",
+        "benchmark_regression"
+      ],
+      "review_status": "proposed",
+      "risk_level": "medium"
+    }
+  ],
+  "source": "benchmarks/reports/stage_c_node_evolution_report.json",
+  "summary": {
+    "blocked_count": 11,
+    "candidate_count": 0,
+    "evidence_count": 23,
+    "proposal_count": 11,
+    "risk_levels": {
+      "medium": 11
+    },
+    "source_count": 2,
+    "top_actions": {
+      "add_node": 10,
+      "add_normalization": 1
+    }
+  },
+  "title": "Stage C 节点进化 Proposal 审核报告"
+}

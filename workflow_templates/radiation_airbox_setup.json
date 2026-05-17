@@ -1,0 +1,82 @@
+{
+  "template_id": "radiation_airbox_setup",
+  "name": "HFSS Radiation Airbox Setup",
+  "description": "Create model geometry, create an airbox, and assign a radiation boundary.",
+  "scenario": "Use this as a starter workflow for antenna-like open-region simulations.",
+  "tags": ["hfss", "radiation", "airbox", "antenna", "starter"],
+  "validation_checks": ["objects_exist", "air_region_created", "boundary_created"],
+  "known_limits": ["Airbox padding is a simple scalar/list value; physical clearance still needs domain validation."],
+  "workflow": {
+    "workflow_id": "radiation_airbox_setup_v1",
+    "name": "Radiation Airbox Setup",
+    "version": "0.1.0",
+    "description": "Minimal workflow for creating an airbox and radiation boundary.",
+    "parameters": [
+      {
+        "name": "airbox_padding",
+        "type": "number",
+        "default": 10,
+        "unit": "mm",
+        "minimum": 1,
+        "maximum": 100,
+        "label": "Airbox padding"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "radiator",
+        "node_id": "create_conductor_or_geometry_group",
+        "inputs": {
+          "geometry": [
+            {
+              "kind": "box",
+              "origin": [-5, -0.5, 0],
+              "size": [10, 1, 0.1],
+              "name": "Radiator",
+              "material": "copper"
+            }
+          ]
+        }
+      },
+      {
+        "id": "airbox",
+        "node_id": "create_airbox",
+        "inputs": {
+          "padding": {
+            "$ref": "parameters.airbox_padding"
+          },
+          "name": "AirBox"
+        }
+      },
+      {
+        "id": "radiation",
+        "node_id": "assign_boundary",
+        "inputs": {
+          "assignment": {
+            "$ref": "airbox.output.object_name"
+          },
+          "boundary_type": "radiation",
+          "name": "Radiation"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "from": "airbox.output.object_name",
+        "to": "radiation.inputs.assignment"
+      }
+    ],
+    "validation": [
+      {"rule": "object_exists", "target": "AirBox"},
+      {"rule": "boundary_exists", "target": "Radiation"},
+      {"rule": "airbox_radiation_relation_valid", "target": "Radiation"}
+    ],
+    "outputs": [
+      {
+        "name": "boundary",
+        "source": "radiation.output.boundary_name",
+        "description": "Created radiation boundary name."
+      }
+    ]
+  }
+}

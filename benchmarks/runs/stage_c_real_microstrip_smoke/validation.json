@@ -1,0 +1,94 @@
+{
+  "model": {
+    "checks": [
+      {
+        "details": {},
+        "message": "object exists: Substrate",
+        "passed": true,
+        "rule": "object_exists",
+        "target": "Substrate"
+      },
+      {
+        "details": {},
+        "message": "setup exists: Setup1",
+        "passed": true,
+        "rule": "setup_exists",
+        "target": "Setup1"
+      },
+      {
+        "details": {},
+        "message": "sweep exists: Sweep1",
+        "passed": true,
+        "rule": "sweep_exists",
+        "target": "Sweep1"
+      }
+    ],
+    "failed_checks": [],
+    "passed": true,
+    "summary": "Validation passed (3/3 checks)."
+  },
+  "model_facts": {
+    "boundaries": {},
+    "design_id": "HFSSDesign1",
+    "faces": {
+      "Substrate": [
+        7,
+        9,
+        10,
+        11,
+        8,
+        12
+      ],
+      "Trace": [
+        44
+      ]
+    },
+    "materials": {
+      "Substrate": "FR4_epoxy",
+      "Trace": "copper"
+    },
+    "objects": {
+      "Substrate": {
+        "faces": [
+          7,
+          9,
+          10,
+          11,
+          8,
+          12
+        ],
+        "material": "FR4_epoxy"
+      },
+      "Trace": {
+        "faces": [
+          44
+        ],
+        "material": "copper"
+      }
+    },
+    "ports": {},
+    "project_id": "stage-c-microstrip_sparameter-smoke",
+    "reports": {},
+    "setups": {
+      "Setup1": {}
+    },
+    "summary": {
+      "boundary_count": 0,
+      "object_count": 2,
+      "port_count": 0,
+      "report_count": 0,
+      "setup_count": 1,
+      "sweep_count": 1
+    },
+    "sweeps": {
+      "Sweep1": {
+        "setup": "Setup1"
+      }
+    }
+  },
+  "workflow": {
+    "errors": [],
+    "passed": true,
+    "warnings": []
+  }
+}

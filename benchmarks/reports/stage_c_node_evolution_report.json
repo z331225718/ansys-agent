@@ -1,0 +1,731 @@
+{
+  "evidence": [
+    {
+      "count": 2,
+      "kind": "repeated_repair",
+      "node_ids": [],
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json",
+      "summary": "C_multi_attempt",
+      "tasks": [
+        "L2_dipole_antenna",
+        "L2_simple_filter"
+      ]
+    },
+    {
+      "count": 2,
+      "kind": "node_subgraph",
+      "node_ids": [
+        "create_conductor_or_geometry_group",
+        "select_face",
+        "create_port"
+      ],
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json",
+      "summary": "create_conductor_or_geometry_group -> select_face -> create_port",
+      "tasks": []
+    },
+    {
+      "count": 1,
+      "kind": "node_subgraph",
+      "node_ids": [
+        "create_substrate",
+        "create_conductor_or_geometry_group",
+        "create_airbox",
+        "assign_boundary"
+      ],
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json",
+      "summary": "create_substrate -> create_conductor_or_geometry_group -> create_airbox -> assign_boundary",
+      "tasks": []
+    },
+    {
+      "count": 1,
+      "kind": "node_subgraph",
+      "node_ids": [
+        "create_conductor_or_geometry_group",
+        "create_airbox",
+        "assign_boundary",
+        "create_setup",
+        "create_conductor_or_geometry_group",
+        "create_airbox",
+        "assign_boundary",
+        "create_setup",
+        "create_sweep_or_export"
+      ],
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json",
+      "summary": "create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_setup -> create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_setup -> create_sweep_or_export",
+      "tasks": []
+    },
+    {
+      "count": 1,
+      "kind": "node_subgraph",
+      "node_ids": [
+        "create_substrate",
+        "create_conductor_or_geometry_group",
+        "create_airbox",
+        "assign_boundary",
+        "create_port"
+      ],
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json",
+      "summary": "create_substrate -> create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_port",
+      "tasks": []
+    },
+    {
+      "count": 1,
+      "kind": "node_subgraph",
+      "node_ids": [
+        "create_conductor_or_geometry_group",
+        "select_face",
+        "create_port",
+        "select_face",
+        "create_port",
+        "create_setup",
+        "create_conductor_or_geometry_group",
+        "select_face",
+        "create_port",
+        "select_face",
+        "create_port",
+        "create_setup"
+      ],
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json",
+      "summary": "create_conductor_or_geometry_group -> select_face -> create_port -> select_face -> create_port -> create_setup -> create_conductor_or_geometry_group -> select_face -> create_port -> select_face -> create_port -> create_setup",
+      "tasks": []
+    },
+    {
+      "count": 1,
+      "kind": "node_subgraph",
+      "node_ids": [
+        "create_substrate",
+        "create_conductor_or_geometry_group",
+        "select_face",
+        "create_port"
+      ],
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json",
+      "summary": "create_substrate -> create_conductor_or_geometry_group -> select_face -> create_port",
+      "tasks": []
+    },
+    {
+      "count": 9,
+      "kind": "node_usage",
+      "node_ids": [
+        "create_conductor_or_geometry_group"
+      ],
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_node_audit.jsonl",
+      "summary": "create_conductor_or_geometry_group",
+      "tasks": []
+    },
+    {
+      "count": 8,
+      "kind": "node_usage",
+      "node_ids": [
+        "create_port"
+      ],
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_node_audit.jsonl",
+      "summary": "create_port",
+      "tasks": []
+    },
+    {
+      "count": 7,
+      "kind": "node_usage",
+      "node_ids": [
+        "select_face"
+      ],
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_node_audit.jsonl",
+      "summary": "select_face",
+      "tasks": []
+    },
+    {
+      "count": 5,
+      "kind": "node_usage",
+      "node_ids": [
+        "create_substrate"
+      ],
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_node_audit.jsonl",
+      "summary": "create_substrate",
+      "tasks": []
+    },
+    {
+      "count": 4,
+      "kind": "node_usage",
+      "node_ids": [
+        "create_setup"
+      ],
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_node_audit.jsonl",
+      "summary": "create_setup",
+      "tasks": []
+    },
+    {
+      "count": 4,
+      "kind": "node_usage",
+      "node_ids": [
+        "create_airbox"
+      ],
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_node_audit.jsonl",
+      "summary": "create_airbox",
+      "tasks": []
+    },
+    {
+      "count": 4,
+      "kind": "node_usage",
+      "node_ids": [
+        "assign_boundary"
+      ],
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_node_audit.jsonl",
+      "summary": "assign_boundary",
+      "tasks": []
+    },
+    {
+      "count": 1,
+      "kind": "node_usage",
+      "node_ids": [
+        "create_sweep_or_export"
+      ],
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_node_audit.jsonl",
+      "summary": "create_sweep_or_export",
+      "tasks": []
+    },
+    {
+      "count": 2,
+      "kind": "node_subgraph",
+      "node_ids": [
+        "create_conductor_or_geometry_group",
+        "select_face",
+        "create_port"
+      ],
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_node_audit.jsonl",
+      "summary": "create_conductor_or_geometry_group -> select_face -> create_port",
+      "tasks": []
+    },
+    {
+      "count": 1,
+      "kind": "node_subgraph",
+      "node_ids": [
+        "create_substrate",
+        "create_conductor_or_geometry_group",
+        "create_airbox",
+        "assign_boundary"
+      ],
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_node_audit.jsonl",
+      "summary": "create_substrate -> create_conductor_or_geometry_group -> create_airbox -> assign_boundary",
+      "tasks": []
+    },
+    {
+      "count": 1,
+      "kind": "node_subgraph",
+      "node_ids": [
+        "create_conductor_or_geometry_group",
+        "create_airbox",
+        "assign_boundary",
+        "create_setup"
+      ],
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_node_audit.jsonl",
+      "summary": "create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_setup",
+      "tasks": []
+    },
+    {
+      "count": 1,
+      "kind": "node_subgraph",
+      "node_ids": [
+        "create_conductor_or_geometry_group",
+        "create_airbox",
+        "assign_boundary",
+        "create_setup",
+        "create_sweep_or_export"
+      ],
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_node_audit.jsonl",
+      "summary": "create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_setup -> create_sweep_or_export",
+      "tasks": []
+    },
+    {
+      "count": 1,
+      "kind": "node_subgraph",
+      "node_ids": [
+        "create_substrate",
+        "create_conductor_or_geometry_group",
+        "create_airbox",
+        "assign_boundary",
+        "create_port"
+      ],
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_node_audit.jsonl",
+      "summary": "create_substrate -> create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_port",
+      "tasks": []
+    },
+    {
+      "count": 1,
+      "kind": "node_subgraph",
+      "node_ids": [
+        "create_conductor_or_geometry_group",
+        "select_face",
+        "create_port",
+        "select_face",
+        "create_port"
+      ],
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_node_audit.jsonl",
+      "summary": "create_conductor_or_geometry_group -> select_face -> create_port -> select_face -> create_port",
+      "tasks": []
+    },
+    {
+      "count": 1,
+      "kind": "node_subgraph",
+      "node_ids": [
+        "create_conductor_or_geometry_group",
+        "select_face",
+        "create_port",
+        "select_face",
+        "create_port",
+        "create_setup"
+      ],
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_node_audit.jsonl",
+      "summary": "create_conductor_or_geometry_group -> select_face -> create_port -> select_face -> create_port -> create_setup",
+      "tasks": []
+    },
+    {
+      "count": 1,
+      "kind": "node_subgraph",
+      "node_ids": [
+        "create_substrate",
+        "create_conductor_or_geometry_group",
+        "select_face",
+        "create_port"
+      ],
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_node_audit.jsonl",
+      "summary": "create_substrate -> create_conductor_or_geometry_group -> select_face -> create_port",
+      "tasks": []
+    }
+  ],
+  "proposals": [
+    {
+      "affected_tasks": [],
+      "candidate_node_metadata": {
+        "category": "workflow",
+        "description": "Composite node candidate for: create_substrate -> create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_port",
+        "node_id": "composite_substrate_conductor-geometry-group_airbox_assign-boundary",
+        "stability": "experimental"
+      },
+      "evidence": [
+        {
+          "count": 1,
+          "kind": "node_subgraph",
+          "node_ids": [
+            "create_substrate",
+            "create_conductor_or_geometry_group",
+            "create_airbox",
+            "assign_boundary",
+            "create_port"
+          ],
+          "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json",
+          "summary": "create_substrate -> create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_port",
+          "tasks": []
+        }
+      ],
+      "notes": [
+        "Composite nodes reduce drag steps for experienced users but require careful schema design."
+      ],
+      "problem_pattern": "Repeated node subgraph: create_substrate -> create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_port",
+      "proposal_id": "proposal-0a34dc0c23",
+      "recommended_action": "add_node",
+      "required_tests": [
+        "test_node_catalog.py",
+        "test_workflow_validator.py",
+        "real_aedt_smoke_or_manual_gate"
+      ],
+      "review_status": "proposed",
+      "risk_level": "medium",
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json"
+    },
+    {
+      "affected_tasks": [],
+      "candidate_node_metadata": {
+        "category": "workflow",
+        "description": "Composite node candidate for: create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_setup",
+        "node_id": "composite_conductor-geometry-group_airbox_assign-boundary_setup",
+        "stability": "experimental"
+      },
+      "evidence": [
+        {
+          "count": 1,
+          "kind": "node_subgraph",
+          "node_ids": [
+            "create_conductor_or_geometry_group",
+            "create_airbox",
+            "assign_boundary",
+            "create_setup"
+          ],
+          "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_node_audit.jsonl",
+          "summary": "create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_setup",
+          "tasks": []
+        }
+      ],
+      "notes": [
+        "Composite nodes reduce drag steps for experienced users but require careful schema design."
+      ],
+      "problem_pattern": "Repeated node subgraph: create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_setup",
+      "proposal_id": "proposal-1bffee0384",
+      "recommended_action": "add_node",
+      "required_tests": [
+        "test_node_catalog.py",
+        "test_workflow_validator.py",
+        "real_aedt_smoke_or_manual_gate"
+      ],
+      "review_status": "proposed",
+      "risk_level": "medium",
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_node_audit.jsonl"
+    },
+    {
+      "affected_tasks": [],
+      "candidate_node_metadata": {
+        "category": "workflow",
+        "description": "Composite node candidate for: create_conductor_or_geometry_group -> select_face -> create_port -> select_face -> create_port -> create_setup -> create_conductor_or_geometry_group -> select_face -> create_port -> select_face -> create_port -> create_setup",
+        "node_id": "composite_conductor-geometry-group_select-face_port_select-face",
+        "stability": "experimental"
+      },
+      "evidence": [
+        {
+          "count": 1,
+          "kind": "node_subgraph",
+          "node_ids": [
+            "create_conductor_or_geometry_group",
+            "select_face",
+            "create_port",
+            "select_face",
+            "create_port",
+            "create_setup",
+            "create_conductor_or_geometry_group",
+            "select_face",
+            "create_port",
+            "select_face",
+            "create_port",
+            "create_setup"
+          ],
+          "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json",
+          "summary": "create_conductor_or_geometry_group -> select_face -> create_port -> select_face -> create_port -> create_setup -> create_conductor_or_geometry_group -> select_face -> create_port -> select_face -> create_port -> create_setup",
+          "tasks": []
+        }
+      ],
+      "notes": [
+        "Composite nodes reduce drag steps for experienced users but require careful schema design."
+      ],
+      "problem_pattern": "Repeated node subgraph: create_conductor_or_geometry_group -> select_face -> create_port -> select_face -> create_port -> create_setup -> create_conductor_or_geometry_group -> select_face -> create_port -> select_face -> create_port -> create_setup",
+      "proposal_id": "proposal-35c5dd7ec6",
+      "recommended_action": "add_node",
+      "required_tests": [
+        "test_node_catalog.py",
+        "test_workflow_validator.py",
+        "real_aedt_smoke_or_manual_gate"
+      ],
+      "review_status": "proposed",
+      "risk_level": "medium",
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json"
+    },
+    {
+      "affected_tasks": [],
+      "candidate_node_metadata": {
+        "category": "workflow",
+        "description": "Composite node candidate for: create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_setup -> create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_setup -> create_sweep_or_export",
+        "node_id": "composite_conductor-geometry-group_airbox_assign-boundary_setup",
+        "stability": "experimental"
+      },
+      "evidence": [
+        {
+          "count": 1,
+          "kind": "node_subgraph",
+          "node_ids": [
+            "create_conductor_or_geometry_group",
+            "create_airbox",
+            "assign_boundary",
+            "create_setup",
+            "create_conductor_or_geometry_group",
+            "create_airbox",
+            "assign_boundary",
+            "create_setup",
+            "create_sweep_or_export"
+          ],
+          "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json",
+          "summary": "create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_setup -> create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_setup -> create_sweep_or_export",
+          "tasks": []
+        }
+      ],
+      "notes": [
+        "Composite nodes reduce drag steps for experienced users but require careful schema design."
+      ],
+      "problem_pattern": "Repeated node subgraph: create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_setup -> create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_setup -> create_sweep_or_export",
+      "proposal_id": "proposal-36f521fe88",
+      "recommended_action": "add_node",
+      "required_tests": [
+        "test_node_catalog.py",
+        "test_workflow_validator.py",
+        "real_aedt_smoke_or_manual_gate"
+      ],
+      "review_status": "proposed",
+      "risk_level": "medium",
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json"
+    },
+    {
+      "affected_tasks": [],
+      "candidate_node_metadata": {
+        "category": "workflow",
+        "description": "Composite node candidate for: create_substrate -> create_conductor_or_geometry_group -> create_airbox -> assign_boundary",
+        "node_id": "composite_substrate_conductor-geometry-group_airbox_assign-boundary",
+        "stability": "experimental"
+      },
+      "evidence": [
+        {
+          "count": 1,
+          "kind": "node_subgraph",
+          "node_ids": [
+            "create_substrate",
+            "create_conductor_or_geometry_group",
+            "create_airbox",
+            "assign_boundary"
+          ],
+          "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json",
+          "summary": "create_substrate -> create_conductor_or_geometry_group -> create_airbox -> assign_boundary",
+          "tasks": []
+        }
+      ],
+      "notes": [
+        "Composite nodes reduce drag steps for experienced users but require careful schema design."
+      ],
+      "problem_pattern": "Repeated node subgraph: create_substrate -> create_conductor_or_geometry_group -> create_airbox -> assign_boundary",
+      "proposal_id": "proposal-3a8d734f6d",
+      "recommended_action": "add_node",
+      "required_tests": [
+        "test_node_catalog.py",
+        "test_workflow_validator.py",
+        "real_aedt_smoke_or_manual_gate"
+      ],
+      "review_status": "proposed",
+      "risk_level": "medium",
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json"
+    },
+    {
+      "affected_tasks": [],
+      "candidate_node_metadata": {
+        "category": "workflow",
+        "description": "Composite node candidate for: create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_setup -> create_sweep_or_export",
+        "node_id": "composite_conductor-geometry-group_airbox_assign-boundary_setup",
+        "stability": "experimental"
+      },
+      "evidence": [
+        {
+          "count": 1,
+          "kind": "node_subgraph",
+          "node_ids": [
+            "create_conductor_or_geometry_group",
+            "create_airbox",
+            "assign_boundary",
+            "create_setup",
+            "create_sweep_or_export"
+          ],
+          "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_node_audit.jsonl",
+          "summary": "create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_setup -> create_sweep_or_export",
+          "tasks": []
+        }
+      ],
+      "notes": [
+        "Composite nodes reduce drag steps for experienced users but require careful schema design."
+      ],
+      "problem_pattern": "Repeated node subgraph: create_conductor_or_geometry_group -> create_airbox -> assign_boundary -> create_setup -> create_sweep_or_export",
+      "proposal_id": "proposal-3cff4ad490",
+      "recommended_action": "add_node",
+      "required_tests": [
+        "test_node_catalog.py",
+        "test_workflow_validator.py",
+        "real_aedt_smoke_or_manual_gate"
+      ],
+      "review_status": "proposed",
+      "risk_level": "medium",
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_node_audit.jsonl"
+    },
+    {
+      "affected_tasks": [],
+      "candidate_node_metadata": {
+        "category": "workflow",
+        "description": "Composite node candidate for: create_conductor_or_geometry_group -> select_face -> create_port -> select_face -> create_port -> create_setup",
+        "node_id": "composite_conductor-geometry-group_select-face_port_select-face",
+        "stability": "experimental"
+      },
+      "evidence": [
+        {
+          "count": 1,
+          "kind": "node_subgraph",
+          "node_ids": [
+            "create_conductor_or_geometry_group",
+            "select_face",
+            "create_port",
+            "select_face",
+            "create_port",
+            "create_setup"
+          ],
+          "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_node_audit.jsonl",
+          "summary": "create_conductor_or_geometry_group -> select_face -> create_port -> select_face -> create_port -> create_setup",
+          "tasks": []
+        }
+      ],
+      "notes": [
+        "Composite nodes reduce drag steps for experienced users but require careful schema design."
+      ],
+      "problem_pattern": "Repeated node subgraph: create_conductor_or_geometry_group -> select_face -> create_port -> select_face -> create_port -> create_setup",
+      "proposal_id": "proposal-4ff27a58b5",
+      "recommended_action": "add_node",
+      "required_tests": [
+        "test_node_catalog.py",
+        "test_workflow_validator.py",
+        "real_aedt_smoke_or_manual_gate"
+      ],
+      "review_status": "proposed",
+      "risk_level": "medium",
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_node_audit.jsonl"
+    },
+    {
+      "affected_tasks": [],
+      "candidate_node_metadata": {
+        "category": "workflow",
+        "description": "Composite node candidate for: create_conductor_or_geometry_group -> select_face -> create_port",
+        "node_id": "composite_conductor-geometry-group_select-face_port",
+        "stability": "experimental"
+      },
+      "evidence": [
+        {
+          "count": 2,
+          "kind": "node_subgraph",
+          "node_ids": [
+            "create_conductor_or_geometry_group",
+            "select_face",
+            "create_port"
+          ],
+          "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json",
+          "summary": "create_conductor_or_geometry_group -> select_face -> create_port",
+          "tasks": []
+        }
+      ],
+      "notes": [
+        "Composite nodes reduce drag steps for experienced users but require careful schema design."
+      ],
+      "problem_pattern": "Repeated node subgraph: create_conductor_or_geometry_group -> select_face -> create_port",
+      "proposal_id": "proposal-543a671595",
+      "recommended_action": "add_node",
+      "required_tests": [
+        "test_node_catalog.py",
+        "test_workflow_validator.py",
+        "real_aedt_smoke_or_manual_gate"
+      ],
+      "review_status": "proposed",
+      "risk_level": "medium",
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json"
+    },
+    {
+      "affected_tasks": [],
+      "candidate_node_metadata": {
+        "category": "workflow",
+        "description": "Composite node candidate for: create_conductor_or_geometry_group -> select_face -> create_port -> select_face -> create_port",
+        "node_id": "composite_conductor-geometry-group_select-face_port_select-face",
+        "stability": "experimental"
+      },
+      "evidence": [
+        {
+          "count": 1,
+          "kind": "node_subgraph",
+          "node_ids": [
+            "create_conductor_or_geometry_group",
+            "select_face",
+            "create_port",
+            "select_face",
+            "create_port"
+          ],
+          "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_node_audit.jsonl",
+          "summary": "create_conductor_or_geometry_group -> select_face -> create_port -> select_face -> create_port",
+          "tasks": []
+        }
+      ],
+      "notes": [
+        "Composite nodes reduce drag steps for experienced users but require careful schema design."
+      ],
+      "problem_pattern": "Repeated node subgraph: create_conductor_or_geometry_group -> select_face -> create_port -> select_face -> create_port",
+      "proposal_id": "proposal-57ec3b30ef",
+      "recommended_action": "add_node",
+      "required_tests": [
+        "test_node_catalog.py",
+        "test_workflow_validator.py",
+        "real_aedt_smoke_or_manual_gate"
+      ],
+      "review_status": "proposed",
+      "risk_level": "medium",
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_node_audit.jsonl"
+    },
+    {
+      "affected_tasks": [],
+      "candidate_node_metadata": {
+        "category": "workflow",
+        "description": "Composite node candidate for: create_substrate -> create_conductor_or_geometry_group -> select_face -> create_port",
+        "node_id": "composite_substrate_conductor-geometry-group_select-face_port",
+        "stability": "experimental"
+      },
+      "evidence": [
+        {
+          "count": 1,
+          "kind": "node_subgraph",
+          "node_ids": [
+            "create_substrate",
+            "create_conductor_or_geometry_group",
+            "select_face",
+            "create_port"
+          ],
+          "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json",
+          "summary": "create_substrate -> create_conductor_or_geometry_group -> select_face -> create_port",
+          "tasks": []
+        }
+      ],
+      "notes": [
+        "Composite nodes reduce drag steps for experienced users but require careful schema design."
+      ],
+      "problem_pattern": "Repeated node subgraph: create_substrate -> create_conductor_or_geometry_group -> select_face -> create_port",
+      "proposal_id": "proposal-a5d4a12dd1",
+      "recommended_action": "add_node",
+      "required_tests": [
+        "test_node_catalog.py",
+        "test_workflow_validator.py",
+        "real_aedt_smoke_or_manual_gate"
+      ],
+      "review_status": "proposed",
+      "risk_level": "medium",
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json"
+    },
+    {
+      "affected_tasks": [
+        "L2_dipole_antenna",
+        "L2_simple_filter"
+      ],
+      "candidate_node_metadata": {
+        "category": "validation",
+        "description": "Add schema normalization for repeated repair loop: C_multi_attempt",
+        "node_id": "existing_node_normalization",
+        "stability": "experimental"
+      },
+      "evidence": [
+        {
+          "count": 2,
+          "kind": "repeated_repair",
+          "node_ids": [],
+          "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json",
+          "summary": "C_multi_attempt",
+          "tasks": [
+            "L2_dipole_antenna",
+            "L2_simple_filter"
+          ]
+        }
+      ],
+      "notes": [],
+      "problem_pattern": "Repeated repair loop: C_multi_attempt",
+      "proposal_id": "proposal-a7a4ae0c75",
+      "recommended_action": "add_normalization",
+      "required_tests": [
+        "test_node_schemas.py",
+        "test_node_executor.py",
+        "benchmark_regression"
+      ],
+      "review_status": "proposed",
+      "risk_level": "medium",
+      "source": "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json"
+    }
+  ],
+  "source_count": 2
+}

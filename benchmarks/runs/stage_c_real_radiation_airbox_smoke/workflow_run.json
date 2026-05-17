@@ -1,0 +1,263 @@
+{
+  "model_facts": {
+    "boundaries": {
+      "Radiation": {
+        "assignment": [
+          "AirBox"
+        ],
+        "props": {
+          "IsForPML": false,
+          "IsFssReference": false,
+          "Objects": [
+            "AirBox"
+          ]
+        },
+        "type": "Radiation"
+      }
+    },
+    "design_id": "HFSSDesign1",
+    "faces": {
+      "AirBox": [
+        35,
+        37,
+        38,
+        39,
+        36,
+        40
+      ],
+      "Radiator": [
+        7,
+        9,
+        10,
+        11,
+        8,
+        12
+      ]
+    },
+    "materials": {
+      "AirBox": "air",
+      "Radiator": "copper"
+    },
+    "objects": {
+      "AirBox": {
+        "faces": [
+          35,
+          37,
+          38,
+          39,
+          36,
+          40
+        ],
+        "material": "air"
+      },
+      "Radiator": {
+        "faces": [
+          7,
+          9,
+          10,
+          11,
+          8,
+          12
+        ],
+        "material": "copper"
+      }
+    },
+    "ports": {},
+    "project_id": "stage-c-radiation_airbox_setup-smoke",
+    "reports": {},
+    "setups": {},
+    "summary": {
+      "boundary_count": 1,
+      "object_count": 2,
+      "port_count": 0,
+      "report_count": 0,
+      "setup_count": 0,
+      "sweep_count": 0
+    },
+    "sweeps": {}
+  },
+  "model_validation": {
+    "checks": [
+      {
+        "details": {},
+        "message": "object exists: AirBox",
+        "passed": true,
+        "rule": "object_exists",
+        "target": "AirBox"
+      },
+      {
+        "details": {},
+        "message": "boundary exists: Radiation",
+        "passed": true,
+        "rule": "boundary_exists",
+        "target": "Radiation"
+      },
+      {
+        "details": {
+          "assignment": [
+            "AirBox"
+          ]
+        },
+        "message": "radiation boundary Radiation references model object",
+        "passed": true,
+        "rule": "airbox_radiation_relation_valid",
+        "target": "Radiation"
+      }
+    ],
+    "failed_checks": [],
+    "passed": true,
+    "summary": "Validation passed (3/3 checks)."
+  },
+  "outputs": {
+    "boundary": "Radiation"
+  },
+  "repair_context": {},
+  "status": "succeeded",
+  "steps": [
+    {
+      "elapsed_seconds": 0.21865549904759973,
+      "error_message": "",
+      "error_type": "",
+      "inputs": {
+        "geometry": [
+          {
+            "kind": "box",
+            "material": "copper",
+            "name": "Radiator",
+            "origin": [
+              -5,
+              -0.5,
+              0
+            ],
+            "size": [
+              10,
+              1,
+              0.1
+            ]
+          }
+        ]
+      },
+      "node_id": "create_conductor_or_geometry_group",
+      "output": {
+        "created": {
+          "boundaries": [],
+          "objects": [
+            "Radiator"
+          ],
+          "ports": [],
+          "setups": [],
+          "sweeps": []
+        },
+        "node_id": "create_conductor_or_geometry_group",
+        "object_name": "Radiator",
+        "object_names": [
+          "Radiator"
+        ],
+        "postcheck": {
+          "checks": [
+            "objects_exist"
+          ],
+          "passed": true
+        },
+        "session_id": "session-93a4f657ae5648ef985e1a9efe998ec1"
+      },
+      "snapshot_summary": {
+        "boundary_count": 0,
+        "object_count": 1,
+        "port_count": 0,
+        "setup_count": 0,
+        "sweep_count": 0
+      },
+      "status": "succeeded",
+      "step_id": "radiator"
+    },
+    {
+      "elapsed_seconds": 0.038577459985390306,
+      "error_message": "",
+      "error_type": "",
+      "inputs": {
+        "name": "AirBox",
+        "padding": 10
+      },
+      "node_id": "create_airbox",
+      "output": {
+        "created": {
+          "boundaries": [],
+          "objects": [
+            "AirBox"
+          ],
+          "ports": [],
+          "setups": [],
+          "sweeps": []
+        },
+        "node_id": "create_airbox",
+        "object_name": "AirBox",
+        "object_names": [
+          "AirBox"
+        ],
+        "postcheck": {
+          "checks": [
+            "air_region_created"
+          ],
+          "passed": true
+        },
+        "session_id": "session-93a4f657ae5648ef985e1a9efe998ec1"
+      },
+      "snapshot_summary": {
+        "boundary_count": 0,
+        "object_count": 2,
+        "port_count": 0,
+        "setup_count": 0,
+        "sweep_count": 0
+      },
+      "status": "succeeded",
+      "step_id": "airbox"
+    },
+    {
+      "elapsed_seconds": 0.004623336018994451,
+      "error_message": "",
+      "error_type": "",
+      "inputs": {
+        "assignment": "AirBox",
+        "boundary_type": "radiation",
+        "name": "Radiation"
+      },
+      "node_id": "assign_boundary",
+      "output": {
+        "boundary_name": "Radiation",
+        "created": {
+          "boundaries": [
+            "Radiation"
+          ],
+          "objects": [],
+          "ports": [],
+          "setups": [],
+          "sweeps": []
+        },
+        "node_id": "assign_boundary",
+        "postcheck": {
+          "checks": [
+            "boundary_created"
+          ],
+          "passed": true
+        },
+        "session_id": "session-93a4f657ae5648ef985e1a9efe998ec1"
+      },
+      "snapshot_summary": {
+        "boundary_count": 1,
+        "object_count": 2,
+        "port_count": 0,
+        "setup_count": 0,
+        "sweep_count": 0
+      },
+      "status": "succeeded",
+      "step_id": "radiation"
+    }
+  ],
+  "validation": {
+    "errors": [],
+    "passed": true,
+    "warnings": []
+  },
+  "workflow_id": "radiation_airbox_setup_v1"
+}

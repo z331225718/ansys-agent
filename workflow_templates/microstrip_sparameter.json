@@ -1,0 +1,107 @@
+{
+  "template_id": "microstrip_sparameter",
+  "name": "HFSS Microstrip S-Parameter",
+  "description": "Create a minimal microstrip-like HFSS workflow with substrate, conductor, setup, and frequency sweep.",
+  "scenario": "Use this as a starter workflow for simple transmission-line S-parameter experiments.",
+  "tags": ["hfss", "s-parameter", "microstrip", "starter"],
+  "validation_checks": ["objects_exist", "material_matches", "setup_created", "sweep_created"],
+  "known_limits": ["This template validates structure only; it does not prove impedance or electromagnetic correctness."],
+  "workflow": {
+    "workflow_id": "microstrip_sparameter_v1",
+    "name": "Microstrip S-Parameter",
+    "version": "0.1.0",
+    "description": "Starter workflow for a simple microstrip S-parameter setup.",
+    "parameters": [
+      {
+        "name": "frequency",
+        "type": "string",
+        "default": "2.4GHz",
+        "unit": "GHz",
+        "label": "Adaptive frequency"
+      },
+      {
+        "name": "sweep_stop",
+        "type": "string",
+        "default": "10GHz",
+        "unit": "GHz",
+        "label": "Sweep stop"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "substrate",
+        "node_id": "create_substrate",
+        "inputs": {
+          "origin": [-25, -10, 0],
+          "size": [50, 20, 1.6],
+          "material": "FR4_epoxy",
+          "name": "Substrate"
+        }
+      },
+      {
+        "id": "trace",
+        "node_id": "create_conductor_or_geometry_group",
+        "inputs": {
+          "geometry": [
+            {
+              "kind": "rectangle",
+              "orientation": "XY",
+              "origin": [-20, -1, 1.6],
+              "size": [40, 2],
+              "name": "Trace",
+              "material": "copper"
+            }
+          ]
+        }
+      },
+      {
+        "id": "setup",
+        "node_id": "create_setup",
+        "inputs": {
+          "frequency": {
+            "$ref": "parameters.frequency"
+          },
+          "name": "Setup1"
+        }
+      },
+      {
+        "id": "sweep",
+        "node_id": "create_sweep_or_export",
+        "inputs": {
+          "setup": {
+            "$ref": "setup.output.setup_name"
+          },
+          "start": "1GHz",
+          "stop": {
+            "$ref": "parameters.sweep_stop"
+          },
+          "points": 101,
+          "name": "Sweep1"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "from": "setup.output.setup_name",
+        "to": "sweep.inputs.setup"
+      }
+    ],
+    "validation": [
+      {"rule": "object_exists", "target": "Substrate"},
+      {"rule": "setup_exists", "target": "Setup1"},
+      {"rule": "sweep_exists", "target": "Sweep1"}
+    ],
+    "outputs": [
+      {
+        "name": "setup",
+        "source": "setup.output.setup_name",
+        "description": "Created adaptive setup name."
+      },
+      {
+        "name": "sweep",
+        "source": "sweep.output.sweep_name",
+        "description": "Created sweep name."
+      }
+    ]
+  }
+}

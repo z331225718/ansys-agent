@@ -1,0 +1,44 @@
+{
+  "adapter": "real",
+  "artifacts": [
+    "workflow_run.json",
+    "validation.json",
+    "audit.jsonl",
+    "report.html"
+  ],
+  "model_validation": {
+    "checks": [
+      {
+        "details": {},
+        "message": "object exists: WaveguideSection",
+        "passed": true,
+        "rule": "object_exists",
+        "target": "WaveguideSection"
+      },
+      {
+        "details": {},
+        "message": "port exists: Port1",
+        "passed": true,
+        "rule": "port_exists",
+        "target": "Port1"
+      },
+      {
+        "details": {
+          "assignment": [
+            12
+          ]
+        },
+        "message": "port Port1 assignment is valid",
+        "passed": true,
+        "rule": "port_assignment_valid",
+        "target": "Port1"
+      }
+    ],
+    "failed_checks": [],
+    "passed": true,
+    "summary": "Validation passed (3/3 checks)."
+  },
+  "status": "succeeded",
+  "step_count": 3,
+  "template": "wave_port_setup"
+}

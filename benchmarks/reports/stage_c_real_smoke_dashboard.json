@@ -1,0 +1,101 @@
+{
+  "runs": [
+    {
+      "adapter": "real",
+      "artifacts": [
+        "workflow_run.json",
+        "validation.json",
+        "audit.jsonl",
+        "report.html"
+      ],
+      "check_count": 3,
+      "coverage": [
+        "geometry",
+        "setup",
+        "sweep"
+      ],
+      "failed_check_count": 0,
+      "nodes": [
+        "create_substrate",
+        "create_conductor_or_geometry_group",
+        "create_setup",
+        "create_sweep_or_export"
+      ],
+      "run_dir": "benchmarks/runs/stage_c_real_microstrip_smoke",
+      "status": "succeeded",
+      "step_count": 4,
+      "template": "microstrip_sparameter",
+      "validation_passed": true,
+      "validation_summary": "Validation passed (3/3 checks)."
+    },
+    {
+      "adapter": "real",
+      "artifacts": [
+        "workflow_run.json",
+        "validation.json",
+        "audit.jsonl",
+        "report.html"
+      ],
+      "check_count": 3,
+      "coverage": [
+        "geometry",
+        "port",
+        "selection"
+      ],
+      "failed_check_count": 0,
+      "nodes": [
+        "create_conductor_or_geometry_group",
+        "select_face",
+        "create_port"
+      ],
+      "run_dir": "benchmarks/runs/stage_c_real_wave_port_smoke",
+      "status": "succeeded",
+      "step_count": 3,
+      "template": "wave_port_setup",
+      "validation_passed": true,
+      "validation_summary": "Validation passed (3/3 checks)."
+    },
+    {
+      "adapter": "real",
+      "artifacts": [
+        "workflow_run.json",
+        "validation.json",
+        "audit.jsonl",
+        "report.html"
+      ],
+      "check_count": 3,
+      "coverage": [
+        "airbox",
+        "boundary",
+        "geometry"
+      ],
+      "failed_check_count": 0,
+      "nodes": [
+        "create_conductor_or_geometry_group",
+        "create_airbox",
+        "assign_boundary"
+      ],
+      "run_dir": "benchmarks/runs/stage_c_real_radiation_airbox_smoke",
+      "status": "succeeded",
+      "step_count": 3,
+      "template": "radiation_airbox_setup",
+      "validation_passed": true,
+      "validation_summary": "Validation passed (3/3 checks)."
+    }
+  ],
+  "summary": {
+    "coverage": [
+      "airbox",
+      "boundary",
+      "geometry",
+      "port",
+      "selection",
+      "setup",
+      "sweep"
+    ],
+    "run_count": 3,
+    "succeeded_count": 3,
+    "success_rate": 1.0
+  },
+  "title": "Stage C 真实 AEDT Smoke Dashboard"
+}

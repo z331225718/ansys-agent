@@ -1,0 +1,261 @@
+{
+  "model_facts": {
+    "boundaries": {},
+    "design_id": "HFSSDesign1",
+    "faces": {
+      "WaveguideSection": [
+        7,
+        9,
+        10,
+        11,
+        8,
+        12
+      ]
+    },
+    "materials": {
+      "WaveguideSection": "copper"
+    },
+    "objects": {
+      "WaveguideSection": {
+        "faces": [
+          7,
+          9,
+          10,
+          11,
+          8,
+          12
+        ],
+        "material": "copper"
+      }
+    },
+    "ports": {
+      "Port1": {
+        "assignment": [
+          12
+        ],
+        "props": {
+          "DoDeembed": false,
+          "Faces": [
+            12
+          ],
+          "Modes": {
+            "Mode1": {
+              "AlignmentGroup": 0,
+              "CharImp": "Zpi",
+              "ModeNum": 1,
+              "RenormImp": "50ohm",
+              "UseIntLine": false
+            }
+          },
+          "NumModes": 1,
+          "RenormalizeAllTerminals": true,
+          "ReporterFilter": [
+            true
+          ],
+          "ShowReporterFilter": false,
+          "UseAnalyticAlignment": false,
+          "UseLineModeAlignment": false
+        },
+        "type": "Wave Port"
+      }
+    },
+    "project_id": "stage-c-wave_port_setup-smoke",
+    "reports": {},
+    "setups": {},
+    "summary": {
+      "boundary_count": 0,
+      "object_count": 1,
+      "port_count": 1,
+      "report_count": 0,
+      "setup_count": 0,
+      "sweep_count": 0
+    },
+    "sweeps": {}
+  },
+  "model_validation": {
+    "checks": [
+      {
+        "details": {},
+        "message": "object exists: WaveguideSection",
+        "passed": true,
+        "rule": "object_exists",
+        "target": "WaveguideSection"
+      },
+      {
+        "details": {},
+        "message": "port exists: Port1",
+        "passed": true,
+        "rule": "port_exists",
+        "target": "Port1"
+      },
+      {
+        "details": {
+          "assignment": [
+            12
+          ]
+        },
+        "message": "port Port1 assignment is valid",
+        "passed": true,
+        "rule": "port_assignment_valid",
+        "target": "Port1"
+      }
+    ],
+    "failed_checks": [],
+    "passed": true,
+    "summary": "Validation passed (3/3 checks)."
+  },
+  "outputs": {
+    "port": "Port1"
+  },
+  "repair_context": {},
+  "status": "succeeded",
+  "steps": [
+    {
+      "elapsed_seconds": 0.21509797405451536,
+      "error_message": "",
+      "error_type": "",
+      "inputs": {
+        "geometry": [
+          {
+            "kind": "box",
+            "material": "copper",
+            "name": "WaveguideSection",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              10,
+              4,
+              2
+            ]
+          }
+        ]
+      },
+      "node_id": "create_conductor_or_geometry_group",
+      "output": {
+        "created": {
+          "boundaries": [],
+          "objects": [
+            "WaveguideSection"
+          ],
+          "ports": [],
+          "setups": [],
+          "sweeps": []
+        },
+        "node_id": "create_conductor_or_geometry_group",
+        "object_name": "WaveguideSection",
+        "object_names": [
+          "WaveguideSection"
+        ],
+        "postcheck": {
+          "checks": [
+            "objects_exist"
+          ],
+          "passed": true
+        },
+        "session_id": "session-589ee04dd194491f8af84d7f7df8d773"
+      },
+      "snapshot_summary": {
+        "boundary_count": 0,
+        "object_count": 1,
+        "port_count": 0,
+        "setup_count": 0,
+        "sweep_count": 0
+      },
+      "status": "succeeded",
+      "step_id": "conductor"
+    },
+    {
+      "elapsed_seconds": 0.002559014013968408,
+      "error_message": "",
+      "error_type": "",
+      "inputs": {
+        "axis": "x",
+        "object_name": "WaveguideSection",
+        "side": "max"
+      },
+      "node_id": "select_face",
+      "output": {
+        "created": {
+          "boundaries": [],
+          "objects": [],
+          "ports": [],
+          "setups": [],
+          "sweeps": []
+        },
+        "node_id": "select_face",
+        "object_name": "WaveguideSection",
+        "postcheck": {
+          "checks": [
+            "face_selected"
+          ],
+          "passed": true
+        },
+        "selected_face_center": [
+          10.0,
+          2.0,
+          1.0
+        ],
+        "selected_face_id": 12,
+        "session_id": "session-589ee04dd194491f8af84d7f7df8d773"
+      },
+      "snapshot_summary": {
+        "boundary_count": 0,
+        "object_count": 1,
+        "port_count": 0,
+        "setup_count": 0,
+        "sweep_count": 0
+      },
+      "status": "succeeded",
+      "step_id": "port_face"
+    },
+    {
+      "elapsed_seconds": 0.008640329004265368,
+      "error_message": "",
+      "error_type": "",
+      "inputs": {
+        "assignment": 12,
+        "name": "Port1",
+        "port_type": "wave"
+      },
+      "node_id": "create_port",
+      "output": {
+        "created": {
+          "boundaries": [],
+          "objects": [],
+          "ports": [
+            "Port1"
+          ],
+          "setups": [],
+          "sweeps": []
+        },
+        "node_id": "create_port",
+        "port_name": "Port1",
+        "postcheck": {
+          "checks": [
+            "port_created"
+          ],
+          "passed": true
+        },
+        "session_id": "session-589ee04dd194491f8af84d7f7df8d773"
+      },
+      "snapshot_summary": {
+        "boundary_count": 0,
+        "object_count": 1,
+        "port_count": 1,
+        "setup_count": 0,
+        "sweep_count": 0
+      },
+      "status": "succeeded",
+      "step_id": "wave_port"
+    }
+  ],
+  "validation": {
+    "errors": [],
+    "passed": true,
+    "warnings": []
+  },
+  "workflow_id": "wave_port_setup_v1"
+}

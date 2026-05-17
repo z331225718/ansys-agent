@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AEDT Agent Stage C 阶段性报告</title>
+  <style>
+    body{font-family:Arial,"Noto Sans SC",sans-serif;margin:0;background:#f8fafc;color:#111827}
+    main{max-width:1120px;margin:0 auto;padding:36px 24px}
+    h1{font-size:32px;margin:0 0 10px}
+    h2{font-size:22px;margin-top:34px;border-bottom:1px solid #d1d5db;padding-bottom:8px}
+    p{line-height:1.7}
+    .lead{font-size:18px;background:#ffffff;border:1px solid #d1d5db;border-radius:8px;padding:18px}
+    .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+    .card{background:#ffffff;border:1px solid #d1d5db;border-radius:8px;padding:16px}
+    .card strong{display:block;font-size:24px;margin-bottom:4px}
+    table{width:100%;border-collapse:collapse;background:#ffffff;border:1px solid #d1d5db}
+    th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;vertical-align:top}
+    th{background:#eef2ff}
+    code{background:#eef2ff;padding:2px 5px;border-radius:4px}
+    .flow{background:#111827;color:#f9fafb;border-radius:8px;padding:18px;white-space:pre;overflow:auto}
+    .ok{color:#047857;font-weight:700}
+    @media(max-width:760px){.grid{grid-template-columns:1fr}main{padding:24px 14px}}
+  </style>
+</head>
+<body>
+<main>
+  <h1>AEDT Agent Stage C 阶段性报告</h1>
+  <p class="lead">Stage C 已把 Stage B 证明有效的“受控节点执行”推进成产品化骨架：节点 catalog、workflow schema、validator、executor、模板、聊天规划、模型事实 validation、节点进化 proposal、轻量 demo 和真实 AEDT smoke 已形成闭环。</p>
+
+  <h2>产品入口</h2>
+  <div class="grid">
+    <div class="card"><strong>经验工程师</strong>拖拽少量节点完成完整流程。</div>
+    <div class="card"><strong>新手工程师</strong>选择模板并填写参数。</div>
+    <div class="card"><strong>聊天入口</strong>主模型判断任务并生成 workflow。</div>
+  </div>
+
+  <h2>当前架构</h2>
+  <div class="flow">用户请求 / 模板 / 节点图
+        ↓
+Node Catalog
+        ↓
+Workflow JSON
+        ↓
+Workflow Validator
+        ↓
+Workflow Executor
+        ↓
+Controlled NodeExecutor
+        ↓
+AEDT Adapter / Fake Adapter / AEDT 2026.1 non-graphical
+        ↓
+Inspector + Validation
+        ↓
+Audit / Report / Repair Context
+        ↓
+Node Evolution Proposal</div>
+
+  <h2>完成状态</h2>
+  <table>
+    <tr><th>Milestone</th><th>状态</th><th>产物</th></tr>
+    <tr><td>1. 节点 catalog</td><td class="ok">完成</td><td>8 个节点 metadata/schema/version/ui_hints/postchecks</td></tr>
+    <tr><td>2. Workflow 模型</td><td class="ok">完成</td><td>Workflow/Node/Edge/Parameter/Output JSON</td></tr>
+    <tr><td>3. Workflow Validator</td><td class="ok">完成</td><td>启动 AEDT 前结构校验</td></tr>
+    <tr><td>4. Workflow Executor</td><td class="ok">完成</td><td>受控执行、artifact、repair context</td></tr>
+    <tr><td>5. Template Catalog</td><td class="ok">完成</td><td>3 个 starter templates</td></tr>
+    <tr><td>6. Inspector + Validation</td><td class="ok">完成</td><td>模型事实抽取和结构性规则</td></tr>
+    <tr><td>7. Chat Planner</td><td class="ok">完成</td><td>模板选择、填参、简单 workflow 生成</td></tr>
+    <tr><td>8. Node Evolution</td><td class="ok">完成</td><td>benchmark/audit -> proposal/evaluator</td></tr>
+    <tr><td>9. Demo/Report</td><td class="ok">完成</td><td>CLI demo、workflow run、proposal report</td></tr>
+    <tr><td>10. Real AEDT Smoke</td><td class="ok">完成</td><td>AEDT 2026.1 non-graphical 跑通 1 个 workflow</td></tr>
+    <tr><td>11. Port Smoke</td><td class="ok">完成</td><td>AEDT 2026.1 non-graphical 跑通 wave port workflow</td></tr>
+    <tr><td>12. Boundary Smoke</td><td class="ok">完成</td><td>AEDT 2026.1 non-graphical 跑通 radiation airbox workflow</td></tr>
+    <tr><td>13. Smoke Dashboard</td><td class="ok">完成</td><td>3 个真实 AEDT smoke 汇总 HTML/JSON</td></tr>
+    <tr><td>14. Node Evolution Review</td><td class="ok">完成</td><td>proposal 审核 HTML/JSON，默认不自动发布 stable</td></tr>
+    <tr><td>15. Demo Index</td><td class="ok">完成</td><td>Stage C 展示入口 HTML/JSON</td></tr>
+  </table>
+
+  <h2>Demo 结果</h2>
+  <div class="grid">
+    <div class="card"><strong>succeeded</strong>microstrip template run，4 个节点，输出 setup/sweep。</div>
+    <div class="card"><strong>3/3</strong>real AEDT smoke model validation passed。</div>
+    <div class="card"><strong>Port1</strong>real wave port smoke passed，face assignment 来自 PyAEDT props。</div>
+    <div class="card"><strong>Radiation</strong>real boundary smoke passed，object assignment 来自 PyAEDT props。</div>
+    <div class="card"><strong>3/3</strong>real smoke dashboard，覆盖 7 类节点能力。</div>
+    <div class="card"><strong>11</strong>node evolution proposals，全部保持 needs_review。</div>
+    <div class="card"><strong>0.82</strong>chat planning confidence，选择 microstrip_sparameter。</div>
+    <div class="card"><strong>23 / 11</strong>node evolution evidence / proposal。</div>
+  </div>
+
+  <h2>关键 Artifact</h2>
+  <table>
+    <tr><th>类型</th><th>路径</th></tr>
+    <tr><td>Workflow run</td><td><code>benchmarks/runs/stage_c_demo_microstrip/workflow_run.json</code></td></tr>
+    <tr><td>Audit</td><td><code>benchmarks/runs/stage_c_demo_microstrip/audit.jsonl</code></td></tr>
+    <tr><td>Validation</td><td><code>benchmarks/runs/stage_c_demo_microstrip/validation.json</code></td></tr>
+    <tr><td>HTML report</td><td><code>benchmarks/runs/stage_c_demo_microstrip/report.html</code></td></tr>
+    <tr><td>Chat plan</td><td><code>benchmarks/reports/stage_c_chat_plan_sample.json</code></td></tr>
+    <tr><td>Node evolution</td><td><code>benchmarks/reports/stage_c_node_evolution_report.json</code></td></tr>
+    <tr><td>Real AEDT smoke</td><td><code>benchmarks/runs/stage_c_real_microstrip_smoke/workflow_run.json</code></td></tr>
+    <tr><td>Real validation</td><td><code>benchmarks/runs/stage_c_real_microstrip_smoke/validation.json</code></td></tr>
+    <tr><td>Real wave port smoke</td><td><code>benchmarks/runs/stage_c_real_wave_port_smoke/workflow_run.json</code></td></tr>
+    <tr><td>Real port validation</td><td><code>benchmarks/runs/stage_c_real_wave_port_smoke/validation.json</code></td></tr>
+    <tr><td>Real boundary smoke</td><td><code>benchmarks/runs/stage_c_real_radiation_airbox_smoke/workflow_run.json</code></td></tr>
+    <tr><td>Real boundary validation</td><td><code>benchmarks/runs/stage_c_real_radiation_airbox_smoke/validation.json</code></td></tr>
+    <tr><td>Real smoke dashboard</td><td><code>benchmarks/reports/stage_c_real_smoke_dashboard.html</code></td></tr>
+    <tr><td>Real smoke dashboard JSON</td><td><code>benchmarks/reports/stage_c_real_smoke_dashboard.json</code></td></tr>
+    <tr><td>Node evolution review</td><td><code>benchmarks/reports/stage_c_node_evolution_review.html</code></td></tr>
+    <tr><td>Node evolution review JSON</td><td><code>benchmarks/reports/stage_c_node_evolution_review.json</code></td></tr>
+    <tr><td>Demo index</td><td><code>benchmarks/reports/stage_c_demo_index.html</code></td></tr>
+    <tr><td>Demo index JSON</td><td><code>benchmarks/reports/stage_c_demo_index.json</code></td></tr>
+  </table>
+
+  <h2>边界</h2>
+  <p>已跑通 3 个真实 AEDT smoke，分别覆盖 geometry/setup/sweep、select_face/port、airbox/boundary。validation 仍是结构性检查，不等价于完整电磁物理正确。chat planner 当前是确定性骨架，后续可接主模型，但输出仍必须限制为 workflow JSON。node evolution 只生成 proposal，不自动发布 stable 节点。</p>
+
+  <h2>下一步</h2>
+  <p>下一步优先为 node evolution proposal 增加 HTML 报告和人工审核字段，并把真实 smoke 结果整合进更适合展示的 dashboard。完整拖拽 UI 继续靠后。</p>
+</main>
+</body>
+</html>

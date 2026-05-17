@@ -1,0 +1,294 @@
+{
+  "model_facts": {
+    "boundaries": {},
+    "design_id": "HFSSDesign1",
+    "faces": {
+      "Substrate": [
+        7,
+        9,
+        10,
+        11,
+        8,
+        12
+      ],
+      "Trace": [
+        44
+      ]
+    },
+    "materials": {
+      "Substrate": "FR4_epoxy",
+      "Trace": "copper"
+    },
+    "objects": {
+      "Substrate": {
+        "faces": [
+          7,
+          9,
+          10,
+          11,
+          8,
+          12
+        ],
+        "material": "FR4_epoxy"
+      },
+      "Trace": {
+        "faces": [
+          44
+        ],
+        "material": "copper"
+      }
+    },
+    "ports": {},
+    "project_id": "stage-c-microstrip_sparameter-smoke",
+    "reports": {},
+    "setups": {
+      "Setup1": {}
+    },
+    "summary": {
+      "boundary_count": 0,
+      "object_count": 2,
+      "port_count": 0,
+      "report_count": 0,
+      "setup_count": 1,
+      "sweep_count": 1
+    },
+    "sweeps": {
+      "Sweep1": {
+        "setup": "Setup1"
+      }
+    }
+  },
+  "model_validation": {
+    "checks": [
+      {
+        "details": {},
+        "message": "object exists: Substrate",
+        "passed": true,
+        "rule": "object_exists",
+        "target": "Substrate"
+      },
+      {
+        "details": {},
+        "message": "setup exists: Setup1",
+        "passed": true,
+        "rule": "setup_exists",
+        "target": "Setup1"
+      },
+      {
+        "details": {},
+        "message": "sweep exists: Sweep1",
+        "passed": true,
+        "rule": "sweep_exists",
+        "target": "Sweep1"
+      }
+    ],
+    "failed_checks": [],
+    "passed": true,
+    "summary": "Validation passed (3/3 checks)."
+  },
+  "outputs": {
+    "setup": "Setup1",
+    "sweep": "Sweep1"
+  },
+  "repair_context": {},
+  "status": "succeeded",
+  "steps": [
+    {
+      "elapsed_seconds": 0.21260262897703797,
+      "error_message": "",
+      "error_type": "",
+      "inputs": {
+        "material": "FR4_epoxy",
+        "name": "Substrate",
+        "origin": [
+          -25,
+          -10,
+          0
+        ],
+        "size": [
+          50,
+          20,
+          1.6
+        ]
+      },
+      "node_id": "create_substrate",
+      "output": {
+        "created": {
+          "boundaries": [],
+          "objects": [
+            "Substrate"
+          ],
+          "ports": [],
+          "setups": [],
+          "sweeps": []
+        },
+        "node_id": "create_substrate",
+        "object_name": "Substrate",
+        "object_names": [
+          "Substrate"
+        ],
+        "postcheck": {
+          "checks": [
+            "object_exists",
+            "material_matches"
+          ],
+          "passed": true
+        },
+        "session_id": "session-34ecc1f469554068a6fbcbcd099ce53a"
+      },
+      "snapshot_summary": {
+        "boundary_count": 0,
+        "object_count": 1,
+        "port_count": 0,
+        "setup_count": 0,
+        "sweep_count": 0
+      },
+      "status": "succeeded",
+      "step_id": "substrate"
+    },
+    {
+      "elapsed_seconds": 0.04116299597080797,
+      "error_message": "",
+      "error_type": "",
+      "inputs": {
+        "geometry": [
+          {
+            "kind": "rectangle",
+            "material": "copper",
+            "name": "Trace",
+            "orientation": "XY",
+            "origin": [
+              -20,
+              -1,
+              1.6
+            ],
+            "size": [
+              40,
+              2
+            ]
+          }
+        ]
+      },
+      "node_id": "create_conductor_or_geometry_group",
+      "output": {
+        "created": {
+          "boundaries": [],
+          "objects": [
+            "Trace"
+          ],
+          "ports": [],
+          "setups": [],
+          "sweeps": []
+        },
+        "node_id": "create_conductor_or_geometry_group",
+        "object_name": "Trace",
+        "object_names": [
+          "Trace"
+        ],
+        "postcheck": {
+          "checks": [
+            "objects_exist"
+          ],
+          "passed": true
+        },
+        "session_id": "session-34ecc1f469554068a6fbcbcd099ce53a"
+      },
+      "snapshot_summary": {
+        "boundary_count": 0,
+        "object_count": 2,
+        "port_count": 0,
+        "setup_count": 0,
+        "sweep_count": 0
+      },
+      "status": "succeeded",
+      "step_id": "trace"
+    },
+    {
+      "elapsed_seconds": 0.008921816013753414,
+      "error_message": "",
+      "error_type": "",
+      "inputs": {
+        "frequency": "2.4GHz",
+        "name": "Setup1"
+      },
+      "node_id": "create_setup",
+      "output": {
+        "created": {
+          "boundaries": [],
+          "objects": [],
+          "ports": [],
+          "setups": [
+            "Setup1"
+          ],
+          "sweeps": []
+        },
+        "node_id": "create_setup",
+        "postcheck": {
+          "checks": [
+            "setup_created"
+          ],
+          "passed": true
+        },
+        "session_id": "session-34ecc1f469554068a6fbcbcd099ce53a",
+        "setup_name": "Setup1"
+      },
+      "snapshot_summary": {
+        "boundary_count": 0,
+        "object_count": 2,
+        "port_count": 0,
+        "setup_count": 1,
+        "sweep_count": 0
+      },
+      "status": "succeeded",
+      "step_id": "setup"
+    },
+    {
+      "elapsed_seconds": 0.005963310017250478,
+      "error_message": "",
+      "error_type": "",
+      "inputs": {
+        "name": "Sweep1",
+        "points": 101,
+        "setup": "Setup1",
+        "start": "1GHz",
+        "stop": "10GHz"
+      },
+      "node_id": "create_sweep_or_export",
+      "output": {
+        "created": {
+          "boundaries": [],
+          "objects": [],
+          "ports": [],
+          "setups": [],
+          "sweeps": [
+            "Sweep1"
+          ]
+        },
+        "node_id": "create_sweep_or_export",
+        "postcheck": {
+          "checks": [
+            "sweep_created"
+          ],
+          "passed": true
+        },
+        "session_id": "session-34ecc1f469554068a6fbcbcd099ce53a",
+        "sweep_name": "Sweep1"
+      },
+      "snapshot_summary": {
+        "boundary_count": 0,
+        "object_count": 2,
+        "port_count": 0,
+        "setup_count": 1,
+        "sweep_count": 1
+      },
+      "status": "succeeded",
+      "step_id": "sweep"
+    }
+  ],
+  "validation": {
+    "errors": [],
+    "passed": true,
+    "warnings": []
+  },
+  "workflow_id": "microstrip_sparameter_v1"
+}

@@ -1,726 +1,685 @@
-# AEDT Stage C Graph Evolution Productization 计划
+# AEDT Stage C 节点化产品化计划
 
-> **面向 AI 代理的工作者：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实现此计划。步骤使用复选框（`- [ ]`）语法来跟踪进度。
+> 面向后续执行者：Stage C 的目标已经从“继续扩大 benchmark/图谱增强”调整为“把 Stage B 证明有效的节点化路径产品化”。执行时不要重新开放裸 Python 生成作为主路径，也不要把优化 agent 提前做成主线。
 
-**目标：** 在 Stage A/B 已通过验收后，引入真实 AEDT adapter、图谱增强、节点进化、深度 semantic validation 和产品化入口。Stage C 不替代 Stage A/B，而是在其稳定基座上扩展。
+## 背景
 
-**架构：** Stage C 采用插件化升级：`PyaedtAdapter` 替换 Fake Adapter，`KnowledgeProvider` 增加 GraphProvider，节点 catalog 引入版本治理和评估门禁，validation 从状态检查扩展到几何/仿真/物理规则。所有新增能力必须保持 `execute_node` 正式路径不变，不能重新开放裸脚本执行。
+Stage A 已证明：对 PyAEDT 这类高约束 API，官方源码/examples 和 GitNexus 检索能显著提升 LLM 生成成功率。
 
-**技术栈：** Python 3.11+、pyaedt/ansys.aedt.core、SQLite/FTS5、可选 Graphify 或 GitNexus、pytest、FastMCP、可选轻量 Web UI。
+Stage B 已证明：受控节点计划比工具增强自由 Python 更可控。
 
----
+- Stage A Group A：首轮 10%，三次内 30%。
+- Stage A Group B：首轮 80%，三次内 100%。
+- Stage B Group B：首轮 70%，三次内 90%。
+- Stage B Group C：首轮 80%，三次内 100%，自由代码执行次数 0。
 
-## 进入 Stage C 的前置条件
+Stage C 不再以“LLM 能不能写对 PyAEDT 代码”为中心，而是把节点、模板、workflow、聊天入口、validation、audit 和受控节点进化做成一个可用的产品骨架。
 
-Stage C 只能在以下条件满足后启动：
+## 产品目标
 
-- [ ] Stage A Group C 相对 Group B semantic pass 提升大于或等于 15%。
-- [ ] Stage A known trap 捕获率大于或等于 80%。
-- [ ] Stage B `execute_node` fake adapter 全测试通过。
-- [ ] Stage B `execute_script_restricted` 仍只作为开发期工具。
-- [ ] Stage B `SessionManager`、`ExecutionQueue`、`AstGuard`、`NodeExecutor` 已稳定。
-- [ ] 至少 5 个节点达到 `candidate-ready` 或 `stable`。
+最终系统面向三类入口：
 
-如果任一条件不满足，先回到 Stage A/B 修正，不进入 Stage C。
+1. 有经验的工程师：通过拖拽少量节点，快速完成一整个 AEDT 仿真流程。
+2. 新手工程师：选择现成模板/workflow，填写参数即可完成常见任务。
+3. 聊天入口：用户与主模型对话，主模型自动判断任务、选择模板或生成节点 workflow。
 
----
+Stage C 的核心交付不是 UI 完成度，而是产品化底座：
 
-## 文件结构
+- 节点 catalog 稳定、可组合、可版本化。
+- workflow 能表达完整仿真流程，而不是单个 API 调用。
+- 模板能覆盖高频场景，并能被聊天入口复用。
+- 节点进化能把 benchmark/真实使用中反复出现的失败，沉淀为新节点或已有节点能力升级。
+- 执行层有真实 AEDT validation、audit、artifact 和修复闭环。
+- 主模型只能生成/修改 node workflow，不直接执行任意 PyAEDT 代码。
 
-Stage C 计划新增或修改：
+UI 顺序：完整拖拽 UI 靠后做。Stage C 前半段只提供 UI 可消费的数据结构和轻量 demo 命令，优先把节点 catalog、workflow schema、validator、executor、模板、聊天 planner、validation 和节点进化跑通。否则 UI 会过早绑定不稳定的数据模型。
+
+## 非目标
+
+Stage C 暂不做：
+
+- 通用优化 agent。
+- 对 BRD/MCM/layout 导入模型的逐对象参数化。
+- 大规模任务集扩展。
+- 完整可视化 node editor。
+- 完整云服务、多用户权限、作业调度平台。
+- 宣称 validation 等价于完整电磁物理正确性。
+- agent 自动发布新节点到 stable。
+
+优化 agent 记录为后续增强方向。后续若做，应从 layout/EDB/3D Layout 中抽取工程语义，生成少量可制造、可解释的设计变量，再由优化器和仿真结果闭环搜索，而不是让 LLM 参数化每个对象。
+
+## 架构方向
+
+Stage C 推荐架构：
 
 ```text
-src/aedt_agent/mcp/pyaedt_adapter.py
-src/aedt_agent/mcp/environment_check.py
-src/aedt_agent/knowledge/graph_provider_interface.py
-src/aedt_agent/knowledge/graphify_provider.py
-src/aedt_agent/knowledge/gitnexus_provider.py
+用户入口
+  ├─ 拖拽节点
+  ├─ 模板 workflow
+  └─ 聊天生成 workflow
+        ↓
+Workflow Model
+        ↓
+Node Catalog + Schema + Version
+        ↓
+Workflow Validator
+        ↓
+Controlled Executor
+        ↓
+PyAEDT / AEDT 2026.1 non-graphical
+        ↓
+Inspector + Validation
+        ↓
+Audit / Artifact / Report / Repair Context
+```
+
+关键原则：
+
+- `execute_node` / controlled node executor 继续作为正式执行路径。
+- LLM 的输出是 workflow JSON，不是任意 Python。
+- 每个节点必须有输入 schema、输出 schema、引用关系、postcheck 和 audit 字段。
+- workflow validation 必须在启动 AEDT 前尽早发现缺参数、引用错误、节点顺序错误。
+- AEDT 执行后的 inspector 负责抽取模型事实，再交给 validation 判定。
+- 节点进化必须走候选节点、回归测试、人工审核、版本发布路径，不能让 LLM 在正式执行中临时扩展任意代码。
+
+## 建议文件结构
+
+```text
+src/aedt_agent/nodes/catalog.py
+src/aedt_agent/nodes/metadata.py
 src/aedt_agent/nodes/versioning.py
-src/aedt_agent/nodes/evaluation.py
-src/aedt_agent/nodes/evolution.py
-src/aedt_agent/validation/geometry_rules.py
-src/aedt_agent/validation/simulation_rules.py
-src/aedt_agent/validation/physics_rules.py
 src/aedt_agent/workflow/models.py
-src/aedt_agent/workflow/planner.py
+src/aedt_agent/workflow/validator.py
 src/aedt_agent/workflow/executor.py
-docs/stage-c-gitnexus-authorization.md
-docs/stage-c-real-aedt-validation.md
+src/aedt_agent/workflow/templates.py
+src/aedt_agent/workflow/planner.py
+src/aedt_agent/evolution/models.py
+src/aedt_agent/evolution/miner.py
+src/aedt_agent/evolution/proposer.py
+src/aedt_agent/evolution/evaluator.py
+src/aedt_agent/evolution/policy.py
+src/aedt_agent/validation/inspector.py
+src/aedt_agent/validation/rules.py
+src/aedt_agent/validation/report.py
+src/aedt_agent/chat/workflow_planner.py
+src/aedt_agent/chat/repair_context.py
+docs/stage-c-node-productization.md
+docs/stage-c-workflow-schema.md
+docs/stage-c-template-catalog.md
+docs/stage-c-chat-workflow-generation.md
 docs/stage-c-node-evolution-policy.md
-tests/test_environment_check.py
-tests/test_pyaedt_adapter_contract.py
-tests/test_graph_provider_contract.py
-tests/test_node_versioning.py
-tests/test_node_evaluation.py
-tests/test_semantic_validators.py
-tests/test_workflow_planner.py
+tests/test_node_catalog.py
+tests/test_workflow_models.py
+tests/test_workflow_validator.py
+tests/test_workflow_templates.py
+tests/test_workflow_executor.py
+tests/test_inspector_validation.py
+tests/test_chat_workflow_planner.py
+tests/test_node_evolution.py
 ```
 
-职责边界：
+## Milestone 1：节点 catalog 产品化
 
-- `pyaedt_adapter.py`：真实 AEDT 连接，实现 Stage B 的 `AedtAdapter` 协议。
-- `environment_check.py`：检测 Windows、AEDT、pyaedt、license、项目目录权限。
-- `graph_provider_interface.py`：定义图谱增强能力，不污染 SQLite Provider。
-- `graphify_provider.py` / `gitnexus_provider.py`：可插拔图谱后端。
-- `nodes/versioning.py`：节点版本、兼容性、升级策略。
-- `nodes/evaluation.py`：节点准入评分与回归结果。
-- `nodes/evolution.py`：节点进化建议生成，默认人工审核。
-- `validation/*_rules.py`：几何、仿真、物理三层 semantic validator。
-- `workflow/*`：基于稳定节点的轻量 workflow planner/executor。
+**目标：** 把 Stage B 的节点从“benchmark 可用”整理成“可被 UI、模板、聊天入口共同消费”的 catalog。
 
----
+任务：
 
-## 任务 1：真实 AEDT 环境自检
+- [x] 定义 `NodeMetadata`：
+  - `node_id`
+  - `display_name`
+  - `category`
+  - `description`
+  - `input_schema`
+  - `output_schema`
+  - `required_capabilities`
+  - `version`
+  - `stability`
+  - `ui_hints`
+  - `postchecks`
+- [x] 定义节点分类：
+  - geometry
+  - material
+  - boundary
+  - port
+  - setup
+  - sweep
+  - report/export
+  - validation
+- [x] 为现有 Stage B 节点补 metadata。
+- [x] 明确节点稳定性等级：
+  - experimental
+  - candidate
+  - stable
+  - deprecated
+- [x] 输出可用于前端/模板/聊天入口的 catalog JSON。
 
-**目标：** 在接入 pyaedt 前先给出明确环境诊断，避免弱模型把连接失败误判成代码逻辑失败。
+验收：
 
-**文件：**
-- 创建：`src/aedt_agent/mcp/environment_check.py`
-- 创建：`tests/test_environment_check.py`
-- 创建：`docs/stage-c-real-aedt-validation.md`
+```bash
+.venv/bin/python -m pytest tests/test_node_catalog.py -q
+```
 
-- [ ] 实现 `EnvironmentReport`，字段包括：
+必须证明：
+
+- 每个可执行节点都有 metadata。
+- catalog JSON 不包含 Python callable 或本机路径。
+- 节点 input/output schema 可被序列化。
+
+## Milestone 2：Workflow 数据模型
+
+**目标：** 定义完整 workflow 表达，不再只是一串 benchmark node calls。
+
+建议模型：
+
+```json
+{
+  "workflow_id": "microstrip_sparameter_v1",
+  "name": "Microstrip S-Parameter",
+  "version": "0.1.0",
+  "parameters": {},
+  "nodes": [
+    {
+      "id": "substrate",
+      "node_id": "create_conductor_or_geometry_group",
+      "inputs": {}
+    }
+  ],
+  "edges": [
+    {
+      "from": "substrate.output.object_name",
+      "to": "wave_port.inputs.reference"
+    }
+  ],
+  "validation": [],
+  "outputs": []
+}
+```
+
+任务：
+
+- [x] 实现 `Workflow`, `WorkflowNode`, `WorkflowEdge`, `WorkflowParameter`, `WorkflowOutput`。
+- [x] 支持 workflow 级参数：
+  - 默认值
+  - 单位
+  - 合法范围
+  - UI label
+- [x] 支持节点引用：
+  - `node_id.output.field`
+  - workflow parameter 引用
+- [x] 支持 workflow JSON 读写。
+- [x] 保持和现有 Stage B node plan 的兼容转换。
+
+验收：
+
+```bash
+.venv/bin/python -m pytest tests/test_workflow_models.py -q
+```
+
+## Milestone 3：Workflow Validator
+
+**目标：** 在启动 AEDT 前发现 workflow 的结构问题，减少无意义的 AEDT 启动和长 timeout。
+
+任务：
+
+- [x] 校验节点是否存在于 catalog。
+- [x] 校验输入是否满足节点 schema。
+- [x] 校验 edge 引用是否存在。
+- [x] 校验节点顺序或 DAG 依赖是否可解析。
+- [x] 校验单位/参数范围。
+- [x] 校验高风险节点的 prerequisite：
+  - port 前必须有几何/face/object 引用。
+  - boundary 前必须有 region/airbox/object。
+  - sweep 前必须有 setup。
+- [x] 输出结构化错误，供聊天修复 loop 使用。
+
+验收：
+
+```bash
+.venv/bin/python -m pytest tests/test_workflow_validator.py -q
+```
+
+## Milestone 4：Workflow Executor
+
+**目标：** 把 workflow 执行统一落到现有 controlled node executor，不允许自由代码 fallback。
+
+任务：
+
+- [x] 实现 `WorkflowExecutor`。
+- [x] 将 workflow DAG/topological order 转成 `execute_node` 调用。
+- [x] 保存每个节点的：
+  - inputs
+  - outputs
+  - elapsed time
+  - AEDT snapshot summary
+  - postcheck result
+  - error log
+- [x] 支持失败后停止并返回 repair context。
+- [x] 支持从指定节点继续执行，但必须保证依赖状态可验证。
+- [x] 输出统一 artifact：
+  - `workflow_run.json`
+  - `audit.jsonl`
+  - `validation.json`
+  - `report.html`
+
+验收：
+
+```bash
+.venv/bin/python -m pytest tests/test_workflow_executor.py -q
+```
+
+真实 AEDT smoke 作为手动命令，不默认进入 CI。
+
+## Milestone 5：模板 Workflow Catalog
+
+**目标：** 让新手可以直接选择模板，不需要从空白节点图开始。
+
+第一批模板建议：
+
+- HFSS microstrip S-parameter。
+- HFSS wave port setup。
+- HFSS lumped port setup。
+- HFSS radiation boundary + airbox。
+- Simple antenna setup。
+
+每个模板必须包含：
+
+- workflow JSON。
+- 参数说明。
+- 适用场景。
+- 输出结果。
+- validation checks。
+- 已知限制。
+
+任务：
+
+- [x] 定义 `WorkflowTemplate`。
+- [x] 实现模板加载与参数实例化。
+- [x] 至少沉淀 3 个模板。
+- [x] 模板必须可由 validator 通过。
+- [x] 模板必须能导出给 UI。
+
+验收：
+
+```bash
+.venv/bin/python -m pytest tests/test_workflow_templates.py -q
+```
+
+## Milestone 6：Inspector + 更强 Validation
+
+**目标：** 把判定依据从“节点无异常”升级为“真实 AEDT 模型事实满足 workflow 目标”。
+
+任务：
+
+- [x] 实现 `inspect_aedt_model()`，输出统一模型事实：
+  - objects
+  - materials
+  - faces/ref summaries
+  - ports
+  - boundaries
+  - setups
+  - sweeps
+  - reports
+- [x] 定义 validation rule：
+  - object exists
+  - material assigned
+  - port exists
+  - port assignment valid
+  - boundary exists
+  - setup exists
+  - sweep attached to setup
+  - airbox/radiation relation valid
+- [x] validation 输出机器可读 JSON 和人类可读 summary。
+- [x] repair context 必须包含 validation failure，而不是只包含 Python exception。
+
+验收：
+
+```bash
+.venv/bin/python -m pytest tests/test_inspector_validation.py -q
+```
+
+## Milestone 7：聊天生成 Workflow
+
+**目标：** 主模型根据用户需求选择模板或生成节点 workflow，而不是直接写 PyAEDT。
+
+任务：
+
+- [x] 定义聊天 planner 输入：
+  - user request
+  - node catalog
+  - workflow templates
+  - optional retrieved context
+- [x] 定义 planner 输出：
+  - selected_template 或 generated_workflow
+  - missing_information
+  - assumptions
+  - confidence
+  - validation_errors
+- [x] 支持三条路径：
+  - 直接选择模板。
+  - 选择模板并填参数。
+  - 从节点 catalog 生成新 workflow。
+- [x] planner 输出必须经过 workflow validator。
+- [x] 若缺少关键参数，返回澄清问题，不启动 AEDT。
+- [x] 若执行失败，把 audit/validation/error log 汇总成 repair context，再让 planner 修改 workflow。
+
+验收：
+
+```bash
+.venv/bin/python -m pytest tests/test_chat_workflow_planner.py -q
+```
+
+## Milestone 8：受控节点进化
+
+**目标：** 把“节点进化”作为 Stage C 亮点，但必须保持受控：从失败模式和高频 workflow 中发现节点缺口，生成候选方案，经过 benchmark/validation 回归和人工审核后才进入 catalog。
+
+节点进化解决的问题：
+
+- 某类任务总需要多个低层节点拼接，用户拖拽成本高。
+- 聊天入口反复生成相同子图，说明应该沉淀为模板或复合节点。
+- benchmark/真实执行中反复出现同类失败，说明节点 schema、normalization、postcheck 或引用机制需要升级。
+- 官方 examples/GitNexus 中存在稳定 API 模式，可以沉淀为节点能力。
+
+受控流程：
 
 ```text
-os_name
-is_windows
-python_version
-pyaedt_importable
-aedt_version_hint
-license_hint
-workspace_writable
-errors
-warnings
+audit / benchmark / user workflows
+        ↓
+failure + usage pattern mining
+        ↓
+node gap report
+        ↓
+candidate node proposal
+        ↓
+schema + implementation draft
+        ↓
+unit tests + fake adapter tests
+        ↓
+real AEDT smoke / benchmark regression
+        ↓
+human review
+        ↓
+candidate/stable catalog release
 ```
 
-- [ ] 实现 `check_environment(workspace: Path) -> EnvironmentReport`。
+任务：
 
-- [ ] 测试必须覆盖：
+- [x] 定义 `NodeEvolutionProposal`：
+  - `proposal_id`
+  - `source`
+  - `problem_pattern`
+  - `affected_tasks`
+  - `recommended_action`
+  - `candidate_node_metadata`
+  - `required_tests`
+  - `risk_level`
+  - `review_status`
+- [x] 实现 failure miner：
+  - 从 benchmark report / audit jsonl 中统计高频失败。
+  - 识别 repeated repair patterns。
+  - 识别常被组合在一起的 node subgraph。
+- [x] 实现 proposer：
+  - 输出“新增节点 / 升级节点 schema / 增加 normalization / 增加 postcheck / 升级模板”的建议。
+  - 不直接修改 stable catalog。
+- [x] 实现 evaluator：
+  - 候选节点必须有单元测试。
+  - 候选节点必须通过相关 workflow validator。
+  - 若涉及 AEDT 行为，必须有真实 AEDT smoke 或标记为 manual-gated。
+  - 候选节点不得降低现有 benchmark 成功率。
+- [x] 定义 release policy：
+  - experimental -> candidate -> stable -> deprecated。
+  - 每次升级必须记录版本、兼容性和迁移说明。
+  - stable 发布需要人工审核。
+- [x] 生成节点进化报告：
+  - 当前节点缺口。
+  - 推荐新增/升级节点。
+  - 证据来源。
+  - 风险和验收标准。
+
+验收：
+
+```bash
+.venv/bin/python -m pytest tests/test_node_evolution.py -q
+```
+
+必须证明：
+
+- LLM/agent 只能生成 proposal，不能自动把节点发布成 stable。
+- proposal 可以追溯到 benchmark/audit/workflow 证据。
+- evaluator 能阻止缺少 schema/test/validation 的候选节点进入 candidate。
+
+## Milestone 9：轻量产品 Demo
+
+**目标：** 先证明产品链路，不追求完整 UI。
+
+建议先做 CLI/TUI 或极简 Web：
+
+```bash
+.venv/bin/python scripts/list_workflow_templates.py
+.venv/bin/python scripts/run_workflow_template.py --template microstrip_sparameter --params params.json
+.venv/bin/python scripts/plan_workflow_from_chat.py --request "create a microstrip s-parameter simulation"
+```
+
+Demo 必须展示：
+
+- [x] 查看节点 catalog。
+- [x] 查看模板列表。
+- [x] 选择模板并填参数。
+- [x] 从自然语言生成 workflow。
+- [x] 从 benchmark/audit 生成节点进化 proposal。
+- [x] validator 拦截缺参/错误引用。
+- [x] controlled executor 执行 workflow。
+- [x] HTML 报告展示 audit、validation、artifact。
+
+## Milestone 10：真实 AEDT Workflow Smoke
+
+**目标：** 证明 Stage C 的产品链路不是只在 fake adapter 上成立，而是可以通过同一条 controlled executor 路径启动 AEDT 2026.1 non-graphical 并完成一个完整 workflow。
+
+任务：
+
+- [x] 增加真实 smoke 启动脚本：
+  - `scripts/run_stage_c_real_workflow_smoke.py`
+  - 默认 adapter 为 `real`，可用 `--adapter fake` 做快速契约测试。
+  - 使用 `PyaedtAdapter`，默认 `non_graphical=True`。
+  - 输出 `workflow_run.json`、`validation.json`、`audit.jsonl`、`report.html`、`smoke_summary.json`。
+- [x] 将 inspector/model validation 接入 `WorkflowExecutor` 正式 artifact：
+  - `workflow_run.json` 包含 `model_facts` 和 `model_validation`。
+  - `validation.json` 同时包含 workflow preflight validation 和 AEDT model validation。
+  - validation 失败时返回 `model_validation_failed` repair context。
+- [x] 规范 PyAEDT 返回对象名，避免 setup/sweep 输出变成对象 repr。
+- [x] 跑通真实 AEDT smoke：
+
+```bash
+.venv/bin/python scripts/run_stage_c_real_workflow_smoke.py \
+  --adapter real \
+  --template microstrip_sparameter \
+  --run-dir benchmarks/runs/stage_c_real_microstrip_smoke \
+  --timeout-seconds 600
+```
+
+结果：
+
+- AEDT 2026.1 non-graphical 启动成功。
+- `microstrip_sparameter` workflow 执行成功。
+- 创建 `Substrate`、`Trace`、`Setup1`、`Sweep1`。
+- model validation：`Validation passed (3/3 checks).`
+
+## Milestone 11：第二个真实 AEDT Smoke（Port 类节点）
+
+**目标：** 在第一个真实 smoke 覆盖 geometry/setup/sweep 后，继续覆盖 port 类节点，证明 `select_face -> create_port` 也能在真实 AEDT 中通过 controlled workflow 执行和模型事实 validation。
+
+任务：
+
+- [x] 用现有 `wave_port_setup` 模板跑真实 AEDT smoke。
+- [x] 修正 `PyaedtAdapter.snapshot_state()`，从 PyAEDT boundary/port props 中提取 assignment 证据：
+  - `Faces`
+  - `Objects`
+  - `Sheets`
+  - `Assignment`
+- [x] 增强 `port_assignment_valid`，支持从真实 PyAEDT props 中读取到的 face id list。
+- [x] 增加单测锁住 PyAEDT boundary props 提取逻辑。
+
+执行命令：
+
+```bash
+.venv/bin/python scripts/run_stage_c_real_workflow_smoke.py \
+  --adapter real \
+  --template wave_port_setup \
+  --run-dir benchmarks/runs/stage_c_real_wave_port_smoke \
+  --timeout-seconds 600
+```
+
+结果：
+
+- AEDT 2026.1 non-graphical 启动成功。
+- `wave_port_setup` workflow 执行成功。
+- 创建 `WaveguideSection` 和 `Port1`。
+- 从真实 PyAEDT port props 抽取 `Faces: [12]`。
+- model validation：`Validation passed (3/3 checks).`
+
+## Milestone 12：第三个真实 AEDT Smoke（Boundary 类节点）
+
+**目标：** 覆盖 `create_airbox + assign_boundary`，证明真实 AEDT 下 radiation boundary 不只是创建成功，还能从 PyAEDT props 中提取 assignment 证据并通过模型事实 validation。
+
+任务：
+
+- [x] 用现有 `radiation_airbox_setup` 模板跑真实 AEDT smoke。
+- [x] 将模板 validation 从“boundary exists”增强为“radiation boundary 必须引用 AirBox”：
+  - `object_exists: AirBox`
+  - `boundary_exists: Radiation`
+  - `airbox_radiation_relation_valid: Radiation`
+- [x] 复用 `PyaedtAdapter.snapshot_state()` 的 boundary props 提取能力，从真实 PyAEDT `Objects` 中抽取 assignment。
+
+执行命令：
+
+```bash
+.venv/bin/python scripts/run_stage_c_real_workflow_smoke.py \
+  --adapter real \
+  --template radiation_airbox_setup \
+  --run-dir benchmarks/runs/stage_c_real_radiation_airbox_smoke \
+  --timeout-seconds 600
+```
+
+结果：
+
+- AEDT 2026.1 non-graphical 启动成功。
+- `radiation_airbox_setup` workflow 执行成功。
+- 创建 `Radiator`、`AirBox`、`Radiation`。
+- 从真实 PyAEDT boundary props 抽取 `Objects: ["AirBox"]`。
+- model validation：`Validation passed (3/3 checks).`
+
+## Milestone 13：真实 AEDT Smoke Dashboard
+
+**目标：** 把 3 个真实 AEDT smoke 的结果汇总成一个适合展示的中文 dashboard，避免汇报时逐个打开 run 目录和 JSON。
+
+任务：
+
+- [x] 新增脚本：
+  - `scripts/generate_stage_c_smoke_dashboard.py`
+- [x] 默认读取 3 个真实 run：
+  - `benchmarks/runs/stage_c_real_microstrip_smoke`
+  - `benchmarks/runs/stage_c_real_wave_port_smoke`
+  - `benchmarks/runs/stage_c_real_radiation_airbox_smoke`
+- [x] 输出：
+  - `benchmarks/reports/stage_c_real_smoke_dashboard.html`
+  - `benchmarks/reports/stage_c_real_smoke_dashboard.json`
+- [x] dashboard 展示：
+  - 真实 smoke 通过数。
+  - validation success rate。
+  - 覆盖的节点能力。
+  - 每个模板的节点序列、validation summary 和 artifact 路径。
+
+结果：
+
+- 3/3 真实 AEDT smoke 通过。
+- 覆盖：`airbox`、`boundary`、`geometry`、`port`、`selection`、`setup`、`sweep`。
+
+## Milestone 14：节点进化 Proposal 审核报告
+
+**目标：** 把节点进化从 JSON 数据变成可展示、可审核的报告，同时明确边界：proposal 不是 stable 节点，必须经过测试、真实 AEDT/manual gate、benchmark regression 和人工审核。
+
+任务：
+
+- [x] 新增脚本：
+  - `scripts/generate_node_evolution_review.py`
+- [x] 输入：
+  - `benchmarks/reports/stage_c_node_evolution_report.json`
+- [x] 输出：
+  - `benchmarks/reports/stage_c_node_evolution_review.html`
+  - `benchmarks/reports/stage_c_node_evolution_review.json`
+- [x] 报告展示：
+  - evidence 数量。
+  - proposal 数量。
+  - 推荐动作分布。
+  - 风险分布。
+  - 每个 proposal 的 candidate node、证据、required tests、gate 状态和 blockers。
+- [x] 默认所有 proposal 仍保持审核态，不自动发布 stable。
+
+结果：
+
+- 23 条 evidence。
+- 11 个 proposal。
+- 10 个 `add_node`，1 个 `add_normalization`。
+- 11 个 proposal 全部为 `needs_review`，符合受控节点进化策略。
+
+## Milestone 15：Stage C Demo Index
+
+**目标：** 给汇报和演示提供一个统一入口，不再让观众分别打开多个 HTML/JSON 文件。
+
+任务：
+
+- [x] 新增脚本：
+  - `scripts/generate_stage_c_demo_index.py`
+- [x] 输出：
+  - `benchmarks/reports/stage_c_demo_index.html`
+  - `benchmarks/reports/stage_c_demo_index.json`
+- [x] Index 汇总：
+  - Stage C 阶段性报告。
+  - 真实 AEDT smoke dashboard。
+  - 节点进化 proposal 审核报告。
+  - 关键 JSON artifacts。
+- [x] 从已有 smoke/evolution JSON 中读取摘要指标：
+  - 真实 smoke 3/3 通过。
+  - 节点能力覆盖 7 类。
+  - 节点进化 proposal 11 个。
+
+## Stage C 成功标准
+
+Stage C MVP 完成时应满足：
+
+- 至少 3 个 workflow 模板可运行。
+- 至少 8 个节点有完整 metadata/schema/version。
+- 至少 1 个节点进化 proposal 能从 benchmark/audit 中自动生成，并被 evaluator 拦截或准入为 candidate。
+- workflow validator 能拦截常见结构错误。
+- 聊天入口能在模板选择和简单 workflow 生成之间做判断。
+- 执行路径仍是 controlled node executor，自由 Python 执行次数为 0。
+- 每次 workflow run 都有 audit、validation、artifact 和 HTML report。
+- 真实 AEDT smoke 至少覆盖 1 个完整 workflow。
+- 单元测试通过，报告不包含本机绝对路径、API key、base URL。
+
+## 建议执行顺序
+
+1. 节点 catalog metadata。
+2. workflow model。
+3. workflow validator。
+4. workflow executor。
+5. workflow templates。
+6. inspector + validation rules。
+7. chat workflow planner。
+8. node evolution proposal/evaluator。
+9. demo/report。
+
+优先级判断：
+
+- 能提升节点可组合性的，优先。
+- 能让模板复用节点的，优先。
+- 能让聊天入口不写自由代码的，优先。
+- 能把高频失败沉淀为受控节点进化 proposal 的，优先。
+- 纯图谱增强、自动发布节点、优化 agent 暂缓。
+
+## 当前阶段的工程边界
+
+Stage C 仍然可以继续用 GitNexus/官方 examples 作为知识来源，但它们只作为 planner 的检索上下文，不是产品主轴。产品主轴是：
 
 ```text
-非 Windows 环境给 warning，而不是崩溃
-workspace 不可写时报 error
-pyaedt 不可导入时报 warning
+稳定节点 -> 可验证 workflow -> 模板 -> 聊天生成/修复 -> 节点进化 proposal -> 真实 AEDT 执行报告
 ```
-
-- [ ] 文档 `docs/stage-c-real-aedt-validation.md` 必须说明：
-
-```text
-真实 AEDT 验证需要 Windows + AEDT Desktop + license
-CI 默认只跑 fake adapter
-真实 AEDT 测试需人工或专用机器触发
-```
-
-**验收：**
-
-```powershell
-python -m pytest tests/test_environment_check.py -q
-```
-
-通过。
-
----
-
-## 任务 2：实现 PyaedtAdapter 合同层
-
-**目标：** 用真实 pyaedt 实现 Stage B 定义的 `AedtAdapter` 协议，但不改变 `SessionManager`、`ExecutionQueue`、`NodeExecutor`。
-
-**文件：**
-- 创建：`src/aedt_agent/mcp/pyaedt_adapter.py`
-- 创建：`tests/test_pyaedt_adapter_contract.py`
-
-- [ ] 定义 `PyaedtAdapter`，公开方法必须与协议一致：
-
-```python
-class PyaedtAdapter:
-    def health_check(self) -> bool:
-        ...
-
-    def execute_code(self, code: str) -> dict:
-        ...
-
-    def snapshot_state(self) -> dict:
-        ...
-```
-
-- [ ] `execute_code` 必须只接收已通过 `AstGuard` 的代码。
-
-- [ ] `snapshot_state` 至少返回：
-
-```text
-project_id
-design_id
-objects
-ports
-boundaries
-setups
-reports
-```
-
-- [ ] 单元测试不启动 AEDT，只验证：
-
-```text
-PyaedtAdapter 有三个协议方法
-缺少 pyaedt 时错误信息清晰
-SessionManager 可接收 adapter_factory
-```
-
-- [ ] 真实 AEDT smoke test 作为手动命令写入文档，不默认进 pytest。
-
-**验收：**
-
-```powershell
-python -m pytest tests/test_pyaedt_adapter_contract.py -q
-```
-
-通过。
-
----
-
-## 任务 3：图谱 Provider 抽象
-
-**目标：** 在不影响 SQLiteProvider 的前提下，为 Graphify/GitNexus 增加统一接口。
-
-**文件：**
-- 创建：`src/aedt_agent/knowledge/graph_provider_interface.py`
-- 创建：`tests/test_graph_provider_contract.py`
-
-- [ ] 定义图谱查询结果：
-
-```text
-GraphSymbol
-  fqname
-  symbol_type
-  signature
-  module
-  neighbors
-  source
-
-GraphContext
-  query
-  symbols
-  call_edges
-  confidence
-```
-
-- [ ] 定义接口：
-
-```python
-class GraphProvider:
-    def search_symbols(self, query: str, limit: int = 10) -> list[GraphSymbol]:
-        ...
-
-    def get_context(self, fqname: str, depth: int = 1) -> GraphContext:
-        ...
-
-    def get_api_scope_candidates(self, node_id: str, seed_apis: list[str]) -> list[str]:
-        ...
-```
-
-- [ ] 测试用 fake provider 验证接口行为。
-
-**验收：**
-
-```powershell
-python -m pytest tests/test_graph_provider_contract.py -q
-```
-
-通过。
-
----
-
-## 任务 4：GraphifyProvider 作为 MIT 优先图谱后端
-
-**目标：** 优先实现商业友好的图谱后端。Graphify 不要求成为主链路，只提供可选增强。
-
-**文件：**
-- 创建：`src/aedt_agent/knowledge/graphify_provider.py`
-- 修改：`tests/test_graph_provider_contract.py`
-
-- [ ] `GraphifyProvider` 从 Graphify 导出的 JSON 图读取符号和邻接关系。
-
-- [ ] 支持：
-
-```text
-search_symbols(query)
-get_context(fqname, depth)
-get_api_scope_candidates(node_id, seed_apis)
-```
-
-- [ ] 测试使用小型 fixture JSON，不依赖真实 Graphify 安装。
-
-- [ ] 如果 JSON schema 不匹配，返回清晰错误。
-
-**验收：**
-
-```powershell
-python -m pytest tests/test_graph_provider_contract.py -q
-```
-
-通过。
-
----
-
-## 任务 5：GitNexusProvider 作为授权后增强项
-
-**目标：** 保留 GitNexus 的 Process/context/Cypher 价值，但明确授权门槛。
-
-**文件：**
-- 创建：`src/aedt_agent/knowledge/gitnexus_provider.py`
-- 创建：`docs/stage-c-gitnexus-authorization.md`
-
-- [ ] `GitNexusProvider` 必须默认禁用，只有显式配置 `ENABLE_GITNEXUS=1` 才可初始化。
-
-- [ ] 初始化时必须检查授权配置：
-
-```text
-research_only=true
-commercial_license_confirmed=true/false
-```
-
-- [ ] 未确认商业授权时，商业模式初始化必须失败并给出错误信息。
-
-- [ ] 文档必须写清：
-
-```text
-GitNexus 使用 PolyForm Noncommercial
-商业交付默认不依赖 GitNexus
-Graphify/SQLite 是默认安全路线
-```
-
-**验收：**
-
-```powershell
-python -m pytest tests/test_graph_provider_contract.py -q
-```
-
-通过，且默认不会尝试启动 GitNexus。
-
----
-
-## 任务 6：节点版本治理
-
-**目标：** 防止节点进化变成维护地狱。节点版本必须可比较、可锁定、可回归。
-
-**文件：**
-- 创建：`src/aedt_agent/nodes/versioning.py`
-- 创建：`tests/test_node_versioning.py`
-
-- [ ] 实现：
-
-```text
-NodeVersion
-NodeCompatibility
-NodeUpgradePolicy
-```
-
-- [ ] 节点版本规则：
-
-```text
-patch: prompt/metadata 修复，不改变输入输出
-minor: 新增可选输入或 validation
-major: 改变输入输出或行为语义
-```
-
-- [ ] workflow 引用节点时必须锁定：
-
-```text
-node_id
-version_constraint
-```
-
-- [ ] 旧 workflow 不自动升级 major version。
-
-**验收：**
-
-```powershell
-python -m pytest tests/test_node_versioning.py -q
-```
-
-通过。
-
----
-
-## 任务 7：节点评估与准入门禁
-
-**目标：** 将 Stage A/B 指标固化为节点 catalog 准入机制。
-
-**文件：**
-- 创建：`src/aedt_agent/nodes/evaluation.py`
-- 创建：`tests/test_node_evaluation.py`
-
-- [ ] 实现 `NodeEvalResult`，字段包括：
-
-```text
-node_id
-version
-benchmark_count
-two_round_success_rate
-semantic_pass_rate
-postcheck_coverage
-known_trap_coverage
-recommendation
-```
-
-- [ ] 实现 `evaluate_node_for_stability(result) -> recommendation`。
-
-- [ ] 稳定准入规则：
-
-```text
-benchmark_count >= 3
-two_round_success_rate >= 0.85
-semantic_pass_rate >= 0.70
-postcheck_coverage == 1.0
-known_trap_coverage >= 0.80
-```
-
-- [ ] 不达标节点保持 `candidate`，不得进入 `stable`。
-
-**验收：**
-
-```powershell
-python -m pytest tests/test_node_evaluation.py -q
-```
-
-通过。
-
----
-
-## 任务 8：节点进化建议机制
-
-**目标：** 支持报错驱动和评估驱动的节点改进，但默认人工审核。
-
-**文件：**
-- 创建：`src/aedt_agent/nodes/evolution.py`
-- 创建：`docs/stage-c-node-evolution-policy.md`
-
-- [ ] 实现 `EvolutionProposal`：
-
-```text
-proposal_id
-node_id
-current_version
-trigger_type
-observed_failures
-proposed_change_type
-proposed_diff_summary
-risk_level
-requires_human_review
-```
-
-- [ ] 支持触发类型：
-
-```text
-traceback_pattern
-validation_failure
-benchmark_regression
-cost_optimization
-user_request
-```
-
-- [ ] 所有 proposal 默认 `requires_human_review = true`。
-
-- [ ] 文档明确禁止运行时自动生成新节点进入正式 catalog。
-
-**验收：**
-
-```powershell
-python -m pytest tests/test_node_evaluation.py tests/test_node_versioning.py -q
-```
-
-通过。
-
----
-
-## 任务 9：Geometry Semantic Validator
-
-**目标：** 把 silent failure 的第一道防线从节点 postcheck 扩展到几何规则。
-
-**文件：**
-- 创建：`src/aedt_agent/validation/geometry_rules.py`
-- 修改：`tests/test_semantic_validators.py`
-
-- [ ] 实现规则：
-
-```text
-validate_ground_plane_exists
-validate_airbox_padding
-validate_port_face_is_exterior
-validate_no_required_object_missing
-```
-
-- [ ] 输入使用 Stage B `snapshot_state()` 格式。
-
-- [ ] 规则返回统一 `ValidationOutcome`。
-
-- [ ] 测试覆盖：
-
-```text
-缺 ground 失败
-airbox padding 不足失败
-外部 face 检查通过
-必需对象存在通过
-```
-
-**验收：**
-
-```powershell
-python -m pytest tests/test_semantic_validators.py -q
-```
-
-通过。
-
----
-
-## 任务 10：Simulation Semantic Validator
-
-**目标：** 检查 setup、sweep 和求解配置是否合理。
-
-**文件：**
-- 创建：`src/aedt_agent/validation/simulation_rules.py`
-- 修改：`tests/test_semantic_validators.py`
-
-- [ ] 实现规则：
-
-```text
-validate_setup_exists
-validate_excitation_exists_before_solve
-validate_sweep_covers_target_frequency
-validate_convergence_settings_present
-```
-
-- [ ] 测试覆盖：
-
-```text
-无 setup 失败
-无 port/excitation 失败
-sweep 未覆盖目标频率失败
-有 convergence 配置通过
-```
-
-**验收：**
-
-```powershell
-python -m pytest tests/test_semantic_validators.py -q
-```
-
-通过。
-
----
-
-## 任务 11：Physics Semantic Validator
-
-**目标：** 对求解结果做基础物理 sanity check，不替代专家判断。
-
-**文件：**
-- 创建：`src/aedt_agent/validation/physics_rules.py`
-- 修改：`tests/test_semantic_validators.py`
-
-- [ ] 实现规则：
-
-```text
-validate_sparameter_range
-validate_resonance_presence_hint
-validate_efficiency_range_if_available
-```
-
-- [ ] 明确规则性质：
-
-```text
-只给 warning 或 validation failure
-不自动修改模型
-不声称替代工程判断
-```
-
-- [ ] 测试使用合成结果数据，不依赖真实求解。
-
-**验收：**
-
-```powershell
-python -m pytest tests/test_semantic_validators.py -q
-```
-
-通过。
-
----
-
-## 任务 12：轻量 Workflow Planner
-
-**目标：** 在不做完整可视化 DAG 平台的前提下，用稳定节点规划小型 workflow。
-
-**文件：**
-- 创建：`src/aedt_agent/workflow/models.py`
-- 创建：`src/aedt_agent/workflow/planner.py`
-- 创建：`tests/test_workflow_planner.py`
-
-- [ ] 定义：
-
-```text
-WorkflowStep
-WorkflowPlan
-WorkflowEdge
-```
-
-- [ ] Planner 输入：
-
-```text
-natural_language_requirement
-workflow_case_id
-available_nodes
-```
-
-- [ ] MVP planner 可以基于 workflow case 的 `workflow_steps` 生成 plan，不需要大模型。
-
-- [ ] 类型检查规则：
-
-```text
-ObjectId 不能直接接需要 FaceId 的节点
-create_port 前必须有 select_face
-create_setup 前必须有 excitation
-```
-
-**验收：**
-
-```powershell
-python -m pytest tests/test_workflow_planner.py -q
-```
-
-通过。
-
----
-
-## 任务 13：轻量 Workflow Executor
-
-**目标：** 串行执行 planner 生成的 workflow，仍然通过 `execute_node`，不绕过节点路径。
-
-**文件：**
-- 创建：`src/aedt_agent/workflow/executor.py`
-- 修改：`tests/test_workflow_planner.py`
-
-- [ ] Executor 输入：
-
-```text
-WorkflowPlan
-session_id
-McpToolKernel
-```
-
-- [ ] 执行策略：
-
-```text
-严格串行
-每步记录 node result
-失败立即停止
-每步后读取 model_info
-```
-
-- [ ] 不实现并行 DAG。
-
-- [ ] 不使用 `execute_script_restricted`。
-
-**验收：**
-
-```powershell
-python -m pytest tests/test_workflow_planner.py -q
-```
-
-通过。
-
----
-
-## 任务 14：产品化入口评估
-
-**目标：** 在后端能力稳定后，决定是否做 CLI、MCP-only、或轻量 Web UI。
-
-**文件：**
-- 创建：`docs/stage-c-product-entrypoints.md`
-
-- [ ] 文档比较三种产品入口：
-
-```text
-MCP-only: 最轻，适合接 Claude/Cursor/Codex
-CLI: 适合离线企业环境和自动化评测
-轻量 Web UI: 适合展示 workflow 和 validation，但不做完整 ComfyUI
-```
-
-- [ ] 推荐顺序：
-
-```text
-1. MCP-only
-2. CLI
-3. 轻量 Web UI
-4. 完整节点编辑器
-```
-
-- [ ] 明确完整 ComfyUI 风格编辑器不进入 Stage C 初期。
-
-**验收：**
-
-文档中必须包含“何时不做 UI”的判断：
-
-```text
-如果 Stage B/C 的 validation 和 real AEDT adapter 仍不稳定，不投入 UI。
-```
-
----
-
-## 任务 15：Stage C 总体验收
-
-**目标：** 确保 Stage C 没有破坏 Stage A/B 的安全边界。
-
-**验收命令：**
-
-```powershell
-python -m pytest -q
-```
-
-必须通过。
-
-**安全边界复核：**
-
-- [ ] `execute_node` 仍是正式执行入口。
-- [ ] `execute_script_restricted` 仍不出现在正式 workflow executor 中。
-- [ ] GraphProvider 不替代 API 语义库，只做增强。
-- [ ] GitNexus 默认禁用。
-- [ ] 节点进化默认人工审核。
-- [ ] Workflow executor 不做并行 AEDT 写操作。
-- [ ] 真实 AEDT 测试有独立开关，不污染普通 CI。
-
-**Stage C 完成定义：**
-
-```text
-Fake adapter 全测试通过
-PyaedtAdapter 合同测试通过
-GraphProvider 合同测试通过
-节点版本/评估/进化策略通过测试
-几何/仿真/物理 validator 通过合成数据测试
-轻量 workflow planner/executor 通过 fake adapter 测试
-```
-
----
-
-## 自检
-
-规格覆盖度：
-
-- 真实 AEDT 接入：任务 1、2 覆盖。
-- 图谱增强：任务 3、4、5 覆盖。
-- 授权风险：任务 5 覆盖。
-- 节点版本与进化：任务 6、7、8 覆盖。
-- Semantic Validator：任务 9、10、11 覆盖。
-- 工作流规划与执行：任务 12、13 覆盖。
-- 产品入口：任务 14 覆盖。
-- Stage A/B 安全边界复核：任务 15 覆盖。
-
-未完成标记扫描：
-
-- 本计划没有把未决内容作为实现步骤。
-- Stage C 的未知外部依赖通过合同测试、文档和启用条件约束。
-
-类型一致性：
-
-- `PyaedtAdapter` 满足 Stage B 的 `AedtAdapter` 协议。
-- `GraphProvider` 独立于 `KnowledgeProvider`，不污染 SQLite 路径。
-- `WorkflowExecutor` 只依赖 `McpToolKernel.execute_node`。
-- 节点进化只产生 proposal，不直接改 stable catalog。
-

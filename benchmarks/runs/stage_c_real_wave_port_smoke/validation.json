@@ -1,0 +1,112 @@
+{
+  "model": {
+    "checks": [
+      {
+        "details": {},
+        "message": "object exists: WaveguideSection",
+        "passed": true,
+        "rule": "object_exists",
+        "target": "WaveguideSection"
+      },
+      {
+        "details": {},
+        "message": "port exists: Port1",
+        "passed": true,
+        "rule": "port_exists",
+        "target": "Port1"
+      },
+      {
+        "details": {
+          "assignment": [
+            12
+          ]
+        },
+        "message": "port Port1 assignment is valid",
+        "passed": true,
+        "rule": "port_assignment_valid",
+        "target": "Port1"
+      }
+    ],
+    "failed_checks": [],
+    "passed": true,
+    "summary": "Validation passed (3/3 checks)."
+  },
+  "model_facts": {
+    "boundaries": {},
+    "design_id": "HFSSDesign1",
+    "faces": {
+      "WaveguideSection": [
+        7,
+        9,
+        10,
+        11,
+        8,
+        12
+      ]
+    },
+    "materials": {
+      "WaveguideSection": "copper"
+    },
+    "objects": {
+      "WaveguideSection": {
+        "faces": [
+          7,
+          9,
+          10,
+          11,
+          8,
+          12
+        ],
+        "material": "copper"
+      }
+    },
+    "ports": {
+      "Port1": {
+        "assignment": [
+          12
+        ],
+        "props": {
+          "DoDeembed": false,
+          "Faces": [
+            12
+          ],
+          "Modes": {
+            "Mode1": {
+              "AlignmentGroup": 0,
+              "CharImp": "Zpi",
+              "ModeNum": 1,
+              "RenormImp": "50ohm",
+              "UseIntLine": false
+            }
+          },
+          "NumModes": 1,
+          "RenormalizeAllTerminals": true,
+          "ReporterFilter": [
+            true
+          ],
+          "ShowReporterFilter": false,
+          "UseAnalyticAlignment": false,
+          "UseLineModeAlignment": false
+        },
+        "type": "Wave Port"
+      }
+    },
+    "project_id": "stage-c-wave_port_setup-smoke",
+    "reports": {},
+    "setups": {},
+    "summary": {
+      "boundary_count": 0,
+      "object_count": 1,
+      "port_count": 1,
+      "report_count": 0,
+      "setup_count": 0,
+      "sweep_count": 0
+    },
+    "sweeps": {}
+  },
+  "workflow": {
+    "errors": [],
+    "passed": true,
+    "warnings": []
+  }
+}

@@ -1,0 +1,137 @@
+{
+  "assumptions": [
+    "Selected template microstrip_sparameter from request keywords."
+  ],
+  "confidence": 0.82,
+  "generated_workflow": {
+    "description": "Starter workflow for a simple microstrip S-parameter setup.",
+    "edges": [
+      {
+        "from": "setup.output.setup_name",
+        "to": "sweep.inputs.setup"
+      }
+    ],
+    "metadata": {
+      "template_id": "microstrip_sparameter",
+      "template_name": "HFSS Microstrip S-Parameter"
+    },
+    "name": "Microstrip S-Parameter",
+    "nodes": [
+      {
+        "id": "substrate",
+        "inputs": {
+          "material": "FR4_epoxy",
+          "name": "Substrate",
+          "origin": [
+            -25,
+            -10,
+            0
+          ],
+          "size": [
+            50,
+            20,
+            1.6
+          ]
+        },
+        "node_id": "create_substrate"
+      },
+      {
+        "id": "trace",
+        "inputs": {
+          "geometry": [
+            {
+              "kind": "rectangle",
+              "material": "copper",
+              "name": "Trace",
+              "orientation": "XY",
+              "origin": [
+                -20,
+                -1,
+                1.6
+              ],
+              "size": [
+                40,
+                2
+              ]
+            }
+          ]
+        },
+        "node_id": "create_conductor_or_geometry_group"
+      },
+      {
+        "id": "setup",
+        "inputs": {
+          "frequency": {
+            "$ref": "parameters.frequency"
+          },
+          "name": "Setup1"
+        },
+        "node_id": "create_setup"
+      },
+      {
+        "id": "sweep",
+        "inputs": {
+          "name": "Sweep1",
+          "points": 101,
+          "setup": {
+            "$ref": "setup.output.setup_name"
+          },
+          "start": "1GHz",
+          "stop": {
+            "$ref": "parameters.sweep_stop"
+          }
+        },
+        "node_id": "create_sweep_or_export"
+      }
+    ],
+    "outputs": [
+      {
+        "description": "Created adaptive setup name.",
+        "name": "setup",
+        "source": "setup.output.setup_name"
+      },
+      {
+        "description": "Created sweep name.",
+        "name": "sweep",
+        "source": "sweep.output.sweep_name"
+      }
+    ],
+    "parameters": [
+      {
+        "default": "5GHz",
+        "description": "",
+        "label": "Adaptive frequency",
+        "name": "frequency",
+        "type": "string",
+        "unit": "GHz"
+      },
+      {
+        "default": "20GHz",
+        "description": "",
+        "label": "Sweep stop",
+        "name": "sweep_stop",
+        "type": "string",
+        "unit": "GHz"
+      }
+    ],
+    "validation": [
+      {
+        "rule": "object_exists",
+        "target": "Substrate"
+      },
+      {
+        "rule": "setup_exists",
+        "target": "Setup1"
+      },
+      {
+        "rule": "sweep_exists",
+        "target": "Sweep1"
+      }
+    ],
+    "version": "0.1.0",
+    "workflow_id": "microstrip_sparameter_v1"
+  },
+  "missing_information": [],
+  "selected_template": "microstrip_sparameter",
+  "validation_errors": []
+}

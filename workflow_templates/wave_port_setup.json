@@ -1,0 +1,86 @@
+{
+  "template_id": "wave_port_setup",
+  "name": "HFSS Wave Port Setup",
+  "description": "Create a simple conductor, select a face, and assign a wave port.",
+  "scenario": "Use this when a workflow needs a minimal face-based wave-port pattern.",
+  "tags": ["hfss", "port", "wave-port", "starter"],
+  "validation_checks": ["objects_exist", "face_selected", "port_created"],
+  "known_limits": ["The selected face is structural; electromagnetic suitability must be checked by stronger validation."],
+  "workflow": {
+    "workflow_id": "wave_port_setup_v1",
+    "name": "Wave Port Setup",
+    "version": "0.1.0",
+    "description": "Minimal workflow for assigning a wave port to a selected face.",
+    "parameters": [
+      {
+        "name": "port_name",
+        "type": "string",
+        "default": "Port1",
+        "label": "Port name"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "conductor",
+        "node_id": "create_conductor_or_geometry_group",
+        "inputs": {
+          "geometry": [
+            {
+              "kind": "box",
+              "origin": [0, 0, 0],
+              "size": [10, 4, 2],
+              "name": "WaveguideSection",
+              "material": "copper"
+            }
+          ]
+        }
+      },
+      {
+        "id": "port_face",
+        "node_id": "select_face",
+        "inputs": {
+          "object_name": {
+            "$ref": "conductor.output.object_name"
+          },
+          "axis": "x",
+          "side": "max"
+        }
+      },
+      {
+        "id": "wave_port",
+        "node_id": "create_port",
+        "inputs": {
+          "port_type": "wave",
+          "assignment": {
+            "$ref": "port_face.output.selected_face_id"
+          },
+          "name": {
+            "$ref": "parameters.port_name"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "from": "conductor.output.object_name",
+        "to": "port_face.inputs.object_name"
+      },
+      {
+        "from": "port_face.output.selected_face_id",
+        "to": "wave_port.inputs.assignment"
+      }
+    ],
+    "validation": [
+      {"rule": "object_exists", "target": "WaveguideSection"},
+      {"rule": "port_exists", "target": "Port1"},
+      {"rule": "port_assignment_valid", "target": "Port1"}
+    ],
+    "outputs": [
+      {
+        "name": "port",
+        "source": "wave_port.output.port_name",
+        "description": "Created wave port name."
+      }
+    ]
+  }
+}

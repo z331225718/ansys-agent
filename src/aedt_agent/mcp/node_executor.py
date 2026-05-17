@@ -261,7 +261,7 @@ def _create_setup(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
     if isinstance(frequency, (int, float)):
         frequency = f"{frequency}GHz"
     setup = app.create_setup(name=inputs["name"], Frequency=frequency, MaximumPasses=inputs["max_passes"])
-    return _node_output(setups=[str(setup)], postchecks=["setup_created"])
+    return _node_output(setups=[_aedt_object_name(setup, inputs["name"])], postchecks=["setup_created"])
 
 
 def _create_sweep(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
@@ -275,7 +275,16 @@ def _create_sweep(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
     unit_arg = "unit" if "unit" in signature.parameters else "units"
     kwargs[unit_arg] = _frequency_unit(inputs["start"], inputs["stop"])
     sweep = app.create_linear_count_sweep(inputs["setup"], **kwargs)
-    return _node_output(sweeps=[str(sweep)], postchecks=["sweep_created"])
+    return _node_output(sweeps=[_aedt_object_name(sweep, inputs["name"])], postchecks=["sweep_created"])
+
+
+def _aedt_object_name(value: Any, fallback: str) -> str:
+    name = getattr(value, "name", None)
+    if isinstance(name, str) and name:
+        return name
+    if isinstance(value, str) and value:
+        return value
+    return fallback
 
 
 def _get_object_faces(app: Any, object_name: str) -> list[dict[str, Any]]:

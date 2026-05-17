@@ -1,0 +1,116 @@
+{
+  "model": {
+    "checks": [
+      {
+        "details": {},
+        "message": "object exists: AirBox",
+        "passed": true,
+        "rule": "object_exists",
+        "target": "AirBox"
+      },
+      {
+        "details": {},
+        "message": "boundary exists: Radiation",
+        "passed": true,
+        "rule": "boundary_exists",
+        "target": "Radiation"
+      },
+      {
+        "details": {
+          "assignment": [
+            "AirBox"
+          ]
+        },
+        "message": "radiation boundary Radiation references model object",
+        "passed": true,
+        "rule": "airbox_radiation_relation_valid",
+        "target": "Radiation"
+      }
+    ],
+    "failed_checks": [],
+    "passed": true,
+    "summary": "Validation passed (3/3 checks)."
+  },
+  "model_facts": {
+    "boundaries": {
+      "Radiation": {
+        "assignment": [
+          "AirBox"
+        ],
+        "props": {
+          "IsForPML": false,
+          "IsFssReference": false,
+          "Objects": [
+            "AirBox"
+          ]
+        },
+        "type": "Radiation"
+      }
+    },
+    "design_id": "HFSSDesign1",
+    "faces": {
+      "AirBox": [
+        35,
+        37,
+        38,
+        39,
+        36,
+        40
+      ],
+      "Radiator": [
+        7,
+        9,
+        10,
+        11,
+        8,
+        12
+      ]
+    },
+    "materials": {
+      "AirBox": "air",
+      "Radiator": "copper"
+    },
+    "objects": {
+      "AirBox": {
+        "faces": [
+          35,
+          37,
+          38,
+          39,
+          36,
+          40
+        ],
+        "material": "air"
+      },
+      "Radiator": {
+        "faces": [
+          7,
+          9,
+          10,
+          11,
+          8,
+          12
+        ],
+        "material": "copper"
+      }
+    },
+    "ports": {},
+    "project_id": "stage-c-radiation_airbox_setup-smoke",
+    "reports": {},
+    "setups": {},
+    "summary": {
+      "boundary_count": 1,
+      "object_count": 2,
+      "port_count": 0,
+      "report_count": 0,
+      "setup_count": 0,
+      "sweep_count": 0
+    },
+    "sweeps": {}
+  },
+  "workflow": {
+    "errors": [],
+    "passed": true,
+    "warnings": []
+  }
+}
