@@ -37,7 +37,7 @@ def render_demo_page() -> str:
   <section class="hero">
     <div>
       <h1>AEDT Agent End-to-End Demo</h1>
-      <div class="muted">固定演示一个完整的 Microstrip S-Parameter Workflow：创建几何、空气盒、辐射边界、wave port、setup/sweep、solve、后处理，并输出可追溯 artifact。</div>
+      <div class="muted">固定演示一个完整的 Microstrip S-Parameter Workflow：创建几何、空气盒、辐射边界、lumped port、setup/sweep、solve、后处理，并输出可追溯 artifact。</div>
     </div>
     <div class="pill">Real AEDT graphical run · offline fallback available</div>
   </section>
@@ -61,12 +61,12 @@ def render_demo_page() -> str:
       <h2>流程进度</h2>
       <div class="flow">
         <div class="step" id="step-substrate"><div class="index">1</div><div><b>Create Substrate</b><div class="muted">创建 FR4 substrate</div></div><div class="state">pending</div></div>
-        <div class="step" id="step-trace"><div class="index">2</div><div><b>Create Ground, Trace & Port Sheets</b><div class="muted">端口 sheet 以 trace 中心线对齐</div></div><div class="state">pending</div></div>
+        <div class="step" id="step-trace"><div class="index">2</div><div><b>Create Ground, Trace & Port Sheets</b><div class="muted">端口 sheet 与 trace 等宽</div></div><div class="state">pending</div></div>
         <div class="step" id="step-pec"><div class="index">3</div><div><b>Assign PEC Conductors</b><div class="muted">给 ground 和 trace 设置 Perfect E</div></div><div class="state">pending</div></div>
         <div class="step" id="step-airbox"><div class="index">4</div><div><b>Create Airbox</b><div class="muted">创建空气盒</div></div><div class="state">pending</div></div>
         <div class="step" id="step-radiation"><div class="index">5</div><div><b>Assign Radiation</b><div class="muted">设置辐射边界</div></div><div class="state">pending</div></div>
-        <div class="step" id="step-wave-port-1"><div class="index">6</div><div><b>Create Wave Port P1</b><div class="muted">输入端 wave port</div></div><div class="state">pending</div></div>
-        <div class="step" id="step-wave-port-2"><div class="index">7</div><div><b>Create Wave Port P2</b><div class="muted">输出端 wave port</div></div><div class="state">pending</div></div>
+        <div class="step" id="step-lumped-port-1"><div class="index">6</div><div><b>Create Lumped Port P1</b><div class="muted">输入端 lumped port</div></div><div class="state">pending</div></div>
+        <div class="step" id="step-lumped-port-2"><div class="index">7</div><div><b>Create Lumped Port P2</b><div class="muted">输出端 lumped port</div></div><div class="state">pending</div></div>
         <div class="step" id="step-setup"><div class="index">8</div><div><b>Create Setup</b><div class="muted">创建 HFSS adaptive setup</div></div><div class="state">pending</div></div>
         <div class="step" id="step-sweep"><div class="index">9</div><div><b>Create Sweep</b><div class="muted">创建 frequency sweep</div></div><div class="state">pending</div></div>
         <div class="step" id="step-solve"><div class="index">10</div><div><b>Solve Setup</b><div class="muted">运行 AEDT 仿真</div></div><div class="state">pending</div></div>
@@ -110,20 +110,20 @@ function setStep(id, state) {
   node.className = 'state ' + (state === 'done' ? 'ok' : state === 'failed' ? 'fail' : '');
 }
 function resetSteps() {
-  ['step-substrate','step-trace','step-pec','step-airbox','step-radiation','step-wave-port-1','step-wave-port-2','step-setup','step-sweep','step-solve','step-postprocess','step-validation'].forEach(id => setStep(id, 'pending'));
+  ['step-substrate','step-trace','step-pec','step-airbox','step-radiation','step-lumped-port-1','step-lumped-port-2','step-setup','step-sweep','step-solve','step-postprocess','step-validation'].forEach(id => setStep(id, 'pending'));
 }
 async function loadFixedWorkflow() {
   const data = await api('/api/templates/microstrip_sparameter');
   document.getElementById('rawResult').textContent = JSON.stringify(data.workflow, null, 2);
 }
 function renderResult(result) {
-  const stepMap = {'substrate':'step-substrate','trace':'step-trace','ground_pec':'step-pec','trace_pec':'step-pec','airbox':'step-airbox','radiation':'step-radiation','wave_port_1':'step-wave-port-1','wave_port_2':'step-wave-port-2','setup':'step-setup','sweep':'step-sweep','solve':'step-solve','postprocess':'step-postprocess'};
+  const stepMap = {'substrate':'step-substrate','trace':'step-trace','ground_pec':'step-pec','trace_pec':'step-pec','airbox':'step-airbox','radiation':'step-radiation','lumped_port_1':'step-lumped-port-1','lumped_port_2':'step-lumped-port-2','setup':'step-setup','sweep':'step-sweep','solve':'step-solve','postprocess':'step-postprocess'};
   for (const step of (result.steps || [])) {
     if (stepMap[step.step_id]) setStep(stepMap[step.step_id], step.status === 'succeeded' ? 'done' : 'failed');
   }
   if (!result.steps || result.steps.length === 0) {
     const state = result.status === 'failed' ? 'failed' : 'running';
-    ['step-substrate','step-trace','step-pec','step-airbox','step-radiation','step-wave-port-1','step-wave-port-2','step-setup','step-sweep','step-solve','step-postprocess'].forEach(id => setStep(id, state));
+    ['step-substrate','step-trace','step-pec','step-airbox','step-radiation','step-lumped-port-1','step-lumped-port-2','step-setup','step-sweep','step-solve','step-postprocess'].forEach(id => setStep(id, state));
   }
   const validationPassed = result.model_validation && result.model_validation.passed;
   setStep('step-validation', validationPassed ? 'done' : (result.status === 'failed' ? 'failed' : 'running'));

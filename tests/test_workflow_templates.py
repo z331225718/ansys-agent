@@ -57,7 +57,7 @@ def test_template_instantiation_overrides_parameter_defaults():
     assert _validator().validate(workflow).passed is True
 
 
-def test_microstrip_template_uses_pec_and_centered_port_sheets():
+def test_microstrip_template_uses_pec_and_trace_width_lumped_port_sheets():
     template = WorkflowTemplate.from_file(Path("workflow_templates/microstrip_sparameter.json"))
     nodes = {node.id: node for node in template.workflow.nodes}
 
@@ -65,8 +65,14 @@ def test_microstrip_template_uses_pec_and_centered_port_sheets():
     port_sheet_1 = next(item for item in geometry if item["name"] == "PortSheet1")
     port_sheet_2 = next(item for item in geometry if item["name"] == "PortSheet2")
 
-    assert port_sheet_1["origin"] == [-20, -2.8, 0]
-    assert port_sheet_2["origin"] == [20, -2.8, 0]
+    assert port_sheet_1["origin"] == [-20, -1, 0]
+    assert port_sheet_1["size"] == [2, 1.6]
+    assert port_sheet_2["origin"] == [20, -1, 0]
+    assert port_sheet_2["size"] == [2, 1.6]
+    assert nodes["lumped_port_1"].node_id == "create_port"
+    assert nodes["lumped_port_1"].inputs["port_type"] == "lumped"
+    assert nodes["lumped_port_2"].node_id == "create_port"
+    assert nodes["lumped_port_2"].inputs["port_type"] == "lumped"
     assert nodes["ground_pec"].inputs == {
         "assignment": "Ground",
         "boundary_type": "Perfect_E",

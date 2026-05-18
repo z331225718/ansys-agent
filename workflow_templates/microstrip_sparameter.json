@@ -1,7 +1,7 @@
 {
   "template_id": "microstrip_sparameter",
   "name": "HFSS Microstrip S-Parameter",
-  "description": "Create, excite, solve, and postprocess a minimal microstrip-like HFSS workflow.",
+  "description": "Create, excite with lumped ports, solve, and postprocess a minimal microstrip-like HFSS workflow.",
   "scenario": "Use this as a starter workflow for a visible end-to-end S-parameter demo.",
   "tags": ["hfss", "s-parameter", "microstrip", "starter"],
   "validation_checks": ["objects_exist", "material_matches", "boundary_created", "port_created", "setup_created", "sweep_created", "setup_solved", "sparameter_report_created"],
@@ -68,16 +68,16 @@
             {
               "kind": "rectangle",
               "orientation": "YZ",
-              "origin": [-20, -2.8, 0],
-              "size": [5.6, 1.6],
+              "origin": [-20, -1, 0],
+              "size": [2, 1.6],
               "name": "PortSheet1",
               "material": "vacuum"
             },
             {
               "kind": "rectangle",
               "orientation": "YZ",
-              "origin": [20, -2.8, 0],
-              "size": [5.6, 1.6],
+              "origin": [20, -1, 0],
+              "size": [2, 1.6],
               "name": "PortSheet2",
               "material": "vacuum"
             }
@@ -122,11 +122,12 @@
         }
       },
       {
-        "id": "wave_port_1",
-        "node_id": "create_wave_port",
+        "id": "lumped_port_1",
+        "node_id": "create_port",
         "inputs": {
+          "port_type": "lumped",
           "assignment": "PortSheet1",
-          "reference": "Ground",
+          "impedance": 50,
           "integration_line": {
             "start": [-20, 0, 1.6],
             "end": [-20, 0, 0]
@@ -135,11 +136,12 @@
         }
       },
       {
-        "id": "wave_port_2",
-        "node_id": "create_wave_port",
+        "id": "lumped_port_2",
+        "node_id": "create_port",
         "inputs": {
+          "port_type": "lumped",
           "assignment": "PortSheet2",
-          "reference": "Ground",
+          "impedance": 50,
           "integration_line": {
             "start": [20, 0, 1.6],
             "end": [20, 0, 0]

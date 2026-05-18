@@ -13,7 +13,7 @@ def test_render_demo_page_contains_workspace_sections():
     assert "Create Ground, Trace" in html
     assert "Create Airbox" in html
     assert "Assign Radiation" in html
-    assert "Create Wave Port P1" in html
+    assert "Create Lumped Port P1" in html
     assert "Create Setup" in html
     assert "Create Sweep" in html
     assert "Solve Setup" in html
