@@ -31,6 +31,7 @@ class DemoRunJob:
     template_id: str
     adapter: str
     run_dir: Path
+    graphical: bool = True
     status: str = "queued"
     started_at: float = field(default_factory=time.time)
     finished_at: float | None = None
@@ -51,6 +52,7 @@ class DemoRunJob:
             "job_id": self.job_id,
             "template_id": self.template_id,
             "adapter": self.adapter,
+            "graphical": self.graphical,
             "status": self.status,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
@@ -173,6 +175,7 @@ class DemoService:
         adapter = str(payload.get("adapter") or "real")
         if adapter not in {"real", "fake"}:
             raise ValueError("adapter must be real or fake")
+        graphical = bool(payload.get("graphical", True))
         parameters = payload.get("parameters", {})
         if not isinstance(parameters, dict):
             raise TypeError("parameters must be a JSON object")
@@ -183,7 +186,7 @@ class DemoService:
             json.dumps(parameters, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
-        job = DemoRunJob(job_id=job_id, template_id=template_id, adapter=adapter, run_dir=run_dir)
+        job = DemoRunJob(job_id=job_id, template_id=template_id, adapter=adapter, run_dir=run_dir, graphical=graphical)
         with self._jobs_lock:
             self._jobs[job_id] = job
         thread = threading.Thread(target=self._run_real_job, args=(job, run_dir / "params.json"), daemon=True)
@@ -236,9 +239,11 @@ class DemoService:
             "--run-dir",
             str(job.run_dir),
         ]
+        if job.adapter == "real":
+            command.append("--graphical" if job.graphical else "--non-graphical")
         job.status = "running"
         (job.run_dir / "stdout.log").write_text(
-            "Starting AEDT workflow smoke in non-graphical mode.\n"
+            f"Starting AEDT workflow smoke in {'graphical' if job.graphical else 'non-graphical'} mode.\n"
             f"Command: {' '.join(command)}\n",
             encoding="utf-8",
         )

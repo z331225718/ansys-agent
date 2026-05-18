@@ -39,7 +39,7 @@ def render_demo_page() -> str:
       <h1>AEDT Agent End-to-End Demo</h1>
       <div class="muted">固定演示一个完整的 Microstrip S-Parameter Workflow：创建几何、创建 setup、创建 sweep、执行 validation，并输出可追溯 artifact。</div>
     </div>
-    <div class="pill">Real AEDT non-graphical run · offline fallback available</div>
+    <div class="pill">Real AEDT graphical run · offline fallback available</div>
   </section>
 
   <section class="grid">
@@ -54,7 +54,7 @@ def render_demo_page() -> str:
         <button class="secondary" onclick="runOfflineDemo()">Run Offline Demo</button>
         <button class="secondary" onclick="loadFixedWorkflow()">Preview Workflow</button>
       </div>
-      <div class="muted">主路径会启动真实 AEDT non-graphical smoke。离线模式只使用 fake adapter，用于无 license 环境展示结构。节点 catalog、planner 和 benchmark 等调试入口在 <a href="/advanced">Advanced 工作台</a>。</div>
+      <div class="muted">主路径会启动真实 AEDT 图形界面并执行 smoke。离线模式只使用 fake adapter，用于无 license 环境展示结构。节点 catalog、planner 和 benchmark 等调试入口在 <a href="/advanced">Advanced 工作台</a>。</div>
     </aside>
 
     <section class="panel stack">
@@ -129,7 +129,7 @@ async function runRealAedtDemo() {
   resetSteps();
   document.getElementById('statusMetric').textContent = 'running';
   document.getElementById('validationMetric').textContent = 'launching AEDT';
-  const payload = {template_id:'microstrip_sparameter', parameters:{frequency:document.getElementById('frequency').value, sweep_stop:document.getElementById('sweepStop').value}};
+  const payload = {template_id:'microstrip_sparameter', graphical:true, parameters:{frequency:document.getElementById('frequency').value, sweep_stop:document.getElementById('sweepStop').value}};
   const started = await api('/api/run-real', {method:'POST', body:JSON.stringify(payload)});
   renderResult(started);
   let result = started;

@@ -47,6 +47,7 @@ def test_demo_service_real_run_job_can_use_fake_adapter(tmp_path):
 
     assert status["status"] == "succeeded"
     assert status["adapter"] == "fake"
+    assert status["graphical"] is True
     assert status["model_validation"]["passed"] is True
     assert Path(status["artifacts"]["workflow_run"]).exists()
     assert Path(status["artifacts"]["stdout"]).exists()

@@ -2,7 +2,7 @@
 
 ## 这个 Demo 展示什么
 
-Stage C Demo 用来展示 AEDT Agent 的产品化闭环。默认首页现在固定演示一个真实 AEDT non-graphical microstrip S-parameter workflow，避免把 catalog、planner、benchmark 调试入口混在一起：
+Stage C Demo 用来展示 AEDT Agent 的产品化闭环。默认首页现在固定演示一个真实 AEDT graphical microstrip S-parameter workflow，避免把 catalog、planner、benchmark 调试入口混在一起：
 
 ```text
 固定 Microstrip S-Parameter Workflow
@@ -22,7 +22,7 @@ Artifact / Validation / Report
 
 - 节点 catalog 已经结构化。
 - workflow template 可以复用。
-- 首页可以一键启动真实 AEDT non-graphical workflow。
+- 首页可以一键启动真实 AEDT graphical workflow，演示时能看到 AEDT GUI 打开。
 - 自然语言请求可以在 Advanced 工作台中规划成 workflow。
 - workflow 会先 validation，再执行。
 - demo run 会生成可追溯 artifact。
@@ -157,7 +157,7 @@ curl -s -X POST http://127.0.0.1:8765/api/run \
 
 ## 真实 AEDT 与离线模式
 
-浏览器首页默认主按钮会启动真实 AEDT non-graphical smoke。它依赖本机 AEDT 2026.1、license 和 `~/ansys_inc` 安装路径，运行时间明显长于 fake adapter。离线 fake adapter 仍保留为 fallback，因为真实 AEDT：
+浏览器首页默认主按钮会启动真实 AEDT graphical smoke。它依赖本机 AEDT 2026.1、license、桌面环境和 `~/ansys_inc` 安装路径，运行时间明显长于 fake adapter。离线 fake adapter 仍保留为 fallback，因为真实 AEDT：
 
 - 依赖本机安装和 license。
 - 启动慢，容易受进程状态影响。
@@ -167,6 +167,12 @@ curl -s -X POST http://127.0.0.1:8765/api/run \
 
 ```bash
 .venv/bin/python scripts/run_stage_c_real_workflow_smoke.py --template microstrip_sparameter --adapter real
+```
+
+如果要强制打开 AEDT GUI：
+
+```bash
+.venv/bin/python scripts/run_stage_c_real_workflow_smoke.py --template microstrip_sparameter --adapter real --graphical
 ```
 
 Stage C 中也已经跑通过 3 个真实 workflow：

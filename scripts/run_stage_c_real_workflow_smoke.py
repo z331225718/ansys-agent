@@ -33,6 +33,9 @@ def main() -> None:
     parser.add_argument("--ansysem-root", default="")
     parser.add_argument("--awp-root", default="")
     parser.add_argument("--timeout-seconds", type=float, default=300.0)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--non-graphical", dest="non_graphical", action="store_true", default=True)
+    mode.add_argument("--graphical", dest="non_graphical", action="store_false")
     args = parser.parse_args()
 
     run_dir = Path(args.run_dir)
@@ -59,6 +62,7 @@ def main() -> None:
         json.dumps(
             {
                 "adapter": args.adapter,
+                "non_graphical": args.non_graphical if args.adapter == "real" else None,
                 "template": args.template,
                 "status": result.status,
                 "step_count": len(result.steps),
@@ -84,7 +88,7 @@ def _adapter_factory(args: argparse.Namespace):
         project_id=project_id,
         design_id=design_id,
         version=args.aedt_version,
-        non_graphical=True,
+        non_graphical=args.non_graphical,
         ansysem_root=args.ansysem_root,
         awp_root=args.awp_root,
     )

@@ -15,6 +15,7 @@ def test_render_demo_page_contains_workspace_sections():
     assert "Create Sweep" in html
     assert "Run Real AEDT" in html
     assert "Run Offline Demo" in html
+    assert "graphical:true" in html
     assert "Validation Result" in html
     assert "真实 AEDT Smoke" in html
 

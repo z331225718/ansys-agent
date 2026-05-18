@@ -117,6 +117,7 @@ def test_run_stage_c_real_workflow_smoke_supports_fake_adapter(tmp_path, monkeyp
 
     summary = json.loads((run_dir / "smoke_summary.json").read_text(encoding="utf-8"))
     assert summary["adapter"] == "fake"
+    assert summary["non_graphical"] is None
     assert summary["status"] == "succeeded"
     assert (run_dir / "workflow_run.json").exists()
     assert (run_dir / "validation.json").exists()
