@@ -39,7 +39,7 @@ def render_demo_page() -> str:
       <h1>AEDT Agent End-to-End Demo</h1>
       <div class="muted">固定演示一个完整的 Microstrip S-Parameter Workflow：创建几何、创建 setup、创建 sweep、执行 validation，并输出可追溯 artifact。</div>
     </div>
-    <div class="pill">Browser AEDT execution disabled · fake adapter demo</div>
+    <div class="pill">Real AEDT non-graphical run · offline fallback available</div>
   </section>
 
   <section class="grid">
@@ -50,10 +50,11 @@ def render_demo_page() -> str:
         <div class="field"><label for="sweepStop">Sweep Stop</label><input id="sweepStop" value="10GHz"></div>
       </div>
       <div class="row">
-        <button onclick="runEndToEndDemo()">Run Demo</button>
+        <button onclick="runRealAedtDemo()">Run Real AEDT</button>
+        <button class="secondary" onclick="runOfflineDemo()">Run Offline Demo</button>
         <button class="secondary" onclick="loadFixedWorkflow()">Preview Workflow</button>
       </div>
-      <div class="muted">本页只展示一个固定 workflow。节点 catalog、planner 和 benchmark 等调试入口在 <a href="/advanced">Advanced 工作台</a>。</div>
+      <div class="muted">主路径会启动真实 AEDT non-graphical smoke。离线模式只使用 fake adapter，用于无 license 环境展示结构。节点 catalog、planner 和 benchmark 等调试入口在 <a href="/advanced">Advanced 工作台</a>。</div>
     </aside>
 
     <section class="panel stack">
@@ -108,24 +109,43 @@ async function loadFixedWorkflow() {
   const data = await api('/api/templates/microstrip_sparameter');
   document.getElementById('rawResult').textContent = JSON.stringify(data.workflow, null, 2);
 }
-async function runEndToEndDemo() {
-  resetSteps();
-  document.getElementById('statusMetric').textContent = 'running';
-  document.getElementById('validationMetric').textContent = 'running';
-  const payload = {template_id:'microstrip_sparameter', parameters:{frequency:document.getElementById('frequency').value, sweep_stop:document.getElementById('sweepStop').value}};
-  const result = await api('/api/run', {method:'POST', body:JSON.stringify(payload)});
+function renderResult(result) {
   const stepMap = {'substrate':'step-substrate','trace':'step-trace','setup':'step-setup','sweep':'step-sweep'};
   for (const step of (result.steps || [])) {
     if (stepMap[step.step_id]) setStep(stepMap[step.step_id], step.status === 'succeeded' ? 'done' : 'failed');
   }
-  if (!result.steps) {
-    ['step-substrate','step-trace','step-setup','step-sweep'].forEach(id => setStep(id, result.succeeded ? 'done' : 'failed'));
+  if (!result.steps || result.steps.length === 0) {
+    const state = result.status === 'failed' ? 'failed' : 'running';
+    ['step-substrate','step-trace','step-setup','step-sweep'].forEach(id => setStep(id, state));
   }
-  setStep('step-validation', result.model_validation && result.model_validation.passed ? 'done' : (result.succeeded ? 'done' : 'failed'));
+  const validationPassed = result.model_validation && result.model_validation.passed;
+  setStep('step-validation', validationPassed ? 'done' : (result.status === 'failed' ? 'failed' : 'running'));
   document.getElementById('statusMetric').textContent = result.status;
-  document.getElementById('validationMetric').textContent = result.model_validation && result.model_validation.summary ? result.model_validation.summary : 'not requested';
+  document.getElementById('validationMetric').textContent = result.model_validation && result.model_validation.summary ? result.model_validation.summary : 'waiting';
   document.getElementById('rawResult').textContent = JSON.stringify(result, null, 2);
   document.getElementById('artifacts').innerHTML = Object.entries(result.artifacts || {}).map(([key,value]) => `<a class="artifact" href="/${value}" target="_blank"><b>${key}</b><br>${value}</a>`).join('');
+}
+async function runRealAedtDemo() {
+  resetSteps();
+  document.getElementById('statusMetric').textContent = 'running';
+  document.getElementById('validationMetric').textContent = 'launching AEDT';
+  const payload = {template_id:'microstrip_sparameter', parameters:{frequency:document.getElementById('frequency').value, sweep_stop:document.getElementById('sweepStop').value}};
+  const started = await api('/api/run-real', {method:'POST', body:JSON.stringify(payload)});
+  renderResult(started);
+  let result = started;
+  while (result.status === 'queued' || result.status === 'running') {
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    result = await api('/api/run-real/' + encodeURIComponent(started.job_id));
+    renderResult(result);
+  }
+}
+async function runOfflineDemo() {
+  resetSteps();
+  document.getElementById('statusMetric').textContent = 'offline running';
+  document.getElementById('validationMetric').textContent = 'fake adapter';
+  const payload = {template_id:'microstrip_sparameter', parameters:{frequency:document.getElementById('frequency').value, sweep_stop:document.getElementById('sweepStop').value}};
+  const result = await api('/api/run', {method:'POST', body:JSON.stringify(payload)});
+  renderResult(result);
 }
 loadFixedWorkflow();
 </script>
@@ -305,6 +325,11 @@ def dispatch_demo_request(method: str, path: str, body: bytes, service: DemoServ
             return _json_response(service.validate(_json_body(body)))
         if method == "POST" and route == "/api/run":
             return _json_response(service.run(_json_body(body)))
+        if method == "POST" and route == "/api/run-real":
+            return _json_response(service.start_real_run(_json_body(body)), status=202)
+        if method == "GET" and route.startswith("/api/run-real/"):
+            job_id = unquote(route.rsplit("/", 1)[-1])
+            return _json_response(service.real_run_status(job_id))
         if method == "GET" and route == "/api/reports":
             return _json_response(service.reports())
         if method == "GET" and route.startswith("/reports/"):
@@ -389,4 +414,6 @@ def _content_type_for_path(path: Path) -> str:
         return "application/x-ndjson; charset=utf-8"
     if path.suffix == ".html":
         return "text/html; charset=utf-8"
+    if path.suffix == ".log":
+        return "text/plain; charset=utf-8"
     return "application/octet-stream"

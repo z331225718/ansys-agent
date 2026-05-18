@@ -13,7 +13,8 @@ def test_render_demo_page_contains_workspace_sections():
     assert "Create Trace" in html
     assert "Create Setup" in html
     assert "Create Sweep" in html
-    assert "Run Demo" in html
+    assert "Run Real AEDT" in html
+    assert "Run Offline Demo" in html
     assert "Validation Result" in html
     assert "真实 AEDT Smoke" in html
 
@@ -37,6 +38,23 @@ def test_dispatch_demo_request_serves_api_json(tmp_path):
     assert status == 200
     assert headers["content-type"] == "application/json; charset=utf-8"
     assert b"microstrip_sparameter" in body
+
+
+def test_dispatch_demo_request_starts_real_run_job_with_fake_adapter(tmp_path):
+    service = DemoService(tmp_path, run_dir=tmp_path / "run")
+
+    status, headers, body = dispatch_demo_request(
+        "POST",
+        "/api/run-real",
+        b'{"template_id":"microstrip_sparameter","adapter":"fake"}',
+        service,
+    )
+
+    data = body.decode("utf-8")
+    assert status == 202
+    assert headers["content-type"] == "application/json; charset=utf-8"
+    assert "job_id" in data
+    assert "stage_c_real_demo_" in data
 
 
 def test_dispatch_demo_request_serves_report_html(tmp_path):

@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 
 from aedt_agent.demo.service import DemoService
@@ -15,6 +16,7 @@ def test_demo_service_lists_nodes_templates_and_reports():
     assert len(nodes["nodes"]) >= 8
     assert {item["template_id"] for item in templates["templates"]} >= {"microstrip_sparameter", "wave_port_setup"}
     assert "stage_c_report" in reports["reports"]
+    assert status["real_aedt_from_browser"] is True
 
 
 def test_demo_service_plans_validates_and_runs_fake_template(tmp_path):
@@ -31,3 +33,20 @@ def test_demo_service_plans_validates_and_runs_fake_template(tmp_path):
     assert [step["step_id"] for step in run["steps"]] == ["substrate", "trace", "setup", "sweep"]
     assert Path(run["artifacts"]["workflow_run"]).exists()
     assert Path(run["artifacts"]["report"]).exists()
+
+
+def test_demo_service_real_run_job_can_use_fake_adapter(tmp_path):
+    service = DemoService(Path("."), run_dir=tmp_path / "stage_c1_demo")
+
+    started = service.start_real_run({"template_id": "microstrip_sparameter", "adapter": "fake"})
+    deadline = time.time() + 10
+    status = started
+    while status["status"] in {"queued", "running"} and time.time() < deadline:
+        time.sleep(0.1)
+        status = service.real_run_status(started["job_id"])
+
+    assert status["status"] == "succeeded"
+    assert status["adapter"] == "fake"
+    assert status["model_validation"]["passed"] is True
+    assert Path(status["artifacts"]["workflow_run"]).exists()
+    assert Path(status["artifacts"]["stdout"]).exists()
