@@ -23,6 +23,16 @@ def test_dispatch_demo_request_serves_api_json(tmp_path):
     assert b"microstrip_sparameter" in body
 
 
+def test_dispatch_demo_request_serves_report_html(tmp_path):
+    service = DemoService(Path("."), run_dir=tmp_path / "run")
+
+    status, headers, body = dispatch_demo_request("GET", "/reports/stage_c_real_smoke_dashboard.html", b"", service)
+
+    assert status == 200
+    assert headers["content-type"] == "text/html; charset=utf-8"
+    assert "Stage C".encode() in body
+
+
 def test_stage_c1_demo_start_script_exists():
     script = Path("scripts/run_stage_c1_demo_server.py")
 

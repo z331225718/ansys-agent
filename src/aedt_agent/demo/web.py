@@ -127,6 +127,8 @@ def dispatch_demo_request(method: str, path: str, body: bytes, service: DemoServ
             return _json_response(service.run(_json_body(body)))
         if method == "GET" and route == "/api/reports":
             return _json_response(service.reports())
+        if method == "GET" and route.startswith("/reports/"):
+            return _report_response(service.repo_root, route)
         return _json_response({"error": "not_found", "path": route}, status=404)
     except Exception as exc:
         return _json_response({"error": type(exc).__name__, "message": str(exc)}, status=400)
@@ -175,3 +177,15 @@ def _json_response(data: dict[str, Any], *, status: int = 200) -> tuple[int, dic
 
 def _html_response(html: str) -> tuple[int, dict[str, str], bytes]:
     return 200, {"content-type": "text/html; charset=utf-8"}, html.encode("utf-8")
+
+
+def _report_response(repo_root: Path, route: str) -> tuple[int, dict[str, str], bytes]:
+    report_name = unquote(route.removeprefix("/reports/"))
+    if "/" in report_name or not report_name:
+        return _json_response({"error": "invalid_report_path"}, status=404)
+    report_path = (repo_root / "benchmarks/reports" / report_name).resolve()
+    reports_dir = (repo_root / "benchmarks/reports").resolve()
+    if report_path.parent != reports_dir or not report_path.exists():
+        return _json_response({"error": "report_not_found", "path": report_name}, status=404)
+    content_type = "application/json; charset=utf-8" if report_path.suffix == ".json" else "text/html; charset=utf-8"
+    return 200, {"content-type": content_type}, report_path.read_bytes()
