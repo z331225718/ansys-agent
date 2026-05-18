@@ -27,6 +27,7 @@ def render_demo_page() -> str:
     .params{display:grid;gap:12px}.field{display:grid;gap:6px}.field label{font-size:13px;font-weight:700;color:#344054}.flow{display:grid;gap:10px}.step{display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;padding:12px}
     .index{width:28px;height:28px;border-radius:999px;background:#eef2ff;color:#1d4ed8;display:grid;place-items:center;font-weight:800}.state{font-size:13px;color:var(--muted);font-weight:700}.state.ok{color:var(--green)}.state.fail{color:var(--red)}
     .result{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.metric{border:1px solid var(--line);border-radius:8px;padding:12px;background:#fbfdff}.metric strong{display:block;font-size:22px}.metric span{font-size:13px;color:var(--muted)}
+    .sparams{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.sparam{border:1px solid var(--line);border-radius:8px;padding:12px;background:#fff}.sparam strong{display:block;font-size:26px;margin-bottom:4px}.sparam span{font-size:13px;color:var(--muted)}
     pre{background:var(--slate);color:#e5e7eb;border-radius:8px;padding:12px;overflow:auto;max-height:360px;font-size:12px;line-height:1.45}.artifacts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.artifact{border:1px solid var(--line);border-radius:8px;padding:10px;background:#f8fafc;font-size:13px}
     .reports{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:16px}.report{padding:14px}.report b{display:block;margin-bottom:6px}.advanced{font-size:13px;color:var(--muted)}
     @media(max-width:920px){.hero,.grid,.result,.artifacts,.reports{grid-template-columns:1fr}.page{padding:18px 12px}}
@@ -87,6 +88,11 @@ def render_demo_page() -> str:
       <div class="metric"><strong id="statusMetric">not run</strong><span>Status</span></div>
       <div class="metric"><strong id="validationMetric">not run</strong><span>Validation Result</span></div>
       <div class="metric"><strong id="objectMetric">PEC · P1/P2 · Radiation · S2P</strong><span>Expected Outputs</span></div>
+    </div>
+    <div class="sparams" id="sparams">
+      <div class="sparam"><strong id="s11Metric">--</strong><span>S11 at selected frequency</span></div>
+      <div class="sparam"><strong id="s21Metric">--</strong><span>S21 at selected frequency</span></div>
+      <div class="sparam"><strong id="freqMetric">--</strong><span>Touchstone sample</span></div>
     </div>
     <div class="artifacts" id="artifacts"></div>
     <details>
@@ -155,8 +161,15 @@ function renderResult(result) {
   setStep('step-validation', validationPassed ? 'done' : (result.status === 'failed' ? 'failed' : 'running'));
   document.getElementById('statusMetric').textContent = result.status;
   document.getElementById('validationMetric').textContent = result.model_validation && result.model_validation.summary ? result.model_validation.summary : 'waiting';
+  renderSParameters(result.sparameters || {});
   document.getElementById('rawResult').textContent = JSON.stringify(result, null, 2);
   document.getElementById('artifacts').innerHTML = Object.entries(result.artifacts || {}).map(([key,value]) => `<a class="artifact" href="/${value}" target="_blank"><b>${key}</b><br>${value}</a>`).join('');
+}
+function renderSParameters(sparameters) {
+  const selected = sparameters.selected || {};
+  document.getElementById('s11Metric').textContent = Number.isFinite(selected.s11_db) ? `${selected.s11_db.toFixed(2)} dB` : '--';
+  document.getElementById('s21Metric').textContent = Number.isFinite(selected.s21_db) ? `${selected.s21_db.toFixed(2)} dB` : '--';
+  document.getElementById('freqMetric').textContent = selected.frequency ? `${selected.frequency} ${sparameters.frequency_unit || ''}` : '--';
 }
 async function runRealAedtDemo() {
   syncRequestToParameters();

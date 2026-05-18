@@ -168,6 +168,7 @@ class DemoService:
         }
         if result.outputs.get("touchstone"):
             artifacts["touchstone"] = str(result.outputs["touchstone"])
+        sparameters = _read_demo_sparameters(result.outputs.get("touchstone"), _target_frequency_hz(payload.get("parameters", {})))
         return {
             "workflow_id": result.workflow_id,
             "status": result.status,
@@ -178,6 +179,7 @@ class DemoService:
             "model_validation": result.model_validation,
             "outputs": result.outputs,
             "artifacts": artifacts,
+            "sparameters": sparameters,
         }
 
     def start_real_run(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -318,6 +320,10 @@ def _read_real_run_artifacts(run_dir: Path) -> dict[str, Any]:
         data["validation"] = workflow.get("validation", {})
         data["steps"] = workflow.get("steps", [])
         data["outputs"] = workflow.get("outputs", {})
+    params = _read_json(run_dir / "params.json")
+    outputs = data.get("outputs", {})
+    if isinstance(outputs, dict) and outputs.get("touchstone"):
+        data["sparameters"] = _read_demo_sparameters(outputs.get("touchstone"), _target_frequency_hz(params))
     data["stdout_tail"] = _tail(run_dir / "stdout.log")
     data["stderr_tail"] = _tail(run_dir / "stderr.log")
     return data
@@ -336,6 +342,121 @@ def _tail(path: Path, *, max_lines: int = 60) -> str:
         return ""
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     return "\n".join(lines[-max_lines:])
+
+
+def _read_demo_sparameters(touchstone_path: Any, target_frequency_hz: float | None = None) -> dict[str, Any]:
+    if not isinstance(touchstone_path, str) or not touchstone_path:
+        return {}
+    path = Path(touchstone_path)
+    if not path.exists():
+        return {}
+    option = {"unit": "GHz", "format": "MA"}
+    samples: list[dict[str, Any]] = []
+    for raw_line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("!"):
+            continue
+        if line.startswith("#"):
+            parts = line[1:].split()
+            if parts:
+                option["unit"] = parts[0]
+            if len(parts) >= 3:
+                option["format"] = parts[2]
+            continue
+        values = _floats_from_touchstone_line(line)
+        if len(values) < 9:
+            continue
+        sample = _touchstone_2port_sample(values, option)
+        if sample:
+            samples.append(sample)
+    if not samples:
+        return {}
+    selected = _nearest_sample(samples, target_frequency_hz)
+    return {
+        "source": str(path),
+        "point_count": len(samples),
+        "frequency_unit": option["unit"],
+        "data_format": option["format"],
+        "selected": selected,
+    }
+
+
+def _floats_from_touchstone_line(line: str) -> list[float]:
+    values = []
+    for token in line.split("!")[0].split():
+        try:
+            values.append(float(token))
+        except ValueError:
+            return values
+    return values
+
+
+def _touchstone_2port_sample(values: list[float], option: dict[str, str]) -> dict[str, Any]:
+    unit = option.get("unit", "GHz")
+    data_format = option.get("format", "MA").upper()
+    frequency = values[0]
+    frequency_hz = _frequency_to_hz(frequency, unit)
+    s11 = _pair_to_magnitude(values[1], values[2], data_format)
+    s21 = _pair_to_magnitude(values[3], values[4], data_format)
+    return {
+        "frequency": frequency,
+        "frequency_hz": frequency_hz,
+        "s11_mag": s11,
+        "s21_mag": s21,
+        "s11_db": _magnitude_to_db(s11),
+        "s21_db": _magnitude_to_db(s21),
+    }
+
+
+def _pair_to_magnitude(first: float, second: float, data_format: str) -> float:
+    if data_format == "RI":
+        return (first**2 + second**2) ** 0.5
+    if data_format == "DB":
+        return 10 ** (first / 20)
+    return abs(first)
+
+
+def _magnitude_to_db(value: float) -> float | None:
+    if value <= 0:
+        return None
+    import math
+
+    return 20 * math.log10(value)
+
+
+def _nearest_sample(samples: list[dict[str, Any]], target_frequency_hz: float | None) -> dict[str, Any]:
+    if target_frequency_hz is None:
+        return samples[0]
+    return min(samples, key=lambda item: abs(float(item["frequency_hz"]) - target_frequency_hz))
+
+
+def _target_frequency_hz(parameters: Any) -> float | None:
+    if not isinstance(parameters, dict):
+        return None
+    return _parse_frequency_hz(parameters.get("frequency"))
+
+
+def _parse_frequency_hz(value: Any) -> float | None:
+    if isinstance(value, (int, float)):
+        return float(value)
+    if not isinstance(value, str):
+        return None
+    import re
+
+    match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*([GMK]?Hz)\s*", value, re.IGNORECASE)
+    if not match:
+        return None
+    return _frequency_to_hz(float(match.group(1)), match.group(2))
+
+
+def _frequency_to_hz(value: float, unit: str) -> float:
+    scale = {
+        "hz": 1,
+        "khz": 1e3,
+        "mhz": 1e6,
+        "ghz": 1e9,
+    }
+    return value * scale.get(unit.lower(), 1e9)
 
 
 def _stream_process_logs(

@@ -2,7 +2,7 @@ import time
 from pathlib import Path
 from unittest.mock import Mock
 
-from aedt_agent.demo.service import DemoService, _stream_process_logs
+from aedt_agent.demo.service import DemoService, _read_demo_sparameters, _stream_process_logs
 
 
 def test_demo_service_lists_nodes_templates_and_reports():
@@ -49,6 +49,9 @@ def test_demo_service_plans_validates_and_runs_fake_template(tmp_path):
     validation_targets = {check["target"] for check in run["model_validation"]["checks"]}
     assert {"GroundPerfectE", "TracePerfectE"} <= validation_targets
     assert Path(run["outputs"]["touchstone"]).exists()
+    assert run["sparameters"]["point_count"] == 1
+    assert run["sparameters"]["selected"]["s11_mag"] == 0.0
+    assert run["sparameters"]["selected"]["s21_db"] is None
     assert Path(run["artifacts"]["workflow_run"]).exists()
     assert Path(run["artifacts"]["report"]).exists()
 
@@ -67,8 +70,33 @@ def test_demo_service_real_run_job_can_use_fake_adapter(tmp_path):
     assert status["adapter"] == "fake"
     assert status["graphical"] is True
     assert status["model_validation"]["passed"] is True
+    assert status["sparameters"]["point_count"] == 1
     assert Path(status["artifacts"]["workflow_run"]).exists()
     assert Path(status["artifacts"]["stdout"]).exists()
+
+
+def test_read_demo_sparameters_selects_nearest_frequency_and_converts_to_db(tmp_path):
+    touchstone = tmp_path / "sample.s2p"
+    touchstone.write_text(
+        "\n".join(
+            [
+                "! demo touchstone",
+                "# GHz S MA R 50",
+                "1.0 0.5 0 0.8 0 0.8 0 0.5 0",
+                "2.4 0.25 0 0.9 0 0.9 0 0.25 0",
+                "3.0 0.1 0 0.7 0 0.7 0 0.1 0",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    parsed = _read_demo_sparameters(str(touchstone), target_frequency_hz=2.45e9)
+
+    assert parsed["point_count"] == 3
+    assert parsed["selected"]["frequency"] == 2.4
+    assert round(parsed["selected"]["s11_db"], 2) == -12.04
+    assert round(parsed["selected"]["s21_db"], 2) == -0.92
 
 
 def test_stream_process_logs_writes_files_and_terminal(capsys, tmp_path):
