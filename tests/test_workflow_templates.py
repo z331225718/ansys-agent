@@ -57,6 +57,28 @@ def test_template_instantiation_overrides_parameter_defaults():
     assert _validator().validate(workflow).passed is True
 
 
+def test_microstrip_template_uses_pec_and_centered_port_sheets():
+    template = WorkflowTemplate.from_file(Path("workflow_templates/microstrip_sparameter.json"))
+    nodes = {node.id: node for node in template.workflow.nodes}
+
+    geometry = nodes["trace"].inputs["geometry"]
+    port_sheet_1 = next(item for item in geometry if item["name"] == "PortSheet1")
+    port_sheet_2 = next(item for item in geometry if item["name"] == "PortSheet2")
+
+    assert port_sheet_1["origin"] == [-20, -2.8, 0]
+    assert port_sheet_2["origin"] == [20, -2.8, 0]
+    assert nodes["ground_pec"].inputs == {
+        "assignment": "Ground",
+        "boundary_type": "Perfect_E",
+        "name": "GroundPerfectE",
+    }
+    assert nodes["trace_pec"].inputs == {
+        "assignment": "Trace",
+        "boundary_type": "Perfect_E",
+        "name": "TracePerfectE",
+    }
+
+
 def test_template_full_dict_includes_workflow_for_chat_planner():
     template = WorkflowTemplate.from_file(Path("workflow_templates/wave_port_setup.json"))
 

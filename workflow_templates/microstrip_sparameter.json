@@ -68,7 +68,7 @@
             {
               "kind": "rectangle",
               "orientation": "YZ",
-              "origin": [-20, -4, 0],
+              "origin": [-20, -2.8, 0],
               "size": [5.6, 1.6],
               "name": "PortSheet1",
               "material": "vacuum"
@@ -76,12 +76,30 @@
             {
               "kind": "rectangle",
               "orientation": "YZ",
-              "origin": [20, -4, 0],
+              "origin": [20, -2.8, 0],
               "size": [5.6, 1.6],
               "name": "PortSheet2",
               "material": "vacuum"
             }
           ]
+        }
+      },
+      {
+        "id": "ground_pec",
+        "node_id": "assign_boundary",
+        "inputs": {
+          "assignment": "Ground",
+          "boundary_type": "Perfect_E",
+          "name": "GroundPerfectE"
+        }
+      },
+      {
+        "id": "trace_pec",
+        "node_id": "assign_boundary",
+        "inputs": {
+          "assignment": "Trace",
+          "boundary_type": "Perfect_E",
+          "name": "TracePerfectE"
         }
       },
       {
@@ -203,6 +221,8 @@
     "validation": [
       {"rule": "object_exists", "target": "Substrate"},
       {"rule": "object_exists", "target": "Ground"},
+      {"rule": "boundary_exists", "target": "GroundPerfectE"},
+      {"rule": "boundary_exists", "target": "TracePerfectE"},
       {"rule": "object_exists", "target": "AirBox"},
       {"rule": "boundary_exists", "target": "Radiation"},
       {"rule": "port_exists", "target": "P1"},

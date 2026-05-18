@@ -25,7 +25,7 @@ Artifact / Validation / Report
 - 首页可以一键启动真实 AEDT graphical workflow，演示时能看到 AEDT GUI 打开。
 - 自然语言请求可以在 Advanced 工作台中规划成 workflow。
 - workflow 会先 validation，再执行。
-- demo run 会创建空气盒、辐射边界、两个 wave port，执行 solve，并生成 S 参数报告和 Touchstone artifact。
+- demo run 会创建空气盒、辐射边界、PEC ground/trace、两个居中的 wave port，执行 solve，并生成 S 参数报告和 Touchstone artifact。
 - 真实 AEDT smoke 结果可以从报告入口查看。
 - Stage C.2 增加 planner mode 和 repair loop 展示：主模型只能生成 workflow JSON，后端 validator 决定是否可执行。
 

@@ -34,6 +34,8 @@ def test_demo_service_plans_validates_and_runs_fake_template(tmp_path):
     assert [step["step_id"] for step in run["steps"]] == [
         "substrate",
         "trace",
+        "ground_pec",
+        "trace_pec",
         "airbox",
         "radiation",
         "wave_port_1",
@@ -44,6 +46,8 @@ def test_demo_service_plans_validates_and_runs_fake_template(tmp_path):
         "postprocess",
     ]
     assert run["model_validation"]["passed"] is True
+    validation_targets = {check["target"] for check in run["model_validation"]["checks"]}
+    assert {"GroundPerfectE", "TracePerfectE"} <= validation_targets
     assert Path(run["outputs"]["touchstone"]).exists()
     assert Path(run["artifacts"]["workflow_run"]).exists()
     assert Path(run["artifacts"]["report"]).exists()
