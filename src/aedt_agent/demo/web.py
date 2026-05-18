@@ -15,61 +15,106 @@ def render_demo_page() -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AEDT Agent Stage C.1</title>
+  <title>AEDT Agent 工作台</title>
   <style>
-    body{margin:0;font-family:Arial,'Noto Sans SC',sans-serif;background:#f8fafc;color:#111827}
-    header{padding:18px 24px;border-bottom:1px solid #d1d5db;background:#fff}
-    h1{margin:0;font-size:24px}.layout{display:grid;grid-template-columns:240px minmax(0,1fr) 300px;min-height:calc(100vh - 65px)}
-    nav,aside{background:#fff;border-right:1px solid #d1d5db;padding:16px}aside{border-right:0;border-left:1px solid #d1d5db}
-    main{padding:18px;display:grid;gap:16px}.panel{background:#fff;border:1px solid #d1d5db;border-radius:8px;padding:14px}
-    button,select,textarea,input{font:inherit}button{border:1px solid #1d4ed8;background:#1d4ed8;color:#fff;border-radius:6px;padding:8px 10px;cursor:pointer}
-    textarea{width:100%;min-height:90px}pre{background:#0f172a;color:#e5e7eb;padding:12px;border-radius:6px;overflow:auto;max-height:360px}
-    a{color:#1d4ed8}.muted{color:#6b7280}.stack{display:grid;gap:10px}.row{display:flex;gap:8px;flex-wrap:wrap}
-    @media(max-width:900px){.layout{grid-template-columns:1fr}nav,aside{border:0;border-bottom:1px solid #d1d5db}}
+    :root{--bg:#f4f6f8;--panel:#fff;--line:#d8dee8;--text:#17202c;--muted:#667085;--blue:#1f5eff;--green:#047857;--amber:#a16207}
+    *{box-sizing:border-box}body{margin:0;font-family:Arial,'Noto Sans SC',sans-serif;background:var(--bg);color:var(--text);letter-spacing:0}
+    button,select,textarea,input{font:inherit}button{border:0;background:var(--blue);color:#fff;border-radius:6px;padding:9px 12px;cursor:pointer;font-weight:700}
+    button.secondary{background:#eef2ff;color:#1d4ed8;border:1px solid #c7d2fe}select,textarea{border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--text)}
+    textarea{width:100%;min-height:104px;padding:10px;resize:vertical}.shell{display:grid;grid-template-columns:248px minmax(0,1fr);min-height:100vh}
+    .sidebar{background:#111827;color:#e5e7eb;padding:22px 16px;display:flex;flex-direction:column;gap:18px}.brand{font-size:20px;font-weight:800}.brand span{display:block;color:#9ca3af;font-size:12px;font-weight:400;margin-top:5px}
+    .nav{display:grid;gap:8px}.nav button,.nav a{display:block;text-align:left;text-decoration:none;color:#d1d5db;background:transparent;border:1px solid transparent;border-radius:6px;padding:9px 10px;font-weight:700}.nav button:hover,.nav a:hover{background:#1f2937;color:#fff}
+    .content{padding:22px;display:grid;gap:16px}.topbar{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.title h1{font-size:28px;margin:0 0 6px}.muted{color:var(--muted);line-height:1.5}.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+    .metric,.panel,.report-card{background:var(--panel);border:1px solid var(--line);border-radius:8px}.metric{padding:14px}.metric strong{display:block;font-size:24px}.metric span{color:var(--muted);font-size:13px}
+    .workspace{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(360px,.85fr);gap:16px}.panel{padding:16px}.panel h2{font-size:18px;margin:0 0 12px}.stack{display:grid;gap:12px}.row{display:flex;gap:10px;flex-wrap:wrap}.field{display:grid;gap:6px}.field label{font-size:13px;font-weight:700;color:#344054}
+    .steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.step{border:1px solid var(--line);border-radius:8px;padding:11px;background:#fbfdff}.step b{display:block;margin-bottom:4px}.step small{color:var(--muted)}
+    .preview{background:#111827;color:#e5e7eb;border-radius:8px;padding:12px;overflow:auto;min-height:300px;max-height:520px;font-size:12px;line-height:1.45}.result{background:#f8fafc;border:1px solid var(--line);border-radius:8px;padding:12px;min-height:190px;max-height:520px;overflow:auto;white-space:pre-wrap;font-size:12px}
+    .reports{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.report-card{padding:14px;text-decoration:none;color:var(--text)}.report-card b{display:block;margin-bottom:6px;color:#1d4ed8}.report-card span{color:var(--muted);font-size:13px;line-height:1.45}
+    .status-pill{display:inline-flex;align-items:center;border-radius:999px;background:#ecfdf3;color:var(--green);padding:5px 10px;font-size:13px;font-weight:700;white-space:nowrap}
+    @media(max-width:1040px){.shell{grid-template-columns:1fr}.sidebar{position:static}.workspace,.metrics,.reports{grid-template-columns:1fr}.topbar{display:grid}}
   </style>
 </head>
 <body>
-<header><h1>AEDT Agent Stage C.1</h1><div class="muted">节点化 workflow demo / fake adapter execution / report links</div></header>
-<div class="layout">
-  <nav class="stack">
-    <strong>Navigation</strong>
-    <button onclick="loadNodes()">Nodes</button>
-    <button onclick="loadTemplates()">Templates</button>
-    <button onclick="loadReports()">Reports</button>
-    <a href="/reports/stage_c_real_smoke_dashboard.html" target="_blank">真实 AEDT Smoke</a>
-    <a href="/reports/stage_c_node_evolution_review.html" target="_blank">节点进化 Review</a>
-    <a href="/reports/stage_c2_planner_benchmark.html" target="_blank">Planner Benchmark</a>
-  </nav>
-  <main>
-    <section class="panel stack">
-      <h2>Planner</h2>
-      <label>Planner Mode
-        <select id="plannerMode">
-          <option value="deterministic">deterministic</option>
-          <option value="llm">llm</option>
-        </select>
-      </label>
-      <textarea id="request">create a microstrip s-parameter simulation at 5GHz</textarea>
-      <div class="row">
-        <button onclick="planWorkflow()">Plan</button>
-        <button onclick="validateWorkflow()">Validate</button>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">AEDT Agent<span>Stage C.2 workflow workstation</span></div>
+    <div class="nav">
+      <button onclick="loadTemplates()">Templates</button>
+      <button onclick="loadNodes()">Node Catalog</button>
+      <button onclick="loadReports()">Reports API</button>
+      <a href="/reports/stage_c_real_smoke_dashboard.html" target="_blank">真实 AEDT Smoke</a>
+      <a href="/reports/stage_c_node_evolution_review.html" target="_blank">节点进化 Review</a>
+      <a href="/reports/stage_c2_planner_benchmark.html" target="_blank">Planner Benchmark</a>
+    </div>
+  </aside>
+  <main class="content">
+    <div class="topbar">
+      <div class="title">
+        <h1>AEDT Agent 工作台</h1>
+        <div class="muted">把自然语言请求转换为受控 workflow，先校验，再执行 fake adapter；真实 AEDT 结果通过报告入口展示。</div>
       </div>
-      <div class="muted">Repair Attempts are shown in the status panel. LLM mode still returns workflow JSON only.</div>
+      <div class="status-pill">Browser AEDT execution: disabled</div>
+    </div>
+    <section class="metrics">
+      <div class="metric"><strong>3</strong><span>workflow templates</span></div>
+      <div class="metric"><strong>8+</strong><span>controlled nodes</span></div>
+      <div class="metric"><strong>3/3</strong><span>real AEDT smoke</span></div>
+      <div class="metric"><strong>JSON</strong><span>LLM output boundary</span></div>
     </section>
-    <section class="panel stack">
-      <h2>Templates</h2>
-      <select id="template"></select>
-      <div class="row"><button onclick="loadTemplate()">Load Template</button><button onclick="runFakeDemo()">Run Fake Demo</button></div>
+    <section class="workspace">
+      <div class="stack">
+        <section class="panel stack">
+          <h2>任务规划</h2>
+          <div class="steps">
+            <div class="step"><b>1. Plan</b><small>生成 workflow JSON</small></div>
+            <div class="step"><b>2. Validate</b><small>拦截错误引用和缺参</small></div>
+            <div class="step"><b>3. Run Fake Demo</b><small>执行受控节点链路</small></div>
+          </div>
+          <div class="field">
+            <label for="plannerMode">Planner Mode</label>
+            <select id="plannerMode">
+              <option value="deterministic">deterministic</option>
+              <option value="llm">llm</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="request">User Request</label>
+            <textarea id="request">create a microstrip s-parameter simulation at 5GHz</textarea>
+          </div>
+          <div class="row">
+            <button onclick="planWorkflow()">Plan Workflow</button>
+            <button class="secondary" onclick="validateWorkflow()">Validate</button>
+          </div>
+          <div class="muted">Repair Attempts 会显示在右侧结果中。LLM mode 仍只允许返回 workflow JSON，不允许执行 PyAEDT Python。</div>
+        </section>
+        <section class="panel stack">
+          <h2>模板与执行</h2>
+          <div class="field">
+            <label for="template">Workflow Template</label>
+            <select id="template"></select>
+          </div>
+          <div class="row">
+            <button class="secondary" onclick="loadTemplate()">Load Template</button>
+            <button onclick="runFakeDemo()">Run Fake Demo</button>
+          </div>
+        </section>
+        <section class="panel">
+          <h2>Workflow 预览</h2>
+          <pre class="preview" id="preview">{}</pre>
+        </section>
+      </div>
+      <aside class="panel stack">
+        <h2>结果摘要</h2>
+        <div class="muted">显示 planner attempts、repair_count、validation 和 artifact 链接。</div>
+        <pre class="result" id="status">{}</pre>
+      </aside>
     </section>
-    <section class="panel">
-      <h2>Workflow Preview</h2>
-      <pre id="preview">{}</pre>
+    <section class="reports">
+      <a class="report-card" href="/reports/stage_c_real_smoke_dashboard.html" target="_blank"><b>真实 AEDT Smoke</b><span>3 个真实 AEDT workflow 的模型事实 validation 汇总。</span></a>
+      <a class="report-card" href="/reports/stage_c_node_evolution_review.html" target="_blank"><b>节点进化 Review</b><span>从 benchmark/audit 证据生成 proposal，并保持人工审核 gate。</span></a>
+      <a class="report-card" href="/reports/stage_c2_planner_benchmark.html" target="_blank"><b>Planner Benchmark</b><span>5 条自然语言任务的规划成功率和 repair attempts。</span></a>
     </section>
   </main>
-  <aside class="stack">
-    <strong>Status / Artifacts</strong>
-    <pre id="status">{}</pre>
-  </aside>
 </div>
 <script>
 let currentWorkflow = null;

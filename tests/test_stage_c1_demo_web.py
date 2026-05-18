@@ -7,12 +7,15 @@ from aedt_agent.demo.web import dispatch_demo_request, render_demo_page
 def test_render_demo_page_contains_workspace_sections():
     html = render_demo_page()
 
-    assert "AEDT Agent Stage C.1" in html
-    assert "Templates" in html
-    assert "Workflow Preview" in html
+    assert "AEDT Agent 工作台" in html
+    assert "任务规划" in html
+    assert "Workflow 预览" in html
     assert "Run Fake Demo" in html
     assert "Planner Mode" in html
     assert "Repair Attempts" in html
+    assert "真实 AEDT Smoke" in html
+    assert "节点进化 Review" in html
+    assert "Planner Benchmark" in html
 
 
 def test_dispatch_demo_request_serves_api_json(tmp_path):
@@ -40,3 +43,5 @@ def test_stage_c1_demo_start_script_exists():
 
     assert script.exists()
     assert "run_demo_server" in script.read_text(encoding="utf-8")
+    assert "KeyboardInterrupt" in script.read_text(encoding="utf-8")
+    assert "Stopping demo server." in script.read_text(encoding="utf-8")

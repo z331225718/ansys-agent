@@ -25,7 +25,10 @@ def main() -> None:
     port = args.port or config.server.port
     run_dir = Path(args.run_dir or config.execution.run_dir)
     print(f"Stage C.1 demo server: http://{host}:{port}")
-    run_demo_server(host, port, REPO_ROOT, run_dir)
+    try:
+        run_demo_server(host, port, REPO_ROOT, run_dir)
+    except KeyboardInterrupt:
+        print("\nStopping demo server.")
 
 
 if __name__ == "__main__":
