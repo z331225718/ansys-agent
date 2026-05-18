@@ -41,7 +41,9 @@ def main() -> None:
     run_dir = Path(args.run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    workflow = WorkflowTemplateCatalog.from_directory(REPO_ROOT / args.templates_dir).get(args.template).instantiate(_load_params(args.params))
+    parameters = _load_params(args.params)
+    parameters.setdefault("artifact_dir", str(run_dir.resolve()))
+    workflow = WorkflowTemplateCatalog.from_directory(REPO_ROOT / args.templates_dir).get(args.template).instantiate(parameters)
     session_manager = SessionManager(_adapter_factory(args))
     session = session_manager.create_session(f"stage-c-{args.template}-smoke", "HFSSDesign1")
     try:

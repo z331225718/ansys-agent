@@ -63,6 +63,9 @@ class DemoRunJob:
             "artifacts": artifacts,
         }
         data.update(_read_real_run_artifacts(self.run_dir))
+        outputs = data.get("outputs", {})
+        if isinstance(outputs, dict) and outputs.get("touchstone"):
+            artifacts["touchstone"] = str(outputs["touchstone"])
         return data
 
 
@@ -154,6 +157,14 @@ class DemoService:
             result = executor.execute(session.ref.session_id, workflow, artifact_path=run_dir / "workflow_run.json")
         finally:
             session_manager.release_session(session.ref.session_id)
+        artifacts = {
+            "workflow_run": str(run_dir / "workflow_run.json"),
+            "validation": str(run_dir / "validation.json"),
+            "audit": str(run_dir / "audit.jsonl"),
+            "report": str(run_dir / "report.html"),
+        }
+        if result.outputs.get("touchstone"):
+            artifacts["touchstone"] = str(result.outputs["touchstone"])
         return {
             "workflow_id": result.workflow_id,
             "status": result.status,
@@ -162,12 +173,8 @@ class DemoService:
             "steps": [step.to_dict() for step in result.steps],
             "validation": result.validation,
             "model_validation": result.model_validation,
-            "artifacts": {
-                "workflow_run": str(run_dir / "workflow_run.json"),
-                "validation": str(run_dir / "validation.json"),
-                "audit": str(run_dir / "audit.jsonl"),
-                "report": str(run_dir / "report.html"),
-            },
+            "outputs": result.outputs,
+            "artifacts": artifacts,
         }
 
     def start_real_run(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -223,6 +230,8 @@ class DemoService:
             parameters = payload.get("parameters", {})
             if not isinstance(parameters, dict):
                 raise TypeError("parameters must be a JSON object")
+            parameters = dict(parameters)
+            parameters.setdefault("artifact_dir", str(self.run_dir))
             return self._template_catalog().get(template_id).instantiate(parameters)
         return _workflow_from_payload(payload)
 
@@ -287,6 +296,7 @@ def _read_real_run_artifacts(run_dir: Path) -> dict[str, Any]:
         data["model_validation"] = workflow.get("model_validation", {})
         data["validation"] = workflow.get("validation", {})
         data["steps"] = workflow.get("steps", [])
+        data["outputs"] = workflow.get("outputs", {})
     data["stdout_tail"] = _tail(run_dir / "stdout.log")
     data["stderr_tail"] = _tail(run_dir / "stderr.log")
     return data

@@ -30,7 +30,20 @@ def test_demo_service_plans_validates_and_runs_fake_template(tmp_path):
     assert plan["selected_template"] == "microstrip_sparameter"
     assert validation["passed"] is True
     assert run["status"] == "succeeded"
-    assert [step["step_id"] for step in run["steps"]] == ["substrate", "trace", "setup", "sweep"]
+    assert [step["step_id"] for step in run["steps"]] == [
+        "substrate",
+        "trace",
+        "airbox",
+        "radiation",
+        "wave_port_1",
+        "wave_port_2",
+        "setup",
+        "sweep",
+        "solve",
+        "postprocess",
+    ]
+    assert run["model_validation"]["passed"] is True
+    assert Path(run["outputs"]["touchstone"]).exists()
     assert Path(run["artifacts"]["workflow_run"]).exists()
     assert Path(run["artifacts"]["report"]).exists()
 

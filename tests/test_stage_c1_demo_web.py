@@ -10,9 +10,14 @@ def test_render_demo_page_contains_workspace_sections():
     assert "AEDT Agent End-to-End Demo" in html
     assert "Microstrip S-Parameter Workflow" in html
     assert "Create Substrate" in html
-    assert "Create Trace" in html
+    assert "Create Ground, Trace" in html
+    assert "Create Airbox" in html
+    assert "Assign Radiation" in html
+    assert "Create Wave Port P1" in html
     assert "Create Setup" in html
     assert "Create Sweep" in html
+    assert "Solve Setup" in html
+    assert "Postprocess" in html
     assert "Run Real AEDT" in html
     assert "Run Offline Demo" in html
     assert "graphical:true" in html

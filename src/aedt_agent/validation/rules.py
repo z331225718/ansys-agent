@@ -73,6 +73,8 @@ def _run_check(facts: AedtModelFacts, check: dict[str, Any]) -> ValidationCheckR
         sweep = facts.sweeps.get(target, {})
         passed = bool(sweep) and (not setup or str(sweep.get("setup", "")) == setup)
         return ValidationCheckResult(rule, target, passed, _message(passed, f"sweep {target} attached to setup {setup}"), {"setup": sweep.get("setup"), "expected": setup})
+    if rule == "report_exists":
+        return _exists(rule, target, target in facts.reports, "report")
     if rule == "airbox_radiation_relation_valid":
         boundary = facts.boundaries.get(target, {})
         assignment = boundary.get("assignment")

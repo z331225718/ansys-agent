@@ -48,6 +48,11 @@ NODE_SCHEMAS: dict[str, NodeInputSchema] = {
         optional={"name": str, "integration_line": (list, dict), "reference": (str, int, list, dict), "impedance": (int, float, str)},
         defaults={"name": "Port1", "impedance": 50},
     ),
+    "create_wave_port": NodeInputSchema(
+        required={"assignment": (str, int, dict)},
+        optional={"name": str, "integration_line": (list, dict), "reference": (str, int, list, dict), "impedance": (int, float, str)},
+        defaults={"name": "WavePort1", "impedance": 50},
+    ),
     "select_face": NodeInputSchema(
         required={"object_name": str},
         optional={"axis": str, "side": str},
@@ -62,6 +67,16 @@ NODE_SCHEMAS: dict[str, NodeInputSchema] = {
         required={"setup": str},
         optional={"name": str, "start": (str, int, float), "stop": (str, int, float), "points": int},
         defaults={"name": "Sweep1", "start": "1GHz", "stop": "10GHz", "points": 101},
+    ),
+    "solve_setup": NodeInputSchema(
+        required={"setup": str},
+        optional={"cores": int},
+        defaults={},
+    ),
+    "create_sparameter_report": NodeInputSchema(
+        required={"setup": str, "sweep": str},
+        optional={"report_name": str, "output_dir": str, "touchstone_name": str, "ports": list},
+        defaults={"report_name": "S Parameter Plot", "touchstone_name": "sparameters.s2p"},
     ),
 }
 

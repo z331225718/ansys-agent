@@ -25,7 +25,7 @@ Artifact / Validation / Report
 - 首页可以一键启动真实 AEDT graphical workflow，演示时能看到 AEDT GUI 打开。
 - 自然语言请求可以在 Advanced 工作台中规划成 workflow。
 - workflow 会先 validation，再执行。
-- demo run 会生成可追溯 artifact。
+- demo run 会创建空气盒、辐射边界、两个 wave port，执行 solve，并生成 S 参数报告和 Touchstone artifact。
 - 真实 AEDT smoke 结果可以从报告入口查看。
 - Stage C.2 增加 planner mode 和 repair loop 展示：主模型只能生成 workflow JSON，后端 validator 决定是否可执行。
 
@@ -88,13 +88,14 @@ Demo 默认使用 `deterministic` planner，不需要 LLM API。要测试 LLM pl
 1. 打开首页，说明这是固定端到端 demo，不是开发调试面板。
 2. 说明流程左侧参数会实例化 `microstrip_sparameter` workflow。
 3. 点击 `Preview Workflow`，展示将要执行的 workflow JSON。
-4. 点击 `Run Real AEDT`，页面会启动后台真实 AEDT smoke job，并轮询状态。
+4. 点击 `Run Real AEDT`，页面会启动后台真实 AEDT graphical smoke job，并轮询状态。
 5. 查看结果区的 `Status`、`Validation Result` 和 expected outputs。
 6. 打开 artifact 链接，展示每次运行都会落盘：
    - `workflow_run`
    - `validation`
    - `audit`
    - `report`
+   - `microstrip_demo.s2p`
 7. 点击真实 AEDT smoke 和节点进化 review 链接，展示 Stage C 已跑过的真实 AEDT artifact 和受控节点进化机制。
 8. 如果机器没有 license 或只想快速展示结构，点击 `Run Offline Demo`，它只使用 fake adapter。
 9. 如需展示 planner、node catalog、API 调试入口，打开：

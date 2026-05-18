@@ -1,0 +1,12 @@
+node_id: solve_setup
+summary: Solve an existing HFSS setup.
+allowed_apis:
+  - Hfss.analyze_setup
+inputs:
+  required: [setup]
+outputs:
+  creates: [solved_setup]
+prerequisites:
+  - create_setup
+  - create_sweep_or_export
+examples: [microstrip_sparameter, hfss_patch_antenna]

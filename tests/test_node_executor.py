@@ -220,6 +220,31 @@ def test_node_executor_creates_lumped_port_with_modal_solution(tmp_path):
     assert state["ports"]["P1"]["type"] == "lumped"
 
 
+def test_node_executor_solves_and_creates_sparameter_report(tmp_path):
+    manager, executor = _executor(tmp_path)
+    session = manager.create_session("p1", "d1")
+    executor.execute_node(session.ref.session_id, "create_setup", {"frequency": "2.4GHz", "name": "Setup1"})
+    executor.execute_node(session.ref.session_id, "create_sweep_or_export", {"setup": "Setup1", "name": "Sweep1"})
+    solve = executor.execute_node(session.ref.session_id, "solve_setup", {"setup": "Setup1"})
+    report = executor.execute_node(
+        session.ref.session_id,
+        "create_sparameter_report",
+        {
+            "setup": "Setup1",
+            "sweep": "Sweep1",
+            "ports": ["P1", "P2"],
+            "report_name": "Demo S-Parameters",
+            "output_dir": str(tmp_path),
+        },
+    )
+
+    state = manager.snapshot(session.ref.session_id)
+    assert solve.status == ExecutionStatus.SUCCEEDED
+    assert report.status == ExecutionStatus.SUCCEEDED
+    assert state["reports"]["Demo S-Parameters"]["type"] == "sparameter"
+    assert Path(report.output["touchstone_path"]).exists()
+
+
 def test_node_executor_remaps_lumped_port_face_id_to_object_name(tmp_path):
     manager, executor = _executor(tmp_path)
     session = manager.create_session("p1", "d1")

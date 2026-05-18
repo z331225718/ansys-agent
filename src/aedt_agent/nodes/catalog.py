@@ -15,9 +15,12 @@ NODE_CATEGORIES: dict[str, str] = {
     "create_airbox": "geometry",
     "assign_boundary": "boundary",
     "create_port": "port",
+    "create_wave_port": "port",
     "select_face": "geometry",
     "create_setup": "setup",
     "create_sweep_or_export": "sweep",
+    "solve_setup": "solve",
+    "create_sparameter_report": "postprocess",
 }
 
 NODE_DISPLAY_NAMES: dict[str, str] = {
@@ -26,9 +29,12 @@ NODE_DISPLAY_NAMES: dict[str, str] = {
     "create_airbox": "Create Airbox",
     "assign_boundary": "Assign Boundary",
     "create_port": "Create Port",
+    "create_wave_port": "Create Wave Port",
     "select_face": "Select Face",
     "create_setup": "Create Setup",
     "create_sweep_or_export": "Create Sweep Or Export",
+    "solve_setup": "Solve Setup",
+    "create_sparameter_report": "Create S-Parameter Report",
 }
 
 NODE_POSTCHECKS: dict[str, list[str]] = {
@@ -37,9 +43,12 @@ NODE_POSTCHECKS: dict[str, list[str]] = {
     "create_airbox": ["air_region_created"],
     "assign_boundary": ["boundary_created"],
     "create_port": ["port_created"],
+    "create_wave_port": ["wave_port_created"],
     "select_face": ["face_selected"],
     "create_setup": ["setup_created"],
     "create_sweep_or_export": ["sweep_created"],
+    "solve_setup": ["setup_solved"],
+    "create_sparameter_report": ["sparameter_report_created"],
 }
 
 

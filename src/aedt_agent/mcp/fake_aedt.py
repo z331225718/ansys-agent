@@ -69,6 +69,8 @@ class FakeAedtApp:
         self.boundaries: dict[str, dict[str, Any]] = {}
         self.setups: dict[str, dict[str, Any]] = {}
         self.sweeps: dict[str, dict[str, Any]] = {}
+        self.solved_setups: dict[str, dict[str, Any]] = {}
+        self.reports: dict[str, dict[str, Any]] = {}
         self._face_index = 0
         self.modeler = FakeModeler(self)
 
@@ -122,6 +124,35 @@ class FakeAedtApp:
         }
         return sweep_name
 
+    def analyze_setup(self, name=None, **kwargs) -> bool:
+        setup_name = name or next(iter(self.setups), "Setup1")
+        if setup_name not in self.setups:
+            raise ValueError(f"setup not found: {setup_name}")
+        self.solved_setups[setup_name] = {"kwargs": dict(kwargs)}
+        return True
+
+    def create_scattering(self, plot="S Parameter Plot", sweep=None, ports=None, ports_excited=None, variations=None) -> bool:
+        self.reports[str(plot)] = {
+            "type": "sparameter",
+            "sweep": sweep,
+            "ports": list(ports or self.ports.keys()),
+            "ports_excited": list(ports_excited or ports or self.ports.keys()),
+        }
+        return True
+
+    def export_touchstone(self, setup=None, sweep=None, output_file=None, **kwargs) -> str:
+        path = output_file or "sparameters.s2p"
+        text = (
+            "! Fake AEDT Touchstone export for demo validation\n"
+            "# GHz S RI R 50\n"
+            "1.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0\n"
+        )
+        from pathlib import Path
+
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        Path(path).write_text(text, encoding="utf-8")
+        return str(path)
+
 
 class FakeAedtAdapter:
     def __init__(self, project_id: str, design_id: str):
@@ -151,6 +182,8 @@ class FakeAedtAdapter:
             "boundaries": dict(self.app.boundaries),
             "setups": dict(self.app.setups),
             "sweeps": dict(self.app.sweeps),
+            "solved_setups": dict(self.app.solved_setups),
+            "reports": dict(self.app.reports),
         }
 
     def release(self) -> None:

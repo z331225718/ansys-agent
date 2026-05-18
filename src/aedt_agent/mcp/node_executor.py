@@ -65,12 +65,18 @@ class NodeExecutor:
             return lambda app: _assign_boundary(app, inputs)
         if node_id == "create_port":
             return lambda app: _create_port(app, inputs)
+        if node_id == "create_wave_port":
+            return lambda app: _create_wave_port(app, inputs)
         if node_id == "select_face":
             return lambda app: _select_face(app, inputs)
         if node_id == "create_setup":
             return lambda app: _create_setup(app, inputs)
         if node_id == "create_sweep_or_export":
             return lambda app: _create_sweep(app, inputs)
+        if node_id == "solve_setup":
+            return lambda app: _solve_setup(app, inputs)
+        if node_id == "create_sparameter_report":
+            return lambda app: _create_sparameter_report(app, inputs)
         raise KeyError(node_id)
 
 
@@ -205,6 +211,14 @@ def _create_port(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
     return _node_output(ports=[str(port)], postchecks=["port_created"])
 
 
+def _create_wave_port(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
+    port_inputs = dict(inputs)
+    port_inputs["port_type"] = "wave"
+    output = _create_port(app, port_inputs)
+    output["postcheck"] = {"passed": True, "checks": ["wave_port_created"]}
+    return output
+
+
 def _normalize_padding(value: Any) -> int | float:
     if isinstance(value, list):
         numeric = [item for item in value if isinstance(item, (int, float))]
@@ -216,6 +230,8 @@ def _normalize_padding(value: Any) -> int | float:
 
 def _normalize_assignment(value: Any, prefer_list: bool = False) -> Any:
     if not isinstance(value, dict):
+        if prefer_list and isinstance(value, (str, int)):
+            return [value]
         return value
     if "output" in value:
         return _normalize_assignment(value["output"], prefer_list=prefer_list)
@@ -276,6 +292,49 @@ def _create_sweep(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
     kwargs[unit_arg] = _frequency_unit(inputs["start"], inputs["stop"])
     sweep = app.create_linear_count_sweep(inputs["setup"], **kwargs)
     return _node_output(sweeps=[_aedt_object_name(sweep, inputs["name"])], postchecks=["sweep_created"])
+
+
+def _solve_setup(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {"name": inputs["setup"]}
+    if inputs.get("cores") is not None:
+        kwargs["cores"] = inputs["cores"]
+    result = app.analyze_setup(**kwargs)
+    if result is False:
+        raise RuntimeError(f"AEDT solve failed for setup: {inputs['setup']}")
+    return {
+        "created": {"objects": [], "ports": [], "boundaries": [], "setups": [], "sweeps": []},
+        "solved_setup": inputs["setup"],
+        "solve_result": bool(result),
+        "postcheck": {"passed": True, "checks": ["setup_solved"]},
+    }
+
+
+def _create_sparameter_report(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
+    output_dir = Path(inputs.get("output_dir") or ".").expanduser()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    touchstone_path = output_dir / inputs.get("touchstone_name", "sparameters.s2p")
+    setup = inputs["setup"]
+    sweep = inputs["sweep"]
+    report_name = inputs.get("report_name", "S Parameter Plot")
+    ports = inputs.get("ports") or None
+    solution = f"{setup} : {sweep}"
+    report_created = False
+    if hasattr(app, "create_scattering"):
+        report_created = bool(app.create_scattering(plot=report_name, sweep=solution, ports=ports, ports_excited=ports))
+    elif hasattr(app, "post") and hasattr(app.post, "create_report"):
+        expressions = [f"dB(S({ports[0]},{ports[0]}))"] if ports else "dB(S(1,1))"
+        report_created = bool(app.post.create_report(expressions=expressions, setup_sweep_name=solution, plot_name=report_name))
+    exported = app.export_touchstone(setup=setup, sweep=sweep, output_file=str(touchstone_path))
+    if not report_created:
+        raise RuntimeError(f"AEDT S-parameter report was not created: {report_name}")
+    if not exported:
+        raise RuntimeError(f"AEDT Touchstone export failed: {touchstone_path}")
+    return {
+        "created": {"objects": [], "ports": [], "boundaries": [], "setups": [], "sweeps": []},
+        "report_name": report_name,
+        "touchstone_path": str(touchstone_path),
+        "postcheck": {"passed": True, "checks": ["sparameter_report_created", "touchstone_exported"]},
+    }
 
 
 def _aedt_object_name(value: Any, fallback: str) -> str:

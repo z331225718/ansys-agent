@@ -1,0 +1,11 @@
+node_id: create_wave_port
+summary: Create a wave port excitation on a selected face or port sheet.
+allowed_apis:
+  - Hfss.wave_port
+inputs:
+  required: [assignment]
+outputs:
+  creates: [port]
+prerequisites:
+  - create_conductor_or_geometry_group
+examples: [waveguide_filter, microstrip_sparameter]

@@ -1,11 +1,11 @@
 {
   "template_id": "microstrip_sparameter",
   "name": "HFSS Microstrip S-Parameter",
-  "description": "Create a minimal microstrip-like HFSS workflow with substrate, conductor, setup, and frequency sweep.",
-  "scenario": "Use this as a starter workflow for simple transmission-line S-parameter experiments.",
+  "description": "Create, excite, solve, and postprocess a minimal microstrip-like HFSS workflow.",
+  "scenario": "Use this as a starter workflow for a visible end-to-end S-parameter demo.",
   "tags": ["hfss", "s-parameter", "microstrip", "starter"],
-  "validation_checks": ["objects_exist", "material_matches", "setup_created", "sweep_created"],
-  "known_limits": ["This template validates structure only; it does not prove impedance or electromagnetic correctness."],
+  "validation_checks": ["objects_exist", "material_matches", "boundary_created", "port_created", "setup_created", "sweep_created", "setup_solved", "sparameter_report_created"],
+  "known_limits": ["This is a small demonstration model and is not intended as a production-grade microwave design."],
   "workflow": {
     "workflow_id": "microstrip_sparameter_v1",
     "name": "Microstrip S-Parameter",
@@ -25,6 +25,12 @@
         "default": "10GHz",
         "unit": "GHz",
         "label": "Sweep stop"
+      },
+      {
+        "name": "artifact_dir",
+        "type": "string",
+        "default": "benchmarks/runs/stage_c1_demo_latest",
+        "label": "Artifact directory"
       }
     ],
     "nodes": [
@@ -46,12 +52,81 @@
             {
               "kind": "rectangle",
               "orientation": "XY",
+              "origin": [-25, -10, 0],
+              "size": [50, 20],
+              "name": "Ground",
+              "material": "copper"
+            },
+            {
+              "kind": "rectangle",
+              "orientation": "XY",
               "origin": [-20, -1, 1.6],
               "size": [40, 2],
               "name": "Trace",
               "material": "copper"
+            },
+            {
+              "kind": "rectangle",
+              "orientation": "YZ",
+              "origin": [-20, -4, 0],
+              "size": [5.6, 1.6],
+              "name": "PortSheet1",
+              "material": "vacuum"
+            },
+            {
+              "kind": "rectangle",
+              "orientation": "YZ",
+              "origin": [20, -4, 0],
+              "size": [5.6, 1.6],
+              "name": "PortSheet2",
+              "material": "vacuum"
             }
           ]
+        }
+      },
+      {
+        "id": "airbox",
+        "node_id": "create_airbox",
+        "inputs": {
+          "padding": 8,
+          "name": "AirBox"
+        }
+      },
+      {
+        "id": "radiation",
+        "node_id": "assign_boundary",
+        "inputs": {
+          "assignment": {
+            "$ref": "airbox.output.object_name"
+          },
+          "boundary_type": "Radiation",
+          "name": "Radiation"
+        }
+      },
+      {
+        "id": "wave_port_1",
+        "node_id": "create_wave_port",
+        "inputs": {
+          "assignment": "PortSheet1",
+          "reference": "Ground",
+          "integration_line": {
+            "start": [-20, 0, 1.6],
+            "end": [-20, 0, 0]
+          },
+          "name": "P1"
+        }
+      },
+      {
+        "id": "wave_port_2",
+        "node_id": "create_wave_port",
+        "inputs": {
+          "assignment": "PortSheet2",
+          "reference": "Ground",
+          "integration_line": {
+            "start": [20, 0, 1.6],
+            "end": [20, 0, 0]
+          },
+          "name": "P2"
         }
       },
       {
@@ -78,18 +153,63 @@
           "points": 101,
           "name": "Sweep1"
         }
+      },
+      {
+        "id": "solve",
+        "node_id": "solve_setup",
+        "inputs": {
+          "setup": {
+            "$ref": "setup.output.setup_name"
+          }
+        }
+      },
+      {
+        "id": "postprocess",
+        "node_id": "create_sparameter_report",
+        "inputs": {
+          "setup": {
+            "$ref": "setup.output.setup_name"
+          },
+          "sweep": {
+            "$ref": "sweep.output.sweep_name"
+          },
+          "ports": ["P1", "P2"],
+          "report_name": "Demo S-Parameters",
+          "touchstone_name": "microstrip_demo.s2p",
+          "output_dir": {
+            "$ref": "parameters.artifact_dir"
+          }
+        }
       }
     ],
     "edges": [
       {
         "from": "setup.output.setup_name",
         "to": "sweep.inputs.setup"
+      },
+      {
+        "from": "setup.output.setup_name",
+        "to": "solve.inputs.setup"
+      },
+      {
+        "from": "setup.output.setup_name",
+        "to": "postprocess.inputs.setup"
+      },
+      {
+        "from": "sweep.output.sweep_name",
+        "to": "postprocess.inputs.sweep"
       }
     ],
     "validation": [
       {"rule": "object_exists", "target": "Substrate"},
+      {"rule": "object_exists", "target": "Ground"},
+      {"rule": "object_exists", "target": "AirBox"},
+      {"rule": "boundary_exists", "target": "Radiation"},
+      {"rule": "port_exists", "target": "P1"},
+      {"rule": "port_exists", "target": "P2"},
       {"rule": "setup_exists", "target": "Setup1"},
-      {"rule": "sweep_exists", "target": "Sweep1"}
+      {"rule": "sweep_exists", "target": "Sweep1"},
+      {"rule": "report_exists", "target": "Demo S-Parameters"}
     ],
     "outputs": [
       {
@@ -101,6 +221,11 @@
         "name": "sweep",
         "source": "sweep.output.sweep_name",
         "description": "Created sweep name."
+      },
+      {
+        "name": "touchstone",
+        "source": "postprocess.output.touchstone_path",
+        "description": "Exported Touchstone file."
       }
     ]
   }

@@ -51,6 +51,7 @@ class PyaedtAdapter:
             "boundaries": _safe_boundary_names(self.app, ("Radiation", "Perfect E", "Finite Conductivity")),
             "setups": {name: {} for name in getattr(self.app, "setup_names", [])},
             "sweeps": _safe_sweep_names(self.app),
+            "reports": _safe_report_names(self.app),
         }
 
     def release(self) -> None:
@@ -99,6 +100,14 @@ def _safe_sweep_names(app: Any) -> dict[str, dict[str, str]]:
     except Exception:
         return {}
     return output
+
+
+def _safe_report_names(app: Any) -> dict[str, dict[str, str]]:
+    try:
+        names = getattr(getattr(app, "post", None), "all_report_names", [])
+    except Exception:
+        return {}
+    return {str(name): {"type": "report"} for name in names}
 
 
 def _json_safe(value: Any) -> Any:

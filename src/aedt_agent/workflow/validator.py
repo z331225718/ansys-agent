@@ -166,6 +166,10 @@ def _validate_prerequisites(workflow: Workflow) -> list[WorkflowValidationIssue]
             errors.append(WorkflowValidationIssue("missing_boundary_assignment", "assign_boundary requires an object, face, or region assignment", node_id=node.id, field="assignment"))
         if node.node_id == "create_sweep_or_export" and not _has_setup_dependency(workflow, node.id, completed_node_ids):
             errors.append(WorkflowValidationIssue("missing_setup_dependency", "create_sweep_or_export requires a setup dependency", node_id=node.id, field="setup"))
+        if node.node_id == "solve_setup" and not _has_setup_dependency(workflow, node.id, completed_node_ids):
+            errors.append(WorkflowValidationIssue("missing_setup_dependency", "solve_setup requires a setup dependency", node_id=node.id, field="setup"))
+        if node.node_id == "create_sparameter_report" and not _has_setup_dependency(workflow, node.id, completed_node_ids):
+            errors.append(WorkflowValidationIssue("missing_setup_dependency", "create_sparameter_report requires a setup dependency", node_id=node.id, field="setup"))
         completed_node_ids.add(node.id)
     return errors
 

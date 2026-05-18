@@ -1,0 +1,13 @@
+node_id: create_sparameter_report
+summary: Create an S-parameter report and export Touchstone data after solving.
+allowed_apis:
+  - Hfss.create_scattering
+  - Hfss.export_touchstone
+  - Hfss.post.create_report
+inputs:
+  required: [setup, sweep]
+outputs:
+  creates: [report, touchstone]
+prerequisites:
+  - solve_setup
+examples: [microstrip_sparameter, dipole_antenna]
