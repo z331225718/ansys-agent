@@ -108,6 +108,7 @@ class DemoService:
             "status": result.status,
             "succeeded": result.succeeded,
             "step_count": len(result.steps),
+            "steps": [step.to_dict() for step in result.steps],
             "validation": result.validation,
             "model_validation": result.model_validation,
             "artifacts": {

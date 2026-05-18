@@ -7,15 +7,26 @@ from aedt_agent.demo.web import dispatch_demo_request, render_demo_page
 def test_render_demo_page_contains_workspace_sections():
     html = render_demo_page()
 
-    assert "AEDT Agent 工作台" in html
-    assert "任务规划" in html
-    assert "Workflow 预览" in html
-    assert "Run Fake Demo" in html
-    assert "Planner Mode" in html
-    assert "Repair Attempts" in html
+    assert "AEDT Agent End-to-End Demo" in html
+    assert "Microstrip S-Parameter Workflow" in html
+    assert "Create Substrate" in html
+    assert "Create Trace" in html
+    assert "Create Setup" in html
+    assert "Create Sweep" in html
+    assert "Run Demo" in html
+    assert "Validation Result" in html
     assert "真实 AEDT Smoke" in html
-    assert "节点进化 Review" in html
-    assert "Planner Benchmark" in html
+
+
+def test_dispatch_demo_request_serves_advanced_workspace(tmp_path):
+    service = DemoService(Path("."), run_dir=tmp_path / "run")
+
+    status, headers, body = dispatch_demo_request("GET", "/advanced", b"", service)
+
+    assert status == 200
+    assert headers["content-type"] == "text/html; charset=utf-8"
+    assert "AEDT Agent 工作台".encode() in body
+    assert "Planner Mode".encode() in body
 
 
 def test_dispatch_demo_request_serves_api_json(tmp_path):
@@ -36,6 +47,19 @@ def test_dispatch_demo_request_serves_report_html(tmp_path):
     assert status == 200
     assert headers["content-type"] == "text/html; charset=utf-8"
     assert "Stage C".encode() in body
+
+
+def test_dispatch_demo_request_serves_run_artifact(tmp_path):
+    artifact = tmp_path / "benchmarks/runs/stage_c1_demo_latest/workflow_run.json"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text('{"status":"succeeded"}\n', encoding="utf-8")
+    service = DemoService(tmp_path, run_dir=artifact.parent)
+
+    status, headers, body = dispatch_demo_request("GET", "/benchmarks/runs/stage_c1_demo_latest/workflow_run.json", b"", service)
+
+    assert status == 200
+    assert headers["content-type"] == "application/json; charset=utf-8"
+    assert b"succeeded" in body
 
 
 def test_stage_c1_demo_start_script_exists():

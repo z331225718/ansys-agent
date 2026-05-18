@@ -15,6 +15,131 @@ def render_demo_page() -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AEDT Agent End-to-End Demo</title>
+  <style>
+    :root{--bg:#f5f7fb;--panel:#fff;--line:#d8dee8;--text:#17202c;--muted:#667085;--blue:#1f5eff;--green:#047857;--red:#b42318;--slate:#111827}
+    *{box-sizing:border-box}body{margin:0;font-family:Arial,'Noto Sans SC',sans-serif;background:var(--bg);color:var(--text);letter-spacing:0}
+    button,input{font:inherit}button{border:0;background:var(--blue);color:#fff;border-radius:6px;padding:10px 14px;cursor:pointer;font-weight:700}button.secondary{background:#eef2ff;color:#1d4ed8;border:1px solid #c7d2fe}
+    input{border:1px solid var(--line);border-radius:6px;padding:9px 10px;width:100%}a{color:#1d4ed8;text-decoration:none}.muted{color:var(--muted);line-height:1.55}
+    .page{max-width:1180px;margin:0 auto;padding:28px 20px 40px}.hero{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:start;margin-bottom:18px}
+    h1{font-size:30px;margin:0 0 8px}h2{font-size:18px;margin:0 0 12px}.pill{display:inline-flex;border-radius:999px;background:#ecfdf3;color:var(--green);padding:6px 11px;font-size:13px;font-weight:700;white-space:nowrap}
+    .grid{display:grid;grid-template-columns:330px minmax(0,1fr);gap:16px}.panel,.step,.report{background:var(--panel);border:1px solid var(--line);border-radius:8px}.panel{padding:16px}.stack{display:grid;gap:12px}.row{display:flex;gap:10px;flex-wrap:wrap}
+    .params{display:grid;gap:12px}.field{display:grid;gap:6px}.field label{font-size:13px;font-weight:700;color:#344054}.flow{display:grid;gap:10px}.step{display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;padding:12px}
+    .index{width:28px;height:28px;border-radius:999px;background:#eef2ff;color:#1d4ed8;display:grid;place-items:center;font-weight:800}.state{font-size:13px;color:var(--muted);font-weight:700}.state.ok{color:var(--green)}.state.fail{color:var(--red)}
+    .result{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.metric{border:1px solid var(--line);border-radius:8px;padding:12px;background:#fbfdff}.metric strong{display:block;font-size:22px}.metric span{font-size:13px;color:var(--muted)}
+    pre{background:var(--slate);color:#e5e7eb;border-radius:8px;padding:12px;overflow:auto;max-height:360px;font-size:12px;line-height:1.45}.artifacts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.artifact{border:1px solid var(--line);border-radius:8px;padding:10px;background:#f8fafc;font-size:13px}
+    .reports{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:16px}.report{padding:14px}.report b{display:block;margin-bottom:6px}.advanced{font-size:13px;color:var(--muted)}
+    @media(max-width:920px){.hero,.grid,.result,.artifacts,.reports{grid-template-columns:1fr}.page{padding:18px 12px}}
+  </style>
+</head>
+<body>
+<main class="page">
+  <section class="hero">
+    <div>
+      <h1>AEDT Agent End-to-End Demo</h1>
+      <div class="muted">固定演示一个完整的 Microstrip S-Parameter Workflow：创建几何、创建 setup、创建 sweep、执行 validation，并输出可追溯 artifact。</div>
+    </div>
+    <div class="pill">Browser AEDT execution disabled · fake adapter demo</div>
+  </section>
+
+  <section class="grid">
+    <aside class="panel stack">
+      <h2>Microstrip S-Parameter Workflow</h2>
+      <div class="params">
+        <div class="field"><label for="frequency">Adaptive Frequency</label><input id="frequency" value="2.4GHz"></div>
+        <div class="field"><label for="sweepStop">Sweep Stop</label><input id="sweepStop" value="10GHz"></div>
+      </div>
+      <div class="row">
+        <button onclick="runEndToEndDemo()">Run Demo</button>
+        <button class="secondary" onclick="loadFixedWorkflow()">Preview Workflow</button>
+      </div>
+      <div class="muted">本页只展示一个固定 workflow。节点 catalog、planner 和 benchmark 等调试入口在 <a href="/advanced">Advanced 工作台</a>。</div>
+    </aside>
+
+    <section class="panel stack">
+      <h2>流程进度</h2>
+      <div class="flow">
+        <div class="step" id="step-substrate"><div class="index">1</div><div><b>Create Substrate</b><div class="muted">创建 FR4 substrate</div></div><div class="state">pending</div></div>
+        <div class="step" id="step-trace"><div class="index">2</div><div><b>Create Trace</b><div class="muted">创建 copper trace</div></div><div class="state">pending</div></div>
+        <div class="step" id="step-setup"><div class="index">3</div><div><b>Create Setup</b><div class="muted">创建 HFSS adaptive setup</div></div><div class="state">pending</div></div>
+        <div class="step" id="step-sweep"><div class="index">4</div><div><b>Create Sweep</b><div class="muted">创建 frequency sweep</div></div><div class="state">pending</div></div>
+        <div class="step" id="step-validation"><div class="index">5</div><div><b>Validate Model</b><div class="muted">校验 Substrate / Setup1 / Sweep1</div></div><div class="state">pending</div></div>
+      </div>
+    </section>
+  </section>
+
+  <section class="panel stack" style="margin-top:16px">
+    <h2>结果</h2>
+    <div class="result">
+      <div class="metric"><strong id="statusMetric">not run</strong><span>Status</span></div>
+      <div class="metric"><strong id="validationMetric">not run</strong><span>Validation Result</span></div>
+      <div class="metric"><strong id="objectMetric">Substrate · Trace · Setup1 · Sweep1</strong><span>Expected Outputs</span></div>
+    </div>
+    <div class="artifacts" id="artifacts"></div>
+    <details>
+      <summary class="advanced">展开 workflow_run JSON</summary>
+      <pre id="rawResult">{}</pre>
+    </details>
+  </section>
+
+  <section class="reports">
+    <a class="report" href="/reports/stage_c_real_smoke_dashboard.html" target="_blank"><b>真实 AEDT Smoke</b><span class="muted">3 个真实 AEDT workflow 结果</span></a>
+    <a class="report" href="/reports/stage_c_node_evolution_review.html" target="_blank"><b>节点进化 Review</b><span class="muted">proposal 和人工 gate</span></a>
+    <a class="report" href="/reports/stage_c2_planner_benchmark.html" target="_blank"><b>Planner Benchmark</b><span class="muted">自然语言规划成功率</span></a>
+    <a class="report" href="/advanced"><b>Advanced 工作台</b><span class="muted">catalog / planner / API 调试入口</span></a>
+  </section>
+</main>
+<script>
+async function api(path, options={}) {
+  const response = await fetch(path, {headers:{'content-type':'application/json'}, ...options});
+  const data = await response.json();
+  if (!response.ok) throw new Error(JSON.stringify(data));
+  return data;
+}
+function setStep(id, state) {
+  const node = document.querySelector(`#${id} .state`);
+  node.textContent = state;
+  node.className = 'state ' + (state === 'done' ? 'ok' : state === 'failed' ? 'fail' : '');
+}
+function resetSteps() {
+  ['step-substrate','step-trace','step-setup','step-sweep','step-validation'].forEach(id => setStep(id, 'pending'));
+}
+async function loadFixedWorkflow() {
+  const data = await api('/api/templates/microstrip_sparameter');
+  document.getElementById('rawResult').textContent = JSON.stringify(data.workflow, null, 2);
+}
+async function runEndToEndDemo() {
+  resetSteps();
+  document.getElementById('statusMetric').textContent = 'running';
+  document.getElementById('validationMetric').textContent = 'running';
+  const payload = {template_id:'microstrip_sparameter', parameters:{frequency:document.getElementById('frequency').value, sweep_stop:document.getElementById('sweepStop').value}};
+  const result = await api('/api/run', {method:'POST', body:JSON.stringify(payload)});
+  const stepMap = {'substrate':'step-substrate','trace':'step-trace','setup':'step-setup','sweep':'step-sweep'};
+  for (const step of (result.steps || [])) {
+    if (stepMap[step.step_id]) setStep(stepMap[step.step_id], step.status === 'succeeded' ? 'done' : 'failed');
+  }
+  if (!result.steps) {
+    ['step-substrate','step-trace','step-setup','step-sweep'].forEach(id => setStep(id, result.succeeded ? 'done' : 'failed'));
+  }
+  setStep('step-validation', result.model_validation && result.model_validation.passed ? 'done' : (result.succeeded ? 'done' : 'failed'));
+  document.getElementById('statusMetric').textContent = result.status;
+  document.getElementById('validationMetric').textContent = result.model_validation && result.model_validation.summary ? result.model_validation.summary : 'not requested';
+  document.getElementById('rawResult').textContent = JSON.stringify(result, null, 2);
+  document.getElementById('artifacts').innerHTML = Object.entries(result.artifacts || {}).map(([key,value]) => `<a class="artifact" href="/${value}" target="_blank"><b>${key}</b><br>${value}</a>`).join('');
+}
+loadFixedWorkflow();
+</script>
+</body>
+</html>
+"""
+
+
+def render_advanced_page() -> str:
+    return """<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AEDT Agent 工作台</title>
   <style>
     :root{--bg:#f4f6f8;--panel:#fff;--line:#d8dee8;--text:#17202c;--muted:#667085;--blue:#1f5eff;--green:#047857;--amber:#a16207}
@@ -163,6 +288,8 @@ def dispatch_demo_request(method: str, path: str, body: bytes, service: DemoServ
     try:
         if method == "GET" and route == "/":
             return _html_response(render_demo_page())
+        if method == "GET" and route == "/advanced":
+            return _html_response(render_advanced_page())
         if method == "GET" and route == "/api/status":
             return _json_response(service.status())
         if method == "GET" and route == "/api/nodes":
@@ -182,6 +309,8 @@ def dispatch_demo_request(method: str, path: str, body: bytes, service: DemoServ
             return _json_response(service.reports())
         if method == "GET" and route.startswith("/reports/"):
             return _report_response(service.repo_root, route)
+        if method == "GET" and route.startswith("/benchmarks/runs/"):
+            return _artifact_response(service.repo_root, route)
         return _json_response({"error": "not_found", "path": route}, status=404)
     except Exception as exc:
         return _json_response({"error": type(exc).__name__, "message": str(exc)}, status=400)
@@ -242,3 +371,22 @@ def _report_response(repo_root: Path, route: str) -> tuple[int, dict[str, str], 
         return _json_response({"error": "report_not_found", "path": report_name}, status=404)
     content_type = "application/json; charset=utf-8" if report_path.suffix == ".json" else "text/html; charset=utf-8"
     return 200, {"content-type": content_type}, report_path.read_bytes()
+
+
+def _artifact_response(repo_root: Path, route: str) -> tuple[int, dict[str, str], bytes]:
+    relative = unquote(route.lstrip("/"))
+    artifact_path = (repo_root / relative).resolve()
+    runs_dir = (repo_root / "benchmarks/runs").resolve()
+    if runs_dir not in artifact_path.parents or not artifact_path.is_file():
+        return _json_response({"error": "artifact_not_found", "path": relative}, status=404)
+    return 200, {"content-type": _content_type_for_path(artifact_path)}, artifact_path.read_bytes()
+
+
+def _content_type_for_path(path: Path) -> str:
+    if path.suffix == ".json":
+        return "application/json; charset=utf-8"
+    if path.suffix == ".jsonl":
+        return "application/x-ndjson; charset=utf-8"
+    if path.suffix == ".html":
+        return "text/html; charset=utf-8"
+    return "application/octet-stream"

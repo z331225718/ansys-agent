@@ -2,10 +2,10 @@
 
 ## 这个 Demo 展示什么
 
-Stage C.1 Demo 用来展示 AEDT Agent 的产品化闭环：
+Stage C Demo 用来展示 AEDT Agent 的产品化闭环。默认首页现在固定演示一个完整的 microstrip S-parameter workflow，避免把 catalog、planner、benchmark 调试入口混在一起：
 
 ```text
-用户请求 / 模板选择
+固定 Microstrip S-Parameter Workflow
         ↓
 Workflow JSON
         ↓
@@ -22,7 +22,8 @@ Artifact / Validation / Report
 
 - 节点 catalog 已经结构化。
 - workflow template 可以复用。
-- 自然语言请求可以规划成 workflow。
+- 首页可以一键跑完一个固定 workflow。
+- 自然语言请求可以在 Advanced 工作台中规划成 workflow。
 - workflow 会先 validation，再执行。
 - demo run 会生成可追溯 artifact。
 - 真实 AEDT smoke 结果可以从报告入口查看。
@@ -84,25 +85,22 @@ Demo 默认使用 `deterministic` planner，不需要 LLM API。要测试 LLM pl
 
 推荐演示顺序：
 
-1. 打开首页，说明这是 Stage C.1 的实际工作台，不是 landing page。
-2. 点击 `Templates`，展示已有 workflow template。
-3. 点击 `Load Template`，查看 workflow JSON。
-4. 在 Planner 输入框保留默认请求：
-
-```text
-create a microstrip s-parameter simulation at 5GHz
-```
-
-5. 点击 `Plan`，展示自然语言请求被映射到 `microstrip_sparameter` workflow。
-6. 观察右侧 `attempts` 和 `repair_count`，说明 planner 不是直接执行代码，而是在受控 workflow 边界内规划/修复。
-7. 点击 `Validate`，展示 workflow 在执行前会被结构化校验。
-8. 点击 `Run Fake Demo`，展示 controlled executor 通过 fake adapter 跑完 workflow。
-9. 在右侧 artifact JSON 中查看：
+1. 打开首页，说明这是固定端到端 demo，不是开发调试面板。
+2. 说明流程左侧参数会实例化 `microstrip_sparameter` workflow。
+3. 点击 `Preview Workflow`，展示将要执行的 workflow JSON。
+4. 点击 `Run Demo`，看右侧五个步骤从 `pending` 变成 `done`。
+5. 查看结果区的 `Status`、`Validation Result` 和 expected outputs。
+6. 打开 artifact 链接，展示每次运行都会落盘：
    - `workflow_run`
    - `validation`
    - `audit`
    - `report`
-10. 点击左侧真实 AEDT smoke 和节点进化 review 链接，展示 Stage C 已跑过的真实 AEDT artifact 和受控节点进化机制。
+7. 点击真实 AEDT smoke 和节点进化 review 链接，展示 Stage C 已跑过的真实 AEDT artifact 和受控节点进化机制。
+8. 如需展示 planner、node catalog、API 调试入口，打开：
+
+```text
+http://127.0.0.1:8765/advanced
+```
 
 ## API 示例
 
