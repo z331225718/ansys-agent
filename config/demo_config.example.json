@@ -1,0 +1,17 @@
+{
+  "planner": {
+    "mode": "deterministic",
+    "provider": "",
+    "model": "",
+    "base_url": "",
+    "api_key": ""
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8765
+  },
+  "execution": {
+    "default_adapter": "fake",
+    "run_dir": "benchmarks/runs/stage_c1_demo_latest"
+  }
+}

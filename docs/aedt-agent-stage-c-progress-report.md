@@ -108,6 +108,10 @@ Node Evolution Proposal
 
 ## 下一步建议
 
-1. 为 node evolution proposal 增加 HTML 报告和人工审核字段。
-2. 继续把真实 smoke 结果整合进更适合展示的 dashboard。
-3. 准备轻量演示入口，优先 CLI 或极简 Web，不急做完整拖拽 UI。
+Stage C.1 的下一步是把当前产品骨架变成可操作 demo。启动命令：
+
+```bash
+.venv/bin/python scripts/run_stage_c1_demo_server.py --port 8765
+```
+
+这个 demo 默认只使用 fake adapter，浏览器里不直接启动真实 AEDT；真实 AEDT 结果通过已有 smoke dashboard 展示。
