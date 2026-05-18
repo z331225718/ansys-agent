@@ -19,8 +19,8 @@ def render_demo_page() -> str:
   <style>
     :root{--bg:#f5f7fb;--panel:#fff;--line:#d8dee8;--text:#17202c;--muted:#667085;--blue:#1f5eff;--green:#047857;--red:#b42318;--slate:#111827}
     *{box-sizing:border-box}body{margin:0;font-family:Arial,'Noto Sans SC',sans-serif;background:var(--bg);color:var(--text);letter-spacing:0}
-    button,input{font:inherit}button{border:0;background:var(--blue);color:#fff;border-radius:6px;padding:10px 14px;cursor:pointer;font-weight:700}button.secondary{background:#eef2ff;color:#1d4ed8;border:1px solid #c7d2fe}
-    input{border:1px solid var(--line);border-radius:6px;padding:9px 10px;width:100%}a{color:#1d4ed8;text-decoration:none}.muted{color:var(--muted);line-height:1.55}
+    button,input,textarea{font:inherit}button{border:0;background:var(--blue);color:#fff;border-radius:6px;padding:10px 14px;cursor:pointer;font-weight:700}button.secondary{background:#eef2ff;color:#1d4ed8;border:1px solid #c7d2fe}
+    input,textarea{border:1px solid var(--line);border-radius:6px;padding:9px 10px;width:100%;background:#fff}textarea{min-height:116px;resize:vertical;line-height:1.45}a{color:#1d4ed8;text-decoration:none}.muted{color:var(--muted);line-height:1.55}
     .page{max-width:1180px;margin:0 auto;padding:28px 20px 40px}.hero{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:start;margin-bottom:18px}
     h1{font-size:30px;margin:0 0 8px}h2{font-size:18px;margin:0 0 12px}.pill{display:inline-flex;border-radius:999px;background:#ecfdf3;color:var(--green);padding:6px 11px;font-size:13px;font-weight:700;white-space:nowrap}
     .grid{display:grid;grid-template-columns:330px minmax(0,1fr);gap:16px}.panel,.step,.report{background:var(--panel);border:1px solid var(--line);border-radius:8px}.panel{padding:16px}.stack{display:grid;gap:12px}.row{display:flex;gap:10px;flex-wrap:wrap}
@@ -45,10 +45,15 @@ def render_demo_page() -> str:
   <section class="grid">
     <aside class="panel stack">
       <h2>Microstrip S-Parameter Workflow</h2>
+      <div class="field">
+        <label for="agentRequest">用户需求</label>
+        <textarea id="agentRequest" oninput="syncRequestToParameters()">做一个微带线 S 参数仿真，求解频率 2.4GHz，扫频到 10GHz。</textarea>
+      </div>
       <div class="params">
         <div class="field"><label for="frequency">Adaptive Frequency</label><input id="frequency" value="2.4GHz"></div>
         <div class="field"><label for="sweepStop">Sweep Stop</label><input id="sweepStop" value="10GHz"></div>
       </div>
+      <div class="muted" id="agentPlan">Agent 将选择 microstrip_sparameter 模板，并把输入解析为受控 workflow 参数。</div>
       <div class="row">
         <button onclick="runRealAedtDemo()">Run Real AEDT</button>
         <button class="secondary" onclick="runOfflineDemo()">Run Offline Demo</button>
@@ -112,7 +117,28 @@ function setStep(id, state) {
 function resetSteps() {
   ['step-substrate','step-trace','step-pec','step-airbox','step-radiation','step-lumped-port-1','step-lumped-port-2','step-setup','step-sweep','step-solve','step-postprocess','step-validation'].forEach(id => setStep(id, 'pending'));
 }
+function parseFrequencies(text) {
+  const matches = [...text.matchAll(/(\\d+(?:\\.\\d+)?)\\s*(GHz|MHz|KHz|Hz)/gi)].map(match => match[1] + match[2]);
+  const result = {};
+  const solveMatch = text.match(/(?:求解|中心|adaptive|solve|setup)[^\\d]*(\\d+(?:\\.\\d+)?)\\s*(GHz|MHz|KHz|Hz)/i);
+  const sweepStopMatch = text.match(/(?:扫频到|扫到|stop|截止|上限)[^\\d]*(\\d+(?:\\.\\d+)?)\\s*(GHz|MHz|KHz|Hz)/i);
+  if (solveMatch) result.frequency = solveMatch[1] + solveMatch[2];
+  if (sweepStopMatch) result.sweep_stop = sweepStopMatch[1] + sweepStopMatch[2];
+  if (!result.frequency && matches.length >= 1) result.frequency = matches[0];
+  if (!result.sweep_stop && matches.length >= 2) result.sweep_stop = matches[matches.length - 1];
+  return result;
+}
+function syncRequestToParameters() {
+  const text = document.getElementById('agentRequest').value;
+  const parsed = parseFrequencies(text);
+  if (parsed.frequency) document.getElementById('frequency').value = parsed.frequency;
+  if (parsed.sweep_stop) document.getElementById('sweepStop').value = parsed.sweep_stop;
+  const frequency = document.getElementById('frequency').value;
+  const sweepStop = document.getElementById('sweepStop').value;
+  document.getElementById('agentPlan').textContent = `Agent 解析：microstrip_sparameter，求解频率 ${frequency}，扫频上限 ${sweepStop}，端口使用 lumped port。`;
+}
 async function loadFixedWorkflow() {
+  syncRequestToParameters();
   const data = await api('/api/templates/microstrip_sparameter');
   document.getElementById('rawResult').textContent = JSON.stringify(data.workflow, null, 2);
 }
@@ -133,10 +159,11 @@ function renderResult(result) {
   document.getElementById('artifacts').innerHTML = Object.entries(result.artifacts || {}).map(([key,value]) => `<a class="artifact" href="/${value}" target="_blank"><b>${key}</b><br>${value}</a>`).join('');
 }
 async function runRealAedtDemo() {
+  syncRequestToParameters();
   resetSteps();
   document.getElementById('statusMetric').textContent = 'running';
   document.getElementById('validationMetric').textContent = 'launching AEDT';
-  const payload = {template_id:'microstrip_sparameter', graphical:true, parameters:{frequency:document.getElementById('frequency').value, sweep_stop:document.getElementById('sweepStop').value}};
+  const payload = {template_id:'microstrip_sparameter', graphical:true, user_request:document.getElementById('agentRequest').value, parameters:{frequency:document.getElementById('frequency').value, sweep_stop:document.getElementById('sweepStop').value}};
   const started = await api('/api/run-real', {method:'POST', body:JSON.stringify(payload)});
   renderResult(started);
   let result = started;
@@ -147,13 +174,15 @@ async function runRealAedtDemo() {
   }
 }
 async function runOfflineDemo() {
+  syncRequestToParameters();
   resetSteps();
   document.getElementById('statusMetric').textContent = 'offline running';
   document.getElementById('validationMetric').textContent = 'fake adapter';
-  const payload = {template_id:'microstrip_sparameter', parameters:{frequency:document.getElementById('frequency').value, sweep_stop:document.getElementById('sweepStop').value}};
+  const payload = {template_id:'microstrip_sparameter', user_request:document.getElementById('agentRequest').value, parameters:{frequency:document.getElementById('frequency').value, sweep_stop:document.getElementById('sweepStop').value}};
   const result = await api('/api/run', {method:'POST', body:JSON.stringify(payload)});
   renderResult(result);
 }
+syncRequestToParameters();
 loadFixedWorkflow();
 </script>
 </body>

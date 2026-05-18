@@ -324,7 +324,10 @@ def _read_real_run_artifacts(run_dir: Path) -> dict[str, Any]:
 
 
 def _read_json(path: Path) -> dict[str, Any]:
-    data = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
     return data if isinstance(data, dict) else {}
 
 

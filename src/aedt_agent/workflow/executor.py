@@ -150,6 +150,15 @@ class WorkflowExecutor:
             snapshot_summary = _safe_session_snapshot(self.node_executor, session_id)
             step = WorkflowStepRun.from_execution_result(node.id, node.node_id, inputs, result, snapshot_summary=snapshot_summary)
             steps.append(step)
+            _write_if_requested(
+                WorkflowRunResult(
+                    workflow_id=workflow.workflow_id,
+                    status=ExecutionStatus.RUNNING.value,
+                    validation=validation.to_dict(),
+                    steps=steps,
+                ),
+                artifact_path,
+            )
             if not result.succeeded:
                 run = WorkflowRunResult(
                     workflow_id=workflow.workflow_id,

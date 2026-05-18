@@ -86,9 +86,9 @@ Demo 默认使用 `deterministic` planner，不需要 LLM API。要测试 LLM pl
 推荐演示顺序：
 
 1. 打开首页，说明这是固定端到端 demo，不是开发调试面板。
-2. 说明流程左侧参数会实例化 `microstrip_sparameter` workflow。
+2. 在“用户需求”里输入微带线需求，例如“求解频率 2.4GHz，扫频到 10GHz”，页面会把频率同步到 workflow 参数。
 3. 点击 `Preview Workflow`，展示将要执行的 workflow JSON。
-4. 点击 `Run Real AEDT`，页面会启动后台真实 AEDT graphical smoke job，并轮询状态。
+4. 点击 `Run Real AEDT`，页面会启动后台真实 AEDT graphical smoke job，并轮询每个节点的完成状态。
 5. 查看结果区的 `Status`、`Validation Result` 和 expected outputs。
 6. 打开 artifact 链接，展示每次运行都会落盘：
    - `workflow_run`

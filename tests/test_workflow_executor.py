@@ -9,7 +9,7 @@ from aedt_agent.mcp.session_manager import SessionManager
 from aedt_agent.mcp.types import ExecutionStatus
 from aedt_agent.nodes.catalog import NodeCatalog
 from aedt_agent.nodes.registry import NodeRegistry
-from aedt_agent.workflow.executor import WorkflowExecutor
+from aedt_agent.workflow.executor import WorkflowExecutor, WorkflowRunResult
 from aedt_agent.workflow.models import Workflow, WorkflowEdge, WorkflowNode, WorkflowOutput, WorkflowParameter
 from aedt_agent.workflow.validator import WorkflowValidator
 
@@ -60,6 +60,37 @@ def test_workflow_executor_runs_valid_workflow_with_refs(tmp_path):
     assert artifact["status"] == "succeeded"
     assert (tmp_path / "validation.json").exists()
     assert (tmp_path / "report.html").exists()
+
+
+def test_workflow_executor_writes_progress_artifacts_between_steps(tmp_path, monkeypatch):
+    manager, executor = _workflow_executor(tmp_path)
+    session = manager.create_session("p1", "d1")
+    workflow = Workflow(
+        workflow_id="progress",
+        name="Progress",
+        nodes=[
+            WorkflowNode(
+                id="substrate",
+                node_id="create_substrate",
+                inputs={"origin": [0, 0, 0], "size": [1, 1, 1], "name": "Substrate", "material": "FR4_epoxy"},
+            ),
+            WorkflowNode(id="setup", node_id="create_setup", inputs={"frequency": "2.4GHz", "name": "Setup1"}),
+        ],
+    )
+    writes = []
+    original_write_json = WorkflowRunResult.write_json
+
+    def record_write(self, path):
+        writes.append((self.status, len(self.steps)))
+        original_write_json(self, path)
+
+    monkeypatch.setattr(WorkflowRunResult, "write_json", record_write)
+
+    result = executor.execute(session.ref.session_id, workflow, artifact_path=tmp_path / "workflow_run.json")
+
+    assert result.succeeded is True
+    assert writes[:2] == [("running", 1), ("running", 2)]
+    assert writes[-1] == ("succeeded", 2)
 
 
 def test_workflow_executor_writes_model_validation_artifact(tmp_path):

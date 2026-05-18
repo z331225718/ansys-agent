@@ -9,6 +9,9 @@ def test_render_demo_page_contains_workspace_sections():
 
     assert "AEDT Agent End-to-End Demo" in html
     assert "Microstrip S-Parameter Workflow" in html
+    assert "用户需求" in html
+    assert "做一个微带线 S 参数仿真" in html
+    assert "syncRequestToParameters" in html
     assert "Create Substrate" in html
     assert "Create Ground, Trace" in html
     assert "Create Airbox" in html
