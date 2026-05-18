@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import queue
 import subprocess
 import sys
 import threading
@@ -32,6 +33,7 @@ class DemoRunJob:
     adapter: str
     run_dir: Path
     graphical: bool = True
+    stream_to_terminal: bool = True
     status: str = "queued"
     started_at: float = field(default_factory=time.time)
     finished_at: float | None = None
@@ -53,6 +55,7 @@ class DemoRunJob:
             "template_id": self.template_id,
             "adapter": self.adapter,
             "graphical": self.graphical,
+            "stream_to_terminal": self.stream_to_terminal,
             "status": self.status,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
@@ -183,6 +186,7 @@ class DemoService:
         if adapter not in {"real", "fake"}:
             raise ValueError("adapter must be real or fake")
         graphical = bool(payload.get("graphical", True))
+        stream_to_terminal = bool(payload.get("stream_to_terminal", True))
         parameters = payload.get("parameters", {})
         if not isinstance(parameters, dict):
             raise TypeError("parameters must be a JSON object")
@@ -193,7 +197,14 @@ class DemoService:
             json.dumps(parameters, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
-        job = DemoRunJob(job_id=job_id, template_id=template_id, adapter=adapter, run_dir=run_dir, graphical=graphical)
+        job = DemoRunJob(
+            job_id=job_id,
+            template_id=template_id,
+            adapter=adapter,
+            run_dir=run_dir,
+            graphical=graphical,
+            stream_to_terminal=stream_to_terminal,
+        )
         with self._jobs_lock:
             self._jobs[job_id] = job
         thread = threading.Thread(target=self._run_real_job, args=(job, run_dir / "params.json"), daemon=True)
@@ -251,28 +262,38 @@ class DemoService:
         if job.adapter == "real":
             command.append("--graphical" if job.graphical else "--non-graphical")
         job.status = "running"
-        (job.run_dir / "stdout.log").write_text(
+        header = (
             f"Starting AEDT workflow smoke in {'graphical' if job.graphical else 'non-graphical'} mode.\n"
-            f"Command: {' '.join(command)}\n",
-            encoding="utf-8",
+            f"Command: {' '.join(command)}\n"
         )
+        (job.run_dir / "stdout.log").write_text(header, encoding="utf-8")
+        if job.stream_to_terminal:
+            print(f"[demo:{job.job_id}] {header.rstrip()}", flush=True)
         try:
-            with (job.run_dir / "stdout.log").open("a", encoding="utf-8") as stdout_file, (
-                job.run_dir / "stderr.log"
-            ).open("w", encoding="utf-8") as stderr_file:
-                process = subprocess.Popen(
-                    command,
-                    cwd=self.repo_root,
-                    stdout=stdout_file,
-                    stderr=stderr_file,
-                    text=True,
-                )
-                job.returncode = process.wait()
+            process = subprocess.Popen(
+                command,
+                cwd=self.repo_root,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+            )
+            job.returncode = _stream_process_logs(
+                process,
+                stdout_path=job.run_dir / "stdout.log",
+                stderr_path=job.run_dir / "stderr.log",
+                terminal_prefix=f"[demo:{job.job_id}]",
+                stream_to_terminal=job.stream_to_terminal,
+            )
         except Exception as exc:
             job.returncode = -1
             job.error = f"{type(exc).__name__}: {exc}"
+            if job.stream_to_terminal:
+                print(f"[demo:{job.job_id}] {job.error}", flush=True)
         job.finished_at = time.time()
         job.status = "succeeded" if job.returncode == 0 else "failed"
+        if job.stream_to_terminal:
+            print(f"[demo:{job.job_id}] finished status={job.status} returncode={job.returncode}", flush=True)
 
 
 def _workflow_from_payload(payload: dict[str, Any]) -> Workflow:
@@ -312,3 +333,44 @@ def _tail(path: Path, *, max_lines: int = 60) -> str:
         return ""
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     return "\n".join(lines[-max_lines:])
+
+
+def _stream_process_logs(
+    process: subprocess.Popen[str],
+    *,
+    stdout_path: Path,
+    stderr_path: Path,
+    terminal_prefix: str,
+    stream_to_terminal: bool = True,
+) -> int:
+    log_queue: queue.Queue[tuple[str, str | None]] = queue.Queue()
+    threads = [
+        threading.Thread(target=_enqueue_pipe_lines, args=(process.stdout, "stdout", log_queue), daemon=True),
+        threading.Thread(target=_enqueue_pipe_lines, args=(process.stderr, "stderr", log_queue), daemon=True),
+    ]
+    for thread in threads:
+        thread.start()
+    open_mode = "a"
+    with stdout_path.open(open_mode, encoding="utf-8") as stdout_file, stderr_path.open("w", encoding="utf-8") as stderr_file:
+        active = len(threads)
+        while active:
+            stream_name, line = log_queue.get()
+            if line is None:
+                active -= 1
+                continue
+            target = stderr_file if stream_name == "stderr" else stdout_file
+            target.write(line)
+            target.flush()
+            if stream_to_terminal:
+                sys.stderr.write(f"{terminal_prefix} {stream_name}: {line}") if stream_name == "stderr" else sys.stdout.write(f"{terminal_prefix} {line}")
+                sys.stderr.flush() if stream_name == "stderr" else sys.stdout.flush()
+    return process.wait()
+
+
+def _enqueue_pipe_lines(pipe: Any, stream_name: str, log_queue: queue.Queue[tuple[str, str | None]]) -> None:
+    try:
+        if pipe is not None:
+            for line in pipe:
+                log_queue.put((stream_name, line))
+    finally:
+        log_queue.put((stream_name, None))

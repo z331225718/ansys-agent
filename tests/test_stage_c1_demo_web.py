@@ -52,7 +52,7 @@ def test_dispatch_demo_request_starts_real_run_job_with_fake_adapter(tmp_path):
     status, headers, body = dispatch_demo_request(
         "POST",
         "/api/run-real",
-        b'{"template_id":"microstrip_sparameter","adapter":"fake"}',
+        b'{"template_id":"microstrip_sparameter","adapter":"fake","stream_to_terminal":false}',
         service,
     )
 
