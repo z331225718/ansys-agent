@@ -17,33 +17,30 @@ def render_demo_page() -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AEDT Agent End-to-End Demo</title>
   <style>
-    :root{--bg:#f5f7fb;--panel:#fff;--line:#d8dee8;--text:#17202c;--muted:#667085;--blue:#1f5eff;--green:#047857;--red:#b42318;--slate:#111827}
-    *{box-sizing:border-box}body{margin:0;font-family:Arial,'Noto Sans SC',sans-serif;background:var(--bg);color:var(--text);letter-spacing:0}
-    button,input,textarea{font:inherit}button{border:0;background:var(--blue);color:#fff;border-radius:6px;padding:10px 14px;cursor:pointer;font-weight:700}button.secondary{background:#eef2ff;color:#1d4ed8;border:1px solid #c7d2fe}
-    input,textarea{border:1px solid var(--line);border-radius:6px;padding:9px 10px;width:100%;background:#fff}textarea{min-height:116px;resize:vertical;line-height:1.45}a{color:#1d4ed8;text-decoration:none}.muted{color:var(--muted);line-height:1.55}
-    .page{max-width:1180px;margin:0 auto;padding:28px 20px 40px}.hero{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:start;margin-bottom:18px}
-    h1{font-size:30px;margin:0 0 8px}h2{font-size:18px;margin:0 0 12px}.pill{display:inline-flex;border-radius:999px;background:#ecfdf3;color:var(--green);padding:6px 11px;font-size:13px;font-weight:700;white-space:nowrap}
-    .grid{display:grid;grid-template-columns:330px minmax(0,1fr);gap:16px}.panel,.step,.report{background:var(--panel);border:1px solid var(--line);border-radius:8px}.panel{padding:16px}.stack{display:grid;gap:12px}.row{display:flex;gap:10px;flex-wrap:wrap}
-    .params{display:grid;gap:12px}.field{display:grid;gap:6px}.field label{font-size:13px;font-weight:700;color:#344054}.flow{display:grid;gap:10px}.step{display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;padding:12px}
-    .index{width:28px;height:28px;border-radius:999px;background:#eef2ff;color:#1d4ed8;display:grid;place-items:center;font-weight:800}.state{font-size:13px;color:var(--muted);font-weight:700}.state.ok{color:var(--green)}.state.fail{color:var(--red)}
-    .result{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.metric{border:1px solid var(--line);border-radius:8px;padding:12px;background:#fbfdff}.metric strong{display:block;font-size:22px}.metric span{font-size:13px;color:var(--muted)}
-    .sparams{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.sparam{border:1px solid var(--line);border-radius:8px;padding:12px;background:#fff}.sparam strong{display:block;font-size:26px;margin-bottom:4px}.sparam span{font-size:13px;color:var(--muted)}
-    pre{background:var(--slate);color:#e5e7eb;border-radius:8px;padding:12px;overflow:auto;max-height:360px;font-size:12px;line-height:1.45}.artifacts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.artifact{border:1px solid var(--line);border-radius:8px;padding:10px;background:#f8fafc;font-size:13px}
-    .reports{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:16px}.report{padding:14px}.report b{display:block;margin-bottom:6px}.advanced{font-size:13px;color:var(--muted)}
-    @media(max-width:920px){.hero,.grid,.result,.artifacts,.reports{grid-template-columns:1fr}.page{padding:18px 12px}}
+    :root{--bg:#f3f4ef;--paper:#fffefa;--ink:#18212b;--muted:#637083;--line:#d9ddd2;--blue:#285ee8;--teal:#0f766e;--amber:#b7791f;--red:#b42318;--soft:#eef2ea;--graph:#f8faf6}
+    *{box-sizing:border-box}body{margin:0;font-family:Inter,Arial,'Noto Sans SC',sans-serif;background:var(--bg);color:var(--ink);letter-spacing:0}
+    button,input,textarea{font:inherit}button{border:0;background:var(--ink);color:#fff;border-radius:6px;padding:10px 14px;cursor:pointer;font-weight:800}button.secondary{background:#fff;color:var(--ink);border:1px solid var(--line)}button:hover{filter:brightness(.96)}
+    input,textarea{border:1px solid var(--line);border-radius:6px;padding:10px 11px;width:100%;background:#fff;color:var(--ink)}textarea{min-height:118px;resize:vertical;line-height:1.5}a{color:var(--blue);text-decoration:none}.muted{color:var(--muted);line-height:1.55}
+    .page{max-width:1320px;margin:0 auto;padding:24px 20px 36px}.top{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:18px;align-items:end;margin-bottom:18px}.kicker{font-size:12px;text-transform:uppercase;color:var(--amber);font-weight:900;letter-spacing:.08em}.top h1{font-size:34px;line-height:1.08;margin:5px 0 8px}.top p{margin:0;max-width:780px}.status-pill{display:inline-flex;gap:8px;align-items:center;border:1px solid #b7decf;background:#ecfdf7;color:#047857;border-radius:999px;padding:7px 12px;font-size:13px;font-weight:800;white-space:nowrap}.dot{width:8px;height:8px;border-radius:50%;background:#10b981}
+    .shell{display:grid;grid-template-columns:360px minmax(0,1fr) 330px;gap:14px}.panel{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:16px}.panel h2{font-size:17px;margin:0 0 12px}.stack{display:grid;gap:13px}.row{display:flex;gap:9px;flex-wrap:wrap}.field{display:grid;gap:6px}.field label{font-size:12px;font-weight:900;color:#334155;text-transform:uppercase}.params{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .agent-note{border-left:3px solid var(--blue);background:#f5f7ff;padding:10px 11px;border-radius:6px;color:#344054;font-size:13px;line-height:1.5}.diagram{height:170px;border:1px solid var(--line);border-radius:8px;background:linear-gradient(180deg,#f8faf6,#eef2ea);position:relative;overflow:hidden}.air{position:absolute;inset:14px;border:1px dashed #94a3b8;border-radius:6px}.substrate{position:absolute;left:38px;right:38px;bottom:44px;height:46px;background:#d8c58b;border:1px solid #a5883a}.ground{position:absolute;left:34px;right:34px;bottom:38px;height:5px;background:#7c5b21}.trace{position:absolute;left:74px;right:74px;bottom:91px;height:7px;background:#c58b2a}.port{position:absolute;bottom:43px;width:4px;height:55px;background:#2563eb}.port.p1{left:73px}.port.p2{right:73px}.diagram-label{position:absolute;font-size:11px;color:#475569;font-weight:800}.diagram-label.l1{left:38px;bottom:98px}.diagram-label.l2{right:40px;bottom:28px}
+    .flow{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.step{display:grid;grid-template-columns:30px minmax(0,1fr) auto;align-items:center;gap:9px;padding:11px;border:1px solid var(--line);border-radius:8px;background:#fff}.index{width:26px;height:26px;border-radius:6px;background:var(--soft);display:grid;place-items:center;font-weight:900;color:#334155}.step b{font-size:14px}.state{font-size:12px;color:var(--muted);font-weight:900}.state.ok{color:var(--teal)}.state.fail{color:var(--red)}
+    .result{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.metric,.sparam{border:1px solid var(--line);border-radius:8px;padding:12px;background:#fff}.metric strong{display:block;font-size:19px;line-height:1.15}.metric span,.sparam span{font-size:12px;color:var(--muted);font-weight:800}.sparams{display:grid;gap:10px}.sparam strong{display:block;font-size:30px;line-height:1.05;margin-bottom:6px}.sparam.primary{background:#f7fbf9;border-color:#b7decf}.sparam.secondary{background:#fff8ed;border-color:#ecd3a5}.artifacts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.artifact{border:1px solid var(--line);border-radius:8px;padding:10px;background:#fff;font-size:12px;overflow:hidden;text-overflow:ellipsis}.reports{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:14px}.report{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:13px}.report b{display:block;margin-bottom:5px}.advanced{font-size:13px;color:var(--muted)}pre{background:#18212b;color:#e5e7eb;border-radius:8px;padding:12px;overflow:auto;max-height:330px;font-size:12px;line-height:1.45}
+    @media(max-width:1120px){.shell{grid-template-columns:1fr}.flow,.result,.artifacts,.reports{grid-template-columns:1fr}.top{grid-template-columns:1fr}.page{padding:18px 12px}.params{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
 <main class="page">
-  <section class="hero">
+  <section class="top">
     <div>
+      <div class="kicker">Controlled AEDT Agent Demo</div>
       <h1>AEDT Agent End-to-End Demo</h1>
-      <div class="muted">固定演示一个完整的 Microstrip S-Parameter Workflow：创建几何、空气盒、辐射边界、lumped port、setup/sweep、solve、后处理，并输出可追溯 artifact。</div>
+      <p class="muted">把一句微带线仿真需求转成受控 workflow，驱动真实 AEDT 创建模型、求解并读取 Touchstone S 参数。页面只展示演示链路，Advanced 工作台保留调试入口。</p>
     </div>
-    <div class="pill">Real AEDT graphical run · offline fallback available</div>
+    <div class="status-pill"><span class="dot"></span>Real AEDT graphical run</div>
   </section>
 
-  <section class="grid">
+  <section class="shell">
     <aside class="panel stack">
       <h2>Microstrip S-Parameter Workflow</h2>
       <div class="field">
@@ -54,7 +51,11 @@ def render_demo_page() -> str:
         <div class="field"><label for="frequency">Adaptive Frequency</label><input id="frequency" value="2.4GHz"></div>
         <div class="field"><label for="sweepStop">Sweep Stop</label><input id="sweepStop" value="10GHz"></div>
       </div>
-      <div class="muted" id="agentPlan">Agent 将选择 microstrip_sparameter 模板，并把输入解析为受控 workflow 参数。</div>
+      <div class="agent-note" id="agentPlan">Agent 将选择 microstrip_sparameter 模板，并把输入解析为受控 workflow 参数。</div>
+      <div class="diagram" aria-label="microstrip model preview">
+        <div class="air"></div><div class="substrate"></div><div class="ground"></div><div class="trace"></div><div class="port p1"></div><div class="port p2"></div>
+        <div class="diagram-label l1">Trace + lumped ports</div><div class="diagram-label l2">Ground / FR4</div>
+      </div>
       <div class="row">
         <button onclick="runRealAedtDemo()">Run Real AEDT</button>
         <button class="secondary" onclick="runOfflineDemo()">Run Offline Demo</button>
@@ -80,25 +81,25 @@ def render_demo_page() -> str:
         <div class="step" id="step-validation"><div class="index">12</div><div><b>Validate Result</b><div class="muted">校验端口、边界、报告和 artifact</div></div><div class="state">pending</div></div>
       </div>
     </section>
-  </section>
 
-  <section class="panel stack" style="margin-top:16px">
-    <h2>结果</h2>
-    <div class="result">
-      <div class="metric"><strong id="statusMetric">not run</strong><span>Status</span></div>
-      <div class="metric"><strong id="validationMetric">not run</strong><span>Validation Result</span></div>
-      <div class="metric"><strong id="objectMetric">PEC · P1/P2 · Radiation · S2P</strong><span>Expected Outputs</span></div>
-    </div>
-    <div class="sparams" id="sparams">
-      <div class="sparam"><strong id="s11Metric">--</strong><span>S11 at selected frequency</span></div>
-      <div class="sparam"><strong id="s21Metric">--</strong><span>S21 at selected frequency</span></div>
-      <div class="sparam"><strong id="freqMetric">--</strong><span>Touchstone sample</span></div>
-    </div>
-    <div class="artifacts" id="artifacts"></div>
-    <details>
-      <summary class="advanced">展开 workflow_run JSON</summary>
-      <pre id="rawResult">{}</pre>
-    </details>
+    <aside class="panel stack">
+      <h2>结果</h2>
+      <div class="sparams" id="sparams">
+        <div class="sparam primary"><strong id="s11Metric">--</strong><span>S11 at selected frequency</span></div>
+        <div class="sparam secondary"><strong id="s21Metric">--</strong><span>S21 at selected frequency</span></div>
+        <div class="sparam"><strong id="freqMetric">--</strong><span>Touchstone sample</span></div>
+      </div>
+      <div class="result">
+        <div class="metric"><strong id="statusMetric">not run</strong><span>Status</span></div>
+        <div class="metric"><strong id="validationMetric">not run</strong><span>Validation Result</span></div>
+        <div class="metric"><strong id="objectMetric">PEC · P1/P2 · Radiation · S2P</strong><span>Expected Outputs</span></div>
+      </div>
+      <div class="artifacts" id="artifacts"></div>
+      <details>
+        <summary class="advanced">展开 workflow_run JSON</summary>
+        <pre id="rawResult">{}</pre>
+      </details>
+    </aside>
   </section>
 
   <section class="reports">
