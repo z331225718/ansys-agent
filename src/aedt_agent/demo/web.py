@@ -38,15 +38,23 @@ def render_demo_page() -> str:
     <button onclick="loadReports()">Reports</button>
     <a href="/reports/stage_c_real_smoke_dashboard.html" target="_blank">真实 AEDT Smoke</a>
     <a href="/reports/stage_c_node_evolution_review.html" target="_blank">节点进化 Review</a>
+    <a href="/reports/stage_c2_planner_benchmark.html" target="_blank">Planner Benchmark</a>
   </nav>
   <main>
     <section class="panel stack">
       <h2>Planner</h2>
+      <label>Planner Mode
+        <select id="plannerMode">
+          <option value="deterministic">deterministic</option>
+          <option value="llm">llm</option>
+        </select>
+      </label>
       <textarea id="request">create a microstrip s-parameter simulation at 5GHz</textarea>
       <div class="row">
         <button onclick="planWorkflow()">Plan</button>
         <button onclick="validateWorkflow()">Validate</button>
       </div>
+      <div class="muted">Repair Attempts are shown in the status panel. LLM mode still returns workflow JSON only.</div>
     </section>
     <section class="panel stack">
       <h2>Templates</h2>
@@ -87,7 +95,7 @@ async function loadTemplate() {
 async function loadNodes(){ show('status', await api('/api/nodes')); }
 async function loadReports(){ show('status', await api('/api/reports')); }
 async function planWorkflow(){
-  const data = await api('/api/plan', {method:'POST', body:JSON.stringify({user_request:document.getElementById('request').value})});
+  const data = await api('/api/plan', {method:'POST', body:JSON.stringify({user_request:document.getElementById('request').value, planner_mode:document.getElementById('plannerMode').value})});
   currentWorkflow = data.generated_workflow;
   show('preview', currentWorkflow || data);
   show('status', data);

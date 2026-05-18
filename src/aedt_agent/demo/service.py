@@ -4,7 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from aedt_agent.chat.workflow_planner import ChatPlannerInput, ChatWorkflowPlanner
+from aedt_agent.demo.config import PlannerConfig
+from aedt_agent.demo.planner import PlannerRunner, WorkflowProposalClient
 from aedt_agent.mcp.audit_log import AuditLogger
 from aedt_agent.mcp.execution_queue import ExecutionQueue
 from aedt_agent.mcp.fake_aedt import FakeAedtAdapter
@@ -27,12 +28,16 @@ class DemoService:
         catalog_dir: Path | None = None,
         templates_dir: Path | None = None,
         default_adapter: str = "fake",
+        planner_config: PlannerConfig | None = None,
+        llm_client: WorkflowProposalClient | None = None,
     ) -> None:
         self.repo_root = repo_root.resolve()
         self.run_dir = run_dir or self.repo_root / "benchmarks/runs/stage_c1_demo_latest"
         self.catalog_dir = catalog_dir or self.repo_root / "nodes/catalog"
         self.templates_dir = templates_dir or self.repo_root / "workflow_templates"
         self.default_adapter = default_adapter
+        self.planner_config = planner_config or PlannerConfig()
+        self.llm_client = llm_client
 
     def status(self) -> dict[str, Any]:
         return {
@@ -43,6 +48,8 @@ class DemoService:
                 "nodes",
                 "templates",
                 "deterministic_planning",
+                "llm_workflow_planning",
+                "validation_repair_loop",
                 "workflow_validation",
                 "fake_adapter_run",
                 "report_links",
@@ -60,14 +67,16 @@ class DemoService:
         return self._template_catalog().get(template_id).to_dict()
 
     def plan(self, payload: dict[str, Any]) -> dict[str, Any]:
-        planner = ChatWorkflowPlanner()
-        result = planner.plan(
-            ChatPlannerInput(
-                user_request=str(payload.get("user_request", "")),
-                node_catalog=self._node_catalog(),
-                workflow_templates=self._template_catalog(),
-                retrieved_context=[str(item) for item in payload.get("retrieved_context", []) if isinstance(item, str)],
-            )
+        runner = PlannerRunner(
+            config=self.planner_config,
+            node_catalog=self._node_catalog(),
+            workflow_templates=self._template_catalog(),
+            llm_client=self.llm_client,
+        )
+        result = runner.plan(
+            str(payload.get("user_request", "")),
+            requested_mode=payload.get("planner_mode") if isinstance(payload.get("planner_mode"), str) else None,
+            retrieved_context=[str(item) for item in payload.get("retrieved_context", []) if isinstance(item, str)],
         )
         return result.to_dict()
 
@@ -116,6 +125,7 @@ class DemoService:
                 "real_smoke_dashboard": "benchmarks/reports/stage_c_real_smoke_dashboard.html",
                 "demo_index": "benchmarks/reports/stage_c_demo_index.html",
                 "node_evolution_review": "benchmarks/reports/stage_c_node_evolution_review.html",
+                "planner_benchmark": "benchmarks/reports/stage_c2_planner_benchmark.html",
             }
         }
 

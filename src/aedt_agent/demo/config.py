@@ -13,6 +13,7 @@ class PlannerConfig:
     model: str = ""
     base_url: str = ""
     api_key: str = ""
+    max_repair_attempts: int = 3
 
 
 @dataclass(frozen=True)

@@ -4,7 +4,8 @@
     "provider": "",
     "model": "",
     "base_url": "",
-    "api_key": ""
+    "api_key": "",
+    "max_repair_attempts": 3
   },
   "server": {
     "host": "127.0.0.1",

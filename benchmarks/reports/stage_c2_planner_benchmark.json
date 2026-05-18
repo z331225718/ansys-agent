@@ -1,0 +1,63 @@
+{
+  "results": [
+    {
+      "missing_information": [],
+      "planner_mode": "deterministic",
+      "repair_count": 0,
+      "request": "create a microstrip s-parameter simulation at 5GHz",
+      "selected_template": "microstrip_sparameter",
+      "task_id": "microstrip",
+      "valid_workflow": true,
+      "validation_errors": []
+    },
+    {
+      "missing_information": [],
+      "planner_mode": "deterministic",
+      "repair_count": 0,
+      "request": "create a wave port setup",
+      "selected_template": "wave_port_setup",
+      "task_id": "wave_port",
+      "valid_workflow": true,
+      "validation_errors": []
+    },
+    {
+      "missing_information": [],
+      "planner_mode": "deterministic",
+      "repair_count": 0,
+      "request": "create a radiation airbox for an antenna",
+      "selected_template": "radiation_airbox_setup",
+      "task_id": "radiation_airbox",
+      "valid_workflow": true,
+      "validation_errors": []
+    },
+    {
+      "missing_information": [],
+      "planner_mode": "deterministic",
+      "repair_count": 0,
+      "request": "create an hfss setup at 2.4GHz",
+      "selected_template": null,
+      "task_id": "setup_only",
+      "valid_workflow": true,
+      "validation_errors": []
+    },
+    {
+      "missing_information": [
+        "simulation_type"
+      ],
+      "planner_mode": "deterministic",
+      "repair_count": 0,
+      "request": "make an electromagnetic simulation",
+      "selected_template": null,
+      "task_id": "ambiguous",
+      "valid_workflow": false,
+      "validation_errors": []
+    }
+  ],
+  "summary": {
+    "average_repair_count": 0.0,
+    "success_rate": 0.8,
+    "task_count": 5,
+    "valid_workflow_count": 4
+  },
+  "title": "Stage C.2 Planner Benchmark"
+}

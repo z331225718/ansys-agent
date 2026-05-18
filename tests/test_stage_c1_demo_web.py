@@ -11,6 +11,8 @@ def test_render_demo_page_contains_workspace_sections():
     assert "Templates" in html
     assert "Workflow Preview" in html
     assert "Run Fake Demo" in html
+    assert "Planner Mode" in html
+    assert "Repair Attempts" in html
 
 
 def test_dispatch_demo_request_serves_api_json(tmp_path):
