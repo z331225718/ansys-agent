@@ -6,8 +6,17 @@ allowed_apis:
   - Hfss.export_touchstone
 inputs:
   required: [setup]
+  optional: [name, start, stop, points, sweep_type, type]
+  enum:
+    sweep_type: [Fast, Interpolating, Discrete]
+    type: [Fast, Interpolating, Discrete]
 outputs:
   creates: [sweep_or_report]
 prerequisites:
   - create_setup
 examples: [hfss_patch_antenna, waveguide_filter, dipole_antenna]
+notes:
+  - Use sweep_type for controlled workflows. The alias type is accepted for LLM compatibility.
+  - Fast is common for S11-only antenna sweeps.
+  - Discrete is useful for field results or a small number of exact frequency points.
+  - Interpolating is preferred for broadband transmission-line S-parameter sweeps.

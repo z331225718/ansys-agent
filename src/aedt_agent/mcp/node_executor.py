@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from aedt_agent.mcp.audit_log import AuditLogger
 from aedt_agent.mcp.execution_queue import ExecutionQueue
-from aedt_agent.mcp.node_schemas import validate_node_inputs
+from aedt_agent.mcp.node_schemas import normalize_sweep_type, validate_node_inputs
 from aedt_agent.mcp.session_manager import SessionManager
 from aedt_agent.mcp.types import ExecutionResult, ExecutionStatus
 from aedt_agent.nodes.registry import NodeRegistry
@@ -77,6 +77,10 @@ class NodeExecutor:
             return lambda app: _solve_setup(app, inputs)
         if node_id == "create_sparameter_report":
             return lambda app: _create_sparameter_report(app, inputs)
+        if node_id == "create_farfield_setup":
+            return lambda app: _create_farfield_setup(app, inputs)
+        if node_id == "create_antenna_report":
+            return lambda app: _create_antenna_report(app, inputs)
         raise KeyError(node_id)
 
 
@@ -118,9 +122,12 @@ def _create_geometry_group(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
                 material=material,
             )
         elif kind == "cylinder":
-            obj = app.modeler.create_box(
-                item["origin"],
-                _cylinder_box_size(item),
+            obj = app.modeler.create_cylinder(
+                _cylinder_orientation(item),
+                _cylinder_origin(item),
+                item.get("radius", 0.5),
+                item.get("height", item.get("length", 1)),
+                num_sides=int(item.get("num_sides", 0)),
                 name=name,
                 material=material,
             )
@@ -146,16 +153,27 @@ def _normalize_geometry_item(item: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
-def _cylinder_box_size(item: dict[str, Any]) -> list[Any]:
-    radius = item.get("radius", 0.5)
-    height = item.get("height", item.get("size", [1, 1, 1])[-1] if isinstance(item.get("size"), list) else 1)
-    axis = str(item.get("axis", "z")).lower()
-    diameter = 2 * radius if isinstance(radius, (int, float)) else radius
-    if axis == "x":
-        return [height, diameter, diameter]
-    if axis == "y":
-        return [diameter, height, diameter]
-    return [diameter, diameter, height]
+def _cylinder_orientation(item: dict[str, Any]) -> str:
+    axis = str(item.get("axis", item.get("orientation", "Z"))).upper()
+    if axis in {"X", "Y", "Z"}:
+        return axis
+    raise ValueError(f"unsupported cylinder axis: {axis}")
+
+
+def _cylinder_origin(item: dict[str, Any]) -> list[Any]:
+    if "origin" in item:
+        return item["origin"]
+    center = item.get("center")
+    if not isinstance(center, list) or len(center) != 3:
+        raise ValueError("cylinder geometry requires origin or center")
+    height = item.get("height", item.get("length", 1))
+    if not isinstance(height, (int, float)):
+        return list(center)
+    origin = list(center)
+    axis = _cylinder_orientation(item).lower()
+    index = {"x": 0, "y": 1, "z": 2}[axis]
+    origin[index] = origin[index] - height / 2
+    return origin
 
 
 def _create_airbox(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
@@ -281,15 +299,19 @@ def _create_setup(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
 
 
 def _create_sweep(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
+    sweep_type = normalize_sweep_type(inputs.get("sweep_type", inputs.get("type", "Discrete")))
     kwargs = {
         "start_frequency": _frequency_value(inputs["start"]),
         "stop_frequency": _frequency_value(inputs["stop"]),
         "num_of_freq_points": inputs["points"],
         "name": inputs["name"],
+        "sweep_type": sweep_type,
     }
     signature = inspect.signature(app.create_linear_count_sweep)
     unit_arg = "unit" if "unit" in signature.parameters else "units"
     kwargs[unit_arg] = _frequency_unit(inputs["start"], inputs["stop"])
+    if "sweep_type" not in signature.parameters:
+        kwargs.pop("sweep_type")
     sweep = app.create_linear_count_sweep(inputs["setup"], **kwargs)
     return _node_output(sweeps=[_aedt_object_name(sweep, inputs["name"])], postchecks=["sweep_created"])
 
@@ -335,6 +357,42 @@ def _create_sparameter_report(app: Any, inputs: dict[str, Any]) -> dict[str, Any
         "touchstone_path": str(touchstone_path),
         "postcheck": {"passed": True, "checks": ["sparameter_report_created", "touchstone_exported"]},
     }
+
+
+def _create_farfield_setup(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
+    name = inputs["name"]
+    setup = app.insert_infinite_sphere(
+        definition=inputs["definition"],
+        phi_start=inputs["phi_start"],
+        phi_stop=inputs["phi_stop"],
+        phi_step=inputs["phi_step"],
+        theta_start=inputs["theta_start"],
+        theta_stop=inputs["theta_stop"],
+        theta_step=inputs["theta_step"],
+        units=inputs["units"],
+        name=name,
+    )
+    return _node_output(farfields=[_aedt_object_name(setup, name)], postchecks=["farfield_setup_created"])
+
+
+def _create_antenna_report(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
+    report_name = inputs["report_name"]
+    setup_sweep = f"{inputs['setup']} : {inputs['sweep']}"
+    report = app.post.create_report(
+        expressions=inputs["expression"],
+        setup_sweep_name=setup_sweep,
+        domain="Infinite Sphere",
+        report_category="Far Fields",
+        context=inputs["farfield"],
+        primary_sweep_variable=inputs["primary_sweep"],
+        plot_name=report_name,
+    )
+    if report is False:
+        raise RuntimeError(f"failed to create antenna report: {report_name}")
+    output = _node_output(reports=[report_name], postchecks=["antenna_report_created"])
+    if inputs.get("output_dir") and hasattr(app.post, "export_report_to_file"):
+        output["report_path"] = str(app.post.export_report_to_file(inputs["output_dir"], report_name, "csv"))
+    return output
 
 
 def _aedt_object_name(value: Any, fallback: str) -> str:
@@ -410,6 +468,8 @@ def _node_output(
     boundaries: list[str] | None = None,
     setups: list[str] | None = None,
     sweeps: list[str] | None = None,
+    farfields: list[str] | None = None,
+    reports: list[str] | None = None,
     postchecks: list[str] | None = None,
 ) -> dict[str, Any]:
     created = {
@@ -418,6 +478,8 @@ def _node_output(
         "boundaries": boundaries or [],
         "setups": setups or [],
         "sweeps": sweeps or [],
+        "farfields": farfields or [],
+        "reports": reports or [],
     }
     output = {
         "created": {
@@ -426,6 +488,8 @@ def _node_output(
             "boundaries": list(created["boundaries"]),
             "setups": list(created["setups"]),
             "sweeps": list(created["sweeps"]),
+            "farfields": list(created["farfields"]),
+            "reports": list(created["reports"]),
         },
         "postcheck": {"passed": True, "checks": postchecks or []},
     }
@@ -440,6 +504,10 @@ def _node_output(
         output["setup_name"] = created["setups"][0]
     if created["sweeps"]:
         output["sweep_name"] = created["sweeps"][0]
+    if created["farfields"]:
+        output["farfield_name"] = created["farfields"][0]
+    if created["reports"]:
+        output["report_name"] = created["reports"][0]
     return output
 
 

@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from aedt_agent.demo.config import PlannerConfig
+from aedt_agent.demo.config import AedtConfig, PlannerConfig
 from aedt_agent.demo.planner import PlannerRunner, WorkflowProposalClient
 from aedt_agent.mcp.audit_log import AuditLogger
 from aedt_agent.mcp.execution_queue import ExecutionQueue
@@ -83,6 +83,7 @@ class DemoService:
         templates_dir: Path | None = None,
         default_adapter: str = "fake",
         planner_config: PlannerConfig | None = None,
+        aedt_config: AedtConfig | None = None,
         llm_client: WorkflowProposalClient | None = None,
     ) -> None:
         self.repo_root = repo_root.resolve()
@@ -92,6 +93,7 @@ class DemoService:
         self.templates_dir = templates_dir or self.repo_root / "workflow_templates"
         self.default_adapter = default_adapter
         self.planner_config = planner_config or PlannerConfig()
+        self.aedt_config = aedt_config or AedtConfig()
         self.llm_client = llm_client
         self._jobs: dict[str, DemoRunJob] = {}
         self._jobs_lock = threading.Lock()
@@ -275,6 +277,18 @@ class DemoService:
             command.extend(["--template", job.template_id])
         if job.adapter == "real":
             command.append("--graphical" if job.graphical else "--non-graphical")
+            command.extend(
+                [
+                    "--aedt-version",
+                    self.aedt_config.version,
+                    "--ansysem-root",
+                    self.aedt_config.ansysem_root,
+                    "--awp-root",
+                    self.aedt_config.awp_root,
+                    "--timeout-seconds",
+                    str(self.aedt_config.timeout),
+                ]
+            )
         job.status = "running"
         header = (
             f"Starting AEDT workflow smoke in {'graphical' if job.graphical else 'non-graphical'} mode.\n"

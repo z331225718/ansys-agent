@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
+from aedt_agent.demo.config import AedtConfig, PlannerConfig
 from aedt_agent.demo.service import DemoService
 
 
@@ -25,7 +26,7 @@ def render_demo_page() -> str:
     .shell{display:grid;grid-template-columns:360px minmax(0,1fr) 330px;gap:14px}.panel{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:16px}.panel h2{font-size:17px;margin:0 0 12px}.stack{display:grid;gap:13px}.row{display:flex;gap:9px;flex-wrap:wrap}.field{display:grid;gap:6px}.field label{font-size:12px;font-weight:900;color:#334155;text-transform:uppercase}.params{display:grid;grid-template-columns:1fr 1fr;gap:10px}
     .agent-note{border-left:3px solid var(--blue);background:#f5f7ff;padding:10px 11px;border-radius:6px;color:#344054;font-size:13px;line-height:1.5}.planner-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.planner-chip{border:1px solid var(--line);border-radius:8px;background:#fff;padding:9px}.planner-chip b{display:block;font-size:13px}.planner-chip span{font-size:11px;color:var(--muted);font-weight:800}.diagram{height:170px;border:1px solid var(--line);border-radius:8px;background:linear-gradient(180deg,#f8faf6,#eef2ea);position:relative;overflow:hidden}.air{position:absolute;inset:14px;border:1px dashed #94a3b8;border-radius:6px}.substrate{position:absolute;left:38px;right:38px;bottom:44px;height:46px;background:#d8c58b;border:1px solid #a5883a}.ground{position:absolute;left:34px;right:34px;bottom:38px;height:5px;background:#7c5b21}.trace{position:absolute;left:74px;right:74px;bottom:91px;height:7px;background:#c58b2a}.port{position:absolute;bottom:43px;width:4px;height:55px;background:#2563eb}.port.p1{left:73px}.port.p2{right:73px}.diagram-label{position:absolute;font-size:11px;color:#475569;font-weight:800}.diagram-label.l1{left:38px;bottom:98px}.diagram-label.l2{right:40px;bottom:28px}
     .flow{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.step{display:grid;grid-template-columns:30px minmax(0,1fr) auto;align-items:center;gap:9px;padding:11px;border:1px solid var(--line);border-radius:8px;background:#fff}.index{width:26px;height:26px;border-radius:6px;background:var(--soft);display:grid;place-items:center;font-weight:900;color:#334155}.step b{font-size:14px}.state{font-size:12px;color:var(--muted);font-weight:900}.state.ok{color:var(--teal)}.state.fail{color:var(--red)}
-    .result{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.metric,.sparam{border:1px solid var(--line);border-radius:8px;padding:12px;background:#fff}.metric strong{display:block;font-size:19px;line-height:1.15}.metric span,.sparam span{font-size:12px;color:var(--muted);font-weight:800}.sparams{display:grid;gap:10px}.sparam strong{display:block;font-size:30px;line-height:1.05;margin-bottom:6px}.sparam.primary{background:#f7fbf9;border-color:#b7decf}.sparam.secondary{background:#fff8ed;border-color:#ecd3a5}.chart{border:1px solid var(--line);border-radius:8px;background:#fff;padding:10px}.chart-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}.legend{display:flex;gap:10px;font-size:12px;color:var(--muted);font-weight:800}.legend i{display:inline-block;width:18px;height:3px;border-radius:999px;margin-right:5px;vertical-align:middle}.legend .s11{background:var(--teal)}.legend .s21{background:var(--amber)}#sparamChart{width:100%;height:220px;display:block}.artifacts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.artifact{border:1px solid var(--line);border-radius:8px;padding:10px;background:#fff;font-size:12px;overflow:hidden;text-overflow:ellipsis}.reports{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:14px}.report{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:13px}.report b{display:block;margin-bottom:5px}.advanced{font-size:13px;color:var(--muted)}pre{background:#18212b;color:#e5e7eb;border-radius:8px;padding:12px;overflow:auto;max-height:330px;font-size:12px;line-height:1.45}
+    .result{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.metric,.sparam{border:1px solid var(--line);border-radius:8px;padding:12px;background:#fff}.metric strong{display:block;font-size:19px;line-height:1.15}.metric span,.sparam span{font-size:12px;color:var(--muted);font-weight:800}.sparams{display:grid;gap:10px}.sparam strong{display:block;font-size:30px;line-height:1.05;margin-bottom:6px}.sparam.primary{background:#f7fbf9;border-color:#b7decf}.sparam.secondary{background:#fff8ed;border-color:#ecd3a5}.chart{border:1px solid var(--line);border-radius:8px;background:#fff;padding:10px}.chart-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}.legend{display:flex;gap:10px;font-size:12px;color:var(--muted);font-weight:800}.legend i{display:inline-block;width:18px;height:3px;border-radius:999px;margin-right:5px;vertical-align:middle}.legend .s11{background:var(--teal)}.legend .s21{background:var(--amber)}#sparamChart{width:100%;height:220px;display:block}.llm-log{background:#fff;border:1px solid var(--line);border-radius:8px;padding:11px;min-height:190px;max-height:280px;overflow:auto;font-size:13px;line-height:1.5}.log-entry{border-left:3px solid var(--line);padding:7px 9px;margin-bottom:8px;background:#fafaf7}.log-entry.user{border-left-color:var(--blue)}.log-entry.llm{border-left-color:var(--amber)}.log-entry.ok{border-left-color:var(--teal)}.log-entry.err{border-left-color:var(--red)}.log-entry b{display:block;font-size:12px;text-transform:uppercase;color:#334155;margin-bottom:3px}.artifacts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.artifact{border:1px solid var(--line);border-radius:8px;padding:10px;background:#fff;font-size:12px;overflow:hidden;text-overflow:ellipsis}.reports{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:14px}.report{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:13px}.report b{display:block;margin-bottom:5px}.advanced{font-size:13px;color:var(--muted)}pre{background:#18212b;color:#e5e7eb;border-radius:8px;padding:12px;overflow:auto;max-height:330px;font-size:12px;line-height:1.45}
     @media(max-width:1120px){.shell{grid-template-columns:1fr}.flow,.result,.artifacts,.reports{grid-template-columns:1fr}.top{grid-template-columns:1fr}.page{padding:18px 12px}.params{grid-template-columns:1fr}}
   </style>
 </head>
@@ -62,16 +63,17 @@ def render_demo_page() -> str:
         <div class="diagram-label l1">Trace + lumped ports</div><div class="diagram-label l2">Ground / FR4</div>
       </div>
       <div class="row">
-        <button class="secondary" onclick="planWorkflowForDemo()">Plan with LLM</button>
-        <button onclick="runRealAedtDemo()">Run Real AEDT</button>
-        <button class="secondary" onclick="runOfflineDemo()">Run Offline Demo</button>
-        <button class="secondary" onclick="loadFixedWorkflow()">Preview Workflow</button>
+        <button id="planButton" class="secondary" onclick="planWorkflowForDemo()">Plan with LLM</button>
+        <button id="runButton" onclick="runRealAedtDemo()">Run Real AEDT</button>
       </div>
       <div class="muted">主路径：需求输入 → LLM planner → workflow validation → 真实 AEDT 图形界面执行。节点 catalog、planner 和 benchmark 等调试入口在 <a href="/advanced">Advanced 工作台</a>。</div>
     </aside>
 
     <section class="panel stack">
-      <h2>流程进度</h2>
+      <h2>LLM 交互与流程进度</h2>
+      <div class="llm-log" id="llmLog">
+        <div class="log-entry"><b>System</b>等待用户输入需求并点击 Plan with LLM。</div>
+      </div>
       <div class="flow">
         <div class="step" id="step-substrate"><div class="index">1</div><div><b>Create Substrate</b><div class="muted">创建 FR4 substrate</div></div><div class="state">pending</div></div>
         <div class="step" id="step-trace"><div class="index">2</div><div><b>Create Ground, Trace & Port Sheets</b><div class="muted">端口 sheet 与 trace 等宽</div></div><div class="state">pending</div></div>
@@ -122,6 +124,7 @@ def render_demo_page() -> str:
 <script>
 let currentWorkflow = null;
 let currentWorkflowSource = '';
+let plannerInFlight = false;
 async function api(path, options={}) {
   const response = await fetch(path, {headers:{'content-type':'application/json'}, ...options});
   const data = await response.json();
@@ -135,6 +138,20 @@ function setStep(id, state) {
 }
 function resetSteps() {
   ['step-substrate','step-trace','step-pec','step-airbox','step-radiation','step-lumped-port-1','step-lumped-port-2','step-setup','step-sweep','step-solve','step-postprocess','step-validation'].forEach(id => setStep(id, 'pending'));
+}
+function appendLog(role, text, klass='') {
+  const log = document.getElementById('llmLog');
+  const node = document.createElement('div');
+  node.className = `log-entry ${klass}`;
+  node.innerHTML = `<b>${role}</b>${text}`;
+  log.appendChild(node);
+  log.scrollTop = log.scrollHeight;
+}
+function setBusy(isBusy) {
+  plannerInFlight = isBusy;
+  document.getElementById('planButton').disabled = isBusy;
+  document.getElementById('runButton').disabled = isBusy;
+  document.getElementById('planButton').textContent = isBusy ? 'Planning...' : 'Plan with LLM';
 }
 function parseFrequencies(text) {
   const matches = [...text.matchAll(/(\\d+(?:\\.\\d+)?)\\s*(GHz|MHz|KHz|Hz)/gi)].map(match => match[1] + match[2]);
@@ -167,21 +184,45 @@ async function loadFixedWorkflow() {
   document.getElementById('rawResult').textContent = JSON.stringify(data.workflow, null, 2);
 }
 async function planWorkflowForDemo() {
+  if (plannerInFlight) return null;
   syncRequestToParameters();
+  setBusy(true);
   document.getElementById('plannerModeMetric').textContent = 'planning';
   document.getElementById('agentPlan').textContent = 'LLM planner 正在生成 workflow JSON，并等待 backend validator 校验。';
   const request = document.getElementById('agentRequest').value;
-  const data = await api('/api/plan', {method:'POST', body:JSON.stringify({planner_mode:'llm', user_request:request})});
-  currentWorkflow = data.generated_workflow;
-  if (!currentWorkflow) throw new Error('Planner did not return a valid workflow');
-  currentWorkflowSource = 'planner';
-  document.getElementById('plannerModeMetric').textContent = data.planner_mode || 'unknown';
-  document.getElementById('repairMetric').textContent = String(data.repair_count || 0);
-  document.getElementById('workflowMetric').textContent = currentWorkflow && currentWorkflow.workflow_id ? currentWorkflow.workflow_id : '--';
-  const fallback = data.fallback_reason ? ` fallback=${data.fallback_reason}` : '';
-  document.getElementById('agentPlan').textContent = `Planner ${data.planner_mode}${fallback}，repair ${data.repair_count || 0}，validation errors ${(data.validation_errors || []).length}。`;
-  document.getElementById('rawResult').textContent = JSON.stringify(data, null, 2);
-  return data;
+  appendLog('User', request, 'user');
+  appendLog('LLM', '已发送规划请求。模型需要返回 workflow JSON，页面会等待 validator 结果。', 'llm');
+  let waited = 0;
+  const heartbeat = setInterval(() => {
+    waited += 5;
+    appendLog('LLM', `仍在等待模型响应... ${waited}s`, 'llm');
+  }, 5000);
+  try {
+    const data = await api('/api/plan', {method:'POST', body:JSON.stringify({planner_mode:'llm', user_request:request})});
+    clearInterval(heartbeat);
+    currentWorkflow = data.generated_workflow;
+    if (!currentWorkflow) throw new Error('Planner did not return a valid workflow');
+    currentWorkflowSource = 'planner';
+    document.getElementById('plannerModeMetric').textContent = data.planner_mode || 'unknown';
+    document.getElementById('repairMetric').textContent = String(data.repair_count || 0);
+    document.getElementById('workflowMetric').textContent = currentWorkflow && currentWorkflow.workflow_id ? currentWorkflow.workflow_id : '--';
+    const fallback = data.fallback_reason ? ` fallback=${data.fallback_reason}` : '';
+    document.getElementById('agentPlan').textContent = `Planner ${data.planner_mode}${fallback}，repair ${data.repair_count || 0}，validation errors ${(data.validation_errors || []).length}。`;
+    appendLog('Validator', `workflow=${currentWorkflow.workflow_id}，planner=${data.planner_mode}${fallback}，repair=${data.repair_count || 0}，errors=${(data.validation_errors || []).length}`, 'ok');
+    for (const attempt of (data.attempts || [])) {
+      const status = attempt.validation && attempt.validation.passed ? 'passed' : 'failed';
+      appendLog('Attempt ' + attempt.attempt, `${attempt.mode} ${status}${attempt.error ? ' - ' + attempt.error : ''}`, status === 'passed' ? 'ok' : 'err');
+    }
+    document.getElementById('rawResult').textContent = JSON.stringify(data, null, 2);
+    return data;
+  } catch (error) {
+    clearInterval(heartbeat);
+    appendLog('Error', String(error.message || error), 'err');
+    document.getElementById('plannerModeMetric').textContent = 'failed';
+    throw error;
+  } finally {
+    setBusy(false);
+  }
 }
 function renderResult(result) {
   const stepMap = {'substrate':'step-substrate','trace':'step-trace','ground_pec':'step-pec','trace_pec':'step-pec','airbox':'step-airbox','radiation':'step-radiation','lumped_port_1':'step-lumped-port-1','lumped_port_2':'step-lumped-port-2','setup':'step-setup','sweep':'step-sweep','solve':'step-solve','postprocess':'step-postprocess'};
@@ -241,6 +282,7 @@ function renderSParameterChart(samples, unit) {
 async function runRealAedtDemo() {
   syncRequestToParameters();
   if (!currentWorkflow || currentWorkflowSource !== 'planner') await planWorkflowForDemo();
+  appendLog('Executor', '开始把 planner 生成的 workflow 发送给真实 AEDT。', 'ok');
   resetSteps();
   document.getElementById('statusMetric').textContent = 'running';
   document.getElementById('validationMetric').textContent = 'launching AEDT';
@@ -265,7 +307,7 @@ async function runOfflineDemo() {
   renderResult(result);
 }
 syncRequestToParameters();
-loadFixedWorkflow();
+renderSParameterChart([], '');
 </script>
 </body>
 </html>
@@ -459,8 +501,23 @@ def dispatch_demo_request(method: str, path: str, body: bytes, service: DemoServ
         return _json_response({"error": type(exc).__name__, "message": str(exc)}, status=400)
 
 
-def run_demo_server(host: str, port: int, repo_root: Path, run_dir: Path) -> None:
-    service = DemoService(repo_root, run_dir=run_dir)
+def run_demo_server(
+    host: str,
+    port: int,
+    repo_root: Path,
+    run_dir: Path,
+    *,
+    planner_config: PlannerConfig | None = None,
+    default_adapter: str = "fake",
+    aedt_config: AedtConfig | None = None,
+) -> None:
+    service = DemoService(
+        repo_root,
+        run_dir=run_dir,
+        planner_config=planner_config,
+        default_adapter=default_adapter,
+        aedt_config=aedt_config,
+    )
 
     class DemoRequestHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:

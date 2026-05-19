@@ -9,10 +9,11 @@ def _validator() -> WorkflowValidator:
     return WorkflowValidator(NodeCatalog.from_directory(Path("nodes/catalog")))
 
 
-def test_template_catalog_loads_three_starter_templates():
+def test_template_catalog_loads_starter_templates():
     catalog = load_workflow_templates(Path("workflow_templates"))
 
     assert set(catalog.templates) == {
+        "dipole_antenna_s11_farfield",
         "microstrip_sparameter",
         "radiation_airbox_setup",
         "wave_port_setup",
@@ -26,7 +27,7 @@ def test_templates_export_ui_safe_summary():
     payload = catalog.to_ui_dict()
 
     assert payload["version"] == "0.1.0"
-    assert len(payload["templates"]) == 3
+    assert len(payload["templates"]) == 4
     assert all("workflow" not in item for item in payload["templates"])
     assert all(item["node_count"] > 0 for item in payload["templates"])
     assert all(item["parameters"] is not None for item in payload["templates"])
@@ -83,6 +84,27 @@ def test_microstrip_template_uses_pec_and_trace_width_lumped_port_sheets():
         "boundary_type": "Perfect_E",
         "name": "TracePerfectE",
     }
+
+
+def test_dipole_template_reuses_common_nodes_and_adds_only_farfield_postprocessing():
+    template = WorkflowTemplate.from_file(Path("workflow_templates/dipole_antenna_s11_farfield.json"))
+    node_ids = [node.node_id for node in template.workflow.nodes]
+
+    assert node_ids == [
+        "create_conductor_or_geometry_group",
+        "create_airbox",
+        "assign_boundary",
+        "create_port",
+        "create_setup",
+        "create_sweep_or_export",
+        "create_farfield_setup",
+        "solve_setup",
+        "create_sparameter_report",
+        "create_antenna_report",
+    ]
+    assert "create_substrate" not in node_ids
+    assert "create_dipole_antenna" not in node_ids
+    assert _validator().validate(template.workflow).passed is True
 
 
 def test_template_full_dict_includes_workflow_for_chat_planner():

@@ -32,3 +32,17 @@ def test_describe_node_schema_lists_required_inputs():
 
     assert description["required"] == ["material", "origin", "size"]
     assert "name" in description["optional"]
+
+
+def test_sweep_schema_accepts_interpolating_type_alias():
+    result = validate_node_inputs("create_sweep_or_export", {"setup": "Setup1", "type": "Interpolating"})
+
+    assert result.passed is True
+    assert result.inputs["sweep_type"] == "Interpolating"
+
+
+def test_sweep_schema_rejects_unknown_sweep_type():
+    result = validate_node_inputs("create_sweep_or_export", {"setup": "Setup1", "sweep_type": "adaptive"})
+
+    assert result.passed is False
+    assert "unsupported sweep type: adaptive" in result.errors

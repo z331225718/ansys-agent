@@ -43,6 +43,13 @@ class FakeModeler:
         self._app.objects[object_name] = obj
         return obj
 
+    def create_cylinder(self, orientation, origin, radius, height, num_sides=0, name=None, material=None, **kwargs) -> FakeObject:
+        object_name = name or f"Cylinder{len(self._app.objects) + 1}"
+        faces = [FakeFace(self._app.next_face_id(), [0.0, 0.0, 0.0], area=float(index + 1)) for index in range(3)]
+        obj = FakeObject(object_name, "cylinder", material or "", list(origin), [radius, height, orientation, num_sides], faces)
+        self._app.objects[object_name] = obj
+        return obj
+
     def create_region(self, padding=10, name="Region", **kwargs) -> FakeObject:
         return self.create_box([-padding, -padding, -padding], [2 * padding, 2 * padding, 2 * padding], name=name, material="air")
 
@@ -69,10 +76,12 @@ class FakeAedtApp:
         self.boundaries: dict[str, dict[str, Any]] = {}
         self.setups: dict[str, dict[str, Any]] = {}
         self.sweeps: dict[str, dict[str, Any]] = {}
+        self.farfields: dict[str, dict[str, Any]] = {}
         self.solved_setups: dict[str, dict[str, Any]] = {}
         self.reports: dict[str, dict[str, Any]] = {}
         self._face_index = 0
         self.modeler = FakeModeler(self)
+        self.post = FakePostProcessor(self)
 
     def next_face_id(self) -> int:
         self._face_index += 1
@@ -113,7 +122,16 @@ class FakeAedtApp:
         self.setups[name] = dict(kwargs)
         return name
 
-    def create_linear_count_sweep(self, setup, units="GHz", start_frequency=1, stop_frequency=10, num_of_freq_points=101, **kwargs) -> str:
+    def create_linear_count_sweep(
+        self,
+        setup,
+        units="GHz",
+        start_frequency=1,
+        stop_frequency=10,
+        num_of_freq_points=101,
+        sweep_type="Discrete",
+        **kwargs,
+    ) -> str:
         sweep_name = kwargs.get("name", f"{setup}_Sweep")
         self.sweeps[sweep_name] = {
             "setup": setup,
@@ -121,8 +139,14 @@ class FakeAedtApp:
             "start_frequency": start_frequency,
             "stop_frequency": stop_frequency,
             "num_of_freq_points": num_of_freq_points,
+            "sweep_type": sweep_type,
         }
         return sweep_name
+
+    def insert_infinite_sphere(self, definition="Theta-Phi", name=None, **kwargs) -> str:
+        farfield_name = name or f"InfiniteSphere{len(self.farfields) + 1}"
+        self.farfields[farfield_name] = {"definition": definition, **dict(kwargs)}
+        return farfield_name
 
     def analyze_setup(self, name=None, **kwargs) -> bool:
         setup_name = name or next(iter(self.setups), "Setup1")
@@ -154,6 +178,31 @@ class FakeAedtApp:
         return str(path)
 
 
+class FakePostProcessor:
+    def __init__(self, app: FakeAedtApp):
+        self._app = app
+
+    def create_report(self, expressions=None, setup_sweep_name=None, domain="Sweep", report_category=None, context=None, plot_name=None, **kwargs) -> bool:
+        report_name = plot_name or f"Report{len(self._app.reports) + 1}"
+        self._app.reports[report_name] = {
+            "type": "antenna" if report_category == "Far Fields" else "report",
+            "expressions": expressions,
+            "setup_sweep_name": setup_sweep_name,
+            "domain": domain,
+            "report_category": report_category,
+            "context": context,
+        }
+        return True
+
+    def export_report_to_file(self, output_dir, plot_name, extension, **kwargs) -> str:
+        from pathlib import Path
+
+        path = Path(output_dir) / f"{plot_name}.{extension.lstrip('.')}"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("frequency,value\n1.0,0.0\n", encoding="utf-8")
+        return str(path)
+
+
 class FakeAedtAdapter:
     def __init__(self, project_id: str, design_id: str):
         self.app = FakeAedtApp(project_id, design_id)
@@ -182,6 +231,7 @@ class FakeAedtAdapter:
             "boundaries": dict(self.app.boundaries),
             "setups": dict(self.app.setups),
             "sweeps": dict(self.app.sweeps),
+            "farfields": dict(self.app.farfields),
             "solved_setups": dict(self.app.solved_setups),
             "reports": dict(self.app.reports),
         }

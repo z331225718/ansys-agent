@@ -24,13 +24,16 @@ def test_render_demo_page_contains_workspace_sections():
     assert "Solve Setup" in html
     assert "Postprocess" in html
     assert "Run Real AEDT" in html
-    assert "Run Offline Demo" in html
+    assert "Run Offline Demo" not in html
+    assert "Preview Workflow" not in html
     assert "graphical:true" in html
     assert "Validation Result" in html
     assert "S11 at selected frequency" in html
     assert "S21 at selected frequency" in html
     assert "S-Parameter Sweep" in html
     assert "sparamChart" in html
+    assert "LLM 交互" in html
+    assert "llmLog" in html
     assert "真实 AEDT Smoke" in html
 
 
@@ -97,8 +100,12 @@ def test_dispatch_demo_request_serves_run_artifact(tmp_path):
 
 def test_stage_c1_demo_start_script_exists():
     script = Path("scripts/run_stage_c1_demo_server.py")
+    source = script.read_text(encoding="utf-8")
 
     assert script.exists()
-    assert "run_demo_server" in script.read_text(encoding="utf-8")
-    assert "KeyboardInterrupt" in script.read_text(encoding="utf-8")
-    assert "Stopping demo server." in script.read_text(encoding="utf-8")
+    assert "run_demo_server" in source
+    assert "planner_config=config.planner" in source
+    assert "default_adapter=config.execution.default_adapter" in source
+    assert "aedt_config=config.aedt" in source
+    assert "KeyboardInterrupt" in source
+    assert "Stopping demo server." in source

@@ -21,6 +21,8 @@ NODE_CATEGORIES: dict[str, str] = {
     "create_sweep_or_export": "sweep",
     "solve_setup": "solve",
     "create_sparameter_report": "postprocess",
+    "create_farfield_setup": "postprocess",
+    "create_antenna_report": "postprocess",
 }
 
 NODE_DISPLAY_NAMES: dict[str, str] = {
@@ -35,6 +37,8 @@ NODE_DISPLAY_NAMES: dict[str, str] = {
     "create_sweep_or_export": "Create Sweep Or Export",
     "solve_setup": "Solve Setup",
     "create_sparameter_report": "Create S-Parameter Report",
+    "create_farfield_setup": "Create Farfield Setup",
+    "create_antenna_report": "Create Antenna Report",
 }
 
 NODE_POSTCHECKS: dict[str, list[str]] = {
@@ -49,6 +53,8 @@ NODE_POSTCHECKS: dict[str, list[str]] = {
     "create_sweep_or_export": ["sweep_created"],
     "solve_setup": ["setup_solved"],
     "create_sparameter_report": ["sparameter_report_created"],
+    "create_farfield_setup": ["farfield_setup_created"],
+    "create_antenna_report": ["antenna_report_created"],
 }
 
 
@@ -166,6 +172,10 @@ def _created_type_to_field(created_type: str) -> str:
         return "setup_name"
     if created_type == "sweep_or_report":
         return "sweep_name"
+    if created_type == "farfield":
+        return "farfield_name"
+    if created_type in {"report", "antenna_report"}:
+        return "report_name"
     if created_type == "face_id":
         return "selected_face_id"
     return f"{created_type}_name"

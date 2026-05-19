@@ -1,0 +1,17 @@
+node_id: create_antenna_report
+summary: Create a far-field antenna report such as gain or realized gain after solving.
+allowed_apis:
+  - PostProcessor3D.create_report
+  - PostProcessor3D.export_report_to_file
+inputs:
+  required: [setup, farfield]
+  optional: [sweep, report_name, expression, output_dir, primary_sweep]
+outputs:
+  creates: [antenna_report]
+prerequisites:
+  - create_farfield_setup
+  - solve_setup
+examples: [dipole_antenna, hfss_patch_antenna]
+notes:
+  - Use this for far-field reports only; S-parameter plots should keep using create_sparameter_report.
+  - The default expression is dB(GainTotal).

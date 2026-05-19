@@ -26,7 +26,15 @@ def main() -> None:
     run_dir = Path(args.run_dir or config.execution.run_dir)
     print(f"Stage C.1 demo server: http://{host}:{port}")
     try:
-        run_demo_server(host, port, REPO_ROOT, run_dir)
+        run_demo_server(
+            host,
+            port,
+            REPO_ROOT,
+            run_dir,
+            planner_config=config.planner,
+            default_adapter=config.execution.default_adapter,
+            aedt_config=config.aedt,
+        )
     except KeyboardInterrupt:
         print("\nStopping demo server.")
 

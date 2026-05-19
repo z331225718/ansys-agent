@@ -29,10 +29,20 @@ class ExecutionConfig:
 
 
 @dataclass(frozen=True)
+class AedtConfig:
+    version: str = "2026.1"
+    non_graphical: bool = True
+    ansysem_root: str = "~/ansys_inc/v261/AnsysEM"
+    awp_root: str = "~/ansys_inc/v261"
+    timeout: int = 900
+
+
+@dataclass(frozen=True)
 class DemoConfig:
     planner: PlannerConfig
     server: ServerConfig
     execution: ExecutionConfig
+    aedt: AedtConfig = AedtConfig()
 
 
 def load_demo_config(
@@ -47,6 +57,7 @@ def load_demo_config(
         planner=PlannerConfig(**_section(merged, "planner")),
         server=ServerConfig(**_section(merged, "server")),
         execution=ExecutionConfig(**_section(merged, "execution")),
+        aedt=AedtConfig(**_section(merged, "aedt")),
     )
 
 

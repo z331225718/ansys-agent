@@ -97,8 +97,7 @@ Demo 默认使用 `deterministic` planner，不需要 LLM API。要测试 LLM pl
    - `report`
    - `microstrip_demo.s2p`
 7. 点击真实 AEDT smoke 和节点进化 review 链接，展示 Stage C 已跑过的真实 AEDT artifact 和受控节点进化机制。
-8. 如果机器没有 license 或只想快速展示结构，点击 `Run Offline Demo`，它只使用 fake adapter。
-9. 如需展示 planner、node catalog、API 调试入口，打开：
+8. 如需展示 planner、node catalog、API 调试入口，打开：
 
 ```text
 http://127.0.0.1:8765/advanced

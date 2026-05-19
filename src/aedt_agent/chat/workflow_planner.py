@@ -75,6 +75,7 @@ class ChatWorkflowPlanner:
 def _select_template(request: str, templates: WorkflowTemplateCatalog) -> str | None:
     lowered = request.lower()
     candidates = {
+        "dipole_antenna_s11_farfield": ["dipole", "偶极子", "far field", "farfield", "gain pattern", "方向图", "增益"],
         "microstrip_sparameter": ["microstrip", "s-parameter", "s parameter", "transmission line"],
         "wave_port_setup": ["wave port", "waveport", "port face"],
         "radiation_airbox_setup": ["radiation", "airbox", "open region", "antenna"],
@@ -146,14 +147,14 @@ def _missing_from_validation(validation: dict[str, Any]) -> list[str]:
 
 
 def _first_frequency(text: str) -> str | None:
-    match = re.search(r"(\d+(?:\.\d+)?)\s*(ghz|mhz|khz|hz)\b", text, flags=re.IGNORECASE)
+    match = re.search(r"(\d+(?:\.\d+)?)\s*(ghz|mhz|khz|hz)(?![A-Za-z])", text, flags=re.IGNORECASE)
     if not match:
         return None
     return f"{match.group(1)}{_frequency_unit(match.group(2))}"
 
 
 def _sweep_stop(text: str) -> str | None:
-    match = re.search(r"(?:to|stop(?:s)?(?: at)?)\s*(\d+(?:\.\d+)?)\s*(ghz|mhz|khz|hz)\b", text, flags=re.IGNORECASE)
+    match = re.search(r"(?:to|stop(?:s)?(?: at)?|扫频到|扫到|截止到|到)\s*(\d+(?:\.\d+)?)\s*(ghz|mhz|khz|hz)(?![A-Za-z])", text, flags=re.IGNORECASE)
     if not match:
         return None
     return f"{match.group(1)}{_frequency_unit(match.group(2))}"

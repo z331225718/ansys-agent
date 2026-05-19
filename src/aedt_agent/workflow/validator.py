@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from aedt_agent.mcp.node_schemas import NODE_SCHEMAS
+from aedt_agent.mcp.node_schemas import NODE_SCHEMAS, normalize_sweep_type
 from aedt_agent.nodes.catalog import NodeCatalog
 from aedt_agent.workflow.models import Workflow
 
@@ -89,6 +89,8 @@ def _validate_node_inputs(workflow: Workflow, workflow_node_id: str, executable_
     for key, expected_type in {**schema.required, **schema.optional}.items():
         if key in normalized and not _input_matches_type_or_ref(normalized[key], expected_type):
             errors.append(WorkflowValidationIssue("wrong_input_type", f"wrong type for {key}", node_id=workflow_node_id, field=key))
+    if executable_node_id == "create_sweep_or_export":
+        errors.extend(_validate_sweep_type(normalized, set(inputs), workflow_node_id))
     return errors
 
 
@@ -111,6 +113,30 @@ def _contains_ref(value: Any) -> bool:
     if isinstance(value, list):
         return any(_contains_ref(item) for item in value)
     return False
+
+
+def _validate_sweep_type(inputs: dict[str, Any], explicit_keys: set[str], workflow_node_id: str) -> list[WorkflowValidationIssue]:
+    errors: list[WorkflowValidationIssue] = []
+    try:
+        canonical = normalize_sweep_type(inputs.get("sweep_type", inputs.get("type", "Discrete")))
+    except ValueError as exc:
+        return [WorkflowValidationIssue("unsupported_sweep_type", str(exc), node_id=workflow_node_id, field="sweep_type")]
+    if "type" in explicit_keys and "sweep_type" in explicit_keys:
+        try:
+            alias = normalize_sweep_type(inputs["type"])
+        except ValueError as exc:
+            errors.append(WorkflowValidationIssue("unsupported_sweep_type", str(exc), node_id=workflow_node_id, field="type"))
+        else:
+            if alias != canonical:
+                errors.append(
+                    WorkflowValidationIssue(
+                        "conflicting_sweep_type",
+                        "conflicting sweep_type and type",
+                        node_id=workflow_node_id,
+                        field="sweep_type",
+                    )
+                )
+    return errors
 
 
 def _validate_edge(

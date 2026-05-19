@@ -3,6 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+SWEEP_TYPE_ALIASES = {
+    "fast": "Fast",
+    "interpolating": "Interpolating",
+    "interpolation": "Interpolating",
+    "interpolate": "Interpolating",
+    "discrete": "Discrete",
+}
+
 
 @dataclass(frozen=True)
 class NodeInputSchema:
@@ -65,8 +73,15 @@ NODE_SCHEMAS: dict[str, NodeInputSchema] = {
     ),
     "create_sweep_or_export": NodeInputSchema(
         required={"setup": str},
-        optional={"name": str, "start": (str, int, float), "stop": (str, int, float), "points": int},
-        defaults={"name": "Sweep1", "start": "1GHz", "stop": "10GHz", "points": 101},
+        optional={
+            "name": str,
+            "start": (str, int, float),
+            "stop": (str, int, float),
+            "points": int,
+            "sweep_type": str,
+            "type": str,
+        },
+        defaults={"name": "Sweep1", "start": "1GHz", "stop": "10GHz", "points": 101, "sweep_type": "Discrete"},
     ),
     "solve_setup": NodeInputSchema(
         required={"setup": str},
@@ -77,6 +92,36 @@ NODE_SCHEMAS: dict[str, NodeInputSchema] = {
         required={"setup": str, "sweep": str},
         optional={"report_name": str, "output_dir": str, "touchstone_name": str, "ports": list},
         defaults={"report_name": "S Parameter Plot", "touchstone_name": "sparameters.s2p"},
+    ),
+    "create_farfield_setup": NodeInputSchema(
+        required={},
+        optional={
+            "name": str,
+            "definition": str,
+            "theta_start": (str, int, float),
+            "theta_stop": (str, int, float),
+            "theta_step": (str, int, float),
+            "phi_start": (str, int, float),
+            "phi_stop": (str, int, float),
+            "phi_step": (str, int, float),
+            "units": str,
+        },
+        defaults={
+            "name": "InfiniteSphere1",
+            "definition": "Theta-Phi",
+            "theta_start": 0,
+            "theta_stop": 180,
+            "theta_step": 5,
+            "phi_start": 0,
+            "phi_stop": 360,
+            "phi_step": 5,
+            "units": "deg",
+        },
+    ),
+    "create_antenna_report": NodeInputSchema(
+        required={"setup": str, "farfield": str},
+        optional={"sweep": str, "report_name": str, "expression": (str, list), "output_dir": str, "primary_sweep": str},
+        defaults={"sweep": "LastAdaptive", "report_name": "3D Gain Pattern", "expression": "dB(GainTotal)", "primary_sweep": "Theta"},
     ),
 }
 
@@ -111,10 +156,15 @@ def validate_node_inputs(node_id: str, inputs: dict[str, Any]) -> SchemaValidati
     for key, expected_type in {**schema.required, **schema.optional}.items():
         if key in normalized and not isinstance(normalized[key], expected_type):
             errors.append(f"wrong type for {key}: expected {_type_name(expected_type)}")
+    if node_id == "create_sweep_or_export":
+        errors.extend(_validate_sweep_inputs(normalized, set(inputs)))
     if node_id in {"create_port", "assign_boundary"}:
         for key in ("assignment", "reference"):
             if key in normalized and isinstance(normalized[key], dict) and not _looks_like_node_output(normalized[key]):
                 errors.append(f"wrong value for {key}: expected node output reference")
+    if not errors and node_id == "create_sweep_or_export":
+        source_key = "type" if "type" in inputs and "sweep_type" not in inputs else "sweep_type"
+        normalized["sweep_type"] = normalize_sweep_type(normalized.get(source_key, "Discrete"))
     return SchemaValidationResult(not errors, inputs=normalized if not errors else {}, errors=errors)
 
 
@@ -130,3 +180,28 @@ def _type_name(value: type | tuple[type, ...]) -> str:
 
 def _looks_like_node_output(value: dict[str, Any]) -> bool:
     return any(key in value for key in ("selected_face_id", "object_name", "created", "output"))
+
+
+def normalize_sweep_type(value: Any) -> str:
+    key = str(value).strip().replace("-", "_").replace(" ", "_").lower()
+    if key not in SWEEP_TYPE_ALIASES:
+        raise ValueError(f"unsupported sweep type: {value}")
+    return SWEEP_TYPE_ALIASES[key]
+
+
+def _validate_sweep_inputs(inputs: dict[str, Any], explicit_keys: set[str]) -> list[str]:
+    errors: list[str] = []
+    try:
+        canonical = normalize_sweep_type(inputs.get("sweep_type", inputs.get("type", "Discrete")))
+    except ValueError as exc:
+        errors.append(str(exc))
+        canonical = ""
+    if "type" in explicit_keys and "sweep_type" in explicit_keys:
+        try:
+            alias = normalize_sweep_type(inputs["type"])
+        except ValueError as exc:
+            errors.append(str(exc))
+        else:
+            if canonical and alias != canonical:
+                errors.append("conflicting sweep_type and type")
+    return errors

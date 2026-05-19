@@ -1,0 +1,263 @@
+{
+  "template_id": "dipole_antenna_s11_farfield",
+  "name": "HFSS Dipole Antenna S11 and Far Field",
+  "description": "Create a simple center-fed dipole antenna, solve S11, and generate a far-field gain report.",
+  "scenario": "Use this to demonstrate that Stage C reuses the same controlled HFSS nodes beyond the microstrip workflow.",
+  "tags": ["hfss", "antenna", "dipole", "s11", "farfield"],
+  "validation_checks": ["objects_exist", "port_created", "boundary_created", "setup_created", "sweep_created", "setup_solved", "sparameter_report_created", "antenna_report_created"],
+  "known_limits": ["This is a compact demo dipole and not a tuned production antenna model."],
+  "workflow": {
+    "workflow_id": "dipole_antenna_s11_farfield_v1",
+    "name": "Dipole Antenna S11 and Far Field",
+    "version": "0.1.0",
+    "description": "Reusable-node workflow for a simple center-fed dipole antenna.",
+    "parameters": [
+      {
+        "name": "frequency",
+        "type": "string",
+        "default": "2.4GHz",
+        "unit": "GHz",
+        "label": "Adaptive frequency"
+      },
+      {
+        "name": "sweep_start",
+        "type": "string",
+        "default": "1GHz",
+        "unit": "GHz",
+        "label": "Sweep start"
+      },
+      {
+        "name": "sweep_stop",
+        "type": "string",
+        "default": "4GHz",
+        "unit": "GHz",
+        "label": "Sweep stop"
+      },
+      {
+        "name": "artifact_dir",
+        "type": "string",
+        "default": "benchmarks/runs/stage_c_dipole_demo_latest",
+        "label": "Artifact directory"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "dipole_geometry",
+        "node_id": "create_conductor_or_geometry_group",
+        "inputs": {
+          "geometry": [
+            {
+              "kind": "cylinder",
+              "axis": "X",
+              "origin": [-30, 0, 0],
+              "radius": 0.5,
+              "height": 29.5,
+              "name": "DipoleArmLeft",
+              "material": "copper"
+            },
+            {
+              "kind": "cylinder",
+              "axis": "X",
+              "origin": [0.5, 0, 0],
+              "radius": 0.5,
+              "height": 29.5,
+              "name": "DipoleArmRight",
+              "material": "copper"
+            },
+            {
+              "kind": "rectangle",
+              "orientation": "XZ",
+              "origin": [-0.5, 0, -0.5],
+              "size": [1, 1],
+              "name": "FeedPortSheet",
+              "material": "vacuum"
+            }
+          ]
+        }
+      },
+      {
+        "id": "airbox",
+        "node_id": "create_airbox",
+        "inputs": {
+          "padding": 45,
+          "name": "AirBox"
+        }
+      },
+      {
+        "id": "radiation",
+        "node_id": "assign_boundary",
+        "inputs": {
+          "assignment": {
+            "$ref": "airbox.output.object_name"
+          },
+          "boundary_type": "Radiation",
+          "name": "Radiation"
+        }
+      },
+      {
+        "id": "feed_port",
+        "node_id": "create_port",
+        "inputs": {
+          "port_type": "lumped",
+          "assignment": "FeedPortSheet",
+          "impedance": 50,
+          "integration_line": {
+            "start": [-0.5, 0, 0],
+            "end": [0.5, 0, 0]
+          },
+          "name": "FeedPort"
+        }
+      },
+      {
+        "id": "setup",
+        "node_id": "create_setup",
+        "inputs": {
+          "frequency": {
+            "$ref": "parameters.frequency"
+          },
+          "name": "Setup1"
+        }
+      },
+      {
+        "id": "sweep",
+        "node_id": "create_sweep_or_export",
+        "inputs": {
+          "setup": {
+            "$ref": "setup.output.setup_name"
+          },
+          "start": {
+            "$ref": "parameters.sweep_start"
+          },
+          "stop": {
+            "$ref": "parameters.sweep_stop"
+          },
+          "sweep_type": "Fast",
+          "points": 81,
+          "name": "Sweep1"
+        }
+      },
+      {
+        "id": "farfield",
+        "node_id": "create_farfield_setup",
+        "inputs": {
+          "name": "InfiniteSphere1",
+          "theta_start": 0,
+          "theta_stop": 180,
+          "theta_step": 5,
+          "phi_start": 0,
+          "phi_stop": 360,
+          "phi_step": 10
+        }
+      },
+      {
+        "id": "solve",
+        "node_id": "solve_setup",
+        "inputs": {
+          "setup": {
+            "$ref": "setup.output.setup_name"
+          }
+        }
+      },
+      {
+        "id": "s11_report",
+        "node_id": "create_sparameter_report",
+        "inputs": {
+          "setup": {
+            "$ref": "setup.output.setup_name"
+          },
+          "sweep": {
+            "$ref": "sweep.output.sweep_name"
+          },
+          "ports": ["FeedPort"],
+          "report_name": "Dipole S11",
+          "touchstone_name": "dipole_demo.s1p",
+          "output_dir": {
+            "$ref": "parameters.artifact_dir"
+          }
+        }
+      },
+      {
+        "id": "gain_report",
+        "node_id": "create_antenna_report",
+        "inputs": {
+          "setup": {
+            "$ref": "setup.output.setup_name"
+          },
+          "sweep": {
+            "$ref": "sweep.output.sweep_name"
+          },
+          "farfield": {
+            "$ref": "farfield.output.farfield_name"
+          },
+          "expression": "dB(GainTotal)",
+          "report_name": "Dipole Gain Pattern",
+          "output_dir": {
+            "$ref": "parameters.artifact_dir"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "from": "setup.output.setup_name",
+        "to": "sweep.inputs.setup"
+      },
+      {
+        "from": "setup.output.setup_name",
+        "to": "solve.inputs.setup"
+      },
+      {
+        "from": "setup.output.setup_name",
+        "to": "s11_report.inputs.setup"
+      },
+      {
+        "from": "sweep.output.sweep_name",
+        "to": "s11_report.inputs.sweep"
+      },
+      {
+        "from": "setup.output.setup_name",
+        "to": "gain_report.inputs.setup"
+      },
+      {
+        "from": "sweep.output.sweep_name",
+        "to": "gain_report.inputs.sweep"
+      },
+      {
+        "from": "farfield.output.farfield_name",
+        "to": "gain_report.inputs.farfield"
+      }
+    ],
+    "validation": [
+      {"rule": "object_exists", "target": "DipoleArmLeft"},
+      {"rule": "object_exists", "target": "DipoleArmRight"},
+      {"rule": "object_exists", "target": "FeedPortSheet"},
+      {"rule": "material_assigned", "target": "DipoleArmLeft", "expected": "copper"},
+      {"rule": "material_assigned", "target": "DipoleArmRight", "expected": "copper"},
+      {"rule": "object_exists", "target": "AirBox"},
+      {"rule": "boundary_exists", "target": "Radiation"},
+      {"rule": "port_exists", "target": "FeedPort"},
+      {"rule": "port_assignment_valid", "target": "FeedPort"},
+      {"rule": "setup_exists", "target": "Setup1"},
+      {"rule": "sweep_exists", "target": "Sweep1"},
+      {"rule": "report_exists", "target": "Dipole S11"},
+      {"rule": "report_exists", "target": "Dipole Gain Pattern"}
+    ],
+    "outputs": [
+      {
+        "name": "touchstone",
+        "source": "s11_report.output.touchstone_path",
+        "description": "Exported dipole S-parameter Touchstone file."
+      },
+      {
+        "name": "gain_report",
+        "source": "gain_report.output.report_name",
+        "description": "Created far-field gain report."
+      },
+      {
+        "name": "gain_report_csv",
+        "source": "gain_report.output.report_path",
+        "description": "Exported far-field gain report CSV when supported."
+      }
+    ]
+  }
+}

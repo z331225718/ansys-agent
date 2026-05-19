@@ -118,6 +118,7 @@ def test_run_stage_c_real_workflow_smoke_supports_fake_adapter(tmp_path, monkeyp
     summary = json.loads((run_dir / "smoke_summary.json").read_text(encoding="utf-8"))
     assert summary["adapter"] == "fake"
     assert summary["non_graphical"] is None
+    assert summary["aedt"]["version"] == "2026.1"
     assert summary["status"] == "succeeded"
     assert (run_dir / "workflow_run.json").exists()
     assert (run_dir / "validation.json").exists()
@@ -281,3 +282,30 @@ def test_generate_stage_c_demo_index_writes_html_and_json(tmp_path, monkeypatch)
     assert any(link["kind"] == "real_aedt" for link in index["links"])
     assert "AEDT Agent Stage C Demo Index" in html
     assert "真实 AEDT Smoke Dashboard" in html
+
+
+def test_generate_stage_c_workflow_expansion_report_writes_html_and_json(tmp_path, monkeypatch):
+    import scripts.generate_stage_c_workflow_expansion_report as script
+
+    output_html = tmp_path / "workflow_expansion.html"
+    output_json = tmp_path / "workflow_expansion.json"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "generate_stage_c_workflow_expansion_report.py",
+            "--output-html",
+            str(output_html),
+            "--output-json",
+            str(output_json),
+        ],
+    )
+
+    script.main()
+
+    data = json.loads(output_json.read_text(encoding="utf-8"))
+    html = output_html.read_text(encoding="utf-8")
+    assert data["title"] == "Stage C 工作流扩展报告"
+    assert "偶极子天线" in html
+    assert "create_farfield_setup" in html
+    assert "create_dipole_antenna" not in html

@@ -93,7 +93,7 @@ def test_node_executor_accepts_common_geometry_aliases(tmp_path):
     assert result.output["object_name"] == "metal"
 
 
-def test_node_executor_accepts_cylinder_geometry_as_box_approximation(tmp_path):
+def test_node_executor_accepts_cylinder_geometry(tmp_path):
     manager, executor = _executor(tmp_path)
     session = manager.create_session("p1", "d1")
 
@@ -117,7 +117,8 @@ def test_node_executor_accepts_cylinder_geometry_as_box_approximation(tmp_path):
 
     state = manager.snapshot(session.ref.session_id)
     assert result.status == ExecutionStatus.SUCCEEDED
-    assert state["objects"]["probe"]["sizes"] == [1.0, 1.0, 10]
+    assert state["objects"]["probe"]["type"] == "cylinder"
+    assert state["objects"]["probe"]["sizes"] == [0.5, 10, "Z", 0]
 
 
 def test_node_executor_accepts_airbox_padding_list_and_output_assignment(tmp_path):
@@ -245,6 +246,61 @@ def test_node_executor_solves_and_creates_sparameter_report(tmp_path):
     assert Path(report.output["touchstone_path"]).exists()
 
 
+def test_node_executor_creates_cylinder_geometry_for_dipole_arm(tmp_path):
+    manager, executor = _executor(tmp_path)
+    session = manager.create_session("p1", "d1")
+
+    result = executor.execute_node(
+        session.ref.session_id,
+        "create_conductor_or_geometry_group",
+        {
+            "geometry": [
+                {
+                    "kind": "cylinder",
+                    "axis": "X",
+                    "origin": [-30, 0, 0],
+                    "radius": 0.5,
+                    "height": 29.5,
+                    "name": "DipoleArmLeft",
+                    "material": "copper",
+                }
+            ]
+        },
+    )
+
+    state = manager.snapshot(session.ref.session_id)
+    assert result.status == ExecutionStatus.SUCCEEDED
+    assert state["objects"]["DipoleArmLeft"]["type"] == "cylinder"
+    assert state["objects"]["DipoleArmLeft"]["material"] == "copper"
+
+
+def test_node_executor_creates_farfield_and_antenna_report(tmp_path):
+    manager, executor = _executor(tmp_path)
+    session = manager.create_session("p1", "d1")
+    executor.execute_node(session.ref.session_id, "create_setup", {"frequency": "2.4GHz", "name": "Setup1"})
+    executor.execute_node(session.ref.session_id, "create_sweep_or_export", {"setup": "Setup1", "name": "Sweep1"})
+    farfield = executor.execute_node(session.ref.session_id, "create_farfield_setup", {"name": "InfiniteSphere1"})
+    executor.execute_node(session.ref.session_id, "solve_setup", {"setup": "Setup1"})
+    report = executor.execute_node(
+        session.ref.session_id,
+        "create_antenna_report",
+        {
+            "setup": "Setup1",
+            "sweep": "Sweep1",
+            "farfield": farfield.output["farfield_name"],
+            "report_name": "Dipole Gain Pattern",
+            "output_dir": str(tmp_path),
+        },
+    )
+
+    state = manager.snapshot(session.ref.session_id)
+    assert farfield.status == ExecutionStatus.SUCCEEDED
+    assert report.status == ExecutionStatus.SUCCEEDED
+    assert state["farfields"]["InfiniteSphere1"]["definition"] == "Theta-Phi"
+    assert state["reports"]["Dipole Gain Pattern"]["type"] == "antenna"
+    assert Path(report.output["report_path"]).exists()
+
+
 def test_node_executor_remaps_lumped_port_face_id_to_object_name(tmp_path):
     manager, executor = _executor(tmp_path)
     session = manager.create_session("p1", "d1")
@@ -272,7 +328,16 @@ def test_node_executor_remaps_lumped_port_face_id_to_object_name(tmp_path):
 
 def test_create_sweep_uses_unit_signature_when_available():
     class UnitSweepApp:
-        def create_linear_count_sweep(self, setup, unit, start_frequency, stop_frequency, num_of_freq_points=None, name=None):
+        def create_linear_count_sweep(
+            self,
+            setup,
+            unit,
+            start_frequency,
+            stop_frequency,
+            num_of_freq_points=None,
+            name=None,
+            sweep_type="Discrete",
+        ):
             self.call = {
                 "setup": setup,
                 "unit": unit,
@@ -280,17 +345,22 @@ def test_create_sweep_uses_unit_signature_when_available():
                 "stop_frequency": stop_frequency,
                 "num_of_freq_points": num_of_freq_points,
                 "name": name,
+                "sweep_type": sweep_type,
             }
             return name
 
     app = UnitSweepApp()
 
-    result = _create_sweep(app, {"setup": "Setup1", "start": "1GHz", "stop": "5GHz", "points": 101, "name": "Sweep1"})
+    result = _create_sweep(
+        app,
+        {"setup": "Setup1", "start": "1GHz", "stop": "5GHz", "points": 101, "name": "Sweep1", "type": "Interpolating"},
+    )
 
     assert result["sweep_name"] == "Sweep1"
     assert app.call["unit"] == "GHz"
     assert app.call["start_frequency"] == 1.0
     assert app.call["stop_frequency"] == 5.0
+    assert app.call["sweep_type"] == "Interpolating"
 
 
 def test_node_executor_records_failure_when_snapshot_after_fails(tmp_path):

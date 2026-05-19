@@ -1,0 +1,15 @@
+node_id: create_farfield_setup
+summary: Create an infinite-sphere far-field setup for antenna radiation reports.
+allowed_apis:
+  - Hfss.insert_infinite_sphere
+inputs:
+  required: []
+  optional: [name, definition, theta_start, theta_stop, theta_step, phi_start, phi_stop, phi_step, units]
+outputs:
+  creates: [farfield]
+prerequisites:
+  - assign_boundary
+examples: [dipole_antenna, hfss_patch_antenna]
+notes:
+  - Reusable antenna postprocessing node; it should not create geometry or solve.
+  - Default theta/phi coverage is broad enough for demo radiation-pattern plots.

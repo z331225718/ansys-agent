@@ -8,6 +8,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
+from aedt_agent.benchmark.config import load_benchmark_config
 from aedt_agent.mcp.audit_log import AuditLogger
 from aedt_agent.mcp.execution_queue import ExecutionQueue
 from aedt_agent.mcp.fake_aedt import FakeAedtAdapter
@@ -31,14 +32,21 @@ def main() -> None:
     parser.add_argument("--catalog-dir", default="nodes/catalog")
     parser.add_argument("--run-dir", default="benchmarks/runs/stage_c_real_microstrip_smoke")
     parser.add_argument("--adapter", choices=["real", "fake"], default="real")
-    parser.add_argument("--aedt-version", default="2026.1")
-    parser.add_argument("--ansysem-root", default="")
-    parser.add_argument("--awp-root", default="")
-    parser.add_argument("--timeout-seconds", type=float, default=300.0)
+    parser.add_argument("--config", default="config/benchmark_config.json")
+    parser.add_argument("--aedt-version")
+    parser.add_argument("--ansysem-root")
+    parser.add_argument("--awp-root")
+    parser.add_argument("--timeout-seconds", type=float)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--non-graphical", dest="non_graphical", action="store_true", default=True)
     mode.add_argument("--graphical", dest="non_graphical", action="store_false")
     args = parser.parse_args()
+    benchmark_config = load_benchmark_config(REPO_ROOT / args.config)
+    aedt_config = benchmark_config.aedt
+    args.aedt_version = args.aedt_version or aedt_config.version
+    args.ansysem_root = args.ansysem_root if args.ansysem_root is not None else aedt_config.ansysem_root
+    args.awp_root = args.awp_root if args.awp_root is not None else aedt_config.awp_root
+    args.timeout_seconds = float(args.timeout_seconds if args.timeout_seconds is not None else aedt_config.timeout)
 
     run_dir = Path(args.run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -70,6 +78,12 @@ def main() -> None:
             {
                 "adapter": args.adapter,
                 "non_graphical": args.non_graphical if args.adapter == "real" else None,
+                "aedt": {
+                    "version": args.aedt_version,
+                    "ansysem_root": args.ansysem_root,
+                    "awp_root": args.awp_root,
+                    "timeout": args.timeout_seconds,
+                },
                 "template": args.template,
                 "workflow_id": workflow.workflow_id,
                 "status": result.status,

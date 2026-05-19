@@ -41,6 +41,17 @@ def test_chat_planner_selects_radiation_airbox_template_and_padding():
     assert defaults["airbox_padding"] == 15.0
 
 
+def test_chat_planner_selects_dipole_template_before_generic_antenna():
+    output = ChatWorkflowPlanner().plan(_planner_input("做一个2.4GHz偶极子天线，扫频到4GHz，看S11和方向图"))
+
+    defaults = {parameter.name: parameter.default for parameter in output.generated_workflow.parameters}
+    assert output.selected_template == "dipole_antenna_s11_farfield"
+    assert output.generated_workflow.workflow_id == "dipole_antenna_s11_farfield_v1"
+    assert defaults["frequency"] == "2.4GHz"
+    assert defaults["sweep_stop"] == "4GHz"
+    assert output.validation_errors == []
+
+
 def test_chat_planner_generates_simple_setup_workflow():
     output = ChatWorkflowPlanner().plan(_planner_input("Create an HFSS setup at 3GHz"))
 

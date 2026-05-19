@@ -103,3 +103,34 @@ def test_validator_warns_on_parameter_default_out_of_range():
 
     assert result.passed is True
     assert any(issue.code == "parameter_default_above_max" for issue in result.warnings)
+
+
+def test_validator_accepts_interpolating_sweep_type_alias():
+    workflow = Workflow(
+        workflow_id="sweep",
+        name="Sweep",
+        nodes=[
+            WorkflowNode(id="setup", node_id="create_setup", inputs={"frequency": "2.4GHz"}),
+            WorkflowNode(id="sweep", node_id="create_sweep_or_export", inputs={"setup": "Setup1", "type": "Interpolating"}),
+        ],
+    )
+
+    result = _validator().validate(workflow)
+
+    assert result.passed is True
+
+
+def test_validator_rejects_unsupported_sweep_type():
+    workflow = Workflow(
+        workflow_id="sweep",
+        name="Sweep",
+        nodes=[
+            WorkflowNode(id="setup", node_id="create_setup", inputs={"frequency": "2.4GHz"}),
+            WorkflowNode(id="sweep", node_id="create_sweep_or_export", inputs={"setup": "Setup1", "sweep_type": "adaptive"}),
+        ],
+    )
+
+    result = _validator().validate(workflow)
+
+    assert result.passed is False
+    assert any(issue.code == "unsupported_sweep_type" for issue in result.errors)

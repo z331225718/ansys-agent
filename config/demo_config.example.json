@@ -14,5 +14,12 @@
   "execution": {
     "default_adapter": "fake",
     "run_dir": "benchmarks/runs/stage_c1_demo_latest"
+  },
+  "aedt": {
+    "version": "2026.1",
+    "non_graphical": true,
+    "ansysem_root": "~/ansys_inc/v261/AnsysEM",
+    "awp_root": "~/ansys_inc/v261",
+    "timeout": 900
   }
 }

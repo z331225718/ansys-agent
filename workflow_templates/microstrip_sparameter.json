@@ -170,6 +170,7 @@
           "stop": {
             "$ref": "parameters.sweep_stop"
           },
+          "sweep_type": "Interpolating",
           "points": 101,
           "name": "Sweep1"
         }
