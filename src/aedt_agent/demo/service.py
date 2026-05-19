@@ -21,7 +21,7 @@ from aedt_agent.mcp.session_manager import SessionManager
 from aedt_agent.nodes.catalog import NodeCatalog
 from aedt_agent.nodes.registry import NodeRegistry
 from aedt_agent.workflow.executor import WorkflowExecutor
-from aedt_agent.workflow.models import Workflow
+from aedt_agent.workflow.models import Workflow, WorkflowParameter
 from aedt_agent.workflow.templates import WorkflowTemplateCatalog
 from aedt_agent.workflow.validator import WorkflowValidator
 
@@ -32,6 +32,7 @@ class DemoRunJob:
     template_id: str
     adapter: str
     run_dir: Path
+    workflow_path: Path | None = None
     graphical: bool = True
     stream_to_terminal: bool = True
     status: str = "queued"
@@ -183,7 +184,10 @@ class DemoService:
         }
 
     def start_real_run(self, payload: dict[str, Any]) -> dict[str, Any]:
+        workflow_payload = payload.get("workflow")
         template_id = str(payload.get("template_id") or "microstrip_sparameter")
+        if isinstance(workflow_payload, dict):
+            template_id = str(workflow_payload.get("workflow_id") or template_id)
         adapter = str(payload.get("adapter") or "real")
         if adapter not in {"real", "fake"}:
             raise ValueError("adapter must be real or fake")
@@ -199,11 +203,17 @@ class DemoService:
             json.dumps(parameters, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
+        workflow_path = None
+        if isinstance(workflow_payload, dict):
+            workflow = _workflow_with_artifact_dir(Workflow.from_dict(json.loads(json.dumps(workflow_payload))), str(run_dir.resolve()))
+            workflow_path = run_dir / "workflow_input.json"
+            workflow_path.write_text(json.dumps(workflow.to_dict(), ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         job = DemoRunJob(
             job_id=job_id,
             template_id=template_id,
             adapter=adapter,
             run_dir=run_dir,
+            workflow_path=workflow_path,
             graphical=graphical,
             stream_to_terminal=stream_to_terminal,
         )
@@ -246,7 +256,7 @@ class DemoService:
             parameters = dict(parameters)
             parameters.setdefault("artifact_dir", str(self.run_dir))
             return self._template_catalog().get(template_id).instantiate(parameters)
-        return _workflow_from_payload(payload)
+        return _workflow_with_artifact_dir(_workflow_from_payload(payload), str(self.run_dir.resolve()))
 
     def _run_real_job(self, job: DemoRunJob, params_path: Path) -> None:
         command = [
@@ -254,13 +264,15 @@ class DemoService:
             str(self.repo_root / "scripts/run_stage_c_real_workflow_smoke.py"),
             "--adapter",
             job.adapter,
-            "--template",
-            job.template_id,
             "--params",
             str(params_path),
             "--run-dir",
             str(job.run_dir),
         ]
+        if job.workflow_path is not None:
+            command.extend(["--workflow", str(job.workflow_path), "--template", job.template_id])
+        else:
+            command.extend(["--template", job.template_id])
         if job.adapter == "real":
             command.append("--graphical" if job.graphical else "--non-graphical")
         job.status = "running"
@@ -305,6 +317,42 @@ def _workflow_from_payload(payload: dict[str, Any]) -> Workflow:
     if not isinstance(workflow_data, dict):
         raise TypeError("workflow payload must be a JSON object")
     return Workflow.from_dict(json.loads(json.dumps(workflow_data)))
+
+
+def _workflow_with_artifact_dir(workflow: Workflow, artifact_dir: str) -> Workflow:
+    parameters: list[WorkflowParameter] = []
+    found = False
+    for parameter in workflow.parameters:
+        if parameter.name == "artifact_dir":
+            parameters.append(
+                WorkflowParameter(
+                    name=parameter.name,
+                    type=parameter.type,
+                    default=artifact_dir,
+                    unit=parameter.unit,
+                    minimum=parameter.minimum,
+                    maximum=parameter.maximum,
+                    label=parameter.label,
+                    description=parameter.description,
+                )
+            )
+            found = True
+        else:
+            parameters.append(parameter)
+    if not found:
+        parameters.append(WorkflowParameter(name="artifact_dir", type="string", default=artifact_dir, label="Artifact directory"))
+    return Workflow(
+        workflow_id=workflow.workflow_id,
+        name=workflow.name,
+        version=workflow.version,
+        description=workflow.description,
+        parameters=parameters,
+        nodes=workflow.nodes,
+        edges=workflow.edges,
+        validation=workflow.validation,
+        outputs=workflow.outputs,
+        metadata=workflow.metadata,
+    )
 
 
 def _read_real_run_artifacts(run_dir: Path) -> dict[str, Any]:

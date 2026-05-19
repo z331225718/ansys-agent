@@ -22,8 +22,8 @@ Artifact / Validation / Report
 
 - 节点 catalog 已经结构化。
 - workflow template 可以复用。
-- 首页可以一键启动真实 AEDT graphical workflow，演示时能看到 AEDT GUI 打开。
-- 自然语言请求可以在 Advanced 工作台中规划成 workflow。
+- 首页可以先用 LLM planner 把自然语言需求生成 workflow，再一键启动真实 AEDT graphical workflow。
+- Advanced 工作台仍保留 planner、catalog 和 API 调试入口。
 - workflow 会先 validation，再执行。
 - demo run 会创建空气盒、辐射边界、PEC ground/trace、两个与 trace 等宽的 lumped port，执行 solve，并生成 S 参数报告和 Touchstone artifact。
 - 真实 AEDT smoke 结果可以从报告入口查看。
@@ -85,10 +85,10 @@ Demo 默认使用 `deterministic` planner，不需要 LLM API。要测试 LLM pl
 
 推荐演示顺序：
 
-1. 打开首页，说明这是固定端到端 demo，不是开发调试面板。
+1. 打开首页，说明主链路是 `用户需求 -> LLM planner -> workflow validation -> AEDT 执行`。
 2. 在“用户需求”里输入微带线需求，例如“求解频率 2.4GHz，扫频到 10GHz”，页面会把频率同步到 workflow 参数。
-3. 点击 `Preview Workflow`，展示将要执行的 workflow JSON。
-4. 点击 `Run Real AEDT`，页面会启动后台真实 AEDT graphical smoke job，并轮询每个节点的完成状态。
+3. 点击 `Plan with LLM`，展示 planner mode、repair count 和 validator 接受的 workflow JSON。
+4. 点击 `Run Real AEDT`，页面会把 planner 生成的 workflow 交给真实 AEDT graphical smoke job，并轮询每个节点的完成状态。
 5. 查看结果区的 `Status`、`Validation Result`、S11/S21 和 expected outputs。
 6. 打开 artifact 链接，展示每次运行都会落盘：
    - `workflow_run`

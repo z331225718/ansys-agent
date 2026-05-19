@@ -76,6 +76,30 @@ def test_demo_service_real_run_job_can_use_fake_adapter(tmp_path):
     assert Path(status["artifacts"]["stdout"]).exists()
 
 
+def test_demo_service_real_run_job_accepts_generated_workflow(tmp_path):
+    service = DemoService(Path("."), run_dir=tmp_path / "stage_c1_demo")
+    plan = service.plan({"user_request": "create a microstrip s-parameter simulation at 5GHz"})
+
+    started = service.start_real_run(
+        {
+            "workflow": plan["generated_workflow"],
+            "adapter": "fake",
+            "stream_to_terminal": False,
+            "parameters": {"frequency": "5GHz"},
+        }
+    )
+    deadline = time.time() + 10
+    status = started
+    while status["status"] in {"queued", "running"} and time.time() < deadline:
+        time.sleep(0.1)
+        status = service.real_run_status(started["job_id"])
+
+    assert status["status"] == "succeeded"
+    assert status["template_id"] == "microstrip_sparameter_v1"
+    assert (Path(status["run_dir"]) / "workflow_input.json").exists()
+    assert status["model_validation"]["passed"] is True
+
+
 def test_read_demo_sparameters_selects_nearest_frequency_and_converts_to_db(tmp_path):
     touchstone = tmp_path / "sample.s2p"
     touchstone.write_text(

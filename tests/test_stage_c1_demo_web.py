@@ -12,6 +12,8 @@ def test_render_demo_page_contains_workspace_sections():
     assert "用户需求" in html
     assert "做一个微带线 S 参数仿真" in html
     assert "syncRequestToParameters" in html
+    assert "Plan with LLM" in html
+    assert "plannerModeMetric" in html
     assert "Create Substrate" in html
     assert "Create Ground, Trace" in html
     assert "Create Airbox" in html

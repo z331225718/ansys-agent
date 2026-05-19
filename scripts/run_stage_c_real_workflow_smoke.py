@@ -17,6 +17,7 @@ from aedt_agent.mcp.session_manager import SessionManager
 from aedt_agent.nodes.catalog import NodeCatalog
 from aedt_agent.nodes.registry import NodeRegistry
 from aedt_agent.workflow.executor import WorkflowExecutor
+from aedt_agent.workflow.models import Workflow, WorkflowParameter
 from aedt_agent.workflow.templates import WorkflowTemplateCatalog
 from aedt_agent.workflow.validator import WorkflowValidator
 
@@ -24,6 +25,7 @@ from aedt_agent.workflow.validator import WorkflowValidator
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run a Stage C workflow smoke through the controlled executor.")
     parser.add_argument("--template", default="microstrip_sparameter")
+    parser.add_argument("--workflow", help="JSON file containing a generated workflow to execute.")
     parser.add_argument("--params", help="JSON file containing parameter overrides.")
     parser.add_argument("--templates-dir", default="workflow_templates")
     parser.add_argument("--catalog-dir", default="nodes/catalog")
@@ -43,7 +45,10 @@ def main() -> None:
 
     parameters = _load_params(args.params)
     parameters.setdefault("artifact_dir", str(run_dir.resolve()))
-    workflow = WorkflowTemplateCatalog.from_directory(REPO_ROOT / args.templates_dir).get(args.template).instantiate(parameters)
+    if args.workflow:
+        workflow = _workflow_with_artifact_dir(Workflow.from_file(Path(args.workflow)), str(run_dir.resolve()))
+    else:
+        workflow = WorkflowTemplateCatalog.from_directory(REPO_ROOT / args.templates_dir).get(args.template).instantiate(parameters)
     session_manager = SessionManager(_adapter_factory(args))
     session = session_manager.create_session(f"stage-c-{args.template}-smoke", "HFSSDesign1")
     try:
@@ -66,6 +71,7 @@ def main() -> None:
                 "adapter": args.adapter,
                 "non_graphical": args.non_graphical if args.adapter == "real" else None,
                 "template": args.template,
+                "workflow_id": workflow.workflow_id,
                 "status": result.status,
                 "step_count": len(result.steps),
                 "model_validation": result.model_validation,
@@ -103,6 +109,42 @@ def _load_params(path: str | None) -> dict:
     if not isinstance(data, dict):
         raise TypeError("--params must point to a JSON object")
     return data
+
+
+def _workflow_with_artifact_dir(workflow: Workflow, artifact_dir: str) -> Workflow:
+    parameters = []
+    found = False
+    for parameter in workflow.parameters:
+        if parameter.name == "artifact_dir":
+            parameters.append(
+                WorkflowParameter(
+                    name=parameter.name,
+                    type=parameter.type,
+                    default=artifact_dir,
+                    unit=parameter.unit,
+                    minimum=parameter.minimum,
+                    maximum=parameter.maximum,
+                    label=parameter.label,
+                    description=parameter.description,
+                )
+            )
+            found = True
+        else:
+            parameters.append(parameter)
+    if not found:
+        parameters.append(WorkflowParameter(name="artifact_dir", type="string", default=artifact_dir, label="Artifact directory"))
+    return Workflow(
+        workflow_id=workflow.workflow_id,
+        name=workflow.name,
+        version=workflow.version,
+        description=workflow.description,
+        parameters=parameters,
+        nodes=workflow.nodes,
+        edges=workflow.edges,
+        validation=workflow.validation,
+        outputs=workflow.outputs,
+        metadata=workflow.metadata,
+    )
 
 
 if __name__ == "__main__":
