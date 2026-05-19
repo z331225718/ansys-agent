@@ -25,7 +25,7 @@ def render_demo_page() -> str:
     .shell{display:grid;grid-template-columns:360px minmax(0,1fr) 330px;gap:14px}.panel{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:16px}.panel h2{font-size:17px;margin:0 0 12px}.stack{display:grid;gap:13px}.row{display:flex;gap:9px;flex-wrap:wrap}.field{display:grid;gap:6px}.field label{font-size:12px;font-weight:900;color:#334155;text-transform:uppercase}.params{display:grid;grid-template-columns:1fr 1fr;gap:10px}
     .agent-note{border-left:3px solid var(--blue);background:#f5f7ff;padding:10px 11px;border-radius:6px;color:#344054;font-size:13px;line-height:1.5}.diagram{height:170px;border:1px solid var(--line);border-radius:8px;background:linear-gradient(180deg,#f8faf6,#eef2ea);position:relative;overflow:hidden}.air{position:absolute;inset:14px;border:1px dashed #94a3b8;border-radius:6px}.substrate{position:absolute;left:38px;right:38px;bottom:44px;height:46px;background:#d8c58b;border:1px solid #a5883a}.ground{position:absolute;left:34px;right:34px;bottom:38px;height:5px;background:#7c5b21}.trace{position:absolute;left:74px;right:74px;bottom:91px;height:7px;background:#c58b2a}.port{position:absolute;bottom:43px;width:4px;height:55px;background:#2563eb}.port.p1{left:73px}.port.p2{right:73px}.diagram-label{position:absolute;font-size:11px;color:#475569;font-weight:800}.diagram-label.l1{left:38px;bottom:98px}.diagram-label.l2{right:40px;bottom:28px}
     .flow{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.step{display:grid;grid-template-columns:30px minmax(0,1fr) auto;align-items:center;gap:9px;padding:11px;border:1px solid var(--line);border-radius:8px;background:#fff}.index{width:26px;height:26px;border-radius:6px;background:var(--soft);display:grid;place-items:center;font-weight:900;color:#334155}.step b{font-size:14px}.state{font-size:12px;color:var(--muted);font-weight:900}.state.ok{color:var(--teal)}.state.fail{color:var(--red)}
-    .result{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.metric,.sparam{border:1px solid var(--line);border-radius:8px;padding:12px;background:#fff}.metric strong{display:block;font-size:19px;line-height:1.15}.metric span,.sparam span{font-size:12px;color:var(--muted);font-weight:800}.sparams{display:grid;gap:10px}.sparam strong{display:block;font-size:30px;line-height:1.05;margin-bottom:6px}.sparam.primary{background:#f7fbf9;border-color:#b7decf}.sparam.secondary{background:#fff8ed;border-color:#ecd3a5}.artifacts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.artifact{border:1px solid var(--line);border-radius:8px;padding:10px;background:#fff;font-size:12px;overflow:hidden;text-overflow:ellipsis}.reports{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:14px}.report{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:13px}.report b{display:block;margin-bottom:5px}.advanced{font-size:13px;color:var(--muted)}pre{background:#18212b;color:#e5e7eb;border-radius:8px;padding:12px;overflow:auto;max-height:330px;font-size:12px;line-height:1.45}
+    .result{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.metric,.sparam{border:1px solid var(--line);border-radius:8px;padding:12px;background:#fff}.metric strong{display:block;font-size:19px;line-height:1.15}.metric span,.sparam span{font-size:12px;color:var(--muted);font-weight:800}.sparams{display:grid;gap:10px}.sparam strong{display:block;font-size:30px;line-height:1.05;margin-bottom:6px}.sparam.primary{background:#f7fbf9;border-color:#b7decf}.sparam.secondary{background:#fff8ed;border-color:#ecd3a5}.chart{border:1px solid var(--line);border-radius:8px;background:#fff;padding:10px}.chart-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}.legend{display:flex;gap:10px;font-size:12px;color:var(--muted);font-weight:800}.legend i{display:inline-block;width:18px;height:3px;border-radius:999px;margin-right:5px;vertical-align:middle}.legend .s11{background:var(--teal)}.legend .s21{background:var(--amber)}#sparamChart{width:100%;height:220px;display:block}.artifacts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.artifact{border:1px solid var(--line);border-radius:8px;padding:10px;background:#fff;font-size:12px;overflow:hidden;text-overflow:ellipsis}.reports{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:14px}.report{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:13px}.report b{display:block;margin-bottom:5px}.advanced{font-size:13px;color:var(--muted)}pre{background:#18212b;color:#e5e7eb;border-radius:8px;padding:12px;overflow:auto;max-height:330px;font-size:12px;line-height:1.45}
     @media(max-width:1120px){.shell{grid-template-columns:1fr}.flow,.result,.artifacts,.reports{grid-template-columns:1fr}.top{grid-template-columns:1fr}.page{padding:18px 12px}.params{grid-template-columns:1fr}}
   </style>
 </head>
@@ -88,6 +88,10 @@ def render_demo_page() -> str:
         <div class="sparam primary"><strong id="s11Metric">--</strong><span>S11 at selected frequency</span></div>
         <div class="sparam secondary"><strong id="s21Metric">--</strong><span>S21 at selected frequency</span></div>
         <div class="sparam"><strong id="freqMetric">--</strong><span>Touchstone sample</span></div>
+      </div>
+      <div class="chart">
+        <div class="chart-head"><b>S-Parameter Sweep</b><div class="legend"><span><i class="s11"></i>S11</span><span><i class="s21"></i>S21</span></div></div>
+        <svg id="sparamChart" viewBox="0 0 300 220" role="img" aria-label="S11 and S21 versus frequency"></svg>
       </div>
       <div class="result">
         <div class="metric"><strong id="statusMetric">not run</strong><span>Status</span></div>
@@ -171,6 +175,38 @@ function renderSParameters(sparameters) {
   document.getElementById('s11Metric').textContent = Number.isFinite(selected.s11_db) ? `${selected.s11_db.toFixed(2)} dB` : '--';
   document.getElementById('s21Metric').textContent = Number.isFinite(selected.s21_db) ? `${selected.s21_db.toFixed(2)} dB` : '--';
   document.getElementById('freqMetric').textContent = selected.frequency ? `${selected.frequency} ${sparameters.frequency_unit || ''}` : '--';
+  renderSParameterChart(sparameters.samples || [], sparameters.frequency_unit || '');
+}
+function renderSParameterChart(samples, unit) {
+  const svg = document.getElementById('sparamChart');
+  const width = 300, height = 220, left = 42, right = 12, top = 16, bottom = 34;
+  const plotW = width - left - right, plotH = height - top - bottom;
+  const valid = samples.filter(item => Number.isFinite(item.frequency) && Number.isFinite(item.s11_db) && Number.isFinite(item.s21_db));
+  if (valid.length < 2) {
+    svg.innerHTML = `<text x="150" y="112" text-anchor="middle" fill="#637083" font-size="12">waiting for sweep data</text>`;
+    return;
+  }
+  const xs = valid.map(item => item.frequency);
+  const ys = valid.flatMap(item => [item.s11_db, item.s21_db]);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.floor(Math.min(...ys) / 5) * 5;
+  const maxY = Math.ceil(Math.max(...ys) / 5) * 5;
+  const spanX = maxX - minX || 1, spanY = maxY - minY || 1;
+  const x = value => left + ((value - minX) / spanX) * plotW;
+  const y = value => top + ((maxY - value) / spanY) * plotH;
+  const path = key => valid.map((item, index) => `${index ? 'L' : 'M'}${x(item.frequency).toFixed(2)},${y(item[key]).toFixed(2)}`).join(' ');
+  const yTicks = [maxY, (maxY + minY) / 2, minY];
+  svg.innerHTML = `
+    <rect x="0" y="0" width="${width}" height="${height}" fill="#fff"/>
+    ${yTicks.map(tick => `<line x1="${left}" y1="${y(tick)}" x2="${width - right}" y2="${y(tick)}" stroke="#e5e7eb"/><text x="${left - 8}" y="${y(tick) + 4}" text-anchor="end" fill="#637083" font-size="10">${tick.toFixed(0)}</text>`).join('')}
+    <line x1="${left}" y1="${top}" x2="${left}" y2="${height - bottom}" stroke="#cbd5e1"/>
+    <line x1="${left}" y1="${height - bottom}" x2="${width - right}" y2="${height - bottom}" stroke="#cbd5e1"/>
+    <path d="${path('s11_db')}" fill="none" stroke="#0f766e" stroke-width="2.4"/>
+    <path d="${path('s21_db')}" fill="none" stroke="#b7791f" stroke-width="2.4"/>
+    <text x="${left}" y="${height - 10}" fill="#637083" font-size="10">${minX.toFixed(2)} ${unit}</text>
+    <text x="${width - right}" y="${height - 10}" text-anchor="end" fill="#637083" font-size="10">${maxX.toFixed(2)} ${unit}</text>
+    <text x="12" y="16" fill="#637083" font-size="10">dB</text>
+  `;
 }
 async function runRealAedtDemo() {
   syncRequestToParameters();

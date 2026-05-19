@@ -50,6 +50,7 @@ def test_demo_service_plans_validates_and_runs_fake_template(tmp_path):
     assert {"GroundPerfectE", "TracePerfectE"} <= validation_targets
     assert Path(run["outputs"]["touchstone"]).exists()
     assert run["sparameters"]["point_count"] == 1
+    assert len(run["sparameters"]["samples"]) == 1
     assert run["sparameters"]["selected"]["s11_mag"] == 0.0
     assert run["sparameters"]["selected"]["s21_db"] is None
     assert Path(run["artifacts"]["workflow_run"]).exists()
@@ -94,6 +95,7 @@ def test_read_demo_sparameters_selects_nearest_frequency_and_converts_to_db(tmp_
     parsed = _read_demo_sparameters(str(touchstone), target_frequency_hz=2.45e9)
 
     assert parsed["point_count"] == 3
+    assert [sample["frequency"] for sample in parsed["samples"]] == [1.0, 2.4, 3.0]
     assert parsed["selected"]["frequency"] == 2.4
     assert round(parsed["selected"]["s11_db"], 2) == -12.04
     assert round(parsed["selected"]["s21_db"], 2) == -0.92

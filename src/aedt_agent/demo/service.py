@@ -378,6 +378,7 @@ def _read_demo_sparameters(touchstone_path: Any, target_frequency_hz: float | No
         "frequency_unit": option["unit"],
         "data_format": option["format"],
         "selected": selected,
+        "samples": samples,
     }
 
 

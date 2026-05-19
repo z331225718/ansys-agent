@@ -27,6 +27,8 @@ def test_render_demo_page_contains_workspace_sections():
     assert "Validation Result" in html
     assert "S11 at selected frequency" in html
     assert "S21 at selected frequency" in html
+    assert "S-Parameter Sweep" in html
+    assert "sparamChart" in html
     assert "真实 AEDT Smoke" in html
 
 
