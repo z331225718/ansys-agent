@@ -5,7 +5,7 @@ allowed_apis:
   - PostProcessor3D.export_report_to_file
 inputs:
   required: [setup, farfield]
-  optional: [sweep, report_name, expression, output_dir, primary_sweep]
+  optional: [sweep, report_name, expression, output_dir, primary_sweep, export_report]
 outputs:
   creates: [antenna_report]
 prerequisites:
@@ -15,3 +15,4 @@ examples: [dipole_antenna, hfss_patch_antenna]
 notes:
   - Use this for far-field reports only; S-parameter plots should keep using create_sparameter_report.
   - The default expression is dB(GainTotal).
+  - File export is optional because real AEDT report export can be slow; set export_report=true only when a CSV artifact is required.

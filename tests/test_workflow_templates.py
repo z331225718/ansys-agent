@@ -86,7 +86,7 @@ def test_microstrip_template_uses_pec_and_trace_width_lumped_port_sheets():
     }
 
 
-def test_dipole_template_reuses_common_nodes_and_adds_only_farfield_postprocessing():
+def test_dipole_template_reuses_common_nodes_and_keeps_real_smoke_stable():
     template = WorkflowTemplate.from_file(Path("workflow_templates/dipole_antenna_s11_farfield.json"))
     node_ids = [node.node_id for node in template.workflow.nodes]
 
@@ -100,10 +100,10 @@ def test_dipole_template_reuses_common_nodes_and_adds_only_farfield_postprocessi
         "create_farfield_setup",
         "solve_setup",
         "create_sparameter_report",
-        "create_antenna_report",
     ]
     assert "create_substrate" not in node_ids
     assert "create_dipole_antenna" not in node_ids
+    assert "create_antenna_report" not in node_ids
     assert _validator().validate(template.workflow).passed is True
 
 

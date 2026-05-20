@@ -15,6 +15,7 @@ DEFAULT_RUN_DIRS = [
     "benchmarks/runs/stage_c_real_microstrip_smoke",
     "benchmarks/runs/stage_c_real_wave_port_smoke",
     "benchmarks/runs/stage_c_real_radiation_airbox_smoke",
+    "benchmarks/runs/stage_c_real_dipole_smoke",
 ]
 
 
@@ -162,6 +163,9 @@ def _coverage_from_nodes(nodes: list[str]) -> list[str]:
         "create_port": "port",
         "create_airbox": "airbox",
         "assign_boundary": "boundary",
+        "create_farfield_setup": "farfield",
+        "solve_setup": "solve",
+        "create_sparameter_report": "postprocess",
     }
     return sorted({mapping[node] for node in nodes if node in mapping})
 

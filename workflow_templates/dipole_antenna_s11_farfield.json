@@ -1,10 +1,10 @@
 {
   "template_id": "dipole_antenna_s11_farfield",
   "name": "HFSS Dipole Antenna S11 and Far Field",
-  "description": "Create a simple center-fed dipole antenna, solve S11, and generate a far-field gain report.",
+  "description": "Create a simple center-fed dipole antenna, solve S11, and create a far-field setup.",
   "scenario": "Use this to demonstrate that Stage C reuses the same controlled HFSS nodes beyond the microstrip workflow.",
   "tags": ["hfss", "antenna", "dipole", "s11", "farfield"],
-  "validation_checks": ["objects_exist", "port_created", "boundary_created", "setup_created", "sweep_created", "setup_solved", "sparameter_report_created", "antenna_report_created"],
+  "validation_checks": ["objects_exist", "port_created", "boundary_created", "setup_created", "sweep_created", "setup_solved", "sparameter_report_created", "farfield_setup_created"],
   "known_limits": ["This is a compact demo dipole and not a tuned production antenna model."],
   "workflow": {
     "workflow_id": "dipole_antenna_s11_farfield_v1",
@@ -175,26 +175,6 @@
             "$ref": "parameters.artifact_dir"
           }
         }
-      },
-      {
-        "id": "gain_report",
-        "node_id": "create_antenna_report",
-        "inputs": {
-          "setup": {
-            "$ref": "setup.output.setup_name"
-          },
-          "sweep": {
-            "$ref": "sweep.output.sweep_name"
-          },
-          "farfield": {
-            "$ref": "farfield.output.farfield_name"
-          },
-          "expression": "dB(GainTotal)",
-          "report_name": "Dipole Gain Pattern",
-          "output_dir": {
-            "$ref": "parameters.artifact_dir"
-          }
-        }
       }
     ],
     "edges": [
@@ -213,18 +193,6 @@
       {
         "from": "sweep.output.sweep_name",
         "to": "s11_report.inputs.sweep"
-      },
-      {
-        "from": "setup.output.setup_name",
-        "to": "gain_report.inputs.setup"
-      },
-      {
-        "from": "sweep.output.sweep_name",
-        "to": "gain_report.inputs.sweep"
-      },
-      {
-        "from": "farfield.output.farfield_name",
-        "to": "gain_report.inputs.farfield"
       }
     ],
     "validation": [
@@ -239,8 +207,7 @@
       {"rule": "port_assignment_valid", "target": "FeedPort"},
       {"rule": "setup_exists", "target": "Setup1"},
       {"rule": "sweep_exists", "target": "Sweep1"},
-      {"rule": "report_exists", "target": "Dipole S11"},
-      {"rule": "report_exists", "target": "Dipole Gain Pattern"}
+      {"rule": "report_exists", "target": "Dipole S11"}
     ],
     "outputs": [
       {
@@ -249,14 +216,9 @@
         "description": "Exported dipole S-parameter Touchstone file."
       },
       {
-        "name": "gain_report",
-        "source": "gain_report.output.report_name",
-        "description": "Created far-field gain report."
-      },
-      {
-        "name": "gain_report_csv",
-        "source": "gain_report.output.report_path",
-        "description": "Exported far-field gain report CSV when supported."
+        "name": "farfield_setup",
+        "source": "farfield.output.farfield_name",
+        "description": "Created far-field radiation pattern setup."
       }
     ]
   }

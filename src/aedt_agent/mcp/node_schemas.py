@@ -120,8 +120,14 @@ NODE_SCHEMAS: dict[str, NodeInputSchema] = {
     ),
     "create_antenna_report": NodeInputSchema(
         required={"setup": str, "farfield": str},
-        optional={"sweep": str, "report_name": str, "expression": (str, list), "output_dir": str, "primary_sweep": str},
-        defaults={"sweep": "LastAdaptive", "report_name": "3D Gain Pattern", "expression": "dB(GainTotal)", "primary_sweep": "Theta"},
+        optional={"sweep": str, "report_name": str, "expression": (str, list), "output_dir": str, "primary_sweep": str, "export_report": bool},
+        defaults={
+            "sweep": "LastAdaptive",
+            "report_name": "3D Gain Pattern",
+            "expression": "dB(GainTotal)",
+            "primary_sweep": "Theta",
+            "export_report": False,
+        },
     ),
 }
 

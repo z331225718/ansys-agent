@@ -390,7 +390,7 @@ def _create_antenna_report(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
     if report is False:
         raise RuntimeError(f"failed to create antenna report: {report_name}")
     output = _node_output(reports=[report_name], postchecks=["antenna_report_created"])
-    if inputs.get("output_dir") and hasattr(app.post, "export_report_to_file"):
+    if inputs.get("export_report") and inputs.get("output_dir") and hasattr(app.post, "export_report_to_file"):
         output["report_path"] = str(app.post.export_report_to_file(inputs["output_dir"], report_name, "csv"))
     return output
 

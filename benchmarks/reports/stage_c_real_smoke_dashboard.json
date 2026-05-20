@@ -81,20 +81,62 @@
       "template": "radiation_airbox_setup",
       "validation_passed": true,
       "validation_summary": "Validation passed (3/3 checks)."
+    },
+    {
+      "adapter": "real",
+      "artifacts": [
+        "workflow_run.json",
+        "validation.json",
+        "audit.jsonl",
+        "report.html"
+      ],
+      "check_count": 12,
+      "coverage": [
+        "airbox",
+        "boundary",
+        "farfield",
+        "geometry",
+        "port",
+        "postprocess",
+        "setup",
+        "solve",
+        "sweep"
+      ],
+      "failed_check_count": 0,
+      "nodes": [
+        "create_conductor_or_geometry_group",
+        "create_airbox",
+        "assign_boundary",
+        "create_port",
+        "create_setup",
+        "create_sweep_or_export",
+        "create_farfield_setup",
+        "solve_setup",
+        "create_sparameter_report"
+      ],
+      "run_dir": "benchmarks/runs/stage_c_real_dipole_smoke",
+      "status": "succeeded",
+      "step_count": 9,
+      "template": "dipole_antenna_s11_farfield",
+      "validation_passed": true,
+      "validation_summary": "Validation passed (12/12 checks)."
     }
   ],
   "summary": {
     "coverage": [
       "airbox",
       "boundary",
+      "farfield",
       "geometry",
       "port",
+      "postprocess",
       "selection",
       "setup",
+      "solve",
       "sweep"
     ],
-    "run_count": 3,
-    "succeeded_count": 3,
+    "run_count": 4,
+    "succeeded_count": 4,
     "success_rate": 1.0
   },
   "title": "Stage C 真实 AEDT Smoke Dashboard"

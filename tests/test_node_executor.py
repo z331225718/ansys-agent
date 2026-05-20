@@ -290,6 +290,7 @@ def test_node_executor_creates_farfield_and_antenna_report(tmp_path):
             "farfield": farfield.output["farfield_name"],
             "report_name": "Dipole Gain Pattern",
             "output_dir": str(tmp_path),
+            "export_report": True,
         },
     )
 
@@ -299,6 +300,30 @@ def test_node_executor_creates_farfield_and_antenna_report(tmp_path):
     assert state["farfields"]["InfiniteSphere1"]["definition"] == "Theta-Phi"
     assert state["reports"]["Dipole Gain Pattern"]["type"] == "antenna"
     assert Path(report.output["report_path"]).exists()
+
+
+def test_node_executor_does_not_export_antenna_report_by_default(tmp_path):
+    manager, executor = _executor(tmp_path)
+    session = manager.create_session("p1", "d1")
+    executor.execute_node(session.ref.session_id, "create_setup", {"frequency": "2.4GHz", "name": "Setup1"})
+    executor.execute_node(session.ref.session_id, "create_sweep_or_export", {"setup": "Setup1", "name": "Sweep1"})
+    farfield = executor.execute_node(session.ref.session_id, "create_farfield_setup", {"name": "InfiniteSphere1"})
+    executor.execute_node(session.ref.session_id, "solve_setup", {"setup": "Setup1"})
+
+    report = executor.execute_node(
+        session.ref.session_id,
+        "create_antenna_report",
+        {
+            "setup": "Setup1",
+            "sweep": "Sweep1",
+            "farfield": farfield.output["farfield_name"],
+            "report_name": "Dipole Gain Pattern",
+            "output_dir": str(tmp_path),
+        },
+    )
+
+    assert report.status == ExecutionStatus.SUCCEEDED
+    assert "report_path" not in report.output
 
 
 def test_node_executor_remaps_lumped_port_face_id_to_object_name(tmp_path):
