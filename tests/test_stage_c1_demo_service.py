@@ -125,6 +125,29 @@ def test_demo_service_real_run_job_can_use_dipole_template_with_fake_adapter(tmp
     assert Path(status["artifacts"]["touchstone"]).suffix == ".s1p"
 
 
+def test_demo_service_tunes_dipole_resonance_from_feedback(tmp_path):
+    service = DemoService(Path("."), run_dir=tmp_path / "stage_c1_demo")
+
+    result = service.tune_dipole(
+        {
+            "parameters": {
+                "frequency": "2.5GHz",
+                "dipole_arm_length_mm": 31.0,
+                "sweep_start": "1GHz",
+                "sweep_stop": "4GHz",
+            }
+        }
+    )
+
+    assert result["template_id"] == "dipole_antenna_s11_farfield"
+    assert result["status"] == "converged"
+    assert result["target_frequency_hz"] == 2.5e9
+    assert 1 <= len(result["rounds"]) <= 3
+    assert result["rounds"][0]["arm_length_mm"] == 31.0
+    assert "缩短" in result["rounds"][0]["agent_message"]
+    assert abs(result["rounds"][-1]["resonance_frequency_hz"] - 2.5e9) / 2.5e9 <= 0.02
+
+
 def test_read_demo_sparameters_selects_nearest_frequency_and_converts_to_db(tmp_path):
     touchstone = tmp_path / "sample.s2p"
     touchstone.write_text(

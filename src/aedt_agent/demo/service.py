@@ -10,9 +10,11 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib import request as urlrequest
 
 from aedt_agent.demo.config import AedtConfig, PlannerConfig
-from aedt_agent.demo.planner import PlannerRunner, WorkflowProposalClient
+from aedt_agent.demo.planner import PlannerRunner, WorkflowProposalClient, _parse_json_content
+from aedt_agent.demo.tuning import run_fake_dipole_tuning
 from aedt_agent.mcp.audit_log import AuditLogger
 from aedt_agent.mcp.execution_queue import ExecutionQueue
 from aedt_agent.mcp.fake_aedt import FakeAedtAdapter
@@ -184,6 +186,32 @@ class DemoService:
             "artifacts": artifacts,
             "sparameters": sparameters,
         }
+
+    def tune_dipole(self, payload: dict[str, Any]) -> dict[str, Any]:
+        parameters = payload.get("parameters", {})
+        if not isinstance(parameters, dict):
+            raise TypeError("parameters must be a JSON object")
+        frequency = str(parameters.get("frequency") or "2.5GHz")
+        sweep_start = str(parameters.get("sweep_start") or "1GHz")
+        sweep_stop = str(parameters.get("sweep_stop") or "4GHz")
+        workflow = self._template_catalog().get("dipole_antenna_s11_farfield").instantiate(parameters)
+        arm_length = parameters.get("dipole_arm_length_mm") or _workflow_parameter_default(workflow, "dipole_arm_length_mm")
+        if arm_length is None:
+            raise ValueError("dipole_arm_length_mm could not be derived")
+        result = run_fake_dipole_tuning(
+            target_frequency=frequency,
+            initial_arm_length_mm=float(arm_length),
+            sweep_start=sweep_start,
+            sweep_stop=sweep_stop,
+            max_rounds=int(payload.get("max_rounds") or 3),
+            advisor=_llm_tuning_advisor(self.planner_config),
+        )
+        result["template_id"] = "dipole_antenna_s11_farfield"
+        result["workflow_id"] = workflow.workflow_id
+        result["agent_mode"] = "feedback_tuning"
+        result["advisor_mode"] = "llm" if self.planner_config.api_key else "engineering_fallback"
+        result["controlled_variable"] = "dipole_arm_length_mm"
+        return result
 
     def start_real_run(self, payload: dict[str, Any]) -> dict[str, Any]:
         workflow_payload = payload.get("workflow")
@@ -367,6 +395,67 @@ def _workflow_with_artifact_dir(workflow: Workflow, artifact_dir: str) -> Workfl
         outputs=workflow.outputs,
         metadata=workflow.metadata,
     )
+
+
+def _workflow_parameter_default(workflow: Workflow, name: str) -> Any:
+    for parameter in workflow.parameters:
+        if parameter.name == name:
+            return parameter.default
+    return None
+
+
+def _llm_tuning_advisor(config: PlannerConfig):
+    if not config.api_key:
+        return None
+
+    def advise(context: dict[str, Any]) -> dict[str, Any]:
+        base_url = (config.base_url or "").rstrip("/")
+        if not base_url:
+            raise ValueError("planner base_url is required for tuning llm mode")
+        url = base_url if base_url.endswith("/chat/completions") else f"{base_url}/chat/completions"
+        payload = {
+            "model": config.model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are tuning a simple HFSS dipole demo from S11 feedback. "
+                        "Return JSON only with keys next_arm_length_mm and message. "
+                        "You may only change dipole_arm_length_mm; do not emit Python code."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "target": "Move the S11 resonance to the target frequency.",
+                            "context": {
+                                key: value for key, value in context.items() if key != "samples"
+                            },
+                            "s11_samples_preview": context.get("samples", [])[:9],
+                        },
+                        ensure_ascii=False,
+                    ),
+                },
+            ],
+            "temperature": 0,
+        }
+        req = urlrequest.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"content-type": "application/json", "authorization": f"Bearer {config.api_key}"},
+            method="POST",
+        )
+        with urlrequest.urlopen(req, timeout=120) as response:
+            data = json.loads(response.read().decode("utf-8"))
+        content = data["choices"][0]["message"]["content"]
+        parsed = _parse_json_content(content)
+        return {
+            "next_arm_length_mm": float(parsed["next_arm_length_mm"]),
+            "message": str(parsed.get("message") or "LLM returned the next dipole arm length."),
+        }
+
+    return advise
 
 
 def _read_real_run_artifacts(run_dir: Path) -> dict[str, Any]:

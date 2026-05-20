@@ -19,6 +19,10 @@ def test_render_demo_page_contains_workspace_sections():
     assert "derivedDipoleArmLength" in html
     assert "派生单臂长度" in html
     assert "Plan with LLM" in html
+    assert "Tune Resonance" in html
+    assert "LLM advisor" in html
+    assert "/api/tune-dipole" in html
+    assert "renderTuningResult" in html
     assert "plannerModeMetric" in html
     assert "Create Substrate" in html
     assert "Create Dipole Geometry" in html
@@ -82,6 +86,23 @@ def test_dispatch_demo_request_starts_real_run_job_with_fake_adapter(tmp_path):
     assert headers["content-type"] == "application/json; charset=utf-8"
     assert "job_id" in data
     assert "stage_c_real_demo_" in data
+
+
+def test_dispatch_demo_request_tunes_dipole(tmp_path):
+    service = DemoService(Path("."), run_dir=tmp_path / "run")
+
+    status, headers, body = dispatch_demo_request(
+        "POST",
+        "/api/tune-dipole",
+        b'{"parameters":{"frequency":"2.5GHz","dipole_arm_length_mm":31.0,"sweep_start":"1GHz","sweep_stop":"4GHz"}}',
+        service,
+    )
+
+    data = body.decode("utf-8")
+    assert status == 200
+    assert headers["content-type"] == "application/json; charset=utf-8"
+    assert "converged" in data
+    assert "agent_message" in data
 
 
 def test_dispatch_demo_request_serves_report_html(tmp_path):

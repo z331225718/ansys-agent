@@ -69,6 +69,7 @@ def render_demo_page() -> str:
       <div class="diagram" id="modelDiagram" aria-label="workflow model preview"></div>
       <div class="row">
         <button id="planButton" class="secondary" onclick="planWorkflowForDemo()">Plan with LLM</button>
+        <button id="tuneButton" class="secondary" onclick="tuneDipoleResonance()">Tune Resonance</button>
         <button id="runButton" onclick="runRealAedtDemo()">Run Real AEDT</button>
       </div>
       <div class="muted">主路径：需求输入 → LLM planner → workflow validation → 真实 AEDT 图形界面执行。节点 catalog、planner 和 benchmark 等调试入口在 <a href="/advanced">Advanced 工作台</a>。</div>
@@ -218,6 +219,7 @@ function setBusy(isBusy) {
   plannerInFlight = isBusy;
   document.getElementById('planButton').disabled = isBusy;
   document.getElementById('runButton').disabled = isBusy;
+  document.getElementById('tuneButton').disabled = isBusy;
   document.getElementById('planButton').textContent = isBusy ? 'Planning...' : 'Plan with LLM';
 }
 function parseFrequencies(text) {
@@ -386,6 +388,60 @@ async function runRealAedtDemo() {
     result = await api('/api/run-real/' + encodeURIComponent(started.job_id));
     renderResult(result);
   }
+}
+async function tuneDipoleResonance() {
+  syncRequestToParameters();
+  if (currentTemplateId !== 'dipole_antenna_s11_farfield') {
+    const request = document.getElementById('agentRequest').value;
+    const frequency = document.getElementById('frequency').value;
+    const sweepStart = document.getElementById('sweepStart').value;
+    const sweepStop = document.getElementById('sweepStop').value;
+    changeWorkflow('dipole_antenna_s11_farfield');
+    document.getElementById('agentRequest').value = request;
+    document.getElementById('frequency').value = frequency;
+    document.getElementById('sweepStart').value = sweepStart;
+    document.getElementById('sweepStop').value = sweepStop;
+  }
+  setBusy(true);
+  appendLog('LLM Agent', '开始闭环调试：运行 S11 曲线，寻找最低点作为谐振频率，再由 LLM advisor 决定下一轮偶极子单臂长度；未配置 LLM 时使用工程规则兜底。', 'llm');
+  try {
+    const armLength = derivedDipoleArmLength(document.getElementById('frequency').value);
+    const payload = {
+      parameters: {
+        frequency: document.getElementById('frequency').value,
+        sweep_start: document.getElementById('sweepStart').value,
+        sweep_stop: document.getElementById('sweepStop').value,
+        dipole_arm_length_mm: armLength ? Number((armLength * 1.08).toFixed(3)) : undefined
+      },
+      max_rounds: 3
+    };
+    const result = await api('/api/tune-dipole', {method:'POST', body:JSON.stringify(payload)});
+    renderTuningResult(result);
+    return result;
+  } catch (error) {
+    appendLog('Error', String(error.message || error), 'err');
+    throw error;
+  } finally {
+    setBusy(false);
+  }
+}
+function renderTuningResult(result) {
+  const rounds = result.rounds || [];
+  appendLog('Tuning Mode', `advisor=${result.advisor_mode || 'unknown'}，controlled_variable=${result.controlled_variable || 'dipole_arm_length_mm'}`, 'ok');
+  for (const item of rounds) {
+    appendLog(
+      'Tune Round ' + item.round,
+      `单臂 ${item.arm_length_mm} mm；谐振 ${item.resonance_frequency}；误差 ${item.target_error_percent}%；${item.agent_message}`,
+      item.converged ? 'ok' : 'llm'
+    );
+  }
+  if (rounds.length) {
+    const last = rounds[rounds.length - 1];
+    renderSParameters({frequency_unit:'GHz', selected:{frequency:last.resonance_frequency_hz / 1e9, s11_db:last.s11_db, s21_db:null}, samples:last.samples});
+    document.getElementById('statusMetric').textContent = result.status;
+    document.getElementById('validationMetric').textContent = `${rounds.length} tuning rounds`;
+  }
+  document.getElementById('rawResult').textContent = JSON.stringify(result, null, 2);
 }
 async function runOfflineDemo() {
   syncRequestToParameters();
@@ -577,6 +633,8 @@ def dispatch_demo_request(method: str, path: str, body: bytes, service: DemoServ
             return _json_response(service.validate(_json_body(body)))
         if method == "POST" and route == "/api/run":
             return _json_response(service.run(_json_body(body)))
+        if method == "POST" and route == "/api/tune-dipole":
+            return _json_response(service.tune_dipole(_json_body(body)))
         if method == "POST" and route == "/api/run-real":
             return _json_response(service.start_real_run(_json_body(body)), status=202)
         if method == "GET" and route.startswith("/api/run-real/"):
