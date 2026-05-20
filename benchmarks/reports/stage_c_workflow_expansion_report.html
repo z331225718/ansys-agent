@@ -22,8 +22,8 @@
   <div class="metrics">
     <div class="metric"><strong>受控 workflow</strong>Stage C 的重点不是让 LLM 直接写 PyAEDT 脚本，而是让 LLM 生成受控 workflow JSON，再由本地节点执行器驱动 AEDT。</div>
     <div class="metric"><strong>微带线</strong>已形成可演示的端到端闭环：建模、端口、求解、S 参数读取和曲线展示。</div>
-    <div class="metric"><strong>偶极子</strong>新增偶极子模板已完成结构验证，并进入真实 AEDT smoke；主路径保留稳定的远场 setup，不把耗时 report export 放入默认链路。</div>
-    <div class="metric"><strong>218 passed, 2 skipped</strong>当前回归测试</div>
+    <div class="metric"><strong>偶极子</strong>新增偶极子模板已完成真实 AEDT smoke，并已接入 demo workflow 选择；主路径保留稳定的远场 setup，不把耗时 report export 放入默认链路。</div>
+    <div class="metric"><strong>220 passed, 2 skipped</strong>当前回归测试</div>
   </div>
 
   <h2>Agent 架构</h2>
@@ -36,10 +36,10 @@
   <table><tbody><tr><th>复用节点</th><td>assign_boundary、create_airbox、create_conductor_or_geometry_group、create_port、create_setup、create_sparameter_report、create_sweep_or_export、solve_setup</td></tr><tr><th>新增节点</th><td>create_farfield_setup、create_antenna_report（保留为实验性后处理节点，默认真实 smoke 暂不挂载）</td></tr><tr><th>增强节点</th><td>create_conductor_or_geometry_group: 支持真实 cylinder，不再用 box 近似</td></tr><tr><th>设计原则</th><td>新增 workflow 优先复用已有 primitive 节点；只有确实缺失的仿真能力才新增节点。</td></tr></tbody></table>
 
   <h2>当前证据</h2>
-  <table><thead><tr><th>项目</th><th>状态</th><th>路径</th></tr></thead><tbody><tr><td>微带线 demo</td><td class="ok">可演示</td><td><code>http://127.0.0.1:8765</code></td></tr><tr><td>偶极子真实 AEDT smoke</td><td class="ok">succeeded</td><td><code>benchmarks/runs/stage_c_real_dipole_smoke/workflow_run.json</code></td></tr><tr><td>偶极子模板</td><td class="ok">完成</td><td><code>workflow_templates/dipole_antenna_s11_farfield.json</code></td></tr><tr><td>全量测试</td><td class="ok">218 passed, 2 skipped</td><td><code>pytest</code></td></tr></tbody></table>
+  <table><thead><tr><th>项目</th><th>状态</th><th>路径</th></tr></thead><tbody><tr><td>Microstrip / Dipole demo</td><td class="ok">可演示</td><td><code>http://127.0.0.1:8765</code></td></tr><tr><td>偶极子真实 AEDT smoke</td><td class="ok">succeeded</td><td><code>benchmarks/runs/stage_c_real_dipole_smoke/workflow_run.json</code></td></tr><tr><td>偶极子模板</td><td class="ok">完成</td><td><code>workflow_templates/dipole_antenna_s11_farfield.json</code></td></tr><tr><td>全量测试</td><td class="ok">220 passed, 2 skipped</td><td><code>pytest</code></td></tr></tbody></table>
 
   <h2>下一步</h2>
-  <ul><li>把 demo 页面增加 workflow 选择，允许 Microstrip / Dipole 两条展示路径。</li><li>把 BRD/3D Layout 作为后续复杂 workflow：导入、选 net、cutout、叠层、端口、仿真、后处理。</li><li>继续保持节点进化机制：从重复 workflow 中提 proposal，但不自动发布 stable 节点。</li></ul>
+  <ul><li>对偶极子演示补充更完整的远场后处理展示，但保持默认真实 smoke 稳定。</li><li>把 BRD/3D Layout 作为后续复杂 workflow：导入、选 net、cutout、叠层、端口、仿真、后处理。</li><li>继续保持节点进化机制：从重复 workflow 中提 proposal，但不自动发布 stable 节点。</li></ul>
 </main>
 </body>
 </html>

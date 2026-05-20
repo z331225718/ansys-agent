@@ -426,9 +426,9 @@ def _read_demo_sparameters(touchstone_path: Any, target_frequency_hz: float | No
                 option["format"] = parts[2]
             continue
         values = _floats_from_touchstone_line(line)
-        if len(values) < 9:
+        if len(values) < 3:
             continue
-        sample = _touchstone_2port_sample(values, option)
+        sample = _touchstone_sample(values, option)
         if sample:
             samples.append(sample)
     if not samples:
@@ -454,20 +454,20 @@ def _floats_from_touchstone_line(line: str) -> list[float]:
     return values
 
 
-def _touchstone_2port_sample(values: list[float], option: dict[str, str]) -> dict[str, Any]:
+def _touchstone_sample(values: list[float], option: dict[str, str]) -> dict[str, Any]:
     unit = option.get("unit", "GHz")
     data_format = option.get("format", "MA").upper()
     frequency = values[0]
     frequency_hz = _frequency_to_hz(frequency, unit)
     s11 = _pair_to_magnitude(values[1], values[2], data_format)
-    s21 = _pair_to_magnitude(values[3], values[4], data_format)
+    s21 = _pair_to_magnitude(values[3], values[4], data_format) if len(values) >= 5 else None
     return {
         "frequency": frequency,
         "frequency_hz": frequency_hz,
         "s11_mag": s11,
         "s21_mag": s21,
         "s11_db": _magnitude_to_db(s11),
-        "s21_db": _magnitude_to_db(s21),
+        "s21_db": _magnitude_to_db(s21) if s21 is not None else None,
     }
 
 

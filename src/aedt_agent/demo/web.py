@@ -20,11 +20,11 @@ def render_demo_page() -> str:
   <style>
     :root{--bg:#f3f4ef;--paper:#fffefa;--ink:#18212b;--muted:#637083;--line:#d9ddd2;--blue:#285ee8;--teal:#0f766e;--amber:#b7791f;--red:#b42318;--soft:#eef2ea;--graph:#f8faf6}
     *{box-sizing:border-box}body{margin:0;font-family:Inter,Arial,'Noto Sans SC',sans-serif;background:var(--bg);color:var(--ink);letter-spacing:0}
-    button,input,textarea{font:inherit}button{border:0;background:var(--ink);color:#fff;border-radius:6px;padding:10px 14px;cursor:pointer;font-weight:800}button.secondary{background:#fff;color:var(--ink);border:1px solid var(--line)}button:hover{filter:brightness(.96)}
-    input,textarea{border:1px solid var(--line);border-radius:6px;padding:10px 11px;width:100%;background:#fff;color:var(--ink)}textarea{min-height:118px;resize:vertical;line-height:1.5}a{color:var(--blue);text-decoration:none}.muted{color:var(--muted);line-height:1.55}
+    button,input,select,textarea{font:inherit}button{border:0;background:var(--ink);color:#fff;border-radius:6px;padding:10px 14px;cursor:pointer;font-weight:800}button.secondary{background:#fff;color:var(--ink);border:1px solid var(--line)}button:hover{filter:brightness(.96)}button:disabled{opacity:.55;cursor:not-allowed}
+    input,select,textarea{border:1px solid var(--line);border-radius:6px;padding:10px 11px;width:100%;background:#fff;color:var(--ink)}textarea{min-height:118px;resize:vertical;line-height:1.5}a{color:var(--blue);text-decoration:none}.muted{color:var(--muted);line-height:1.55}
     .page{max-width:1320px;margin:0 auto;padding:24px 20px 36px}.top{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:18px;align-items:end;margin-bottom:18px}.kicker{font-size:12px;text-transform:uppercase;color:var(--amber);font-weight:900;letter-spacing:.08em}.top h1{font-size:34px;line-height:1.08;margin:5px 0 8px}.top p{margin:0;max-width:780px}.status-pill{display:inline-flex;gap:8px;align-items:center;border:1px solid #b7decf;background:#ecfdf7;color:#047857;border-radius:999px;padding:7px 12px;font-size:13px;font-weight:800;white-space:nowrap}.dot{width:8px;height:8px;border-radius:50%;background:#10b981}
     .shell{display:grid;grid-template-columns:360px minmax(0,1fr) 330px;gap:14px}.panel{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:16px}.panel h2{font-size:17px;margin:0 0 12px}.stack{display:grid;gap:13px}.row{display:flex;gap:9px;flex-wrap:wrap}.field{display:grid;gap:6px}.field label{font-size:12px;font-weight:900;color:#334155;text-transform:uppercase}.params{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-    .agent-note{border-left:3px solid var(--blue);background:#f5f7ff;padding:10px 11px;border-radius:6px;color:#344054;font-size:13px;line-height:1.5}.planner-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.planner-chip{border:1px solid var(--line);border-radius:8px;background:#fff;padding:9px}.planner-chip b{display:block;font-size:13px}.planner-chip span{font-size:11px;color:var(--muted);font-weight:800}.diagram{height:170px;border:1px solid var(--line);border-radius:8px;background:linear-gradient(180deg,#f8faf6,#eef2ea);position:relative;overflow:hidden}.air{position:absolute;inset:14px;border:1px dashed #94a3b8;border-radius:6px}.substrate{position:absolute;left:38px;right:38px;bottom:44px;height:46px;background:#d8c58b;border:1px solid #a5883a}.ground{position:absolute;left:34px;right:34px;bottom:38px;height:5px;background:#7c5b21}.trace{position:absolute;left:74px;right:74px;bottom:91px;height:7px;background:#c58b2a}.port{position:absolute;bottom:43px;width:4px;height:55px;background:#2563eb}.port.p1{left:73px}.port.p2{right:73px}.diagram-label{position:absolute;font-size:11px;color:#475569;font-weight:800}.diagram-label.l1{left:38px;bottom:98px}.diagram-label.l2{right:40px;bottom:28px}
+    .agent-note{border-left:3px solid var(--blue);background:#f5f7ff;padding:10px 11px;border-radius:6px;color:#344054;font-size:13px;line-height:1.5}.planner-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.planner-chip{border:1px solid var(--line);border-radius:8px;background:#fff;padding:9px}.planner-chip b{display:block;font-size:13px}.planner-chip span{font-size:11px;color:var(--muted);font-weight:800}.diagram{height:170px;border:1px solid var(--line);border-radius:8px;background:linear-gradient(180deg,#f8faf6,#eef2ea);position:relative;overflow:hidden}.air{position:absolute;inset:14px;border:1px dashed #94a3b8;border-radius:6px}.substrate{position:absolute;left:38px;right:38px;bottom:44px;height:46px;background:#d8c58b;border:1px solid #a5883a}.ground{position:absolute;left:34px;right:34px;bottom:38px;height:5px;background:#7c5b21}.trace{position:absolute;left:74px;right:74px;bottom:91px;height:7px;background:#c58b2a}.port{position:absolute;bottom:43px;width:4px;height:55px;background:#2563eb}.port.p1{left:73px}.port.p2{right:73px}.dipole-arm{position:absolute;top:82px;height:8px;background:#b87333;border:1px solid #8a4f20;border-radius:999px}.dipole-arm.left{left:44px;right:154px}.dipole-arm.right{left:154px;right:44px}.feed-sheet{position:absolute;left:145px;top:67px;width:10px;height:38px;border:2px solid #2563eb;background:rgba(37,99,235,.12)}.sphere{position:absolute;inset:24px;border:1px dashed #64748b;border-radius:50%}.diagram-label{position:absolute;font-size:11px;color:#475569;font-weight:800}.diagram-label.l1{left:38px;bottom:98px}.diagram-label.l2{right:40px;bottom:28px}
     .flow{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.step{display:grid;grid-template-columns:30px minmax(0,1fr) auto;align-items:center;gap:9px;padding:11px;border:1px solid var(--line);border-radius:8px;background:#fff}.index{width:26px;height:26px;border-radius:6px;background:var(--soft);display:grid;place-items:center;font-weight:900;color:#334155}.step b{font-size:14px}.state{font-size:12px;color:var(--muted);font-weight:900}.state.ok{color:var(--teal)}.state.fail{color:var(--red)}
     .result{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.metric,.sparam{border:1px solid var(--line);border-radius:8px;padding:12px;background:#fff}.metric strong{display:block;font-size:19px;line-height:1.15}.metric span,.sparam span{font-size:12px;color:var(--muted);font-weight:800}.sparams{display:grid;gap:10px}.sparam strong{display:block;font-size:30px;line-height:1.05;margin-bottom:6px}.sparam.primary{background:#f7fbf9;border-color:#b7decf}.sparam.secondary{background:#fff8ed;border-color:#ecd3a5}.chart{border:1px solid var(--line);border-radius:8px;background:#fff;padding:10px}.chart-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}.legend{display:flex;gap:10px;font-size:12px;color:var(--muted);font-weight:800}.legend i{display:inline-block;width:18px;height:3px;border-radius:999px;margin-right:5px;vertical-align:middle}.legend .s11{background:var(--teal)}.legend .s21{background:var(--amber)}#sparamChart{width:100%;height:220px;display:block}.llm-log{background:#fff;border:1px solid var(--line);border-radius:8px;padding:11px;min-height:190px;max-height:280px;overflow:auto;font-size:13px;line-height:1.5}.log-entry{border-left:3px solid var(--line);padding:7px 9px;margin-bottom:8px;background:#fafaf7}.log-entry.user{border-left-color:var(--blue)}.log-entry.llm{border-left-color:var(--amber)}.log-entry.ok{border-left-color:var(--teal)}.log-entry.err{border-left-color:var(--red)}.log-entry b{display:block;font-size:12px;text-transform:uppercase;color:#334155;margin-bottom:3px}.artifacts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.artifact{border:1px solid var(--line);border-radius:8px;padding:10px;background:#fff;font-size:12px;overflow:hidden;text-overflow:ellipsis}.reports{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:14px}.report{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:13px}.report b{display:block;margin-bottom:5px}.advanced{font-size:13px;color:var(--muted)}pre{background:#18212b;color:#e5e7eb;border-radius:8px;padding:12px;overflow:auto;max-height:330px;font-size:12px;line-height:1.45}
     @media(max-width:1120px){.shell{grid-template-columns:1fr}.flow,.result,.artifacts,.reports{grid-template-columns:1fr}.top{grid-template-columns:1fr}.page{padding:18px 12px}.params{grid-template-columns:1fr}}
@@ -36,20 +36,28 @@ def render_demo_page() -> str:
     <div>
       <div class="kicker">Controlled AEDT Agent Demo</div>
       <h1>AEDT Agent End-to-End Demo</h1>
-      <p class="muted">LLM 先把一句微带线仿真需求规划成受控 workflow，后端 validator 接受后再驱动真实 AEDT 创建模型、求解并读取 Touchstone S 参数。</p>
+      <p class="muted">LLM 先把自然语言仿真需求规划成受控 workflow，后端 validator 接受后再驱动真实 AEDT 创建模型、求解并读取结果。当前演示支持微带线 S 参数和偶极子天线两条 workflow。</p>
     </div>
     <div class="status-pill"><span class="dot"></span>Real AEDT graphical run</div>
   </section>
 
   <section class="shell">
     <aside class="panel stack">
-      <h2>Microstrip S-Parameter Workflow</h2>
+      <h2 id="workflowTitle">Microstrip S-Parameter Workflow</h2>
+      <div class="field">
+        <label for="workflowSelect">Workflow Template</label>
+        <select id="workflowSelect" onchange="changeWorkflow(this.value)">
+          <option value="microstrip_sparameter">Microstrip S 参数</option>
+          <option value="dipole_antenna_s11_farfield">Dipole 天线 S11</option>
+        </select>
+      </div>
       <div class="field">
         <label for="agentRequest">用户需求</label>
         <textarea id="agentRequest" oninput="syncRequestToParameters()">做一个微带线 S 参数仿真，求解频率 2.4GHz，扫频到 10GHz。</textarea>
       </div>
       <div class="params">
         <div class="field"><label for="frequency">Adaptive Frequency</label><input id="frequency" value="2.4GHz"></div>
+        <div class="field"><label for="sweepStart">Sweep Start</label><input id="sweepStart" value="1GHz"></div>
         <div class="field"><label for="sweepStop">Sweep Stop</label><input id="sweepStop" value="10GHz"></div>
       </div>
       <div class="agent-note" id="agentPlan">LLM planner 将生成 workflow JSON；如果未配置 LLM API，会回退到 deterministic planner 但仍展示同一条受控链路。</div>
@@ -58,10 +66,7 @@ def render_demo_page() -> str:
         <div class="planner-chip"><b id="repairMetric">0</b><span>Repair</span></div>
         <div class="planner-chip"><b id="workflowMetric">--</b><span>Workflow</span></div>
       </div>
-      <div class="diagram" aria-label="microstrip model preview">
-        <div class="air"></div><div class="substrate"></div><div class="ground"></div><div class="trace"></div><div class="port p1"></div><div class="port p2"></div>
-        <div class="diagram-label l1">Trace + lumped ports</div><div class="diagram-label l2">Ground / FR4</div>
-      </div>
+      <div class="diagram" id="modelDiagram" aria-label="workflow model preview"></div>
       <div class="row">
         <button id="planButton" class="secondary" onclick="planWorkflowForDemo()">Plan with LLM</button>
         <button id="runButton" onclick="runRealAedtDemo()">Run Real AEDT</button>
@@ -74,27 +79,14 @@ def render_demo_page() -> str:
       <div class="llm-log" id="llmLog">
         <div class="log-entry"><b>System</b>等待用户输入需求并点击 Plan with LLM。</div>
       </div>
-      <div class="flow">
-        <div class="step" id="step-substrate"><div class="index">1</div><div><b>Create Substrate</b><div class="muted">创建 FR4 substrate</div></div><div class="state">pending</div></div>
-        <div class="step" id="step-trace"><div class="index">2</div><div><b>Create Ground, Trace & Port Sheets</b><div class="muted">端口 sheet 与 trace 等宽</div></div><div class="state">pending</div></div>
-        <div class="step" id="step-pec"><div class="index">3</div><div><b>Assign PEC Conductors</b><div class="muted">给 ground 和 trace 设置 Perfect E</div></div><div class="state">pending</div></div>
-        <div class="step" id="step-airbox"><div class="index">4</div><div><b>Create Airbox</b><div class="muted">创建空气盒</div></div><div class="state">pending</div></div>
-        <div class="step" id="step-radiation"><div class="index">5</div><div><b>Assign Radiation</b><div class="muted">设置辐射边界</div></div><div class="state">pending</div></div>
-        <div class="step" id="step-lumped-port-1"><div class="index">6</div><div><b>Create Lumped Port P1</b><div class="muted">输入端 lumped port</div></div><div class="state">pending</div></div>
-        <div class="step" id="step-lumped-port-2"><div class="index">7</div><div><b>Create Lumped Port P2</b><div class="muted">输出端 lumped port</div></div><div class="state">pending</div></div>
-        <div class="step" id="step-setup"><div class="index">8</div><div><b>Create Setup</b><div class="muted">创建 HFSS adaptive setup</div></div><div class="state">pending</div></div>
-        <div class="step" id="step-sweep"><div class="index">9</div><div><b>Create Sweep</b><div class="muted">创建 frequency sweep</div></div><div class="state">pending</div></div>
-        <div class="step" id="step-solve"><div class="index">10</div><div><b>Solve Setup</b><div class="muted">运行 AEDT 仿真</div></div><div class="state">pending</div></div>
-        <div class="step" id="step-postprocess"><div class="index">11</div><div><b>Postprocess</b><div class="muted">生成 S 参数报告和 Touchstone</div></div><div class="state">pending</div></div>
-        <div class="step" id="step-validation"><div class="index">12</div><div><b>Validate Result</b><div class="muted">校验端口、边界、报告和 artifact</div></div><div class="state">pending</div></div>
-      </div>
+      <div class="flow" id="workflowFlow"></div>
     </section>
 
     <aside class="panel stack">
       <h2>结果</h2>
       <div class="sparams" id="sparams">
         <div class="sparam primary"><strong id="s11Metric">--</strong><span>S11 at selected frequency</span></div>
-        <div class="sparam secondary"><strong id="s21Metric">--</strong><span>S21 at selected frequency</span></div>
+        <div class="sparam secondary"><strong id="s21Metric">--</strong><span id="s21Label">S21 at selected frequency</span></div>
         <div class="sparam"><strong id="freqMetric">--</strong><span>Touchstone sample</span></div>
       </div>
       <div class="chart">
@@ -115,7 +107,7 @@ def render_demo_page() -> str:
   </section>
 
   <section class="reports">
-    <a class="report" href="/reports/stage_c_real_smoke_dashboard.html" target="_blank"><b>真实 AEDT Smoke</b><span class="muted">3 个真实 AEDT workflow 结果</span></a>
+    <a class="report" href="/reports/stage_c_real_smoke_dashboard.html" target="_blank"><b>真实 AEDT Smoke</b><span class="muted">4 个真实 AEDT workflow 结果</span></a>
     <a class="report" href="/reports/stage_c_node_evolution_review.html" target="_blank"><b>节点进化 Review</b><span class="muted">proposal 和人工 gate</span></a>
     <a class="report" href="/reports/stage_c2_planner_benchmark.html" target="_blank"><b>Planner Benchmark</b><span class="muted">自然语言规划成功率</span></a>
     <a class="report" href="/advanced"><b>Advanced 工作台</b><span class="muted">catalog / planner / API 调试入口</span></a>
@@ -124,7 +116,57 @@ def render_demo_page() -> str:
 <script>
 let currentWorkflow = null;
 let currentWorkflowSource = '';
+let currentTemplateId = 'microstrip_sparameter';
 let plannerInFlight = false;
+const WORKFLOWS = {
+  microstrip_sparameter: {
+    title: 'Microstrip S-Parameter Workflow',
+    request: '做一个微带线 S 参数仿真，求解频率 2.4GHz，扫频到 10GHz。',
+    frequency: '2.4GHz',
+    sweepStart: '1GHz',
+    sweepStop: '10GHz',
+    expected: 'PEC · P1/P2 · Radiation · S2P',
+    s21Label: 'S21 at selected frequency',
+    diagram: '<div class="air"></div><div class="substrate"></div><div class="ground"></div><div class="trace"></div><div class="port p1"></div><div class="port p2"></div><div class="diagram-label l1">Trace + lumped ports</div><div class="diagram-label l2">Ground / FR4</div>',
+    steps: [
+      ['substrate','Create Substrate','创建 FR4 substrate'],
+      ['trace','Create Ground, Trace & Port Sheets','端口 sheet 与 trace 等宽'],
+      ['ground_pec','Assign Ground PEC','给 ground 设置 Perfect E'],
+      ['trace_pec','Assign Trace PEC','给 trace 设置 Perfect E'],
+      ['airbox','Create Airbox','创建空气盒'],
+      ['radiation','Assign Radiation','设置辐射边界'],
+      ['lumped_port_1','Create Lumped Port P1','输入端 lumped port'],
+      ['lumped_port_2','Create Lumped Port P2','输出端 lumped port'],
+      ['setup','Create Setup','创建 HFSS adaptive setup'],
+      ['sweep','Create Sweep','创建 frequency sweep'],
+      ['solve','Solve Setup','运行 AEDT 仿真'],
+      ['postprocess','Postprocess S11/S21','生成 S 参数报告和 Touchstone'],
+      ['validation','Validate Result','校验端口、边界、报告和 artifact']
+    ]
+  },
+  dipole_antenna_s11_farfield: {
+    title: 'Dipole Antenna S11 Workflow',
+    request: '做一个偶极子天线 S11 仿真，求解频率 2.4GHz，扫频 1GHz 到 4GHz，并创建远场设置。',
+    frequency: '2.4GHz',
+    sweepStart: '1GHz',
+    sweepStop: '4GHz',
+    expected: 'Copper arms · Lumped feed · Radiation · Farfield setup · S1P',
+    s21Label: 'Farfield setup',
+    diagram: '<div class="sphere"></div><div class="dipole-arm left"></div><div class="feed-sheet"></div><div class="dipole-arm right"></div><div class="diagram-label l1">Copper dipole arms</div><div class="diagram-label l2">Radiation + farfield setup</div>',
+    steps: [
+      ['dipole_geometry','Create Dipole Geometry','创建铜偶极子臂和 feed sheet'],
+      ['airbox','Create Airbox','创建空气盒'],
+      ['radiation','Assign Radiation','设置辐射边界'],
+      ['feed_port','Create Lumped Feed Port','中心馈电 lumped port'],
+      ['setup','Create Setup','创建 HFSS adaptive setup'],
+      ['sweep','Create Sweep','创建 frequency sweep'],
+      ['farfield','Create Farfield Setup','创建 InfiniteSphere 远场设置'],
+      ['solve','Solve Setup','运行 AEDT 仿真'],
+      ['s11_report','Postprocess S11','生成 S11 报告和 Touchstone'],
+      ['validation','Validate Result','校验端口、边界、报告和 artifact']
+    ]
+  }
+};
 async function api(path, options={}) {
   const response = await fetch(path, {headers:{'content-type':'application/json'}, ...options});
   const data = await response.json();
@@ -133,11 +175,36 @@ async function api(path, options={}) {
 }
 function setStep(id, state) {
   const node = document.querySelector(`#${id} .state`);
+  if (!node) return;
   node.textContent = state;
   node.className = 'state ' + (state === 'done' ? 'ok' : state === 'failed' ? 'fail' : '');
 }
+function workflowDef() { return WORKFLOWS[currentTemplateId] || WORKFLOWS.microstrip_sparameter; }
+function renderWorkflowChrome() {
+  const def = workflowDef();
+  document.getElementById('workflowTitle').textContent = def.title;
+  document.getElementById('modelDiagram').innerHTML = def.diagram;
+  document.getElementById('objectMetric').textContent = def.expected;
+  document.getElementById('s21Label').textContent = def.s21Label;
+  document.getElementById('workflowFlow').innerHTML = def.steps.map((step, index) => `<div class="step" id="step-${step[0]}"><div class="index">${index + 1}</div><div><b>${step[1]}</b><div class="muted">${step[2]}</div></div><div class="state">pending</div></div>`).join('');
+}
 function resetSteps() {
-  ['step-substrate','step-trace','step-pec','step-airbox','step-radiation','step-lumped-port-1','step-lumped-port-2','step-setup','step-sweep','step-solve','step-postprocess','step-validation'].forEach(id => setStep(id, 'pending'));
+  workflowDef().steps.forEach(step => setStep('step-' + step[0], 'pending'));
+}
+function changeWorkflow(templateId) {
+  currentTemplateId = templateId;
+  currentWorkflow = null;
+  currentWorkflowSource = '';
+  const def = workflowDef();
+  document.getElementById('agentRequest').value = def.request;
+  document.getElementById('frequency').value = def.frequency;
+  document.getElementById('sweepStart').value = def.sweepStart;
+  document.getElementById('sweepStop').value = def.sweepStop;
+  document.getElementById('workflowMetric').textContent = '--';
+  document.getElementById('plannerModeMetric').textContent = 'not planned';
+  renderWorkflowChrome();
+  syncRequestToParameters();
+  renderSParameterChart([], '');
 }
 function appendLog(role, text, klass='') {
   const log = document.getElementById('llmLog');
@@ -157,10 +224,13 @@ function parseFrequencies(text) {
   const matches = [...text.matchAll(/(\\d+(?:\\.\\d+)?)\\s*(GHz|MHz|KHz|Hz)/gi)].map(match => match[1] + match[2]);
   const result = {};
   const solveMatch = text.match(/(?:求解|中心|adaptive|solve|setup)[^\\d]*(\\d+(?:\\.\\d+)?)\\s*(GHz|MHz|KHz|Hz)/i);
+  const sweepStartMatch = text.match(/(?:from|起始|开始)[^\\d]*(\\d+(?:\\.\\d+)?)\\s*(GHz|MHz|KHz|Hz)/i);
   const sweepStopMatch = text.match(/(?:扫频到|扫到|stop|截止|上限)[^\\d]*(\\d+(?:\\.\\d+)?)\\s*(GHz|MHz|KHz|Hz)/i);
   if (solveMatch) result.frequency = solveMatch[1] + solveMatch[2];
+  if (sweepStartMatch) result.sweep_start = sweepStartMatch[1] + sweepStartMatch[2];
   if (sweepStopMatch) result.sweep_stop = sweepStopMatch[1] + sweepStopMatch[2];
   if (!result.frequency && matches.length >= 1) result.frequency = matches[0];
+  if (!result.sweep_start && matches.length >= 3) result.sweep_start = matches[1];
   if (!result.sweep_stop && matches.length >= 2) result.sweep_stop = matches[matches.length - 1];
   return result;
 }
@@ -168,14 +238,16 @@ function syncRequestToParameters() {
   const text = document.getElementById('agentRequest').value;
   const parsed = parseFrequencies(text);
   if (parsed.frequency) document.getElementById('frequency').value = parsed.frequency;
+  if (parsed.sweep_start) document.getElementById('sweepStart').value = parsed.sweep_start;
   if (parsed.sweep_stop) document.getElementById('sweepStop').value = parsed.sweep_stop;
   const frequency = document.getElementById('frequency').value;
+  const sweepStart = document.getElementById('sweepStart').value;
   const sweepStop = document.getElementById('sweepStop').value;
-  document.getElementById('agentPlan').textContent = `输入已解析：求解频率 ${frequency}，扫频上限 ${sweepStop}。点击 Plan with LLM 生成受控 workflow，再运行 AEDT。`;
+  document.getElementById('agentPlan').textContent = `输入已解析：模板 ${workflowDef().title}，求解频率 ${frequency}，扫频 ${sweepStart} 到 ${sweepStop}。点击 Plan with LLM 生成受控 workflow，再运行 AEDT。`;
 }
 async function loadFixedWorkflow() {
   syncRequestToParameters();
-  const data = await api('/api/templates/microstrip_sparameter');
+  const data = await api('/api/templates/' + encodeURIComponent(currentTemplateId));
   currentWorkflow = data.workflow;
   currentWorkflowSource = 'template';
   document.getElementById('plannerModeMetric').textContent = 'template';
@@ -203,6 +275,11 @@ async function planWorkflowForDemo() {
     currentWorkflow = data.generated_workflow;
     if (!currentWorkflow) throw new Error('Planner did not return a valid workflow');
     currentWorkflowSource = 'planner';
+    if (data.selected_template && WORKFLOWS[data.selected_template]) {
+      currentTemplateId = data.selected_template;
+      document.getElementById('workflowSelect').value = currentTemplateId;
+      renderWorkflowChrome();
+    }
     document.getElementById('plannerModeMetric').textContent = data.planner_mode || 'unknown';
     document.getElementById('repairMetric').textContent = String(data.repair_count || 0);
     document.getElementById('workflowMetric').textContent = currentWorkflow && currentWorkflow.workflow_id ? currentWorkflow.workflow_id : '--';
@@ -225,13 +302,13 @@ async function planWorkflowForDemo() {
   }
 }
 function renderResult(result) {
-  const stepMap = {'substrate':'step-substrate','trace':'step-trace','ground_pec':'step-pec','trace_pec':'step-pec','airbox':'step-airbox','radiation':'step-radiation','lumped_port_1':'step-lumped-port-1','lumped_port_2':'step-lumped-port-2','setup':'step-setup','sweep':'step-sweep','solve':'step-solve','postprocess':'step-postprocess'};
+  const stepMap = Object.fromEntries(workflowDef().steps.map(step => [step[0], 'step-' + step[0]]));
   for (const step of (result.steps || [])) {
     if (stepMap[step.step_id]) setStep(stepMap[step.step_id], step.status === 'succeeded' ? 'done' : 'failed');
   }
   if (!result.steps || result.steps.length === 0) {
     const state = result.status === 'failed' ? 'failed' : 'running';
-    ['step-substrate','step-trace','step-pec','step-airbox','step-radiation','step-lumped-port-1','step-lumped-port-2','step-setup','step-sweep','step-solve','step-postprocess'].forEach(id => setStep(id, state));
+    workflowDef().steps.filter(step => step[0] !== 'validation').forEach(step => setStep('step-' + step[0], state));
   }
   const validationPassed = result.model_validation && result.model_validation.passed;
   setStep('step-validation', validationPassed ? 'done' : (result.status === 'failed' ? 'failed' : 'running'));
@@ -244,7 +321,7 @@ function renderResult(result) {
 function renderSParameters(sparameters) {
   const selected = sparameters.selected || {};
   document.getElementById('s11Metric').textContent = Number.isFinite(selected.s11_db) ? `${selected.s11_db.toFixed(2)} dB` : '--';
-  document.getElementById('s21Metric').textContent = Number.isFinite(selected.s21_db) ? `${selected.s21_db.toFixed(2)} dB` : '--';
+  document.getElementById('s21Metric').textContent = currentTemplateId === 'dipole_antenna_s11_farfield' ? 'InfiniteSphere1' : (Number.isFinite(selected.s21_db) ? `${selected.s21_db.toFixed(2)} dB` : '--');
   document.getElementById('freqMetric').textContent = selected.frequency ? `${selected.frequency} ${sparameters.frequency_unit || ''}` : '--';
   renderSParameterChart(sparameters.samples || [], sparameters.frequency_unit || '');
 }
@@ -252,13 +329,13 @@ function renderSParameterChart(samples, unit) {
   const svg = document.getElementById('sparamChart');
   const width = 300, height = 220, left = 42, right = 12, top = 16, bottom = 34;
   const plotW = width - left - right, plotH = height - top - bottom;
-  const valid = samples.filter(item => Number.isFinite(item.frequency) && Number.isFinite(item.s11_db) && Number.isFinite(item.s21_db));
+  const valid = samples.filter(item => Number.isFinite(item.frequency) && Number.isFinite(item.s11_db));
   if (valid.length < 2) {
     svg.innerHTML = `<text x="150" y="112" text-anchor="middle" fill="#637083" font-size="12">waiting for sweep data</text>`;
     return;
   }
   const xs = valid.map(item => item.frequency);
-  const ys = valid.flatMap(item => [item.s11_db, item.s21_db]);
+  const ys = valid.flatMap(item => Number.isFinite(item.s21_db) ? [item.s11_db, item.s21_db] : [item.s11_db]);
   const minX = Math.min(...xs), maxX = Math.max(...xs);
   const minY = Math.floor(Math.min(...ys) / 5) * 5;
   const maxY = Math.ceil(Math.max(...ys) / 5) * 5;
@@ -273,7 +350,7 @@ function renderSParameterChart(samples, unit) {
     <line x1="${left}" y1="${top}" x2="${left}" y2="${height - bottom}" stroke="#cbd5e1"/>
     <line x1="${left}" y1="${height - bottom}" x2="${width - right}" y2="${height - bottom}" stroke="#cbd5e1"/>
     <path d="${path('s11_db')}" fill="none" stroke="#0f766e" stroke-width="2.4"/>
-    <path d="${path('s21_db')}" fill="none" stroke="#b7791f" stroke-width="2.4"/>
+    ${valid.some(item => Number.isFinite(item.s21_db)) ? `<path d="${path('s21_db')}" fill="none" stroke="#b7791f" stroke-width="2.4"/>` : ''}
     <text x="${left}" y="${height - 10}" fill="#637083" font-size="10">${minX.toFixed(2)} ${unit}</text>
     <text x="${width - right}" y="${height - 10}" text-anchor="end" fill="#637083" font-size="10">${maxX.toFixed(2)} ${unit}</text>
     <text x="12" y="16" fill="#637083" font-size="10">dB</text>
@@ -286,7 +363,7 @@ async function runRealAedtDemo() {
   resetSteps();
   document.getElementById('statusMetric').textContent = 'running';
   document.getElementById('validationMetric').textContent = 'launching AEDT';
-  const payload = {workflow:currentWorkflow, graphical:true, user_request:document.getElementById('agentRequest').value, parameters:{frequency:document.getElementById('frequency').value, sweep_stop:document.getElementById('sweepStop').value}};
+  const payload = {workflow:currentWorkflow, template_id:currentTemplateId, graphical:true, user_request:document.getElementById('agentRequest').value, parameters:{frequency:document.getElementById('frequency').value, sweep_start:document.getElementById('sweepStart').value, sweep_stop:document.getElementById('sweepStop').value}};
   const started = await api('/api/run-real', {method:'POST', body:JSON.stringify(payload)});
   renderResult(started);
   let result = started;
@@ -302,10 +379,11 @@ async function runOfflineDemo() {
   resetSteps();
   document.getElementById('statusMetric').textContent = 'offline running';
   document.getElementById('validationMetric').textContent = 'fake adapter';
-  const payload = {workflow:currentWorkflow, user_request:document.getElementById('agentRequest').value, parameters:{frequency:document.getElementById('frequency').value, sweep_stop:document.getElementById('sweepStop').value}};
+  const payload = {workflow:currentWorkflow, template_id:currentTemplateId, user_request:document.getElementById('agentRequest').value, parameters:{frequency:document.getElementById('frequency').value, sweep_start:document.getElementById('sweepStart').value, sweep_stop:document.getElementById('sweepStop').value}};
   const result = await api('/api/run', {method:'POST', body:JSON.stringify(payload)});
   renderResult(result);
 }
+renderWorkflowChrome();
 syncRequestToParameters();
 renderSParameterChart([], '');
 </script>

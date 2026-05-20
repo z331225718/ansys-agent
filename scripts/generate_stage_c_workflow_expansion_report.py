@@ -52,8 +52,8 @@ def build_report() -> dict[str, Any]:
         "summary": {
             "core_message": "Stage C 的重点不是让 LLM 直接写 PyAEDT 脚本，而是让 LLM 生成受控 workflow JSON，再由本地节点执行器驱动 AEDT。",
             "microstrip_status": "已形成可演示的端到端闭环：建模、端口、求解、S 参数读取和曲线展示。",
-            "dipole_status": "新增偶极子模板已完成结构验证，并进入真实 AEDT smoke；主路径保留稳定的远场 setup，不把耗时 report export 放入默认链路。",
-            "test_result": "218 passed, 2 skipped",
+            "dipole_status": "新增偶极子模板已完成真实 AEDT smoke，并已接入 demo workflow 选择；主路径保留稳定的远场 setup，不把耗时 report export 放入默认链路。",
+            "test_result": "220 passed, 2 skipped",
         },
         "architecture": [
             {"name": "聊天/模板输入", "description": "用户用自然语言或模板参数描述仿真目标。"},
@@ -84,13 +84,13 @@ def build_report() -> dict[str, Any]:
             "principle": "新增 workflow 优先复用已有 primitive 节点；只有确实缺失的仿真能力才新增节点。",
         },
         "evidence": [
-            {"name": "微带线 demo", "status": "可演示", "path": "http://127.0.0.1:8765"},
+            {"name": "Microstrip / Dipole demo", "status": "可演示", "path": "http://127.0.0.1:8765"},
             {"name": "偶极子真实 AEDT smoke", "status": "succeeded", "path": "benchmarks/runs/stage_c_real_dipole_smoke/workflow_run.json"},
             {"name": "偶极子模板", "status": "完成", "path": "workflow_templates/dipole_antenna_s11_farfield.json"},
-            {"name": "全量测试", "status": "218 passed, 2 skipped", "path": "pytest"},
+            {"name": "全量测试", "status": "220 passed, 2 skipped", "path": "pytest"},
         ],
         "next_steps": [
-            "把 demo 页面增加 workflow 选择，允许 Microstrip / Dipole 两条展示路径。",
+            "对偶极子演示补充更完整的远场后处理展示，但保持默认真实 smoke 稳定。",
             "把 BRD/3D Layout 作为后续复杂 workflow：导入、选 net、cutout、叠层、端口、仿真、后处理。",
             "继续保持节点进化机制：从重复 workflow 中提 proposal，但不自动发布 stable 节点。",
         ],
