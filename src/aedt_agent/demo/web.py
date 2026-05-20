@@ -234,6 +234,17 @@ function parseFrequencies(text) {
   if (!result.sweep_stop && matches.length >= 2) result.sweep_stop = matches[matches.length - 1];
   return result;
 }
+function frequencyHz(value) {
+  const match = String(value || '').match(/^\\s*(\\d+(?:\\.\\d+)?)\\s*(GHz|MHz|KHz|Hz)\\s*$/i);
+  if (!match) return null;
+  const scale = {hz:1, khz:1e3, mhz:1e6, ghz:1e9}[match[2].toLowerCase()];
+  return Number(match[1]) * scale;
+}
+function derivedDipoleArmLength(frequency) {
+  const hz = frequencyHz(frequency);
+  if (!hz) return null;
+  return 299792458 / (4 * hz) * 1000 * 0.95;
+}
 function syncRequestToParameters() {
   const text = document.getElementById('agentRequest').value;
   const parsed = parseFrequencies(text);
@@ -243,7 +254,9 @@ function syncRequestToParameters() {
   const frequency = document.getElementById('frequency').value;
   const sweepStart = document.getElementById('sweepStart').value;
   const sweepStop = document.getElementById('sweepStop').value;
-  document.getElementById('agentPlan').textContent = `输入已解析：模板 ${workflowDef().title}，求解频率 ${frequency}，扫频 ${sweepStart} 到 ${sweepStop}。点击 Plan with LLM 生成受控 workflow，再运行 AEDT。`;
+  const armLength = currentTemplateId === 'dipole_antenna_s11_farfield' ? derivedDipoleArmLength(frequency) : null;
+  const geometryNote = armLength ? `，派生单臂长度 ${armLength.toFixed(2)} mm` : '';
+  document.getElementById('agentPlan').textContent = `输入已解析：模板 ${workflowDef().title}，求解频率 ${frequency}，扫频 ${sweepStart} 到 ${sweepStop}${geometryNote}。点击 Plan with LLM 生成受控 workflow，再运行 AEDT。`;
 }
 async function loadFixedWorkflow() {
   syncRequestToParameters();
@@ -285,6 +298,7 @@ async function planWorkflowForDemo() {
     document.getElementById('workflowMetric').textContent = currentWorkflow && currentWorkflow.workflow_id ? currentWorkflow.workflow_id : '--';
     const fallback = data.fallback_reason ? ` fallback=${data.fallback_reason}` : '';
     document.getElementById('agentPlan').textContent = `Planner ${data.planner_mode}${fallback}，repair ${data.repair_count || 0}，validation errors ${(data.validation_errors || []).length}。`;
+    syncRequestToParameters();
     appendLog('Validator', `workflow=${currentWorkflow.workflow_id}，planner=${data.planner_mode}${fallback}，repair=${data.repair_count || 0}，errors=${(data.validation_errors || []).length}`, 'ok');
     for (const attempt of (data.attempts || [])) {
       const status = attempt.validation && attempt.validation.passed ? 'passed' : 'failed';

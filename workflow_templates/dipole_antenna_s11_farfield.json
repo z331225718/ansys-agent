@@ -34,6 +34,77 @@
         "label": "Sweep stop"
       },
       {
+        "name": "velocity_factor",
+        "type": "number",
+        "default": 0.95,
+        "label": "Dipole velocity factor",
+        "description": "Length correction factor used by the template: arm_length = c / (4f) * velocity_factor."
+      },
+      {
+        "name": "feed_gap_mm",
+        "type": "number",
+        "default": 1.0,
+        "unit": "mm",
+        "label": "Feed gap"
+      },
+      {
+        "name": "arm_radius_mm",
+        "type": "number",
+        "default": 0.5,
+        "unit": "mm",
+        "label": "Arm radius"
+      },
+      {
+        "name": "dipole_arm_length_mm",
+        "type": "number",
+        "default": 29.667,
+        "unit": "mm",
+        "label": "Derived single-arm length",
+        "description": "Derived during template instantiation from the operating frequency."
+      },
+      {
+        "name": "left_arm_origin",
+        "type": "array",
+        "default": [-30.167, 0, 0],
+        "unit": "mm",
+        "label": "Derived left arm origin"
+      },
+      {
+        "name": "right_arm_origin",
+        "type": "array",
+        "default": [0.5, 0, 0],
+        "unit": "mm",
+        "label": "Derived right arm origin"
+      },
+      {
+        "name": "feed_sheet_origin",
+        "type": "array",
+        "default": [-0.5, 0, -0.5],
+        "unit": "mm",
+        "label": "Derived feed sheet origin"
+      },
+      {
+        "name": "feed_sheet_size",
+        "type": "array",
+        "default": [1, 1],
+        "unit": "mm",
+        "label": "Derived feed sheet size"
+      },
+      {
+        "name": "feed_line_start",
+        "type": "array",
+        "default": [-0.5, 0, 0],
+        "unit": "mm",
+        "label": "Derived feed integration line start"
+      },
+      {
+        "name": "feed_line_end",
+        "type": "array",
+        "default": [0.5, 0, 0],
+        "unit": "mm",
+        "label": "Derived feed integration line end"
+      },
+      {
         "name": "artifact_dir",
         "type": "string",
         "default": "benchmarks/runs/stage_c_dipole_demo_latest",
@@ -49,26 +120,26 @@
             {
               "kind": "cylinder",
               "axis": "X",
-              "origin": [-30, 0, 0],
-              "radius": 0.5,
-              "height": 29.5,
+              "origin": {"$ref": "parameters.left_arm_origin"},
+              "radius": {"$ref": "parameters.arm_radius_mm"},
+              "height": {"$ref": "parameters.dipole_arm_length_mm"},
               "name": "DipoleArmLeft",
               "material": "copper"
             },
             {
               "kind": "cylinder",
               "axis": "X",
-              "origin": [0.5, 0, 0],
-              "radius": 0.5,
-              "height": 29.5,
+              "origin": {"$ref": "parameters.right_arm_origin"},
+              "radius": {"$ref": "parameters.arm_radius_mm"},
+              "height": {"$ref": "parameters.dipole_arm_length_mm"},
               "name": "DipoleArmRight",
               "material": "copper"
             },
             {
               "kind": "rectangle",
               "orientation": "XZ",
-              "origin": [-0.5, 0, -0.5],
-              "size": [1, 1],
+              "origin": {"$ref": "parameters.feed_sheet_origin"},
+              "size": {"$ref": "parameters.feed_sheet_size"},
               "name": "FeedPortSheet",
               "material": "vacuum"
             }
@@ -102,8 +173,8 @@
           "assignment": "FeedPortSheet",
           "impedance": 50,
           "integration_line": {
-            "start": [-0.5, 0, 0],
-            "end": [0.5, 0, 0]
+            "start": {"$ref": "parameters.feed_line_start"},
+            "end": {"$ref": "parameters.feed_line_end"}
           },
           "name": "FeedPort"
         }

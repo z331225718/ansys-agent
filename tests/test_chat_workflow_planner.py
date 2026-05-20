@@ -52,6 +52,17 @@ def test_chat_planner_selects_dipole_template_before_generic_antenna():
     assert output.validation_errors == []
 
 
+def test_chat_planner_dipole_frequency_updates_derived_arm_length():
+    output = ChatWorkflowPlanner().plan(_planner_input("做一个偶极子天线，工作在 2.5GHz，看 S11"))
+
+    defaults = {parameter.name: parameter.default for parameter in output.generated_workflow.parameters}
+
+    assert output.selected_template == "dipole_antenna_s11_farfield"
+    assert defaults["frequency"] == "2.5GHz"
+    assert defaults["dipole_arm_length_mm"] == 28.48
+    assert output.validation_errors == []
+
+
 def test_chat_planner_generates_simple_setup_workflow():
     output = ChatWorkflowPlanner().plan(_planner_input("Create an HFSS setup at 3GHz"))
 

@@ -107,6 +107,24 @@ def test_dipole_template_reuses_common_nodes_and_keeps_real_smoke_stable():
     assert _validator().validate(template.workflow).passed is True
 
 
+def test_dipole_template_derives_arm_length_from_frequency():
+    template = WorkflowTemplate.from_file(Path("workflow_templates/dipole_antenna_s11_farfield.json"))
+
+    workflow = template.instantiate({"frequency": "2.5GHz"})
+    defaults = {parameter.name: parameter.default for parameter in workflow.parameters}
+    geometry = workflow.node_by_id("dipole_geometry").inputs["geometry"]
+    left_arm = geometry[0]
+    right_arm = geometry[1]
+
+    assert defaults["frequency"] == "2.5GHz"
+    assert defaults["dipole_arm_length_mm"] == 28.48
+    assert defaults["left_arm_origin"] == [-28.98, 0, 0]
+    assert defaults["right_arm_origin"] == [0.5, 0, 0]
+    assert left_arm["height"] == {"$ref": "parameters.dipole_arm_length_mm"}
+    assert right_arm["height"] == {"$ref": "parameters.dipole_arm_length_mm"}
+    assert _validator().validate(workflow).passed is True
+
+
 def test_template_full_dict_includes_workflow_for_chat_planner():
     template = WorkflowTemplate.from_file(Path("workflow_templates/wave_port_setup.json"))
 

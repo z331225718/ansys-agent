@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -43,7 +44,7 @@ class WorkflowTemplate:
         return cls.from_dict(data)
 
     def instantiate(self, parameters: dict[str, Any] | None = None) -> Workflow:
-        overrides = parameters or {}
+        overrides = _derived_parameter_overrides(self.template_id, parameters or {})
         workflow_data = self.workflow.to_dict()
         workflow_data["parameters"] = [_parameter_with_override(parameter, overrides).to_dict() for parameter in self.workflow.parameters]
         workflow_data["metadata"] = {
@@ -116,6 +117,48 @@ def _parameter_with_override(parameter: WorkflowParameter, overrides: dict[str, 
         label=parameter.label,
         description=parameter.description,
     )
+
+
+def _derived_parameter_overrides(template_id: str, overrides: dict[str, Any]) -> dict[str, Any]:
+    values = dict(overrides)
+    if template_id == "dipole_antenna_s11_farfield":
+        values.update(_dipole_geometry_overrides(values))
+    return values
+
+
+def _dipole_geometry_overrides(overrides: dict[str, Any]) -> dict[str, Any]:
+    frequency = _parse_frequency_hz(overrides.get("frequency", "2.4GHz"))
+    if frequency is None:
+        return {}
+    feed_gap_mm = float(overrides.get("feed_gap_mm", 1.0))
+    arm_radius_mm = float(overrides.get("arm_radius_mm", 0.5))
+    velocity_factor = float(overrides.get("velocity_factor", 0.95))
+    arm_length_mm = round(299_792_458.0 / (4.0 * frequency) * 1000.0 * velocity_factor, 3)
+    half_gap = feed_gap_mm / 2.0
+    return {
+        "velocity_factor": velocity_factor,
+        "feed_gap_mm": feed_gap_mm,
+        "arm_radius_mm": arm_radius_mm,
+        "dipole_arm_length_mm": arm_length_mm,
+        "left_arm_origin": [round(-half_gap - arm_length_mm, 3), 0, 0],
+        "right_arm_origin": [round(half_gap, 3), 0, 0],
+        "feed_sheet_origin": [round(-half_gap, 3), 0, round(-arm_radius_mm, 3)],
+        "feed_sheet_size": [round(feed_gap_mm, 3), round(2.0 * arm_radius_mm, 3)],
+        "feed_line_start": [round(-half_gap, 3), 0, 0],
+        "feed_line_end": [round(half_gap, 3), 0, 0],
+    }
+
+
+def _parse_frequency_hz(value: Any) -> float | None:
+    if isinstance(value, (int, float)):
+        return float(value)
+    if not isinstance(value, str):
+        return None
+    match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*([GMK]?Hz)\s*", value, flags=re.IGNORECASE)
+    if not match:
+        return None
+    scale = {"hz": 1.0, "khz": 1e3, "mhz": 1e6, "ghz": 1e9}
+    return float(match.group(1)) * scale[match.group(2).lower()]
 
 
 def _list_of_strings(data: dict[str, Any], key: str) -> list[str]:

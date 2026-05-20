@@ -44,7 +44,7 @@
     {
       "name": "全量测试",
       "path": "pytest",
-      "status": "220 passed, 2 skipped"
+      "status": "222 passed, 2 skipped"
     }
   ],
   "next_steps": [
@@ -75,9 +75,9 @@
   "subtitle": "从一个微带线闭环 demo，扩展到可复用节点搭建偶极子天线 workflow",
   "summary": {
     "core_message": "Stage C 的重点不是让 LLM 直接写 PyAEDT 脚本，而是让 LLM 生成受控 workflow JSON，再由本地节点执行器驱动 AEDT。",
-    "dipole_status": "新增偶极子模板已完成真实 AEDT smoke，并已接入 demo workflow 选择；主路径保留稳定的远场 setup，不把耗时 report export 放入默认链路。",
+    "dipole_status": "新增偶极子模板已完成真实 AEDT smoke，并已接入 demo workflow 选择；单臂长度由工作频率按 c/(4f)*0.95 派生，主路径保留稳定的远场 setup。",
     "microstrip_status": "已形成可演示的端到端闭环：建模、端口、求解、S 参数读取和曲线展示。",
-    "test_result": "220 passed, 2 skipped"
+    "test_result": "222 passed, 2 skipped"
   },
   "title": "Stage C 工作流扩展报告",
   "workflow_comparison": [
@@ -119,7 +119,7 @@
         "远场 setup",
         "端口/边界/setup/sweep validation"
       ],
-      "purpose": "验证同一批通用节点能跨到天线场景，并新增远场 setup 能力。",
+      "purpose": "验证同一批通用节点能跨到天线场景，并按工作频率派生单臂长度。",
       "workflow": "偶极子天线"
     }
   ]

@@ -16,6 +16,8 @@ def test_render_demo_page_contains_workspace_sections():
     assert "做一个偶极子天线 S11 仿真" in html
     assert "syncRequestToParameters" in html
     assert "changeWorkflow" in html
+    assert "derivedDipoleArmLength" in html
+    assert "派生单臂长度" in html
     assert "Plan with LLM" in html
     assert "plannerModeMetric" in html
     assert "Create Substrate" in html
