@@ -69,7 +69,6 @@ def render_demo_page() -> str:
       <div class="diagram" id="modelDiagram" aria-label="workflow model preview"></div>
       <div class="row">
         <button id="planButton" class="secondary" onclick="planWorkflowForDemo()">Plan with LLM</button>
-        <button id="tuneButton" class="secondary" onclick="tuneDipoleResonance()">Tune Resonance</button>
         <button id="runButton" onclick="runRealAedtDemo()">Run Real AEDT</button>
       </div>
       <div class="muted">主路径：需求输入 → LLM planner → workflow validation → 真实 AEDT 图形界面执行。节点 catalog、planner 和 benchmark 等调试入口在 <a href="/advanced">Advanced 工作台</a>。</div>
@@ -219,7 +218,6 @@ function setBusy(isBusy) {
   plannerInFlight = isBusy;
   document.getElementById('planButton').disabled = isBusy;
   document.getElementById('runButton').disabled = isBusy;
-  document.getElementById('tuneButton').disabled = isBusy;
   document.getElementById('planButton').textContent = isBusy ? 'Planning...' : 'Plan with LLM';
 }
 function parseFrequencies(text) {
@@ -375,54 +373,20 @@ function renderSParameterChart(samples, unit) {
 async function runRealAedtDemo() {
   syncRequestToParameters();
   if (!currentWorkflow || currentWorkflowSource !== 'planner') await planWorkflowForDemo();
-  appendLog('Executor', '开始把 planner 生成的 workflow 发送给真实 AEDT。', 'ok');
+  appendLog('LLM Agent', '开始判断执行模式：普通需求走一次真实 AEDT workflow；如果用户要求谐振点落到目标频率，则自动进入多轮真实 AEDT 调参。', 'llm');
   resetSteps();
   document.getElementById('statusMetric').textContent = 'running';
   document.getElementById('validationMetric').textContent = 'launching AEDT';
   const payload = {workflow:currentWorkflow, template_id:currentTemplateId, graphical:true, user_request:document.getElementById('agentRequest').value, parameters:{frequency:document.getElementById('frequency').value, sweep_start:document.getElementById('sweepStart').value, sweep_stop:document.getElementById('sweepStop').value}};
-  const started = await api('/api/run-real', {method:'POST', body:JSON.stringify(payload)});
+  const started = await api('/api/agent-run', {method:'POST', body:JSON.stringify(payload)});
+  appendLog('Agent Decision', started.run_kind === 'dipole_tuning' ? 'LLM 判断为闭环调参 workflow，将逐轮运行 AEDT 并读取 S11 谐振点。' : 'LLM 判断为单次生成 workflow，直接运行一次 AEDT。', 'ok');
   renderResult(started);
   let result = started;
   while (result.status === 'queued' || result.status === 'running') {
     await new Promise(resolve => setTimeout(resolve, 2000));
-    result = await api('/api/run-real/' + encodeURIComponent(started.job_id));
+    result = await api('/api/agent-run/' + encodeURIComponent(started.job_id));
     renderResult(result);
-  }
-}
-async function tuneDipoleResonance() {
-  syncRequestToParameters();
-  if (currentTemplateId !== 'dipole_antenna_s11_farfield') {
-    const request = document.getElementById('agentRequest').value;
-    const frequency = document.getElementById('frequency').value;
-    const sweepStart = document.getElementById('sweepStart').value;
-    const sweepStop = document.getElementById('sweepStop').value;
-    changeWorkflow('dipole_antenna_s11_farfield');
-    document.getElementById('agentRequest').value = request;
-    document.getElementById('frequency').value = frequency;
-    document.getElementById('sweepStart').value = sweepStart;
-    document.getElementById('sweepStop').value = sweepStop;
-  }
-  setBusy(true);
-  appendLog('LLM Agent', '开始闭环调试：运行 S11 曲线，寻找最低点作为谐振频率，再由 LLM advisor 决定下一轮偶极子单臂长度；未配置 LLM 时使用工程规则兜底。', 'llm');
-  try {
-    const armLength = derivedDipoleArmLength(document.getElementById('frequency').value);
-    const payload = {
-      parameters: {
-        frequency: document.getElementById('frequency').value,
-        sweep_start: document.getElementById('sweepStart').value,
-        sweep_stop: document.getElementById('sweepStop').value,
-        dipole_arm_length_mm: armLength ? Number((armLength * 1.08).toFixed(3)) : undefined
-      },
-      max_rounds: 3
-    };
-    const result = await api('/api/tune-dipole', {method:'POST', body:JSON.stringify(payload)});
-    renderTuningResult(result);
-    return result;
-  } catch (error) {
-    appendLog('Error', String(error.message || error), 'err');
-    throw error;
-  } finally {
-    setBusy(false);
+    if (result.run_kind === 'dipole_tuning') renderTuningResult(result);
   }
 }
 function renderTuningResult(result) {
@@ -635,6 +599,11 @@ def dispatch_demo_request(method: str, path: str, body: bytes, service: DemoServ
             return _json_response(service.run(_json_body(body)))
         if method == "POST" and route == "/api/tune-dipole":
             return _json_response(service.tune_dipole(_json_body(body)))
+        if method == "POST" and route == "/api/agent-run":
+            return _json_response(service.start_agent_run(_json_body(body)), status=202)
+        if method == "GET" and route.startswith("/api/agent-run/"):
+            job_id = unquote(route.rsplit("/", 1)[-1])
+            return _json_response(service.agent_run_status(job_id))
         if method == "POST" and route == "/api/run-real":
             return _json_response(service.start_real_run(_json_body(body)), status=202)
         if method == "GET" and route.startswith("/api/run-real/"):

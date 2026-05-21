@@ -14,7 +14,7 @@ from urllib import request as urlrequest
 
 from aedt_agent.demo.config import AedtConfig, PlannerConfig
 from aedt_agent.demo.planner import PlannerRunner, WorkflowProposalClient, _parse_json_content
-from aedt_agent.demo.tuning import run_fake_dipole_tuning
+from aedt_agent.demo.tuning import _advisor_advice, _parse_frequency_hz, find_s11_resonance, next_dipole_arm_length, run_fake_dipole_tuning
 from aedt_agent.mcp.audit_log import AuditLogger
 from aedt_agent.mcp.execution_queue import ExecutionQueue
 from aedt_agent.mcp.fake_aedt import FakeAedtAdapter
@@ -34,6 +34,7 @@ class DemoRunJob:
     template_id: str
     adapter: str
     run_dir: Path
+    run_kind: str = "single_workflow"
     workflow_path: Path | None = None
     graphical: bool = True
     stream_to_terminal: bool = True
@@ -42,6 +43,9 @@ class DemoRunJob:
     finished_at: float | None = None
     returncode: int | None = None
     error: str = ""
+    rounds: list[dict[str, Any]] = field(default_factory=list)
+    advisor_mode: str = ""
+    controlled_variable: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         artifacts = {
@@ -56,6 +60,7 @@ class DemoRunJob:
         data: dict[str, Any] = {
             "job_id": self.job_id,
             "template_id": self.template_id,
+            "run_kind": self.run_kind,
             "adapter": self.adapter,
             "graphical": self.graphical,
             "stream_to_terminal": self.stream_to_terminal,
@@ -68,6 +73,12 @@ class DemoRunJob:
             "run_dir": str(self.run_dir),
             "artifacts": artifacts,
         }
+        if self.rounds:
+            data["rounds"] = list(self.rounds)
+        if self.advisor_mode:
+            data["advisor_mode"] = self.advisor_mode
+        if self.controlled_variable:
+            data["controlled_variable"] = self.controlled_variable
         data.update(_read_real_run_artifacts(self.run_dir))
         outputs = data.get("outputs", {})
         if isinstance(outputs, dict) and outputs.get("touchstone"):
@@ -243,6 +254,7 @@ class DemoService:
             template_id=template_id,
             adapter=adapter,
             run_dir=run_dir,
+            run_kind="single_workflow",
             workflow_path=workflow_path,
             graphical=graphical,
             stream_to_terminal=stream_to_terminal,
@@ -252,6 +264,47 @@ class DemoService:
         thread = threading.Thread(target=self._run_real_job, args=(job, run_dir / "params.json"), daemon=True)
         thread.start()
         return job.to_dict()
+
+    def start_agent_run(self, payload: dict[str, Any]) -> dict[str, Any]:
+        user_request = str(payload.get("user_request") or "")
+        if _agent_run_kind(user_request) == "dipole_tuning":
+            return self.start_dipole_tuning_run(payload)
+        result = self.start_real_run(payload)
+        result["run_kind"] = "single_workflow"
+        return result
+
+    def start_dipole_tuning_run(self, payload: dict[str, Any]) -> dict[str, Any]:
+        adapter = str(payload.get("adapter") or "real")
+        if adapter not in {"real", "fake"}:
+            raise ValueError("adapter must be real or fake")
+        graphical = bool(payload.get("graphical", True))
+        stream_to_terminal = bool(payload.get("stream_to_terminal", True))
+        parameters = payload.get("parameters", {})
+        if not isinstance(parameters, dict):
+            raise TypeError("parameters must be a JSON object")
+        job_id = uuid.uuid4().hex[:12]
+        run_dir = self.real_run_root / f"stage_c_real_tuning_{job_id}"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "params.json").write_text(json.dumps(parameters, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        job = DemoRunJob(
+            job_id=job_id,
+            template_id="dipole_antenna_s11_farfield",
+            adapter=adapter,
+            run_dir=run_dir,
+            run_kind="dipole_tuning",
+            graphical=graphical,
+            stream_to_terminal=stream_to_terminal,
+            advisor_mode="llm" if self.planner_config.api_key else "engineering_fallback",
+            controlled_variable="dipole_arm_length_mm",
+        )
+        with self._jobs_lock:
+            self._jobs[job_id] = job
+        thread = threading.Thread(target=self._run_dipole_tuning_job, args=(job, dict(parameters)), daemon=True)
+        thread.start()
+        return job.to_dict()
+
+    def agent_run_status(self, job_id: str) -> dict[str, Any]:
+        return self.real_run_status(job_id)
 
     def real_run_status(self, job_id: str) -> dict[str, Any]:
         with self._jobs_lock:
@@ -351,6 +404,138 @@ class DemoService:
         if job.stream_to_terminal:
             print(f"[demo:{job.job_id}] finished status={job.status} returncode={job.returncode}", flush=True)
 
+    def _run_dipole_tuning_job(self, job: DemoRunJob, parameters: dict[str, Any]) -> None:
+        job.status = "running"
+        if job.adapter == "fake":
+            try:
+                result = self.tune_dipole({"parameters": parameters, "max_rounds": 3})
+                job.rounds = list(result.get("rounds", []))
+                (job.run_dir / "tuning_result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+                job.returncode = 0
+                job.status = "succeeded"
+            except Exception as exc:
+                job.returncode = -1
+                job.error = f"{type(exc).__name__}: {exc}"
+                job.status = "failed"
+            job.finished_at = time.time()
+            return
+        try:
+            job.rounds = self._run_real_dipole_tuning_rounds(job, parameters)
+            job.returncode = 0 if job.rounds and job.rounds[-1].get("converged") else 1
+            job.status = "succeeded" if job.returncode == 0 else "failed"
+            (job.run_dir / "tuning_result.json").write_text(json.dumps(job.to_dict(), ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        except Exception as exc:
+            job.returncode = -1
+            job.error = f"{type(exc).__name__}: {exc}"
+            job.status = "failed"
+            if job.stream_to_terminal:
+                print(f"[demo:{job.job_id}] {job.error}", flush=True)
+        job.finished_at = time.time()
+
+    def _run_real_dipole_tuning_rounds(self, job: DemoRunJob, parameters: dict[str, Any]) -> list[dict[str, Any]]:
+        frequency = str(parameters.get("frequency") or "2.5GHz")
+        target_hz = _parse_frequency_hz(frequency)
+        if target_hz is None:
+            raise ValueError("frequency must be a frequency string such as 2.5GHz")
+        workflow = self._template_catalog().get("dipole_antenna_s11_farfield").instantiate(parameters)
+        arm_length = parameters.get("dipole_arm_length_mm") or _workflow_parameter_default(workflow, "dipole_arm_length_mm")
+        if arm_length is None:
+            raise ValueError("dipole_arm_length_mm could not be derived")
+        current_length = float(arm_length)
+        rounds: list[dict[str, Any]] = []
+        advisor = _llm_tuning_advisor(self.planner_config)
+        for index in range(1, 4):
+            round_dir = job.run_dir / f"round_{index}"
+            round_dir.mkdir(parents=True, exist_ok=True)
+            round_params = {**parameters, "dipole_arm_length_mm": round(current_length, 3), "artifact_dir": str(round_dir.resolve())}
+            params_path = round_dir / "params.json"
+            params_path.write_text(json.dumps(round_params, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            command = self._real_smoke_command(job, params_path, round_dir)
+            header = f"\n[tuning round {index}] arm_length_mm={current_length:.3f}\nCommand: {' '.join(command)}\n"
+            with (job.run_dir / "stdout.log").open("a", encoding="utf-8") as stdout_file:
+                stdout_file.write(header)
+            if job.stream_to_terminal:
+                print(f"[demo:{job.job_id}] {header.rstrip()}", flush=True)
+            process = subprocess.Popen(command, cwd=self.repo_root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+            returncode = _stream_process_logs(
+                process,
+                stdout_path=job.run_dir / "stdout.log",
+                stderr_path=job.run_dir / "stderr.log",
+                terminal_prefix=f"[demo:{job.job_id}:round{index}]",
+                stream_to_terminal=job.stream_to_terminal,
+            )
+            artifacts = _read_real_run_artifacts(round_dir)
+            if returncode != 0:
+                raise RuntimeError(f"AEDT tuning round {index} failed with returncode {returncode}")
+            samples = ((artifacts.get("sparameters") or {}).get("samples") or [])
+            resonance = find_s11_resonance(samples)
+            error_ratio = (float(resonance["frequency_hz"]) - target_hz) / target_hz
+            converged = abs(error_ratio) <= 0.02
+            default_next = current_length if converged else next_dipole_arm_length(
+                current_length_mm=current_length,
+                resonance_frequency_hz=float(resonance["frequency_hz"]),
+                target_frequency_hz=target_hz,
+            )
+            advice = _advisor_advice(
+                advisor,
+                {
+                    "round": index,
+                    "target_frequency_hz": target_hz,
+                    "resonance_frequency_hz": float(resonance["frequency_hz"]),
+                    "target_error_percent": round(error_ratio * 100.0, 3),
+                    "current_arm_length_mm": current_length,
+                    "default_next_arm_length_mm": default_next,
+                    "controlled_variable": "dipole_arm_length_mm",
+                    "samples": samples,
+                },
+            )
+            next_length = current_length if converged else round(float(advice.get("next_arm_length_mm", default_next)), 3)
+            message = str(advice.get("message") or _tuning_message(error_ratio, current_length, next_length, converged))
+            round_result = {
+                "round": index,
+                "adapter": "real",
+                "run_dir": str(round_dir),
+                "arm_length_mm": round(current_length, 3),
+                "resonance_frequency_hz": float(resonance["frequency_hz"]),
+                "resonance_frequency": f"{float(resonance['frequency_hz']) / 1e9:.4g}GHz",
+                "target_error_percent": round(error_ratio * 100.0, 3),
+                "s11_db": resonance.get("s11_db"),
+                "next_arm_length_mm": next_length,
+                "samples": samples,
+                "agent_message": message,
+                "converged": converged,
+            }
+            rounds.append(round_result)
+            job.rounds = list(rounds)
+            if converged:
+                break
+            current_length = next_length
+        return rounds
+
+    def _real_smoke_command(self, job: DemoRunJob, params_path: Path, run_dir: Path) -> list[str]:
+        command = [
+            sys.executable,
+            str(self.repo_root / "scripts/run_stage_c_real_workflow_smoke.py"),
+            "--adapter",
+            "real",
+            "--template",
+            "dipole_antenna_s11_farfield",
+            "--params",
+            str(params_path),
+            "--run-dir",
+            str(run_dir),
+            "--aedt-version",
+            self.aedt_config.version,
+            "--ansysem-root",
+            self.aedt_config.ansysem_root,
+            "--awp-root",
+            self.aedt_config.awp_root,
+            "--timeout-seconds",
+            str(self.aedt_config.timeout),
+        ]
+        command.append("--graphical" if job.graphical else "--non-graphical")
+        return command
+
 
 def _workflow_from_payload(payload: dict[str, Any]) -> Workflow:
     workflow_data = payload.get("workflow", payload)
@@ -402,6 +587,21 @@ def _workflow_parameter_default(workflow: Workflow, name: str) -> Any:
         if parameter.name == name:
             return parameter.default
     return None
+
+
+def _agent_run_kind(user_request: str) -> str:
+    text = user_request.lower()
+    is_dipole = any(keyword in text for keyword in ["dipole", "偶极子"])
+    wants_tuning = any(keyword in text for keyword in ["谐振", "工作在", "落在", "调试", "调整", "优化", "resonance", "tune", "adjust", "optimize"])
+    return "dipole_tuning" if is_dipole and wants_tuning else "single_workflow"
+
+
+def _tuning_message(error_ratio: float, current_length: float, next_length: float, converged: bool) -> str:
+    if converged:
+        return f"谐振点已经落入目标频率容差内，保持单臂长度 {current_length:.3f} mm。"
+    if error_ratio < 0:
+        return f"谐振频率偏低，说明偶极子偏长；将单臂长度从 {current_length:.3f} mm 缩短到 {next_length:.3f} mm。"
+    return f"谐振频率偏高，说明偶极子偏短；将单臂长度从 {current_length:.3f} mm 加长到 {next_length:.3f} mm。"
 
 
 def _llm_tuning_advisor(config: PlannerConfig):
@@ -460,6 +660,16 @@ def _llm_tuning_advisor(config: PlannerConfig):
 
 def _read_real_run_artifacts(run_dir: Path) -> dict[str, Any]:
     data: dict[str, Any] = {}
+    tuning_path = run_dir / "tuning_result.json"
+    if tuning_path.exists():
+        tuning_result = _read_json(tuning_path)
+        data["tuning_result"] = tuning_result
+        if isinstance(tuning_result.get("rounds"), list):
+            data["rounds"] = tuning_result["rounds"]
+        if tuning_result.get("advisor_mode"):
+            data["advisor_mode"] = tuning_result["advisor_mode"]
+        if tuning_result.get("controlled_variable"):
+            data["controlled_variable"] = tuning_result["controlled_variable"]
     summary_path = run_dir / "smoke_summary.json"
     if summary_path.exists():
         data["summary"] = _read_json(summary_path)
@@ -483,7 +693,7 @@ def _read_real_run_artifacts(run_dir: Path) -> dict[str, Any]:
 def _read_json(path: Path) -> dict[str, Any]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
+    except (FileNotFoundError, json.JSONDecodeError):
         return {}
     return data if isinstance(data, dict) else {}
 

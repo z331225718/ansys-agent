@@ -2,7 +2,7 @@ import time
 from pathlib import Path
 from unittest.mock import Mock
 
-from aedt_agent.demo.service import DemoService, _read_demo_sparameters, _stream_process_logs
+from aedt_agent.demo.service import DemoService, _agent_run_kind, _read_demo_sparameters, _stream_process_logs
 
 
 def test_demo_service_lists_nodes_templates_and_reports():
@@ -146,6 +146,59 @@ def test_demo_service_tunes_dipole_resonance_from_feedback(tmp_path):
     assert result["rounds"][0]["arm_length_mm"] == 31.0
     assert "缩短" in result["rounds"][0]["agent_message"]
     assert abs(result["rounds"][-1]["resonance_frequency_hz"] - 2.5e9) / 2.5e9 <= 0.02
+
+
+def test_agent_run_kind_selects_tuning_for_dipole_resonance_request():
+    assert _agent_run_kind("偶极子工作在2.5GHz，让谐振点落在2.5GHz") == "dipole_tuning"
+    assert _agent_run_kind("做一个偶极子天线 S11 仿真，扫频到4GHz") == "single_workflow"
+    assert _agent_run_kind("做一个微带线 S 参数仿真，求解频率 2.4GHz") == "single_workflow"
+
+
+def test_demo_service_agent_run_starts_fake_tuning_job_when_llm_judges_tuning(tmp_path):
+    service = DemoService(Path("."), run_dir=tmp_path / "stage_c1_demo")
+
+    started = service.start_agent_run(
+        {
+            "user_request": "偶极子工作在2.5GHz，让谐振点落在2.5GHz",
+            "adapter": "fake",
+            "stream_to_terminal": False,
+            "parameters": {"frequency": "2.5GHz", "sweep_start": "1GHz", "sweep_stop": "4GHz"},
+        }
+    )
+    deadline = time.time() + 10
+    status = started
+    while status["status"] in {"queued", "running"} and time.time() < deadline:
+        time.sleep(0.1)
+        status = service.agent_run_status(started["job_id"])
+
+    assert status["run_kind"] == "dipole_tuning"
+    assert status["status"] == "succeeded"
+    assert status["advisor_mode"] in {"llm", "engineering_fallback"}
+    assert 1 <= len(status["rounds"]) <= 3
+    assert status["rounds"][-1]["converged"] is True
+
+
+def test_demo_service_agent_run_starts_single_workflow_for_plain_request(tmp_path):
+    service = DemoService(Path("."), run_dir=tmp_path / "stage_c1_demo")
+
+    started = service.start_agent_run(
+        {
+            "user_request": "做一个微带线 S 参数仿真，求解频率 2.4GHz",
+            "template_id": "microstrip_sparameter",
+            "adapter": "fake",
+            "stream_to_terminal": False,
+            "parameters": {"frequency": "2.4GHz"},
+        }
+    )
+    deadline = time.time() + 10
+    status = started
+    while status["status"] in {"queued", "running"} and time.time() < deadline:
+        time.sleep(0.1)
+        status = service.agent_run_status(started["job_id"])
+
+    assert status["run_kind"] == "single_workflow"
+    assert status["status"] == "succeeded"
+    assert status["template_id"] == "microstrip_sparameter"
 
 
 def test_read_demo_sparameters_selects_nearest_frequency_and_converts_to_db(tmp_path):

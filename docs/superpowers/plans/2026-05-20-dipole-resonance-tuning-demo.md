@@ -4,7 +4,7 @@
 
 **Goal:** Add a Stage C demo loop where the agent tunes dipole arm length from S11 resonance feedback.
 
-**Architecture:** Add a focused tuning module for resonance extraction, length update, and synthetic fake sweep generation. Wire it through `DemoService` and a new `/api/tune-dipole` endpoint, then add a visible Web control and iteration log.
+**Architecture:** Add a focused tuning module for resonance extraction, length update, and advisor-driven parameter selection. Wire it through `DemoService` with a new `/api/agent-run` endpoint that chooses `single_workflow` or `dipole_tuning` from the user request.
 
 **Tech Stack:** Python stdlib, existing `DemoService`, existing Web HTML/JS, pytest.
 
@@ -29,8 +29,9 @@
 - Test: `tests/test_stage_c1_demo_web.py`
 
 - [ ] Write failing service and dispatch tests for `tune_dipole`.
-- [ ] Add `DemoService.tune_dipole`.
-- [ ] Add `/api/tune-dipole` dispatch route.
+- [ ] Add `DemoService.start_agent_run`.
+- [ ] Add `DemoService.start_dipole_tuning_run`.
+- [ ] Add `/api/agent-run` and `/api/agent-run/{job_id}` dispatch routes.
 - [ ] Run targeted tests.
 
 ### Task 3: Web Demo UX
@@ -39,8 +40,9 @@
 - Modify: `src/aedt_agent/demo/web.py`
 - Test: `tests/test_stage_c1_demo_web.py`
 
-- [ ] Add “Tune Resonance” button for dipole workflow.
-- [ ] Render target frequency, each tuning round, resonance frequency, error, arm length, and S11 curve.
+- [ ] Remove the explicit tuning button from the main demo.
+- [ ] Route `Run Real AEDT` through `/api/agent-run`.
+- [ ] Render target frequency, each tuning round, resonance frequency, error, arm length, and S11 curve when the returned job is `dipole_tuning`.
 - [ ] Keep existing microstrip path unchanged.
 
 ### Task 4: Verification and Commit
