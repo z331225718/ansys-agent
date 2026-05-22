@@ -138,6 +138,18 @@ def test_dipole_template_allows_llm_to_override_airbox_padding_rule():
     assert _validator().validate(workflow).passed is True
 
 
+def test_dipole_template_allows_llm_to_override_arm_length_for_tuning():
+    template = WorkflowTemplate.from_file(Path("workflow_templates/dipole_antenna_s11_farfield.json"))
+
+    workflow = template.instantiate({"frequency": "2.5GHz", "dipole_arm_length_mm": 31.0})
+    defaults = {parameter.name: parameter.default for parameter in workflow.parameters}
+
+    assert defaults["dipole_arm_length_mm"] == 31.0
+    assert defaults["left_arm_origin"] == [-31.5, 0, 0]
+    assert defaults["right_arm_origin"] == [0.5, 0, 0]
+    assert _validator().validate(workflow).passed is True
+
+
 def test_template_full_dict_includes_workflow_for_chat_planner():
     template = WorkflowTemplate.from_file(Path("workflow_templates/wave_port_setup.json"))
 

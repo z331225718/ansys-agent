@@ -202,6 +202,20 @@ def test_demo_service_agent_run_uses_workflow_parameters_when_payload_parameters
     assert status["rounds"][-1]["converged"] is True
 
 
+def test_dipole_tuning_round_parameters_change_instantiated_geometry(tmp_path):
+    service = DemoService(Path("."), run_dir=tmp_path / "stage_c1_demo")
+
+    workflow = service._template_catalog().get("dipole_antenna_s11_farfield").instantiate(
+        {"frequency": "2.5GHz", "dipole_arm_length_mm": 34.0}
+    )
+    defaults = {parameter.name: parameter.default for parameter in workflow.parameters}
+    geometry = workflow.node_by_id("dipole_geometry").inputs["geometry"]
+
+    assert defaults["dipole_arm_length_mm"] == 34.0
+    assert defaults["left_arm_origin"] == [-34.5, 0, 0]
+    assert geometry[0]["height"] == {"$ref": "parameters.dipole_arm_length_mm"}
+
+
 def test_demo_service_agent_run_starts_single_workflow_for_plain_request(tmp_path):
     service = DemoService(Path("."), run_dir=tmp_path / "stage_c1_demo")
 
