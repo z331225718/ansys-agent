@@ -142,6 +142,24 @@ def test_node_executor_accepts_airbox_padding_list_and_output_assignment(tmp_pat
     assert "Radiation" in state["boundaries"]
 
 
+def test_node_executor_creates_airbox_with_absolute_padding_around_existing_geometry(tmp_path):
+    manager, executor = _executor(tmp_path)
+    session = manager.create_session("p1", "d1")
+    executor.execute_node(
+        session.ref.session_id,
+        "create_conductor_or_geometry_group",
+        {"geometry": [{"kind": "box", "origin": [10, 0, -1], "size": [2, 4, 6], "name": "Metal"}]},
+    )
+
+    result = executor.execute_node(session.ref.session_id, "create_airbox", {"padding": 5, "name": "AirBox"})
+
+    state = manager.snapshot(session.ref.session_id)
+    assert result.status == ExecutionStatus.SUCCEEDED
+    assert state["objects"]["AirBox"]["origin"] == [5, -5, -6]
+    assert state["objects"]["AirBox"]["sizes"] == [12, 14, 16]
+    assert state["objects"]["AirBox"]["material"] == "air"
+
+
 def test_node_executor_accepts_created_object_reference_for_port(tmp_path):
     manager, executor = _executor(tmp_path)
     session = manager.create_session("p1", "d1")

@@ -179,10 +179,8 @@ def _cylinder_origin(item: dict[str, Any]) -> list[Any]:
 def _create_airbox(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
     padding = _normalize_padding(inputs["padding"])
     name = inputs["name"]
-    if hasattr(app.modeler, "create_region"):
-        obj = app.modeler.create_region(padding=padding, name=name)
-    else:
-        obj = app.modeler.create_box([-padding, -padding, -padding], [2 * padding, 2 * padding, 2 * padding], name=name, material="air")
+    origin, sizes = _airbox_origin_and_size(app, padding)
+    obj = app.modeler.create_box(origin, sizes, name=name, material="air")
     return _node_output(objects=[getattr(obj, "name", name)], postchecks=["air_region_created"])
 
 
@@ -244,6 +242,75 @@ def _normalize_padding(value: Any) -> int | float:
             raise TypeError("padding list must contain numeric values")
         return max(numeric)
     return value
+
+
+def _airbox_origin_and_size(app: Any, padding: int | float) -> tuple[list[float], list[float]]:
+    bounds = _model_bounding_box(app)
+    if bounds is None:
+        return [-padding, -padding, -padding], [2 * padding, 2 * padding, 2 * padding]
+    xmin, ymin, zmin, xmax, ymax, zmax = bounds
+    return (
+        [xmin - padding, ymin - padding, zmin - padding],
+        [(xmax - xmin) + 2 * padding, (ymax - ymin) + 2 * padding, (zmax - zmin) + 2 * padding],
+    )
+
+
+def _model_bounding_box(app: Any) -> list[float] | None:
+    modeler = getattr(app, "modeler", None)
+    if modeler is None:
+        return None
+    for attr in ("get_model_bounding_box", "model_bounding_box"):
+        candidate = getattr(modeler, attr, None)
+        try:
+            bounds = candidate() if callable(candidate) else candidate
+        except Exception:
+            bounds = None
+        if _valid_bounds(bounds):
+            return [float(item) for item in bounds]
+    return _object_bounding_box(getattr(app, "objects", {}).values())
+
+
+def _valid_bounds(bounds: Any) -> bool:
+    return isinstance(bounds, (list, tuple)) and len(bounds) == 6 and all(isinstance(item, (int, float)) for item in bounds)
+
+
+def _object_bounding_box(objects: Any) -> list[float] | None:
+    boxes = [_bounds_for_fake_object(obj) for obj in objects]
+    boxes = [box for box in boxes if box is not None]
+    if not boxes:
+        return None
+    return [
+        min(box[0] for box in boxes),
+        min(box[1] for box in boxes),
+        min(box[2] for box in boxes),
+        max(box[3] for box in boxes),
+        max(box[4] for box in boxes),
+        max(box[5] for box in boxes),
+    ]
+
+
+def _bounds_for_fake_object(obj: Any) -> list[float] | None:
+    origin = getattr(obj, "origin", None)
+    sizes = getattr(obj, "sizes", None)
+    if not isinstance(origin, list) or len(origin) != 3 or not all(isinstance(item, (int, float)) for item in origin):
+        return None
+    if not isinstance(sizes, list) or not sizes:
+        return None
+    object_type = str(getattr(obj, "object_type", "")).lower()
+    if object_type == "box" and len(sizes) >= 3 and all(isinstance(item, (int, float)) for item in sizes[:3]):
+        return [origin[0], origin[1], origin[2], origin[0] + sizes[0], origin[1] + sizes[1], origin[2] + sizes[2]]
+    if object_type == "cylinder" and len(sizes) >= 3 and isinstance(sizes[0], (int, float)) and isinstance(sizes[1], (int, float)):
+        radius = float(sizes[0])
+        height = float(sizes[1])
+        axis = str(sizes[2]).lower()
+        if axis == "x":
+            return [origin[0], origin[1] - radius, origin[2] - radius, origin[0] + height, origin[1] + radius, origin[2] + radius]
+        if axis == "y":
+            return [origin[0] - radius, origin[1], origin[2] - radius, origin[0] + radius, origin[1] + height, origin[2] + radius]
+        return [origin[0] - radius, origin[1] - radius, origin[2], origin[0] + radius, origin[1] + radius, origin[2] + height]
+    if object_type == "rectangle" and len(sizes) >= 2 and all(isinstance(item, (int, float)) for item in sizes[:2]):
+        return [origin[0], origin[1], origin[2], origin[0] + sizes[0], origin[1] + sizes[1], origin[2]]
+    return None
 
 
 def _normalize_assignment(value: Any, prefer_list: bool = False) -> Any:
