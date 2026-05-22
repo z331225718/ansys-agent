@@ -91,6 +91,9 @@ def _parameter_overrides(request: str) -> dict[str, Any]:
     frequency = _first_frequency(request)
     if frequency:
         overrides["frequency"] = frequency
+    target = _target_resonance_frequency(request)
+    if target:
+        overrides["target_resonance_frequency"] = target
     stop = _sweep_stop(request)
     if stop:
         overrides["sweep_stop"] = stop
@@ -147,14 +150,25 @@ def _missing_from_validation(validation: dict[str, Any]) -> list[str]:
 
 
 def _first_frequency(text: str) -> str | None:
-    match = re.search(r"(\d+(?:\.\d+)?)\s*(ghz|mhz|khz|hz)(?![A-Za-z])", text, flags=re.IGNORECASE)
+    match = re.search(r"(\d+(?:\.\d+)?)\s*(ghz|mhz|khz|hz|g|m|k)(?![A-Za-z])", text, flags=re.IGNORECASE)
+    if not match:
+        return None
+    return f"{match.group(1)}{_frequency_unit(match.group(2))}"
+
+
+def _target_resonance_frequency(text: str) -> str | None:
+    match = re.search(
+        r"(?:优化|調整|调整|目标|目標|谐振|諧振|resonance|target|optimi[sz]e)[^\d]{0,24}(?:到|至|为|為|at|to)?\s*(\d+(?:\.\d+)?)\s*(ghz|mhz|khz|hz|g|m|k)(?![A-Za-z])",
+        text,
+        flags=re.IGNORECASE,
+    )
     if not match:
         return None
     return f"{match.group(1)}{_frequency_unit(match.group(2))}"
 
 
 def _sweep_stop(text: str) -> str | None:
-    match = re.search(r"(?:to|stop(?:s)?(?: at)?|扫频到|扫到|截止到|到)\s*(\d+(?:\.\d+)?)\s*(ghz|mhz|khz|hz)(?![A-Za-z])", text, flags=re.IGNORECASE)
+    match = re.search(r"(?:to|stop(?:s)?(?: at)?|扫频到|扫到|截止到|到)\s*(\d+(?:\.\d+)?)\s*(ghz|mhz|khz|hz|g|m|k)(?![A-Za-z])", text, flags=re.IGNORECASE)
     if not match:
         return None
     return f"{match.group(1)}{_frequency_unit(match.group(2))}"
@@ -173,4 +187,7 @@ def _frequency_unit(unit: str) -> str:
         "mhz": "MHz",
         "khz": "KHz",
         "hz": "Hz",
+        "g": "GHz",
+        "m": "MHz",
+        "k": "KHz",
     }[unit.lower()]

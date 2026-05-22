@@ -64,6 +64,29 @@ def test_chat_planner_dipole_frequency_updates_derived_arm_length():
     assert output.validation_errors == []
 
 
+def test_chat_planner_separates_setup_frequency_from_resonance_target():
+    output = ChatWorkflowPlanner().plan(
+        _planner_input("做一个偶极子天线 S11 仿真，求解频率 2.4GHz，扫频 1GHz 到 4GHz，优化谐振频点到3G")
+    )
+
+    defaults = {parameter.name: parameter.default for parameter in output.generated_workflow.parameters}
+
+    assert output.selected_template == "dipole_antenna_s11_farfield"
+    assert defaults["frequency"] == "2.4GHz"
+    assert defaults["sweep_stop"] == "4GHz"
+    assert defaults["target_resonance_frequency"] == "3GHz"
+    assert output.validation_errors == []
+
+
+def test_chat_planner_keeps_decimal_resonance_target():
+    output = ChatWorkflowPlanner().plan(_planner_input("偶极子工作在3.1GHz，让谐振点落在3.1GHz"))
+
+    defaults = {parameter.name: parameter.default for parameter in output.generated_workflow.parameters}
+
+    assert defaults["frequency"] == "3.1GHz"
+    assert defaults["target_resonance_frequency"] == "3.1GHz"
+
+
 def test_chat_planner_generates_simple_setup_workflow():
     output = ChatWorkflowPlanner().plan(_planner_input("Create an HFSS setup at 3GHz"))
 

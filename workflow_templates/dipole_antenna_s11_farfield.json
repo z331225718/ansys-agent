@@ -34,6 +34,14 @@
         "label": "Sweep stop"
       },
       {
+        "name": "target_resonance_frequency",
+        "type": "string",
+        "default": "2.4GHz",
+        "unit": "GHz",
+        "label": "Target resonance frequency",
+        "description": "Optimization target for the S11 resonance. This may differ from the adaptive solve frequency."
+      },
+      {
         "name": "velocity_factor",
         "type": "number",
         "default": 0.95,

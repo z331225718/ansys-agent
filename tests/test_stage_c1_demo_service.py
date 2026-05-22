@@ -178,6 +178,31 @@ def test_demo_service_agent_run_starts_fake_tuning_job_when_llm_judges_tuning(tm
     assert status["rounds"][-1]["converged"] is True
 
 
+def test_demo_service_tuning_uses_target_resonance_frequency_when_present(tmp_path):
+    service = DemoService(Path("."), run_dir=tmp_path / "stage_c1_demo")
+    plan = service.plan(
+        {"user_request": "做一个偶极子天线 S11 仿真，求解频率 2.4GHz，扫频 1GHz 到 4GHz，优化谐振频点到3G"}
+    )
+
+    started = service.start_agent_run(
+        {
+            "user_request": "做一个偶极子天线 S11 仿真，求解频率 2.4GHz，扫频 1GHz 到 4GHz，优化谐振频点到3G",
+            "workflow": plan["generated_workflow"],
+            "adapter": "fake",
+            "stream_to_terminal": False,
+        }
+    )
+    deadline = time.time() + 10
+    status = started
+    while status["status"] in {"queued", "running"} and time.time() < deadline:
+        time.sleep(0.1)
+        status = service.agent_run_status(started["job_id"])
+
+    assert status["status"] == "succeeded"
+    assert status["tuning_result"]["target_frequency"] == "3GHz"
+    assert status["tuning_result"]["target_frequency_hz"] == 3.0e9
+
+
 def test_demo_service_agent_run_uses_workflow_parameters_when_payload_parameters_are_hidden(tmp_path):
     service = DemoService(Path("."), run_dir=tmp_path / "stage_c1_demo")
     plan = service.plan({"user_request": "偶极子工作在3.1GHz，让谐振点落在3.1GHz"})

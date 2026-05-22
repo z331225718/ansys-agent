@@ -202,7 +202,7 @@ class DemoService:
         parameters = payload.get("parameters", {})
         if not isinstance(parameters, dict):
             raise TypeError("parameters must be a JSON object")
-        frequency = str(parameters.get("frequency") or "2.5GHz")
+        frequency = _tuning_target_frequency(parameters)
         sweep_start = str(parameters.get("sweep_start") or "1GHz")
         sweep_stop = str(parameters.get("sweep_stop") or "4GHz")
         workflow = self._template_catalog().get("dipole_antenna_s11_farfield").instantiate(parameters)
@@ -429,7 +429,7 @@ class DemoService:
         job.finished_at = time.time()
 
     def _run_real_dipole_tuning_rounds(self, job: DemoRunJob, parameters: dict[str, Any]) -> list[dict[str, Any]]:
-        frequency = str(parameters.get("frequency") or "2.5GHz")
+        frequency = _tuning_target_frequency(parameters)
         target_hz = _parse_frequency_hz(frequency)
         if target_hz is None:
             raise ValueError("frequency must be a frequency string such as 2.5GHz")
@@ -612,6 +612,10 @@ def _tuning_message(error_ratio: float, current_length: float, next_length: floa
     if error_ratio < 0:
         return f"谐振频率偏低，说明偶极子偏长；将单臂长度从 {current_length:.3f} mm 缩短到 {next_length:.3f} mm。"
     return f"谐振频率偏高，说明偶极子偏短；将单臂长度从 {current_length:.3f} mm 加长到 {next_length:.3f} mm。"
+
+
+def _tuning_target_frequency(parameters: dict[str, Any]) -> str:
+    return str(parameters.get("target_resonance_frequency") or parameters.get("frequency") or "2.5GHz")
 
 
 def _llm_tuning_advisor(config: PlannerConfig):
