@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib import request as urlrequest
 
+from aedt_agent.chat.workflow_planner import _parameter_overrides
 from aedt_agent.demo.config import AedtConfig, PlannerConfig
 from aedt_agent.demo.planner import PlannerRunner, WorkflowProposalClient, _parse_json_content
 from aedt_agent.demo.tuning import _advisor_advice, _parse_frequency_hz, find_s11_resonance, next_dipole_arm_length, run_fake_dipole_tuning
@@ -553,7 +554,9 @@ def _parameters_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
         explicit = {}
     if not isinstance(explicit, dict):
         raise TypeError("parameters must be a JSON object")
-    return {**workflow_parameters, **explicit}
+    user_request = payload.get("user_request")
+    semantic_parameters = _parameter_overrides(user_request) if isinstance(user_request, str) else {}
+    return {**workflow_parameters, **explicit, **semantic_parameters}
 
 
 def _workflow_with_artifact_dir(workflow: Workflow, artifact_dir: str) -> Workflow:
