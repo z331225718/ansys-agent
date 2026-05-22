@@ -60,6 +60,7 @@ def test_chat_planner_dipole_frequency_updates_derived_arm_length():
     assert output.selected_template == "dipole_antenna_s11_farfield"
     assert defaults["frequency"] == "2.5GHz"
     assert defaults["dipole_arm_length_mm"] == 28.48
+    assert defaults["airbox_padding_mm"] == 29.979
     assert output.validation_errors == []
 
 

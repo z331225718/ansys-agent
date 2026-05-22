@@ -63,6 +63,14 @@
         "description": "Derived during template instantiation from the operating frequency."
       },
       {
+        "name": "airbox_padding_mm",
+        "type": "number",
+        "default": 31.228,
+        "unit": "mm",
+        "label": "Derived airbox padding",
+        "description": "Default rule: free-space quarter wavelength c / (4f). LLM or user may override when a larger open region is needed."
+      },
+      {
         "name": "left_arm_origin",
         "type": "array",
         "default": [-30.167, 0, 0],
@@ -150,7 +158,7 @@
         "id": "airbox",
         "node_id": "create_airbox",
         "inputs": {
-          "padding": 45,
+          "padding": {"$ref": "parameters.airbox_padding_mm"},
           "name": "AirBox"
         }
       },

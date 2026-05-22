@@ -134,12 +134,14 @@ def _dipole_geometry_overrides(overrides: dict[str, Any]) -> dict[str, Any]:
     arm_radius_mm = float(overrides.get("arm_radius_mm", 0.5))
     velocity_factor = float(overrides.get("velocity_factor", 0.95))
     arm_length_mm = round(299_792_458.0 / (4.0 * frequency) * 1000.0 * velocity_factor, 3)
+    airbox_padding_mm = round(float(overrides.get("airbox_padding_mm", 299_792_458.0 / (4.0 * frequency) * 1000.0)), 3)
     half_gap = feed_gap_mm / 2.0
     return {
         "velocity_factor": velocity_factor,
         "feed_gap_mm": feed_gap_mm,
         "arm_radius_mm": arm_radius_mm,
         "dipole_arm_length_mm": arm_length_mm,
+        "airbox_padding_mm": airbox_padding_mm,
         "left_arm_origin": [round(-half_gap - arm_length_mm, 3), 0, 0],
         "right_arm_origin": [round(half_gap, 3), 0, 0],
         "feed_sheet_origin": [round(-half_gap, 3), 0, round(-arm_radius_mm, 3)],

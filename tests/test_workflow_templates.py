@@ -118,10 +118,23 @@ def test_dipole_template_derives_arm_length_from_frequency():
 
     assert defaults["frequency"] == "2.5GHz"
     assert defaults["dipole_arm_length_mm"] == 28.48
+    assert defaults["airbox_padding_mm"] == 29.979
     assert defaults["left_arm_origin"] == [-28.98, 0, 0]
     assert defaults["right_arm_origin"] == [0.5, 0, 0]
+    assert workflow.node_by_id("airbox").inputs["padding"] == {"$ref": "parameters.airbox_padding_mm"}
     assert left_arm["height"] == {"$ref": "parameters.dipole_arm_length_mm"}
     assert right_arm["height"] == {"$ref": "parameters.dipole_arm_length_mm"}
+    assert _validator().validate(workflow).passed is True
+
+
+def test_dipole_template_allows_llm_to_override_airbox_padding_rule():
+    template = WorkflowTemplate.from_file(Path("workflow_templates/dipole_antenna_s11_farfield.json"))
+
+    workflow = template.instantiate({"frequency": "2.5GHz", "airbox_padding_mm": 42.0})
+    defaults = {parameter.name: parameter.default for parameter in workflow.parameters}
+
+    assert defaults["airbox_padding_mm"] == 42.0
+    assert workflow.node_by_id("airbox").inputs["padding"] == {"$ref": "parameters.airbox_padding_mm"}
     assert _validator().validate(workflow).passed is True
 
 
