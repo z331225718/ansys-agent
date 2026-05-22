@@ -53,14 +53,9 @@ def render_demo_page() -> str:
       </div>
       <div class="field">
         <label for="agentRequest">用户需求</label>
-        <textarea id="agentRequest" oninput="syncRequestToParameters()">做一个微带线 S 参数仿真，求解频率 2.4GHz，扫频到 10GHz。</textarea>
+        <textarea id="agentRequest">做一个微带线 S 参数仿真，求解频率 2.4GHz，扫频到 10GHz。</textarea>
       </div>
-      <div class="params">
-        <div class="field"><label for="frequency">Adaptive Frequency</label><input id="frequency" value="2.4GHz"></div>
-        <div class="field"><label for="sweepStart">Sweep Start</label><input id="sweepStart" value="1GHz"></div>
-        <div class="field"><label for="sweepStop">Sweep Stop</label><input id="sweepStop" value="10GHz"></div>
-      </div>
-      <div class="agent-note" id="agentPlan">LLM planner 将生成 workflow JSON；如果未配置 LLM API，会回退到 deterministic planner 但仍展示同一条受控链路。</div>
+      <div class="agent-note" id="agentPlan">LLM planner 会从自然语言中推测仿真参数，并生成受控 workflow JSON；如果未配置 LLM API，会回退到 deterministic planner。</div>
       <div class="planner-strip">
         <div class="planner-chip"><b id="plannerModeMetric">not planned</b><span>Planner</span></div>
         <div class="planner-chip"><b id="repairMetric">0</b><span>Repair</span></div>
@@ -122,9 +117,6 @@ const WORKFLOWS = {
   microstrip_sparameter: {
     title: 'Microstrip S-Parameter Workflow',
     request: '做一个微带线 S 参数仿真，求解频率 2.4GHz，扫频到 10GHz。',
-    frequency: '2.4GHz',
-    sweepStart: '1GHz',
-    sweepStop: '10GHz',
     expected: 'PEC · P1/P2 · Radiation · S2P',
     s21Label: 'S21 at selected frequency',
     diagram: '<div class="air"></div><div class="substrate"></div><div class="ground"></div><div class="trace"></div><div class="port p1"></div><div class="port p2"></div><div class="diagram-label l1">Trace + lumped ports</div><div class="diagram-label l2">Ground / FR4</div>',
@@ -147,9 +139,6 @@ const WORKFLOWS = {
   dipole_antenna_s11_farfield: {
     title: 'Dipole Antenna S11 Workflow',
     request: '做一个偶极子天线 S11 仿真，求解频率 2.4GHz，扫频 1GHz 到 4GHz，并创建远场设置。',
-    frequency: '2.4GHz',
-    sweepStart: '1GHz',
-    sweepStop: '4GHz',
     expected: 'Copper arms · Lumped feed · Radiation · Farfield setup · S1P',
     s21Label: 'Farfield setup',
     diagram: '<div class="sphere"></div><div class="dipole-arm left"></div><div class="feed-sheet"></div><div class="dipole-arm right"></div><div class="diagram-label l1">Copper dipole arms</div><div class="diagram-label l2">Radiation + farfield setup</div>',
@@ -197,13 +186,10 @@ function changeWorkflow(templateId) {
   currentWorkflowSource = '';
   const def = workflowDef();
   document.getElementById('agentRequest').value = def.request;
-  document.getElementById('frequency').value = def.frequency;
-  document.getElementById('sweepStart').value = def.sweepStart;
-  document.getElementById('sweepStop').value = def.sweepStop;
   document.getElementById('workflowMetric').textContent = '--';
   document.getElementById('plannerModeMetric').textContent = 'not planned';
+  document.getElementById('agentPlan').textContent = 'LLM planner 会从自然语言中推测仿真参数，并生成受控 workflow JSON。';
   renderWorkflowChrome();
-  syncRequestToParameters();
   renderSParameterChart([], '');
 }
 function appendLog(role, text, klass='') {
@@ -220,46 +206,7 @@ function setBusy(isBusy) {
   document.getElementById('runButton').disabled = isBusy;
   document.getElementById('planButton').textContent = isBusy ? 'Planning...' : 'Plan with LLM';
 }
-function parseFrequencies(text) {
-  const matches = [...text.matchAll(/(\\d+(?:\\.\\d+)?)\\s*(GHz|MHz|KHz|Hz)/gi)].map(match => match[1] + match[2]);
-  const result = {};
-  const solveMatch = text.match(/(?:求解|中心|adaptive|solve|setup)[^\\d]*(\\d+(?:\\.\\d+)?)\\s*(GHz|MHz|KHz|Hz)/i);
-  const sweepStartMatch = text.match(/(?:from|起始|开始)[^\\d]*(\\d+(?:\\.\\d+)?)\\s*(GHz|MHz|KHz|Hz)/i);
-  const sweepStopMatch = text.match(/(?:扫频到|扫到|stop|截止|上限)[^\\d]*(\\d+(?:\\.\\d+)?)\\s*(GHz|MHz|KHz|Hz)/i);
-  if (solveMatch) result.frequency = solveMatch[1] + solveMatch[2];
-  if (sweepStartMatch) result.sweep_start = sweepStartMatch[1] + sweepStartMatch[2];
-  if (sweepStopMatch) result.sweep_stop = sweepStopMatch[1] + sweepStopMatch[2];
-  if (!result.frequency && matches.length >= 1) result.frequency = matches[0];
-  if (!result.sweep_start && matches.length >= 3) result.sweep_start = matches[1];
-  if (!result.sweep_stop && matches.length >= 2) result.sweep_stop = matches[matches.length - 1];
-  return result;
-}
-function frequencyHz(value) {
-  const match = String(value || '').match(/^\\s*(\\d+(?:\\.\\d+)?)\\s*(GHz|MHz|KHz|Hz)\\s*$/i);
-  if (!match) return null;
-  const scale = {hz:1, khz:1e3, mhz:1e6, ghz:1e9}[match[2].toLowerCase()];
-  return Number(match[1]) * scale;
-}
-function derivedDipoleArmLength(frequency) {
-  const hz = frequencyHz(frequency);
-  if (!hz) return null;
-  return 299792458 / (4 * hz) * 1000 * 0.95;
-}
-function syncRequestToParameters() {
-  const text = document.getElementById('agentRequest').value;
-  const parsed = parseFrequencies(text);
-  if (parsed.frequency) document.getElementById('frequency').value = parsed.frequency;
-  if (parsed.sweep_start) document.getElementById('sweepStart').value = parsed.sweep_start;
-  if (parsed.sweep_stop) document.getElementById('sweepStop').value = parsed.sweep_stop;
-  const frequency = document.getElementById('frequency').value;
-  const sweepStart = document.getElementById('sweepStart').value;
-  const sweepStop = document.getElementById('sweepStop').value;
-  const armLength = currentTemplateId === 'dipole_antenna_s11_farfield' ? derivedDipoleArmLength(frequency) : null;
-  const geometryNote = armLength ? `，派生单臂长度 ${armLength.toFixed(2)} mm` : '';
-  document.getElementById('agentPlan').textContent = `输入已解析：模板 ${workflowDef().title}，求解频率 ${frequency}，扫频 ${sweepStart} 到 ${sweepStop}${geometryNote}。点击 Plan with LLM 生成受控 workflow，再运行 AEDT。`;
-}
 async function loadFixedWorkflow() {
-  syncRequestToParameters();
   const data = await api('/api/templates/' + encodeURIComponent(currentTemplateId));
   currentWorkflow = data.workflow;
   currentWorkflowSource = 'template';
@@ -270,7 +217,6 @@ async function loadFixedWorkflow() {
 }
 async function planWorkflowForDemo() {
   if (plannerInFlight) return null;
-  syncRequestToParameters();
   setBusy(true);
   document.getElementById('plannerModeMetric').textContent = 'planning';
   document.getElementById('agentPlan').textContent = 'LLM planner 正在生成 workflow JSON，并等待 backend validator 校验。';
@@ -298,7 +244,6 @@ async function planWorkflowForDemo() {
     document.getElementById('workflowMetric').textContent = currentWorkflow && currentWorkflow.workflow_id ? currentWorkflow.workflow_id : '--';
     const fallback = data.fallback_reason ? ` fallback=${data.fallback_reason}` : '';
     document.getElementById('agentPlan').textContent = `Planner ${data.planner_mode}${fallback}，repair ${data.repair_count || 0}，validation errors ${(data.validation_errors || []).length}。`;
-    syncRequestToParameters();
     appendLog('Validator', `workflow=${currentWorkflow.workflow_id}，planner=${data.planner_mode}${fallback}，repair=${data.repair_count || 0}，errors=${(data.validation_errors || []).length}`, 'ok');
     for (const attempt of (data.attempts || [])) {
       const status = attempt.validation && attempt.validation.passed ? 'passed' : 'failed';
@@ -371,13 +316,12 @@ function renderSParameterChart(samples, unit) {
   `;
 }
 async function runRealAedtDemo() {
-  syncRequestToParameters();
   if (!currentWorkflow || currentWorkflowSource !== 'planner') await planWorkflowForDemo();
   appendLog('LLM Agent', '开始判断执行模式：普通需求走一次真实 AEDT workflow；如果用户要求谐振点落到目标频率，则自动进入多轮真实 AEDT 调参。', 'llm');
   resetSteps();
   document.getElementById('statusMetric').textContent = 'running';
   document.getElementById('validationMetric').textContent = 'launching AEDT';
-  const payload = {workflow:currentWorkflow, template_id:currentTemplateId, graphical:true, user_request:document.getElementById('agentRequest').value, parameters:{frequency:document.getElementById('frequency').value, sweep_start:document.getElementById('sweepStart').value, sweep_stop:document.getElementById('sweepStop').value}};
+  const payload = {workflow:currentWorkflow, template_id:currentTemplateId, graphical:true, user_request:document.getElementById('agentRequest').value};
   const started = await api('/api/agent-run', {method:'POST', body:JSON.stringify(payload)});
   appendLog('Agent Decision', started.run_kind === 'dipole_tuning' ? 'LLM 判断为闭环调参 workflow，将逐轮运行 AEDT 并读取 S11 谐振点。' : 'LLM 判断为单次生成 workflow，直接运行一次 AEDT。', 'ok');
   renderResult(started);
@@ -408,17 +352,15 @@ function renderTuningResult(result) {
   document.getElementById('rawResult').textContent = JSON.stringify(result, null, 2);
 }
 async function runOfflineDemo() {
-  syncRequestToParameters();
   if (!currentWorkflow || currentWorkflowSource !== 'planner') await planWorkflowForDemo();
   resetSteps();
   document.getElementById('statusMetric').textContent = 'offline running';
   document.getElementById('validationMetric').textContent = 'fake adapter';
-  const payload = {workflow:currentWorkflow, template_id:currentTemplateId, user_request:document.getElementById('agentRequest').value, parameters:{frequency:document.getElementById('frequency').value, sweep_start:document.getElementById('sweepStart').value, sweep_stop:document.getElementById('sweepStop').value}};
+  const payload = {workflow:currentWorkflow, template_id:currentTemplateId, user_request:document.getElementById('agentRequest').value};
   const result = await api('/api/run', {method:'POST', body:JSON.stringify(payload)});
   renderResult(result);
 }
 renderWorkflowChrome();
-syncRequestToParameters();
 renderSParameterChart([], '');
 </script>
 </body>

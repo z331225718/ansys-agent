@@ -234,9 +234,7 @@ class DemoService:
             raise ValueError("adapter must be real or fake")
         graphical = bool(payload.get("graphical", True))
         stream_to_terminal = bool(payload.get("stream_to_terminal", True))
-        parameters = payload.get("parameters", {})
-        if not isinstance(parameters, dict):
-            raise TypeError("parameters must be a JSON object")
+        parameters = _parameters_from_payload(payload)
         job_id = uuid.uuid4().hex[:12]
         run_dir = self.real_run_root / f"stage_c_real_demo_{job_id}"
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -279,9 +277,7 @@ class DemoService:
             raise ValueError("adapter must be real or fake")
         graphical = bool(payload.get("graphical", True))
         stream_to_terminal = bool(payload.get("stream_to_terminal", True))
-        parameters = payload.get("parameters", {})
-        if not isinstance(parameters, dict):
-            raise TypeError("parameters must be a JSON object")
+        parameters = _parameters_from_payload(payload)
         job_id = uuid.uuid4().hex[:12]
         run_dir = self.real_run_root / f"stage_c_real_tuning_{job_id}"
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -544,6 +540,20 @@ def _workflow_from_payload(payload: dict[str, Any]) -> Workflow:
     if not isinstance(workflow_data, dict):
         raise TypeError("workflow payload must be a JSON object")
     return Workflow.from_dict(json.loads(json.dumps(workflow_data)))
+
+
+def _parameters_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    workflow_parameters: dict[str, Any] = {}
+    workflow_payload = payload.get("workflow")
+    if isinstance(workflow_payload, dict):
+        workflow = Workflow.from_dict(json.loads(json.dumps(workflow_payload)))
+        workflow_parameters = {parameter.name: parameter.default for parameter in workflow.parameters if parameter.default is not None}
+    explicit = payload.get("parameters", {})
+    if explicit is None:
+        explicit = {}
+    if not isinstance(explicit, dict):
+        raise TypeError("parameters must be a JSON object")
+    return {**workflow_parameters, **explicit}
 
 
 def _workflow_with_artifact_dir(workflow: Workflow, artifact_dir: str) -> Workflow:

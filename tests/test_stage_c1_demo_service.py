@@ -178,6 +178,30 @@ def test_demo_service_agent_run_starts_fake_tuning_job_when_llm_judges_tuning(tm
     assert status["rounds"][-1]["converged"] is True
 
 
+def test_demo_service_agent_run_uses_workflow_parameters_when_payload_parameters_are_hidden(tmp_path):
+    service = DemoService(Path("."), run_dir=tmp_path / "stage_c1_demo")
+    plan = service.plan({"user_request": "偶极子工作在3.1GHz，让谐振点落在3.1GHz"})
+
+    started = service.start_agent_run(
+        {
+            "user_request": "偶极子工作在3.1GHz，让谐振点落在3.1GHz",
+            "workflow": plan["generated_workflow"],
+            "adapter": "fake",
+            "stream_to_terminal": False,
+        }
+    )
+    deadline = time.time() + 10
+    status = started
+    while status["status"] in {"queued", "running"} and time.time() < deadline:
+        time.sleep(0.1)
+        status = service.agent_run_status(started["job_id"])
+
+    assert status["run_kind"] == "dipole_tuning"
+    assert status["status"] == "succeeded"
+    assert status["tuning_result"]["target_frequency"] == "3.1GHz"
+    assert status["rounds"][-1]["converged"] is True
+
+
 def test_demo_service_agent_run_starts_single_workflow_for_plain_request(tmp_path):
     service = DemoService(Path("."), run_dir=tmp_path / "stage_c1_demo")
 

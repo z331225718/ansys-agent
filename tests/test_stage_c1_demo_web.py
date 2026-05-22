@@ -14,10 +14,13 @@ def test_render_demo_page_contains_workspace_sections():
     assert "用户需求" in html
     assert "做一个微带线 S 参数仿真" in html
     assert "做一个偶极子天线 S11 仿真" in html
-    assert "syncRequestToParameters" in html
+    assert "syncRequestToParameters" not in html
     assert "changeWorkflow" in html
-    assert "derivedDipoleArmLength" in html
-    assert "派生单臂长度" in html
+    assert "derivedDipoleArmLength" not in html
+    assert "派生单臂长度" not in html
+    assert "Adaptive Frequency" not in html
+    assert "Sweep Start" not in html
+    assert "Sweep Stop" not in html
     assert "Plan with LLM" in html
     assert "Tune Resonance" not in html
     assert "/api/agent-run" in html
