@@ -113,6 +113,8 @@ let currentWorkflow = null;
 let currentWorkflowSource = '';
 let currentTemplateId = 'microstrip_sparameter';
 let plannerInFlight = false;
+let seenTuningRounds = new Set();
+let tuningCompletionLogged = false;
 const WORKFLOWS = {
   microstrip_sparameter: {
     title: 'Microstrip S-Parameter Workflow',
@@ -184,6 +186,8 @@ function changeWorkflow(templateId) {
   currentTemplateId = templateId;
   currentWorkflow = null;
   currentWorkflowSource = '';
+  seenTuningRounds = new Set();
+  tuningCompletionLogged = false;
   const def = workflowDef();
   document.getElementById('agentRequest').value = def.request;
   document.getElementById('workflowMetric').textContent = '--';
@@ -318,6 +322,8 @@ function renderSParameterChart(samples, unit) {
 async function runRealAedtDemo() {
   if (!currentWorkflow || currentWorkflowSource !== 'planner') await planWorkflowForDemo();
   appendLog('LLM Agent', '开始判断执行模式：普通需求走一次真实 AEDT workflow；如果用户要求谐振点落到目标频率，则自动进入多轮真实 AEDT 调参。', 'llm');
+  seenTuningRounds = new Set();
+  tuningCompletionLogged = false;
   resetSteps();
   document.getElementById('statusMetric').textContent = 'running';
   document.getElementById('validationMetric').textContent = 'launching AEDT';
@@ -335,8 +341,14 @@ async function runRealAedtDemo() {
 }
 function renderTuningResult(result) {
   const rounds = result.rounds || [];
-  appendLog('Tuning Mode', `advisor=${result.advisor_mode || 'unknown'}，controlled_variable=${result.controlled_variable || 'dipole_arm_length_mm'}`, 'ok');
+  if (rounds.length && !seenTuningRounds.has('mode')) {
+    appendLog('Tuning Mode', `advisor=${result.advisor_mode || 'unknown'}，controlled_variable=${result.controlled_variable || 'dipole_arm_length_mm'}`, 'ok');
+    seenTuningRounds.add('mode');
+  }
   for (const item of rounds) {
+    const key = 'round-' + item.round;
+    if (seenTuningRounds.has(key)) continue;
+    seenTuningRounds.add(key);
     appendLog(
       'Tune Round ' + item.round,
       `单臂 ${item.arm_length_mm} mm；谐振 ${item.resonance_frequency}；误差 ${item.target_error_percent}%；${item.agent_message}`,
@@ -348,6 +360,14 @@ function renderTuningResult(result) {
     renderSParameters({frequency_unit:'GHz', selected:{frequency:last.resonance_frequency_hz / 1e9, s11_db:last.s11_db, s21_db:null}, samples:last.samples});
     document.getElementById('statusMetric').textContent = result.status;
     document.getElementById('validationMetric').textContent = `${rounds.length} tuning rounds`;
+    if (!tuningCompletionLogged && result.status === 'succeeded' && last.converged) {
+      appendLog('Tuning Complete', `调谐已收敛，最终谐振 ${last.resonance_frequency}，不需要启动下一轮。`, 'ok');
+      tuningCompletionLogged = true;
+    }
+    if (!tuningCompletionLogged && result.status === 'failed') {
+      appendLog('Tuning Failed', result.error || '调谐未在最大轮次内收敛。', 'err');
+      tuningCompletionLogged = true;
+    }
   }
   document.getElementById('rawResult').textContent = JSON.stringify(result, null, 2);
 }

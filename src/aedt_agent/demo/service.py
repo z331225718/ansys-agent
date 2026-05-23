@@ -468,24 +468,28 @@ class DemoService:
             resonance = find_s11_resonance(samples)
             error_ratio = (float(resonance["frequency_hz"]) - target_hz) / target_hz
             converged = abs(error_ratio) <= 0.02
-            default_next = current_length if converged else next_dipole_arm_length(
-                current_length_mm=current_length,
-                resonance_frequency_hz=float(resonance["frequency_hz"]),
-                target_frequency_hz=target_hz,
-            )
-            advice = _advisor_advice(
-                advisor,
-                {
-                    "round": index,
-                    "target_frequency_hz": target_hz,
-                    "resonance_frequency_hz": float(resonance["frequency_hz"]),
-                    "target_error_percent": round(error_ratio * 100.0, 3),
-                    "current_arm_length_mm": current_length,
-                    "default_next_arm_length_mm": default_next,
-                    "controlled_variable": "dipole_arm_length_mm",
-                    "samples": samples,
-                },
-            )
+            if converged:
+                default_next = current_length
+                advice: dict[str, Any] = {}
+            else:
+                default_next = next_dipole_arm_length(
+                    current_length_mm=current_length,
+                    resonance_frequency_hz=float(resonance["frequency_hz"]),
+                    target_frequency_hz=target_hz,
+                )
+                advice = _advisor_advice(
+                    advisor,
+                    {
+                        "round": index,
+                        "target_frequency_hz": target_hz,
+                        "resonance_frequency_hz": float(resonance["frequency_hz"]),
+                        "target_error_percent": round(error_ratio * 100.0, 3),
+                        "current_arm_length_mm": current_length,
+                        "default_next_arm_length_mm": default_next,
+                        "controlled_variable": "dipole_arm_length_mm",
+                        "samples": samples,
+                    },
+                )
             next_length = current_length if converged else round(float(advice.get("next_arm_length_mm", default_next)), 3)
             message = str(advice.get("message") or _tuning_message(error_ratio, current_length, next_length, converged))
             round_result = {

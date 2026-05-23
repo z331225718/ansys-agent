@@ -66,3 +66,29 @@ def test_fake_dipole_tuning_can_use_external_advisor_for_next_length():
     assert calls[0]["controlled_variable"] == "dipole_arm_length_mm"
     assert result["rounds"][0]["next_arm_length_mm"] == 28.48
     assert result["rounds"][0]["agent_message"].startswith("LLM 判断")
+
+
+def test_fake_dipole_tuning_does_not_ask_advisor_after_convergence():
+    calls = []
+
+    def advisor(context):
+        calls.append(context)
+        return {
+            "next_arm_length_mm": 20.0,
+            "message": "Decrease arm length to raise resonance.",
+        }
+
+    result = run_fake_dipole_tuning(
+        target_frequency="3GHz",
+        initial_arm_length_mm=23.733,
+        sweep_start="1GHz",
+        sweep_stop="4GHz",
+        max_rounds=3,
+        advisor=advisor,
+    )
+
+    assert calls == []
+    assert len(result["rounds"]) == 1
+    assert result["rounds"][0]["converged"] is True
+    assert result["rounds"][0]["next_arm_length_mm"] == 23.733
+    assert "容差" in result["rounds"][0]["agent_message"]
