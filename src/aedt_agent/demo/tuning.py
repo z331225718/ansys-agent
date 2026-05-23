@@ -38,7 +38,7 @@ def run_fake_dipole_tuning(
     sweep_start: str,
     sweep_stop: str,
     max_rounds: int = 3,
-    tolerance: float = 0.02,
+    tolerance: float = 0.005,
     velocity_factor: float = 0.95,
     advisor: TuningAdvisor | None = None,
 ) -> dict[str, Any]:

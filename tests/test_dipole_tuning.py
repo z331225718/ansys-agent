@@ -92,3 +92,25 @@ def test_fake_dipole_tuning_does_not_ask_advisor_after_convergence():
     assert result["rounds"][0]["converged"] is True
     assert result["rounds"][0]["next_arm_length_mm"] == 23.733
     assert "容差" in result["rounds"][0]["agent_message"]
+
+
+def test_fake_dipole_tuning_uses_demo_half_percent_tolerance():
+    near_result = run_fake_dipole_tuning(
+        target_frequency="3GHz",
+        initial_arm_length_mm=23.833,
+        sweep_start="1GHz",
+        sweep_stop="4GHz",
+        max_rounds=3,
+    )
+    far_result = run_fake_dipole_tuning(
+        target_frequency="3GHz",
+        initial_arm_length_mm=23.9,
+        sweep_start="1GHz",
+        sweep_stop="4GHz",
+        max_rounds=3,
+    )
+
+    assert abs(near_result["rounds"][0]["target_error_percent"]) < 0.5
+    assert near_result["rounds"][0]["converged"] is True
+    assert abs(far_result["rounds"][0]["target_error_percent"]) > 0.5
+    assert far_result["rounds"][0]["converged"] is False

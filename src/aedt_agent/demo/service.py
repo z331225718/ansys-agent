@@ -467,7 +467,7 @@ class DemoService:
             samples = ((artifacts.get("sparameters") or {}).get("samples") or [])
             resonance = find_s11_resonance(samples)
             error_ratio = (float(resonance["frequency_hz"]) - target_hz) / target_hz
-            converged = abs(error_ratio) <= 0.02
+            converged = abs(error_ratio) <= 0.005
             if converged:
                 default_next = current_length
                 advice: dict[str, Any] = {}
