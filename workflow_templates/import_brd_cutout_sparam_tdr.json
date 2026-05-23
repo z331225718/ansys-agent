@@ -24,7 +24,7 @@
       {
         "name": "signal_nets",
         "type": "string",
-        "default": "*56g*tx*",
+        "default": "SRDS_0_TX0_*",
         "label": "Signal net wildcard"
       },
       {

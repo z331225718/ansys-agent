@@ -164,7 +164,7 @@ const WORKFLOWS = {
   },
   import_brd_cutout_sparam_tdr: {
     title: 'BRD/MCM Cutout S-Parameter + TDR Workflow',
-    request: '导入 /home/zzmjay/work/brd/c03010211_56g_2512031835.brd，选择 56G TX net，参考 GND，cutout 后设置端口、求解，显示 S11/S21 和 TDR。',
+    request: '导入 /home/zzmjay/work/brd/c03010211_56g_2512031835.brd，选择 SRDS_0_TX0 差分 net，参考 GND，cutout 后设置端口、求解，显示 S11/S21 和 TDR。',
     expected: 'BRD/MCM · Net wildcard · Cutout · Stackup · Ports · S2P · TDR',
     s21Label: 'S21 at selected frequency',
     diagram: '<div class="air"></div><div class="substrate" style="bottom:56px;height:48px"></div><div class="trace" style="left:42px;right:42px;bottom:109px"></div><div class="trace" style="left:74px;right:102px;bottom:82px;background:#0f766e"></div><div class="port p1" style="left:58px;height:68px"></div><div class="port p2" style="right:58px;height:68px"></div><div class="diagram-label l1">Imported BRD/MCM nets</div><div class="diagram-label l2">Cutout + ports + TDR</div>',
@@ -291,7 +291,7 @@ async function planWorkflowForDemo() {
 function renderResult(result) {
   const stepMap = Object.fromEntries(workflowDef().steps.map(step => [step[0], 'step-' + step[0]]));
   for (const step of (result.steps || [])) {
-    if (stepMap[step.step_id]) setStep(stepMap[step.step_id], step.status === 'succeeded' ? 'done' : 'failed');
+    if (stepMap[step.step_id]) setStep(stepMap[step.step_id], step.status === 'succeeded' ? 'done' : (step.status || 'pending'));
   }
   if (!result.steps || result.steps.length === 0) {
     const state = result.status === 'failed' ? 'failed' : 'running';

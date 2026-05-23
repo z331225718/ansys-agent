@@ -126,64 +126,110 @@ def run_fake_import_cutout(request: ImportCutoutRequest) -> dict[str, Any]:
     return summary
 
 
-def run_real_import_cutout(request: ImportCutoutRequest, *, aedt_version: str, cadence_launcher: str = "") -> dict[str, Any]:
+def run_real_import_cutout(
+    request: ImportCutoutRequest,
+    *,
+    aedt_version: str,
+    cadence_launcher: str = "",
+    ansysem_root: str = "",
+    awp_root: str = "",
+) -> dict[str, Any]:
     request.output_dir.mkdir(parents=True, exist_ok=True)
     if cadence_launcher:
         apply_cadence_launcher_environment(Path(cadence_launcher).expanduser())
-    from pyedb import Edb
+    apply_aedt_environment(aedt_version, ansysem_root=ansysem_root, awp_root=awp_root)
+    return import_brd_with_hfss3dlayout(request, aedt_version=aedt_version)
+
+
+def import_brd_with_hfss3dlayout(request: ImportCutoutRequest, *, aedt_version: str) -> dict[str, Any]:
+    from ansys.aedt.core import Hfss3dLayout
 
     project_name = request.layout_file.stem
-    import_dir = request.output_dir / f"{project_name}_import"
-    import_dir.mkdir(parents=True, exist_ok=True)
-    temp_edb = Edb(version=aedt_version)
+    edb_path = request.output_dir / f"{project_name}.aedb"
+    project_path = request.output_dir / f"{project_name}.aedt"
+    h3d = Hfss3dLayout(
+        project=f"{project_name}_import_cutout",
+        version=aedt_version,
+        non_graphical=False,
+        new_desktop=True,
+        close_on_exit=False,
+    )
     try:
-        temp_edb.import_layout_file(input_file=str(request.layout_file), working_dir=str(import_dir))
-        available_nets = list(temp_edb.nets.nets.keys())
-    finally:
-        temp_edb.close()
-    signal_nets = expand_net_patterns(request.signal_net_patterns, available_nets)
-    reference_nets = expand_net_patterns(request.reference_net_patterns, available_nets)
-    if not signal_nets:
-        raise ValueError(f"no signal nets matched {request.signal_net_patterns}; available examples: {available_nets[:20]}")
-    if not reference_nets:
-        raise ValueError(f"no reference nets matched {request.reference_net_patterns}; available examples: {available_nets[:20]}")
-    control_xml = generate_control_xml(signal_nets, reference_nets, request.output_dir, project_name)
-    cutout_dir = request.output_dir / f"{project_name}_cutout"
-    cutout_dir.mkdir(parents=True, exist_ok=True)
-    edb = Edb(version=aedt_version)
-    try:
-        _import_layout_file(edb, request.layout_file, cutout_dir, control_xml)
-        cutout_result = edb.cutout(
-            signal_nets=signal_nets,
-            reference_nets=reference_nets,
-            extent_type=request.extent_type,
-            expansion_size=request.expansion_size,
-            use_pyaedt_cutout=True,
-            number_of_threads=8,
-            open_cutout_at_end=False,
+        imported = h3d.import_brd(str(request.layout_file), output_dir=str(edb_path), set_as_active=True, close_active_project=False)
+        if imported is False:
+            raise RuntimeError(f"Hfss3dLayout.import_brd returned False for {request.layout_file}")
+        available_nets = _hfss3dlayout_net_names(h3d)
+        signal_nets = expand_net_patterns(request.signal_net_patterns, available_nets)
+        reference_nets = expand_net_patterns(request.reference_net_patterns, available_nets)
+        if not signal_nets:
+            raise ValueError(
+                f"no signal nets matched {request.signal_net_patterns}; "
+                f"suggestions: {_net_suggestions(request.signal_net_patterns, available_nets)}; "
+                f"available examples: {available_nets[:20]}"
+            )
+        if not reference_nets:
+            raise ValueError(
+                f"no reference nets matched {request.reference_net_patterns}; "
+                f"suggestions: {_net_suggestions(request.reference_net_patterns, available_nets)}; "
+                f"available examples: {available_nets[:20]}"
+            )
+        h3d.save_project(str(project_path))
+        summary = {
+            "status": "succeeded",
+            "adapter": "real",
+            "layout_file": str(request.layout_file),
+            "signal_nets": signal_nets,
+            "reference_nets": reference_nets,
+            "available_net_count": len(available_nets),
+            "available_net_examples": available_nets[:20],
+            "edb_path": str(edb_path),
+            "aedt_project": str(project_path),
+            "touchstone": "",
+            "tdr": "",
+            "steps": _step_results("succeeded", stop_after="select_nets"),
+            "note": "Real AEDT graphical BRD import and net selection completed. Cutout, stackup, ports, solve, and TDR still require board-specific rules.",
+        }
+        (request.output_dir / "import_cutout_summary.json").write_text(
+            json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
         )
-        edb.save()
-        edb_path = str(edb.edbpath)
+        return summary
     finally:
-        edb.close()
-    summary = {
-        "status": "succeeded",
-        "adapter": "real",
-        "layout_file": str(request.layout_file),
-        "signal_nets": signal_nets,
-        "reference_nets": reference_nets,
-        "available_net_count": len(available_nets),
-        "control_xml": str(control_xml),
-        "edb_path": edb_path,
-        "cutout_result": str(cutout_result),
-        "aedt_project": "",
-        "touchstone": "",
-        "tdr": "",
-        "steps": _step_results("succeeded", stop_after="cutout"),
-        "note": "Real import and cutout completed. Stackup, ports, solve, S-parameters, and TDR require board-specific rules.",
-    }
-    (request.output_dir / "import_cutout_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return summary
+        pass
+
+
+def _hfss3dlayout_net_names(app: Any) -> list[str]:
+    names: list[str] = []
+    for getter in (
+        lambda: list(getattr(app.modeler, "nets", {}).keys()),
+        lambda: list(getattr(app.modeler, "signal_nets", {}).keys()),
+        lambda: list(getattr(app.modeler, "power_nets", {}).keys()),
+        lambda: list(app.modeler.oeditor.GetNetClassNets("<All>")),
+    ):
+        try:
+            for name in getter():
+                if isinstance(name, str) and name not in names:
+                    names.append(name)
+        except Exception:
+            continue
+    return names
+
+
+def _net_suggestions(patterns: list[str], available_nets: list[str], *, limit: int = 20) -> list[str]:
+    tokens: list[str] = []
+    for pattern in patterns:
+        for token in re.split(r"[^A-Za-z0-9]+", pattern.replace("*", " ").replace("?", " ")):
+            token = token.strip().casefold()
+            if len(token) >= 2 and not token.isdigit() and token not in tokens:
+                tokens.append(token)
+    suggestions = []
+    for net in available_nets:
+        folded = net.casefold()
+        if any(token in folded for token in tokens) and net not in suggestions:
+            suggestions.append(net)
+        if len(suggestions) >= limit:
+            break
+    return suggestions
 
 
 def generate_control_xml(target_nets: list[str], reference_nets: list[str], output_path: Path, project_name: str) -> Path:
@@ -237,6 +283,19 @@ def apply_cadence_launcher_environment(launcher: Path) -> None:
     os.environ.setdefault("MWRT_MODE", "classic")
     os.environ.setdefault("GDK_BACKEND", "x11")
     os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
+
+
+def apply_aedt_environment(version: str, *, ansysem_root: str = "", awp_root: str = "") -> None:
+    suffix = _version_suffix(version)
+    resolved_awp_root = Path(awp_root).expanduser() if awp_root else Path("~/ansys_inc").expanduser() / f"v{suffix}"
+    resolved_ansysem_root = Path(ansysem_root).expanduser() if ansysem_root else resolved_awp_root / "AnsysEM"
+    if not resolved_awp_root.exists():
+        raise FileNotFoundError(f"AWP root not found: {resolved_awp_root}")
+    if not resolved_ansysem_root.exists():
+        raise FileNotFoundError(f"ANSYSEM root not found: {resolved_ansysem_root}")
+    os.environ[f"AWP_ROOT{suffix}"] = str(resolved_awp_root)
+    os.environ[f"ANSYSEM_ROOT{suffix}"] = str(resolved_ansysem_root)
+    os.environ["PATH"] = str(resolved_ansysem_root) + os.pathsep + os.environ.get("PATH", "")
 
 
 def read_tdr_csv(path: Any) -> dict[str, Any]:
@@ -334,6 +393,14 @@ def _launcher_assignments(text: str) -> dict[str, str]:
                 value = value.replace(f"${key}", replacement)
             assignments[match.group(1)] = shlex.split(value)[0] if value else ""
     return assignments
+
+
+def _version_suffix(version: str) -> str:
+    parts = version.split(".")
+    if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+        return f"{int(parts[0]) % 100}{int(parts[1])}"
+    digits = "".join(char for char in version if char.isdigit())
+    return digits[-3:] if len(digits) >= 3 else digits
 
 
 def _step_results(status: str, *, stop_after: str | None = None) -> list[dict[str, Any]]:

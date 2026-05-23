@@ -476,6 +476,8 @@ class DemoService:
                     request,
                     aedt_version=self.aedt_config.version,
                     cadence_launcher=self.aedt_config.cadence_launcher,
+                    ansysem_root=self.aedt_config.ansysem_root,
+                    awp_root=self.aedt_config.awp_root,
                 )
                 job.returncode = 0
             (job.run_dir / "import_cutout_summary.json").write_text(

@@ -1,12 +1,14 @@
 from pathlib import Path
 
 from aedt_agent.demo.import_cutout import (
+    apply_aedt_environment,
     build_import_cutout_request,
     discover_layout_files,
     expand_net_patterns,
     parse_net_patterns,
     read_tdr_csv,
     run_fake_import_cutout,
+    _net_suggestions,
 )
 
 
@@ -54,3 +56,21 @@ def test_fake_import_cutout_writes_sparameter_and_tdr_artifacts(tmp_path):
     assert result["reference_nets"] == ["GND"]
     assert Path(result["touchstone"]).exists()
     assert tdr["point_count"] == 6
+
+
+def test_apply_aedt_environment_sets_versioned_roots(monkeypatch, tmp_path):
+    ansysem_root = tmp_path / "v261" / "AnsysEM"
+    awp_root = tmp_path / "v261"
+    ansysem_root.mkdir(parents=True)
+
+    apply_aedt_environment("2026.1", ansysem_root=str(ansysem_root), awp_root=str(awp_root))
+
+    assert "ANSYSEM_ROOT261" in __import__("os").environ
+    assert __import__("os").environ["ANSYSEM_ROOT261"] == str(ansysem_root)
+    assert __import__("os").environ["AWP_ROOT261"] == str(awp_root)
+
+
+def test_net_suggestions_surface_matching_tokens_when_wildcard_misses():
+    suggestions = _net_suggestions(["*56g*tx*"], ["GND", "GDDR6_VDD", "SRDS_0_TX0_N", "SRDS_0_TX0_P"])
+
+    assert suggestions == ["SRDS_0_TX0_N", "SRDS_0_TX0_P"]
