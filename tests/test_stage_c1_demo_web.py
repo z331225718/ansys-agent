@@ -26,6 +26,7 @@ def test_render_demo_page_contains_workspace_sections():
     assert "/api/agent-run" in html
     assert "renderTuningResult" in html
     assert "seenTuningRounds" in html
+    assert "markTuningWorkflowSteps" in html
     assert "调谐已收敛" in html
     assert "plannerModeMetric" in html
     assert "Create Substrate" in html

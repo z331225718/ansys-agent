@@ -339,7 +339,19 @@ async function runRealAedtDemo() {
     if (result.run_kind === 'dipole_tuning') renderTuningResult(result);
   }
 }
+function markTuningWorkflowSteps(result) {
+  if (result.status === 'succeeded') {
+    workflowDef().steps.forEach(step => setStep('step-' + step[0], 'done'));
+    return;
+  }
+  if (result.status === 'failed') {
+    workflowDef().steps.forEach(step => setStep('step-' + step[0], 'failed'));
+    return;
+  }
+  workflowDef().steps.forEach(step => setStep('step-' + step[0], 'running'));
+}
 function renderTuningResult(result) {
+  markTuningWorkflowSteps(result);
   const rounds = result.rounds || [];
   if (rounds.length && !seenTuningRounds.has('mode')) {
     appendLog('Tuning Mode', `advisor=${result.advisor_mode || 'unknown'}，controlled_variable=${result.controlled_variable || 'dipole_arm_length_mm'}`, 'ok');
