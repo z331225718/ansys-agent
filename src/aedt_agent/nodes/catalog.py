@@ -23,6 +23,14 @@ NODE_CATEGORIES: dict[str, str] = {
     "create_sparameter_report": "postprocess",
     "create_farfield_setup": "postprocess",
     "create_antenna_report": "postprocess",
+    "import_layout_file": "layout",
+    "select_layout_nets": "layout",
+    "create_layout_cutout": "layout",
+    "configure_layout_stackup": "layout",
+    "create_layout_ports": "port",
+    "create_layout_setup": "setup",
+    "solve_layout": "solve",
+    "create_layout_sparam_tdr_report": "postprocess",
 }
 
 NODE_DISPLAY_NAMES: dict[str, str] = {
@@ -39,6 +47,14 @@ NODE_DISPLAY_NAMES: dict[str, str] = {
     "create_sparameter_report": "Create S-Parameter Report",
     "create_farfield_setup": "Create Farfield Setup",
     "create_antenna_report": "Create Antenna Report",
+    "import_layout_file": "Import BRD/MCM Layout",
+    "select_layout_nets": "Select Layout Nets",
+    "create_layout_cutout": "Create Layout Cutout",
+    "configure_layout_stackup": "Configure Layout Stackup",
+    "create_layout_ports": "Create Layout Ports",
+    "create_layout_setup": "Create Layout Setup",
+    "solve_layout": "Solve Layout",
+    "create_layout_sparam_tdr_report": "Create S-Parameter And TDR Report",
 }
 
 NODE_POSTCHECKS: dict[str, list[str]] = {
@@ -55,6 +71,14 @@ NODE_POSTCHECKS: dict[str, list[str]] = {
     "create_sparameter_report": ["sparameter_report_created"],
     "create_farfield_setup": ["farfield_setup_created"],
     "create_antenna_report": ["antenna_report_created"],
+    "import_layout_file": ["layout_imported"],
+    "select_layout_nets": ["nets_selected"],
+    "create_layout_cutout": ["cutout_created"],
+    "configure_layout_stackup": ["stackup_configured"],
+    "create_layout_ports": ["layout_ports_created"],
+    "create_layout_setup": ["layout_setup_created"],
+    "solve_layout": ["layout_setup_solved"],
+    "create_layout_sparam_tdr_report": ["sparameter_report_created", "tdr_report_created"],
 }
 
 
@@ -211,6 +235,7 @@ def _color_for_category(category: str) -> str:
         "port": "#9333ea",
         "setup": "#ca8a04",
         "sweep": "#0891b2",
+        "layout": "#7c3aed",
         "report/export": "#4b5563",
         "validation": "#0f766e",
     }

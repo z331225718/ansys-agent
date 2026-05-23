@@ -1,0 +1,11 @@
+node_id: configure_layout_stackup
+summary: Preserve or adjust the board stackup before 3D Layout simulation.
+allowed_apis:
+  - pyedb.Edb.stackup
+inputs:
+  required: [layout]
+outputs:
+  creates: [stackup]
+prerequisites:
+  - create_layout_cutout
+examples: [import_brd_cutout_sparam_tdr]

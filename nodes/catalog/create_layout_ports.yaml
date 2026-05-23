@@ -1,0 +1,12 @@
+node_id: create_layout_ports
+summary: Create 3D Layout ports for selected nets using a board-specific port rule.
+allowed_apis:
+  - Hfss3dLayout.create_ports_on_component_by_nets
+  - Hfss3dLayout.create_edge_port
+inputs:
+  required: [layout, signal_nets, reference_nets]
+outputs:
+  creates: [port]
+prerequisites:
+  - configure_layout_stackup
+examples: [import_brd_cutout_sparam_tdr]

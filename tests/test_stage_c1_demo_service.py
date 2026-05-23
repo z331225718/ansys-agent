@@ -152,6 +152,7 @@ def test_agent_run_kind_selects_tuning_for_dipole_resonance_request():
     assert _agent_run_kind("偶极子工作在2.5GHz，让谐振点落在2.5GHz") == "dipole_tuning"
     assert _agent_run_kind("做一个偶极子天线 S11 仿真，扫频到4GHz") == "single_workflow"
     assert _agent_run_kind("做一个微带线 S 参数仿真，求解频率 2.4GHz") == "single_workflow"
+    assert _agent_run_kind("导入 brd 文件，选择 56G tx net cutout，显示 s11 s21 和 tdr") == "import_cutout"
 
 
 def test_demo_service_agent_run_starts_fake_tuning_job_when_llm_judges_tuning(tmp_path):
@@ -283,6 +284,37 @@ def test_demo_service_agent_run_starts_single_workflow_for_plain_request(tmp_pat
     assert status["run_kind"] == "single_workflow"
     assert status["status"] == "succeeded"
     assert status["template_id"] == "microstrip_sparameter"
+
+
+def test_demo_service_agent_run_starts_import_cutout_job_with_fake_adapter(tmp_path):
+    layout_file = tmp_path / "case.brd"
+    layout_file.write_text("", encoding="utf-8")
+    service = DemoService(Path("."), run_dir=tmp_path / "stage_c1_demo")
+
+    started = service.start_agent_run(
+        {
+            "user_request": "导入 brd 文件，选择 56G tx net cutout，显示 s11 s21 和 tdr",
+            "adapter": "fake",
+            "stream_to_terminal": False,
+            "parameters": {
+                "layout_file": str(layout_file),
+                "signal_nets": "*tx0*",
+                "reference_nets": "gnd",
+            },
+        }
+    )
+    deadline = time.time() + 10
+    status = started
+    while status["status"] in {"queued", "running"} and time.time() < deadline:
+        time.sleep(0.1)
+        status = service.agent_run_status(started["job_id"])
+
+    assert status["run_kind"] == "import_cutout"
+    assert status["status"] == "succeeded"
+    assert status["template_id"] == "import_brd_cutout_sparam_tdr"
+    assert status["sparameters"]["point_count"] == 6
+    assert status["tdr"]["point_count"] == 6
+    assert status["import_cutout"]["signal_nets"] == ["56G_TX0_P", "56G_TX0_N"]
 
 
 def test_read_demo_sparameters_selects_nearest_frequency_and_converts_to_db(tmp_path):

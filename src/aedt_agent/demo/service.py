@@ -14,6 +14,7 @@ from urllib import request as urlrequest
 
 from aedt_agent.chat.workflow_planner import _parameter_overrides
 from aedt_agent.demo.config import AedtConfig, PlannerConfig
+from aedt_agent.demo.import_cutout import build_import_cutout_request, read_tdr_csv, run_fake_import_cutout, run_real_import_cutout
 from aedt_agent.demo.planner import PlannerRunner, WorkflowProposalClient, _parse_json_content
 from aedt_agent.demo.tuning import _advisor_advice, _parse_frequency_hz, find_s11_resonance, next_dipole_arm_length, run_fake_dipole_tuning
 from aedt_agent.mcp.audit_log import AuditLogger
@@ -84,6 +85,8 @@ class DemoRunJob:
         outputs = data.get("outputs", {})
         if isinstance(outputs, dict) and outputs.get("touchstone"):
             artifacts["touchstone"] = str(outputs["touchstone"])
+        if isinstance(outputs, dict) and outputs.get("tdr"):
+            artifacts["tdr"] = str(outputs["tdr"])
         return data
 
 
@@ -266,11 +269,40 @@ class DemoService:
 
     def start_agent_run(self, payload: dict[str, Any]) -> dict[str, Any]:
         user_request = str(payload.get("user_request") or "")
-        if _agent_run_kind(user_request) == "dipole_tuning":
+        run_kind = _agent_run_kind(user_request)
+        if run_kind == "import_cutout":
+            return self.start_import_cutout_run(payload)
+        if run_kind == "dipole_tuning":
             return self.start_dipole_tuning_run(payload)
         result = self.start_real_run(payload)
         result["run_kind"] = "single_workflow"
         return result
+
+    def start_import_cutout_run(self, payload: dict[str, Any]) -> dict[str, Any]:
+        adapter = str(payload.get("adapter") or "real")
+        if adapter not in {"real", "fake"}:
+            raise ValueError("adapter must be real or fake")
+        stream_to_terminal = bool(payload.get("stream_to_terminal", True))
+        parameters = _parameters_from_payload(payload)
+        job_id = uuid.uuid4().hex[:12]
+        run_dir = self.real_run_root / f"stage_c_import_cutout_{job_id}"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        parameters.setdefault("artifact_dir", str(run_dir.resolve()))
+        (run_dir / "params.json").write_text(json.dumps(parameters, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        job = DemoRunJob(
+            job_id=job_id,
+            template_id="import_brd_cutout_sparam_tdr",
+            adapter=adapter,
+            run_dir=run_dir,
+            run_kind="import_cutout",
+            graphical=True,
+            stream_to_terminal=stream_to_terminal,
+        )
+        with self._jobs_lock:
+            self._jobs[job_id] = job
+        thread = threading.Thread(target=self._run_import_cutout_job, args=(job, dict(parameters)), daemon=True)
+        thread.start()
+        return job.to_dict()
 
     def start_dipole_tuning_run(self, payload: dict[str, Any]) -> dict[str, Any]:
         adapter = str(payload.get("adapter") or "real")
@@ -421,6 +453,36 @@ class DemoService:
             job.returncode = 0 if job.rounds and job.rounds[-1].get("converged") else 1
             job.status = "succeeded" if job.returncode == 0 else "failed"
             (job.run_dir / "tuning_result.json").write_text(json.dumps(job.to_dict(), ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        except Exception as exc:
+            job.returncode = -1
+            job.error = f"{type(exc).__name__}: {exc}"
+            job.status = "failed"
+            if job.stream_to_terminal:
+                print(f"[demo:{job.job_id}] {job.error}", flush=True)
+        job.finished_at = time.time()
+
+    def _run_import_cutout_job(self, job: DemoRunJob, parameters: dict[str, Any]) -> None:
+        job.status = "running"
+        try:
+            request = build_import_cutout_request(parameters)
+            if job.stream_to_terminal:
+                print(f"[demo:{job.job_id}] import/cutout layout={request.layout_file}", flush=True)
+                print(f"[demo:{job.job_id}] signal_nets={request.signal_net_patterns} reference_nets={request.reference_net_patterns}", flush=True)
+            if job.adapter == "fake":
+                result = run_fake_import_cutout(request)
+                job.returncode = 0
+            else:
+                result = run_real_import_cutout(
+                    request,
+                    aedt_version=self.aedt_config.version,
+                    cadence_launcher=self.aedt_config.cadence_launcher,
+                )
+                job.returncode = 0
+            (job.run_dir / "import_cutout_summary.json").write_text(
+                json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            job.status = "succeeded"
         except Exception as exc:
             job.returncode = -1
             job.error = f"{type(exc).__name__}: {exc}"
@@ -608,6 +670,9 @@ def _workflow_parameter_default(workflow: Workflow, name: str) -> Any:
 
 def _agent_run_kind(user_request: str) -> str:
     text = user_request.lower()
+    is_import_cutout = any(keyword in text for keyword in ["brd", "mcm", "allegro", "cadence", "cutout", "切割", "导入"])
+    if is_import_cutout:
+        return "import_cutout"
     is_dipole = any(keyword in text for keyword in ["dipole", "偶极子"])
     wants_tuning = any(keyword in text for keyword in ["谐振", "工作在", "落在", "调试", "调整", "优化", "resonance", "tune", "adjust", "optimize"])
     return "dipole_tuning" if is_dipole and wants_tuning else "single_workflow"
@@ -681,6 +746,19 @@ def _llm_tuning_advisor(config: PlannerConfig):
 
 def _read_real_run_artifacts(run_dir: Path) -> dict[str, Any]:
     data: dict[str, Any] = {}
+    import_cutout_path = run_dir / "import_cutout_summary.json"
+    if import_cutout_path.exists():
+        import_cutout = _read_json(import_cutout_path)
+        data["import_cutout"] = import_cutout
+        data["steps"] = import_cutout.get("steps", [])
+        data["outputs"] = {
+            "touchstone": import_cutout.get("touchstone", ""),
+            "tdr": import_cutout.get("tdr", ""),
+            "edb_path": import_cutout.get("edb_path", ""),
+            "aedt_project": import_cutout.get("aedt_project", ""),
+        }
+        data["sparameters"] = _read_demo_sparameters(import_cutout.get("touchstone"), _target_frequency_hz(_read_json(run_dir / "params.json")))
+        data["tdr"] = read_tdr_csv(import_cutout.get("tdr"))
     tuning_path = run_dir / "tuning_result.json"
     if tuning_path.exists():
         tuning_result = _read_json(tuning_path)

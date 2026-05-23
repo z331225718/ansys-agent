@@ -10,10 +10,12 @@ def test_render_demo_page_contains_workspace_sections():
     assert "AEDT Agent End-to-End Demo" in html
     assert "Microstrip S-Parameter Workflow" in html
     assert "Dipole 天线 S11" in html
+    assert "BRD/MCM Cutout S 参数 + TDR" in html
     assert "Dipole Antenna S11 Workflow" in html
     assert "用户需求" in html
     assert "做一个微带线 S 参数仿真" in html
     assert "做一个偶极子天线 S11 仿真" in html
+    assert "导入 /home/zzmjay/work/brd" in html
     assert "syncRequestToParameters" not in html
     assert "changeWorkflow" in html
     assert "derivedDipoleArmLength" not in html
@@ -49,6 +51,11 @@ def test_render_demo_page_contains_workspace_sections():
     assert "S21 at selected frequency" in html
     assert "S-Parameter Sweep" in html
     assert "sparamChart" in html
+    assert "TDR" in html
+    assert "tdrChart" in html
+    assert "Discover BRD/MCM File" in html
+    assert "Create Cutout" in html
+    assert "Configure Stackup" in html
     assert "LLM 交互" in html
     assert "llmLog" in html
     assert "真实 AEDT Smoke" in html
@@ -124,6 +131,29 @@ def test_dispatch_demo_request_starts_agent_run_with_fake_adapter(tmp_path):
     assert status == 202
     assert headers["content-type"] == "application/json; charset=utf-8"
     assert "dipole_tuning" in data
+    assert "job_id" in data
+
+
+def test_dispatch_demo_request_starts_import_cutout_agent_run_with_fake_adapter(tmp_path):
+    layout_file = tmp_path / "case.brd"
+    layout_file.write_text("", encoding="utf-8")
+    service = DemoService(Path("."), run_dir=tmp_path / "run")
+
+    status, headers, body = dispatch_demo_request(
+        "POST",
+        "/api/agent-run",
+        (
+            '{"user_request":"导入 brd 文件，选择 56G tx net cutout，显示 s11 s21 和 tdr",'
+            '"adapter":"fake","stream_to_terminal":false,'
+            f'"parameters":{{"layout_file":"{layout_file}","signal_nets":"*tx0*","reference_nets":"gnd"}}}}'
+        ).encode(),
+        service,
+    )
+
+    data = body.decode("utf-8")
+    assert status == 202
+    assert headers["content-type"] == "application/json; charset=utf-8"
+    assert "import_cutout" in data
     assert "job_id" in data
 
 

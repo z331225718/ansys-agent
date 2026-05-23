@@ -1,0 +1,167 @@
+{
+  "template_id": "import_brd_cutout_sparam_tdr",
+  "name": "3D Layout BRD/MCM Cutout S-Parameter and TDR",
+  "description": "Import a Cadence BRD/MCM file, select nets, create a cutout, configure stackup and ports, solve, then show S11/S21 and TDR.",
+  "scenario": "High-speed board workflow for imported BRD/MCM designs.",
+  "tags": ["hfss-3d-layout", "brd", "mcm", "cutout", "s-parameter", "tdr"],
+  "validation_checks": ["layout_imported", "nets_selected", "cutout_created", "layout_ports_created", "layout_setup_created", "layout_setup_solved", "sparameter_report_created", "tdr_report_created"],
+  "known_limits": [
+    "Real stackup edits and port placement are board-specific and require board rules after the import/cutout step.",
+    "The demo can run fake S-parameter/TDR data for UI rehearsal when AEDT/Cadence import is not available."
+  ],
+  "workflow": {
+    "workflow_id": "import_brd_cutout_sparam_tdr_v1",
+    "name": "Import BRD/MCM Cutout S-Parameter and TDR",
+    "version": "0.1.0",
+    "description": "Controlled 3D Layout workflow for imported high-speed board cutout simulation.",
+    "parameters": [
+      {
+        "name": "layout_file",
+        "type": "string",
+        "default": "/home/zzmjay/work/brd/c03010211_56g_2512031835.brd",
+        "label": "BRD/MCM file"
+      },
+      {
+        "name": "signal_nets",
+        "type": "string",
+        "default": "*56g*tx*",
+        "label": "Signal net wildcard"
+      },
+      {
+        "name": "reference_nets",
+        "type": "string",
+        "default": "GND",
+        "label": "Reference nets"
+      },
+      {
+        "name": "frequency",
+        "type": "string",
+        "default": "28GHz",
+        "unit": "GHz",
+        "label": "Adaptive frequency"
+      },
+      {
+        "name": "sweep_start",
+        "type": "string",
+        "default": "1GHz",
+        "unit": "GHz",
+        "label": "Sweep start"
+      },
+      {
+        "name": "sweep_stop",
+        "type": "string",
+        "default": "56GHz",
+        "unit": "GHz",
+        "label": "Sweep stop"
+      },
+      {
+        "name": "artifact_dir",
+        "type": "string",
+        "default": "benchmarks/runs/stage_c1_demo_latest",
+        "label": "Artifact directory"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "discover_file",
+        "node_id": "import_layout_file",
+        "inputs": {
+          "layout_file": {"$ref": "parameters.layout_file"},
+          "output_dir": {"$ref": "parameters.artifact_dir"}
+        }
+      },
+      {
+        "id": "select_nets",
+        "node_id": "select_layout_nets",
+        "inputs": {
+          "signal_nets": {"$ref": "parameters.signal_nets"},
+          "reference_nets": {"$ref": "parameters.reference_nets"}
+        }
+      },
+      {
+        "id": "cutout",
+        "node_id": "create_layout_cutout",
+        "inputs": {
+          "layout": {"$ref": "discover_file.output.layout_path"},
+          "signal_nets": {"$ref": "select_nets.output.signal_nets"},
+          "reference_nets": {"$ref": "select_nets.output.reference_nets"},
+          "expansion_size": 0.002,
+          "extent_type": "ConvexHull"
+        }
+      },
+      {
+        "id": "stackup",
+        "node_id": "configure_layout_stackup",
+        "inputs": {
+          "layout": {"$ref": "cutout.output.cutout_name"},
+          "stackup_rule": "preserve_board_stackup"
+        }
+      },
+      {
+        "id": "ports",
+        "node_id": "create_layout_ports",
+        "inputs": {
+          "layout": {"$ref": "cutout.output.cutout_name"},
+          "signal_nets": {"$ref": "select_nets.output.signal_nets"},
+          "reference_nets": {"$ref": "select_nets.output.reference_nets"},
+          "port_rule": "pin_or_cutout_edge_ports",
+          "impedance": 50
+        }
+      },
+      {
+        "id": "setup",
+        "node_id": "create_layout_setup",
+        "inputs": {
+          "frequency": {"$ref": "parameters.frequency"},
+          "sweep_start": {"$ref": "parameters.sweep_start"},
+          "sweep_stop": {"$ref": "parameters.sweep_stop"},
+          "sweep_type": "Interpolating",
+          "name": "Setup1"
+        }
+      },
+      {
+        "id": "solve",
+        "node_id": "solve_layout",
+        "inputs": {
+          "setup": {"$ref": "setup.output.setup_name"}
+        }
+      },
+      {
+        "id": "postprocess",
+        "node_id": "create_layout_sparam_tdr_report",
+        "inputs": {
+          "setup": {"$ref": "setup.output.setup_name"},
+          "output_dir": {"$ref": "parameters.artifact_dir"},
+          "touchstone_name": "import_cutout_demo.s2p",
+          "tdr_name": "import_cutout_tdr.csv"
+        }
+      }
+    ],
+    "edges": [
+      {"from": "discover_file.output.layout_path", "to": "cutout.inputs.layout"},
+      {"from": "select_nets.output.signal_nets", "to": "cutout.inputs.signal_nets"},
+      {"from": "select_nets.output.reference_nets", "to": "cutout.inputs.reference_nets"},
+      {"from": "cutout.output.cutout_name", "to": "stackup.inputs.layout"},
+      {"from": "cutout.output.cutout_name", "to": "ports.inputs.layout"},
+      {"from": "setup.output.setup_name", "to": "solve.inputs.setup"},
+      {"from": "setup.output.setup_name", "to": "postprocess.inputs.setup"}
+    ],
+    "validation": [],
+    "outputs": [
+      {
+        "name": "touchstone",
+        "source": "postprocess.output.touchstone_path",
+        "description": "Exported S11/S21 Touchstone file."
+      },
+      {
+        "name": "tdr",
+        "source": "postprocess.output.tdr_path",
+        "description": "Exported TDR CSV file."
+      }
+    ],
+    "metadata": {
+      "stage": "C",
+      "demo": true
+    }
+  }
+}

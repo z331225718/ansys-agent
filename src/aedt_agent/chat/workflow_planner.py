@@ -75,6 +75,7 @@ class ChatWorkflowPlanner:
 def _select_template(request: str, templates: WorkflowTemplateCatalog) -> str | None:
     lowered = request.lower()
     candidates = {
+        "import_brd_cutout_sparam_tdr": ["brd", "mcm", "cutout", "cadence", "allegro", "tdr", "切割", "导入"],
         "dipole_antenna_s11_farfield": ["dipole", "偶极子", "far field", "farfield", "gain pattern", "方向图", "增益"],
         "microstrip_sparameter": ["microstrip", "s-parameter", "s parameter", "transmission line"],
         "wave_port_setup": ["wave port", "waveport", "port face"],

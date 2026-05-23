@@ -36,7 +36,7 @@ def render_demo_page() -> str:
     <div>
       <div class="kicker">Controlled AEDT Agent Demo</div>
       <h1>AEDT Agent End-to-End Demo</h1>
-      <p class="muted">LLM 先把自然语言仿真需求规划成受控 workflow，后端 validator 接受后再驱动真实 AEDT 创建模型、求解并读取结果。当前演示支持微带线 S 参数和偶极子天线两条 workflow。</p>
+      <p class="muted">LLM 先把自然语言仿真需求规划成受控 workflow，后端 validator 接受后再驱动真实 AEDT 创建模型、求解并读取结果。当前演示支持微带线、偶极子天线和 BRD/MCM 导入 cutout 高频链路。</p>
     </div>
     <div class="status-pill"><span class="dot"></span>Real AEDT graphical run</div>
   </section>
@@ -49,6 +49,7 @@ def render_demo_page() -> str:
         <select id="workflowSelect" onchange="changeWorkflow(this.value)">
           <option value="microstrip_sparameter">Microstrip S 参数</option>
           <option value="dipole_antenna_s11_farfield">Dipole 天线 S11</option>
+          <option value="import_brd_cutout_sparam_tdr">BRD/MCM Cutout S 参数 + TDR</option>
         </select>
       </div>
       <div class="field">
@@ -87,6 +88,10 @@ def render_demo_page() -> str:
       <div class="chart">
         <div class="chart-head"><b>S-Parameter Sweep</b><div class="legend"><span><i class="s11"></i>S11</span><span><i class="s21"></i>S21</span></div></div>
         <svg id="sparamChart" viewBox="0 0 300 220" role="img" aria-label="S11 and S21 versus frequency"></svg>
+      </div>
+      <div class="chart">
+        <div class="chart-head"><b>TDR</b><div class="legend"><span><i class="s21"></i>Impedance</span></div></div>
+        <svg id="tdrChart" viewBox="0 0 300 160" role="img" aria-label="TDR impedance versus time"></svg>
       </div>
       <div class="result">
         <div class="metric"><strong id="statusMetric">not run</strong><span>Status</span></div>
@@ -155,6 +160,25 @@ const WORKFLOWS = {
       ['solve','Solve Setup','运行 AEDT 仿真'],
       ['s11_report','Postprocess S11','生成 S11 报告和 Touchstone'],
       ['validation','Validate Result','校验端口、边界、报告和 artifact']
+    ]
+  },
+  import_brd_cutout_sparam_tdr: {
+    title: 'BRD/MCM Cutout S-Parameter + TDR Workflow',
+    request: '导入 /home/zzmjay/work/brd/c03010211_56g_2512031835.brd，选择 56G TX net，参考 GND，cutout 后设置端口、求解，显示 S11/S21 和 TDR。',
+    expected: 'BRD/MCM · Net wildcard · Cutout · Stackup · Ports · S2P · TDR',
+    s21Label: 'S21 at selected frequency',
+    diagram: '<div class="air"></div><div class="substrate" style="bottom:56px;height:48px"></div><div class="trace" style="left:42px;right:42px;bottom:109px"></div><div class="trace" style="left:74px;right:102px;bottom:82px;background:#0f766e"></div><div class="port p1" style="left:58px;height:68px"></div><div class="port p2" style="right:58px;height:68px"></div><div class="diagram-label l1">Imported BRD/MCM nets</div><div class="diagram-label l2">Cutout + ports + TDR</div>',
+    steps: [
+      ['discover_file','Discover BRD/MCM File','从 ~/work 发现或使用用户指定文件'],
+      ['import_layout','Import Layout','带 Cadence 环境导入 BRD/MCM'],
+      ['select_nets','Select Nets','展开 signal/reference net 通配符'],
+      ['cutout','Create Cutout','按选中 net 创建 EDB cutout'],
+      ['stackup','Configure Stackup','保留或设置板级叠层'],
+      ['ports','Create Ports','按 board rule 创建端口'],
+      ['setup','Create Setup/Sweep','创建 3D Layout setup 和扫频'],
+      ['solve','Solve Layout','运行 3D Layout 仿真'],
+      ['postprocess','Postprocess S/TDR','导出 S11/S21 和 TDR'],
+      ['validation','Validate Result','校验文件、net、artifact 和曲线']
     ]
   }
 };
@@ -280,6 +304,7 @@ function renderResult(result) {
   renderSParameters(result.sparameters || {});
   document.getElementById('rawResult').textContent = JSON.stringify(result, null, 2);
   document.getElementById('artifacts').innerHTML = Object.entries(result.artifacts || {}).map(([key,value]) => `<a class="artifact" href="/${value}" target="_blank"><b>${key}</b><br>${value}</a>`).join('');
+  renderTdr(result.tdr || {});
 }
 function renderSParameters(sparameters) {
   const selected = sparameters.selected || {};
@@ -287,6 +312,34 @@ function renderSParameters(sparameters) {
   document.getElementById('s21Metric').textContent = currentTemplateId === 'dipole_antenna_s11_farfield' ? 'InfiniteSphere1' : (Number.isFinite(selected.s21_db) ? `${selected.s21_db.toFixed(2)} dB` : '--');
   document.getElementById('freqMetric').textContent = selected.frequency ? `${selected.frequency} ${sparameters.frequency_unit || ''}` : '--';
   renderSParameterChart(sparameters.samples || [], sparameters.frequency_unit || '');
+}
+function renderTdr(tdr) {
+  const svg = document.getElementById('tdrChart');
+  const samples = (tdr.samples || []).filter(item => Number.isFinite(item.time_ps) && Number.isFinite(item.impedance_ohm));
+  if (samples.length < 2) {
+    svg.innerHTML = `<text x="150" y="82" text-anchor="middle" fill="#637083" font-size="12">waiting for TDR data</text>`;
+    return;
+  }
+  const width = 300, height = 160, left = 42, right = 12, top = 14, bottom = 30;
+  const plotW = width - left - right, plotH = height - top - bottom;
+  const xs = samples.map(item => item.time_ps);
+  const ys = samples.map(item => item.impedance_ohm);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.floor((Math.min(...ys) - 2) / 5) * 5;
+  const maxY = Math.ceil((Math.max(...ys) + 2) / 5) * 5;
+  const x = value => left + ((value - minX) / (maxX - minX || 1)) * plotW;
+  const y = value => top + ((maxY - value) / (maxY - minY || 1)) * plotH;
+  const path = samples.map((item, index) => `${index ? 'L' : 'M'}${x(item.time_ps).toFixed(2)},${y(item.impedance_ohm).toFixed(2)}`).join(' ');
+  svg.innerHTML = `
+    <rect x="0" y="0" width="${width}" height="${height}" fill="#fff"/>
+    <line x1="${left}" y1="${y(50)}" x2="${width - right}" y2="${y(50)}" stroke="#e5e7eb" stroke-dasharray="4 4"/>
+    <line x1="${left}" y1="${top}" x2="${left}" y2="${height - bottom}" stroke="#cbd5e1"/>
+    <line x1="${left}" y1="${height - bottom}" x2="${width - right}" y2="${height - bottom}" stroke="#cbd5e1"/>
+    <path d="${path}" fill="none" stroke="#b7791f" stroke-width="2.4"/>
+    <text x="${left - 8}" y="${y(50) + 4}" text-anchor="end" fill="#637083" font-size="10">50</text>
+    <text x="${left}" y="${height - 8}" fill="#637083" font-size="10">${minX.toFixed(0)} ps</text>
+    <text x="${width - right}" y="${height - 8}" text-anchor="end" fill="#637083" font-size="10">${maxX.toFixed(0)} ps</text>
+  `;
 }
 function renderSParameterChart(samples, unit) {
   const svg = document.getElementById('sparamChart');
@@ -394,6 +447,7 @@ async function runOfflineDemo() {
 }
 renderWorkflowChrome();
 renderSParameterChart([], '');
+renderTdr({});
 </script>
 </body>
 </html>

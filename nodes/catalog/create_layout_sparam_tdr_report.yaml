@@ -1,0 +1,12 @@
+node_id: create_layout_sparam_tdr_report
+summary: Export S11/S21 Touchstone data and TDR data from a solved 3D Layout design.
+allowed_apis:
+  - Hfss3dLayout.export_touchstone
+  - Hfss3dLayout.post.create_report
+inputs:
+  required: [setup]
+outputs:
+  creates: [report, touchstone, tdr]
+prerequisites:
+  - solve_layout
+examples: [import_brd_cutout_sparam_tdr]

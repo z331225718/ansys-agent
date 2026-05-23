@@ -1,0 +1,12 @@
+node_id: create_layout_setup
+summary: Create a 3D Layout adaptive setup and sweep.
+allowed_apis:
+  - Hfss3dLayout.create_setup
+  - Hfss3dLayout.create_linear_count_sweep
+inputs:
+  required: [frequency]
+outputs:
+  creates: [setup, sweep]
+prerequisites:
+  - create_layout_ports
+examples: [import_brd_cutout_sparam_tdr]

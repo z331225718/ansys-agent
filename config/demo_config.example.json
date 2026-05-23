@@ -20,6 +20,7 @@
     "non_graphical": true,
     "ansysem_root": "~/ansys_inc/v261/AnsysEM",
     "awp_root": "~/ansys_inc/v261",
-    "timeout": 900
+    "timeout": 900,
+    "cadence_launcher": "~/code/start_aedt_cadence.sh"
   }
 }

@@ -81,6 +81,17 @@ class NodeExecutor:
             return lambda app: _create_farfield_setup(app, inputs)
         if node_id == "create_antenna_report":
             return lambda app: _create_antenna_report(app, inputs)
+        if node_id in {
+            "import_layout_file",
+            "select_layout_nets",
+            "create_layout_cutout",
+            "configure_layout_stackup",
+            "create_layout_ports",
+            "create_layout_setup",
+            "solve_layout",
+            "create_layout_sparam_tdr_report",
+        }:
+            return lambda app: _layout_placeholder_node(node_id, inputs)
         raise KeyError(node_id)
 
 
@@ -460,6 +471,28 @@ def _create_antenna_report(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
     if inputs.get("export_report") and inputs.get("output_dir") and hasattr(app.post, "export_report_to_file"):
         output["report_path"] = str(app.post.export_report_to_file(inputs["output_dir"], report_name, "csv"))
     return output
+
+
+def _layout_placeholder_node(node_id: str, inputs: dict[str, Any]) -> dict[str, Any]:
+    names = {
+        "import_layout_file": {"layout_path": inputs.get("layout_file", ""), "layout_name": Path(str(inputs.get("layout_file", "layout"))).stem},
+        "select_layout_nets": {"signal_nets": inputs.get("signal_nets"), "reference_nets": inputs.get("reference_nets")},
+        "create_layout_cutout": {"cutout_name": "LayoutCutout"},
+        "configure_layout_stackup": {"stackup_name": str(inputs.get("stackup_rule", "preserve_board_stackup"))},
+        "create_layout_ports": {"port_names": ["P1", "P2"]},
+        "create_layout_setup": {"setup_name": inputs.get("name", "Setup1"), "sweep_name": "Sweep1"},
+        "solve_layout": {"solved_setup": inputs.get("setup", "Setup1")},
+        "create_layout_sparam_tdr_report": {
+            "touchstone_path": str(Path(inputs.get("output_dir") or ".") / inputs.get("touchstone_name", "import_cutout_demo.s2p")),
+            "tdr_path": str(Path(inputs.get("output_dir") or ".") / inputs.get("tdr_name", "import_cutout_tdr.csv")),
+        },
+    }
+    return {
+        "created": {"objects": [], "ports": [], "boundaries": [], "setups": [], "sweeps": [], "farfields": [], "reports": []},
+        "output": names.get(node_id, {}),
+        **names.get(node_id, {}),
+        "postcheck": {"passed": True, "checks": [f"{node_id}_accepted"]},
+    }
 
 
 def _aedt_object_name(value: Any, fallback: str) -> str:

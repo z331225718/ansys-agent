@@ -1,0 +1,11 @@
+node_id: import_layout_file
+summary: Import a Cadence BRD/MCM layout into EDB/3D Layout.
+allowed_apis:
+  - pyedb.Edb.import_layout_file
+  - Hfss3dLayout.import_edb
+inputs:
+  required: [layout_file]
+outputs:
+  creates: [layout]
+prerequisites: []
+examples: [import_brd_cutout_sparam_tdr]

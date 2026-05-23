@@ -129,6 +129,46 @@ NODE_SCHEMAS: dict[str, NodeInputSchema] = {
             "export_report": False,
         },
     ),
+    "import_layout_file": NodeInputSchema(
+        required={"layout_file": str},
+        optional={"output_dir": str},
+        defaults={},
+    ),
+    "select_layout_nets": NodeInputSchema(
+        required={"signal_nets": (str, list), "reference_nets": (str, list)},
+        optional={},
+        defaults={},
+    ),
+    "create_layout_cutout": NodeInputSchema(
+        required={"layout": (str, dict), "signal_nets": (str, list, dict), "reference_nets": (str, list, dict)},
+        optional={"expansion_size": (int, float), "extent_type": str},
+        defaults={"expansion_size": 0.002, "extent_type": "ConvexHull"},
+    ),
+    "configure_layout_stackup": NodeInputSchema(
+        required={"layout": (str, dict)},
+        optional={"stackup_rule": str},
+        defaults={"stackup_rule": "preserve_board_stackup"},
+    ),
+    "create_layout_ports": NodeInputSchema(
+        required={"layout": (str, dict), "signal_nets": (str, list, dict), "reference_nets": (str, list, dict)},
+        optional={"port_rule": str, "impedance": (int, float, str)},
+        defaults={"port_rule": "pin_or_cutout_edge_ports", "impedance": 50},
+    ),
+    "create_layout_setup": NodeInputSchema(
+        required={"frequency": (str, int, float)},
+        optional={"name": str, "sweep_start": (str, int, float), "sweep_stop": (str, int, float), "sweep_type": str},
+        defaults={"name": "Setup1", "sweep_start": "1GHz", "sweep_stop": "56GHz", "sweep_type": "Interpolating"},
+    ),
+    "solve_layout": NodeInputSchema(
+        required={"setup": (str, dict)},
+        optional={"cores": int},
+        defaults={},
+    ),
+    "create_layout_sparam_tdr_report": NodeInputSchema(
+        required={"setup": (str, dict)},
+        optional={"output_dir": str, "touchstone_name": str, "tdr_name": str},
+        defaults={"touchstone_name": "import_cutout_demo.s2p", "tdr_name": "import_cutout_tdr.csv"},
+    ),
 }
 
 

@@ -14,6 +14,7 @@ def test_template_catalog_loads_starter_templates():
 
     assert set(catalog.templates) == {
         "dipole_antenna_s11_farfield",
+        "import_brd_cutout_sparam_tdr",
         "microstrip_sparameter",
         "radiation_airbox_setup",
         "wave_port_setup",
@@ -27,7 +28,7 @@ def test_templates_export_ui_safe_summary():
     payload = catalog.to_ui_dict()
 
     assert payload["version"] == "0.1.0"
-    assert len(payload["templates"]) == 4
+    assert len(payload["templates"]) == 5
     assert all("workflow" not in item for item in payload["templates"])
     assert all(item["node_count"] > 0 for item in payload["templates"])
     assert all(item["parameters"] is not None for item in payload["templates"])
@@ -148,6 +149,23 @@ def test_dipole_template_allows_llm_to_override_arm_length_for_tuning():
     assert defaults["left_arm_origin"] == [-31.5, 0, 0]
     assert defaults["right_arm_origin"] == [0.5, 0, 0]
     assert _validator().validate(workflow).passed is True
+
+
+def test_import_cutout_template_uses_layout_specific_nodes():
+    template = WorkflowTemplate.from_file(Path("workflow_templates/import_brd_cutout_sparam_tdr.json"))
+    node_ids = [node.node_id for node in template.workflow.nodes]
+
+    assert node_ids == [
+        "import_layout_file",
+        "select_layout_nets",
+        "create_layout_cutout",
+        "configure_layout_stackup",
+        "create_layout_ports",
+        "create_layout_setup",
+        "solve_layout",
+        "create_layout_sparam_tdr_report",
+    ]
+    assert _validator().validate(template.workflow).passed is True
 
 
 def test_template_full_dict_includes_workflow_for_chat_planner():

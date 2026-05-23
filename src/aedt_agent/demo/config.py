@@ -35,6 +35,7 @@ class AedtConfig:
     ansysem_root: str = "~/ansys_inc/v261/AnsysEM"
     awp_root: str = "~/ansys_inc/v261"
     timeout: int = 900
+    cadence_launcher: str = "~/code/start_aedt_cadence.sh"
 
 
 @dataclass(frozen=True)

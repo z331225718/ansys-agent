@@ -1,0 +1,11 @@
+node_id: solve_layout
+summary: Solve a 3D Layout setup.
+allowed_apis:
+  - Hfss3dLayout.analyze_setup
+inputs:
+  required: [setup]
+outputs:
+  creates: [solve_result]
+prerequisites:
+  - create_layout_setup
+examples: [import_brd_cutout_sparam_tdr]

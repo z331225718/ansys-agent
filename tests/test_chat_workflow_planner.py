@@ -78,6 +78,15 @@ def test_chat_planner_separates_setup_frequency_from_resonance_target():
     assert output.validation_errors == []
 
 
+def test_chat_planner_selects_import_cutout_template_for_board_request():
+    output = ChatWorkflowPlanner().plan(_planner_input("导入 brd 文件，选择 56G tx net cutout，显示 s11 s21 和 tdr"))
+
+    assert output.selected_template == "import_brd_cutout_sparam_tdr"
+    assert output.generated_workflow is not None
+    assert output.generated_workflow.workflow_id == "import_brd_cutout_sparam_tdr_v1"
+    assert output.validation_errors == []
+
+
 def test_chat_planner_keeps_decimal_resonance_target():
     output = ChatWorkflowPlanner().plan(_planner_input("偶极子工作在3.1GHz，让谐振点落在3.1GHz"))
 

@@ -1,0 +1,11 @@
+node_id: select_layout_nets
+summary: Select signal and reference nets from an imported layout, supporting exact names and wildcards.
+allowed_apis:
+  - pyedb.Edb.nets
+inputs:
+  required: [signal_nets, reference_nets]
+outputs:
+  creates: [net_selection]
+prerequisites:
+  - import_layout_file
+examples: [import_brd_cutout_sparam_tdr]
