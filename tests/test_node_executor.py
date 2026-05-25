@@ -48,6 +48,54 @@ def test_node_executor_rejects_unknown_node(tmp_path):
     assert result.error_type == "UnknownNode"
 
 
+def test_node_executor_plans_layout_ports_from_candidate_report(tmp_path):
+    manager, executor = _executor(tmp_path)
+    session = manager.create_session("p1", "d1")
+
+    result = executor.execute_node(
+        session.ref.session_id,
+        "create_layout_ports",
+        {
+            "layout": "LayoutCutout",
+            "signal_nets": ["P", "N"],
+            "reference_nets": ["GND"],
+            "port_candidates": {
+                "status": "ready",
+                "signal_nets": ["P", "N"],
+                "reference_nets": ["GND"],
+                "recommended_endpoints": [
+                    {
+                        "name": "U1",
+                        "components": ["U1"],
+                        "partname": "BGA_DEVICE",
+                        "component_type": "ic",
+                        "pins": [
+                            {"pin": "A1", "net": "P", "position": [0, 0], "padstack": "BALL20"},
+                            {"pin": "A2", "net": "N", "position": [1, 0], "padstack": "BALL20"},
+                            {"pin": "A3", "net": "GND", "position": [0.5, 0], "padstack": "BALL20"},
+                        ],
+                    },
+                    {
+                        "name": "J1",
+                        "components": ["J1"],
+                        "partname": "CONNECTOR",
+                        "component_type": "io",
+                        "pins": [
+                            {"pin": "1", "net": "P", "position": [5, 0], "padstack": "RECT", "start_layer": "L2_GND"},
+                            {"pin": "2", "net": "N", "position": [6, 0], "padstack": "RECT", "start_layer": "L2_GND"},
+                            {"pin": "3", "net": "GND", "position": [5.5, 0], "padstack": "RECT", "start_layer": "L2_GND"},
+                        ],
+                    },
+                ],
+            },
+        },
+    )
+
+    assert result.status == ExecutionStatus.SUCCEEDED
+    assert result.output["port_action_plan"]["port_actions"][0]["strategy"] == "component_cylinder_port"
+    assert result.output["port_action_plan"]["port_actions"][1]["strategy"] == "toggle_via_pin_gap_port"
+
+
 def test_node_executor_selects_face_from_object(tmp_path):
     manager, executor = _executor(tmp_path)
     session = manager.create_session("p1", "d1")
@@ -262,6 +310,74 @@ def test_node_executor_solves_and_creates_sparameter_report(tmp_path):
     assert report.status == ExecutionStatus.SUCCEEDED
     assert state["reports"]["Demo S-Parameters"]["type"] == "sparameter"
     assert Path(report.output["touchstone_path"]).exists()
+
+
+def test_node_executor_layout_placeholders_preserve_high_speed_settings(tmp_path):
+    manager, executor = _executor(tmp_path)
+    session = manager.create_session("p1", "d1")
+
+    ports = executor.execute_node(
+        session.ref.session_id,
+        "create_layout_ports",
+        {
+            "layout": "LayoutCutout",
+            "signal_nets": ["P", "N"],
+            "reference_nets": ["GND"],
+            "port_candidates": {
+                "status": "ready",
+                "signal_nets": ["P", "N"],
+                "reference_nets": ["GND"],
+                "recommended_endpoints": [
+                    {
+                        "name": "U1",
+                        "components": ["U1"],
+                        "partname": "BGA_DEVICE",
+                        "component_type": "ic",
+                        "pins": [
+                            {"pin": "A1", "net": "P", "position": [0, 0], "padstack": "BALL20"},
+                            {"pin": "A2", "net": "N", "position": [1, 0], "padstack": "BALL20"},
+                            {"pin": "A3", "net": "GND", "position": [0.5, 0], "padstack": "BALL20"},
+                        ],
+                    },
+                    {
+                        "name": "U2",
+                        "components": ["U2"],
+                        "partname": "BGA_DEVICE",
+                        "component_type": "ic",
+                        "pins": [
+                            {"pin": "B1", "net": "P", "position": [5, 0], "padstack": "BALL20"},
+                            {"pin": "B2", "net": "N", "position": [6, 0], "padstack": "BALL20"},
+                            {"pin": "B3", "net": "GND", "position": [5.5, 0], "padstack": "BALL20"},
+                        ],
+                    },
+                ],
+            },
+            "solderball_diameter": "18mil",
+            "solderball_height": "8mil",
+        },
+    )
+    setup = executor.execute_node(
+        session.ref.session_id,
+        "create_layout_setup",
+        {
+            "frequency": "28GHz",
+            "sweep_start": "0GHz",
+            "sweep_stop": "67GHz",
+            "sweep_points": 501,
+            "use_q3d_for_dc": True,
+        },
+    )
+
+    assert ports.status == ExecutionStatus.SUCCEEDED
+    assert ports.output["postcheck"]["experimental"] is True
+    assert "experimental" in ports.output["postcheck"]["note"]
+    assert ports.output["port_action_plan"]["port_actions"][0]["solderball_diameter"] == "18mil"
+    assert ports.output["port_action_plan"]["port_actions"][0]["solderball_height"] == "8mil"
+    assert setup.status == ExecutionStatus.SUCCEEDED
+    assert setup.output["sweep_start"] == "0GHz"
+    assert setup.output["sweep_stop"] == "67GHz"
+    assert setup.output["sweep_points"] == 501
+    assert setup.output["use_q3d_for_dc"] is True
 
 
 def test_node_executor_creates_cylinder_geometry_for_dipole_arm(tmp_path):

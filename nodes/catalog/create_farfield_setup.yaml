@@ -1,5 +1,7 @@
 node_id: create_farfield_setup
 summary: Create an infinite-sphere far-field setup for antenna radiation reports.
+status: candidate
+track: postprocess
 allowed_apis:
   - Hfss.insert_infinite_sphere
 inputs:

@@ -1,5 +1,7 @@
 node_id: solve_layout
 summary: Solve a 3D Layout setup.
+status: experimental
+track: layout-brd
 allowed_apis:
   - Hfss3dLayout.analyze_setup
 inputs:

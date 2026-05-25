@@ -1,17 +1,28 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
-from aedt_agent.mcp.tools import create_fake_kernel
+from aedt_agent.mcp.tools import create_kernel
 
 
-def create_server(node_catalog_dir: Path = Path("nodes/catalog")):
+def create_server(
+    node_catalog_dir: Path = Path("nodes/catalog"),
+    adapter: str | None = None,
+    audit_path: Path | None = None,
+    dev_mode: bool = False,
+):
     try:
         from fastmcp import FastMCP
     except ImportError as exc:
         raise RuntimeError("Install the mcp extra to run the FastMCP server: pip install -e .[mcp]") from exc
 
-    kernel = create_fake_kernel(node_catalog_dir)
+    kernel = create_kernel(
+        adapter=adapter or os.environ.get("AEDT_AGENT_MCP_ADAPTER", "fake"),
+        node_catalog_dir=node_catalog_dir,
+        audit_path=audit_path,
+        dev_mode=dev_mode,
+    )
     server = FastMCP("aedt-agent")
 
     @server.tool()

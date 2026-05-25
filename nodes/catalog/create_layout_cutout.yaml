@@ -1,11 +1,13 @@
 node_id: create_layout_cutout
-summary: Create an EDB cutout around selected signal nets with reference nets.
+summary: Create a multi-threaded PyEDB cutout around selected signal nets with reference nets.
+status: experimental
+track: layout-brd
 allowed_apis:
   - pyedb.Edb.cutout
 inputs:
   required: [layout, signal_nets, reference_nets]
 outputs:
-  creates: [cutout]
+  creates: [cutout_edb, hfss3dlayout_project]
 prerequisites:
   - select_layout_nets
 examples: [import_brd_cutout_sparam_tdr]

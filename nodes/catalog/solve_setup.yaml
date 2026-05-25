@@ -1,5 +1,7 @@
 node_id: solve_setup
 summary: Solve an existing HFSS setup.
+status: candidate
+track: hfss-core
 allowed_apis:
   - Hfss.analyze_setup
 inputs:

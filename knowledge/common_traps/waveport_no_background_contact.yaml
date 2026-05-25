@@ -1,0 +1,17 @@
+trap_id: waveport_no_background_contact
+domain: hfss
+applies_to:
+  - Hfss.wave_port
+  - create_wave_port
+description: Wave ports in HFSS must be assigned to an exterior face or a sheet that reaches the simulation background; buried internal faces frequently fail or solve incorrectly.
+symptom: AEDT rejects the wave port or the solved port behavior does not represent the intended feed.
+root_cause: The selected port face is internal to the model or does not touch the background/open region.
+why_silent: A generated script can create plausible geometry and still choose a physically invalid wave-port face.
+detection_rule: validate_wave_port_assignment_touches_background
+detection: Check that the wave-port assignment is an exterior face or sheet touching the background/open region.
+avoidance:
+  - Prefer lumped ports for microstrip demo workflows unless a true exterior wave-port face is modeled.
+  - When using wave ports, select the terminal face at the air/background boundary and verify the integration line.
+validation_rule: validate_wave_port_assignment_touches_background
+prevention: Prefer lumped ports for internal microstrip feeds; use wave ports only on a true exterior terminal face with a valid integration line.
+source: "Local Stage B wave-port smoke and PyAEDT wave_port API behavior."

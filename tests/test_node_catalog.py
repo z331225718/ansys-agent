@@ -17,6 +17,7 @@ def test_node_catalog_exports_all_executable_nodes():
         "create_antenna_report",
         "create_farfield_setup",
         "create_layout_cutout",
+        "locate_layout_port_candidates",
         "create_layout_ports",
         "create_layout_setup",
         "create_layout_sparam_tdr_report",
@@ -56,7 +57,7 @@ def test_catalog_json_is_serializable_and_frontend_safe():
     encoded = json.dumps(payload)
 
     assert payload["version"] == "0.1.0"
-    assert len(payload["nodes"]) == 21
+    assert len(payload["nodes"]) == 22
     assert "function" not in encoded
     assert "callable" not in encoded
     assert "/home/" not in encoded

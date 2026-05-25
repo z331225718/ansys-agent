@@ -106,6 +106,16 @@ Node Evolution Proposal
 - chat planner 当前是确定性骨架，后续可接主模型，但输出仍必须限制为 workflow JSON。
 - node evolution 只生成 proposal，不自动发布 stable 节点。
 
+## Validation 边界
+
+当前系统的验证分三层：
+
+1. 结构性验证：检查对象、材料、端口、边界、setup、sweep、report 是否按 workflow 预期创建。
+2. 结果文件验证：检查 Touchstone、CSV、TDR 等文件是否存在、可解析，且频率范围覆盖用户目标。
+3. 电磁语义验证：只在少数模板中使用启发式规则，例如谐振点是否接近目标频率；这不是完整电磁正确性证明。
+
+因此，当前结论应表述为“受控 workflow 能稳定生成并验证 AEDT 模型结构和基础结果文件”，不应表述为“自动保证仿真设计物理正确”。
+
 ## 下一步建议
 
 Stage C.1 的下一步是把当前产品骨架变成可操作 demo。启动命令：

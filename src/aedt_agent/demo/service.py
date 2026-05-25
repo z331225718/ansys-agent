@@ -283,11 +283,14 @@ class DemoService:
         if adapter not in {"real", "fake"}:
             raise ValueError("adapter must be real or fake")
         stream_to_terminal = bool(payload.get("stream_to_terminal", True))
-        parameters = _parameters_from_payload(payload)
+        parameters = {
+            **_template_default_parameters(self._template_catalog(), "import_brd_cutout_sparam_tdr"),
+            **_parameters_from_payload(payload),
+        }
         job_id = uuid.uuid4().hex[:12]
         run_dir = self.real_run_root / f"stage_c_import_cutout_{job_id}"
         run_dir.mkdir(parents=True, exist_ok=True)
-        parameters.setdefault("artifact_dir", str(run_dir.resolve()))
+        parameters["artifact_dir"] = str(run_dir.resolve())
         (run_dir / "params.json").write_text(json.dumps(parameters, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         job = DemoRunJob(
             job_id=job_id,
@@ -471,20 +474,36 @@ class DemoService:
             if job.adapter == "fake":
                 result = run_fake_import_cutout(request)
                 job.returncode = 0
-            else:
-                result = run_real_import_cutout(
-                    request,
-                    aedt_version=self.aedt_config.version,
-                    cadence_launcher=self.aedt_config.cadence_launcher,
-                    ansysem_root=self.aedt_config.ansysem_root,
-                    awp_root=self.aedt_config.awp_root,
+                (job.run_dir / "import_cutout_summary.json").write_text(
+                    json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
                 )
-                job.returncode = 0
-            (job.run_dir / "import_cutout_summary.json").write_text(
-                json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
-            job.status = "succeeded"
+            else:
+                params_path = job.run_dir / "params.json"
+                parameters = dict(parameters)
+                parameters.setdefault("artifact_dir", str(job.run_dir.resolve()))
+                params_path.write_text(json.dumps(parameters, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+                command = self._import_cutout_command(job, params_path)
+                header = f"Starting BRD/MCM import-cutout model build.\nCommand: {' '.join(command)}\n"
+                (job.run_dir / "stdout.log").write_text(header, encoding="utf-8")
+                if job.stream_to_terminal:
+                    print(f"[demo:{job.job_id}] {header.rstrip()}", flush=True)
+                process = subprocess.Popen(
+                    command,
+                    cwd=self.repo_root,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    bufsize=1,
+                )
+                job.returncode = _stream_process_logs(
+                    process,
+                    stdout_path=job.run_dir / "stdout.log",
+                    stderr_path=job.run_dir / "stderr.log",
+                    terminal_prefix=f"[demo:{job.job_id}]",
+                    stream_to_terminal=job.stream_to_terminal,
+                )
+            job.status = "succeeded" if job.returncode == 0 else "failed"
         except Exception as exc:
             job.returncode = -1
             job.error = f"{type(exc).__name__}: {exc}"
@@ -492,6 +511,28 @@ class DemoService:
             if job.stream_to_terminal:
                 print(f"[demo:{job.job_id}] {job.error}", flush=True)
         job.finished_at = time.time()
+
+    def _import_cutout_command(self, job: DemoRunJob, params_path: Path) -> list[str]:
+        command = [
+            sys.executable,
+            str(self.repo_root / "scripts/run_stage_c_import_cutout.py"),
+            "--adapter",
+            job.adapter,
+            "--params",
+            str(params_path),
+            "--run-dir",
+            str(job.run_dir),
+            "--aedt-version",
+            self.aedt_config.version,
+            "--ansysem-root",
+            self.aedt_config.ansysem_root,
+            "--awp-root",
+            self.aedt_config.awp_root,
+        ]
+        if self.aedt_config.cadence_launcher:
+            command.extend(["--cadence-launcher", self.aedt_config.cadence_launcher])
+        command.append("--graphical" if job.graphical else "--non-graphical")
+        return command
 
     def _run_real_dipole_tuning_rounds(self, job: DemoRunJob, parameters: dict[str, Any]) -> list[dict[str, Any]]:
         frequency = _tuning_target_frequency(parameters)
@@ -668,6 +709,15 @@ def _workflow_parameter_default(workflow: Workflow, name: str) -> Any:
         if parameter.name == name:
             return parameter.default
     return None
+
+
+def _template_default_parameters(catalog: WorkflowTemplateCatalog, template_id: str) -> dict[str, Any]:
+    workflow = catalog.get(template_id).workflow
+    return {
+        parameter.name: parameter.default
+        for parameter in workflow.parameters
+        if parameter.default not in (None, "")
+    }
 
 
 def _agent_run_kind(user_request: str) -> str:

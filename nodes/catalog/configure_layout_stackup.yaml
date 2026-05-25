@@ -1,9 +1,12 @@
 node_id: configure_layout_stackup
-summary: Preserve or adjust the board stackup before 3D Layout simulation.
+summary: Load a stackup XML through HFSS 3D Layout after the cutout EDB is opened as a 3D Layout project.
+status: experimental
+track: layout-brd
 allowed_apis:
-  - pyedb.Edb.stackup
+  - Hfss3dLayout.modeler.oeditor.ImportStackupXML
 inputs:
   required: [layout]
+  optional: [stackup_xml, stackup_rule]
 outputs:
   creates: [stackup]
 prerequisites:

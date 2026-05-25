@@ -131,8 +131,8 @@ NODE_SCHEMAS: dict[str, NodeInputSchema] = {
     ),
     "import_layout_file": NodeInputSchema(
         required={"layout_file": str},
-        optional={"output_dir": str},
-        defaults={},
+        optional={"output_dir": str, "import_backend": str, "edb_backend": str},
+        defaults={"import_backend": "pyedb", "edb_backend": "auto"},
     ),
     "select_layout_nets": NodeInputSchema(
         required={"signal_nets": (str, list), "reference_nets": (str, list)},
@@ -141,23 +141,51 @@ NODE_SCHEMAS: dict[str, NodeInputSchema] = {
     ),
     "create_layout_cutout": NodeInputSchema(
         required={"layout": (str, dict), "signal_nets": (str, list, dict), "reference_nets": (str, list, dict)},
-        optional={"expansion_size": (int, float), "extent_type": str},
+        optional={"expansion_size": (int, float), "extent_type": str, "threads": int},
         defaults={"expansion_size": 0.002, "extent_type": "ConvexHull"},
     ),
     "configure_layout_stackup": NodeInputSchema(
         required={"layout": (str, dict)},
-        optional={"stackup_rule": str},
+        optional={"stackup_rule": str, "stackup_xml": str},
         defaults={"stackup_rule": "preserve_board_stackup"},
+    ),
+    "locate_layout_port_candidates": NodeInputSchema(
+        required={"layout": (str, dict), "signal_nets": (str, list, dict), "reference_nets": (str, list, dict)},
+        optional={"candidate_rule": str},
+        defaults={"candidate_rule": "differential_component_endpoints"},
     ),
     "create_layout_ports": NodeInputSchema(
         required={"layout": (str, dict), "signal_nets": (str, list, dict), "reference_nets": (str, list, dict)},
-        optional={"port_rule": str, "impedance": (int, float, str)},
-        defaults={"port_rule": "pin_or_cutout_edge_ports", "impedance": 50},
+        optional={
+            "port_rule": str,
+            "impedance": (int, float, str),
+            "port_candidates": (str, dict),
+            "solderball_type": str,
+            "solderball_diameter": str,
+            "solderball_mid_diameter": str,
+            "solderball_height": str,
+            "solderball_material": str,
+        },
+        defaults={"port_rule": "component_cylinder_or_toggle_via_pin_gap_ports", "impedance": 50},
     ),
     "create_layout_setup": NodeInputSchema(
         required={"frequency": (str, int, float)},
-        optional={"name": str, "sweep_start": (str, int, float), "sweep_stop": (str, int, float), "sweep_type": str},
-        defaults={"name": "Setup1", "sweep_start": "1GHz", "sweep_stop": "56GHz", "sweep_type": "Interpolating"},
+        optional={
+            "name": str,
+            "sweep_start": (str, int, float),
+            "sweep_stop": (str, int, float),
+            "sweep_type": str,
+            "sweep_points": int,
+            "use_q3d_for_dc": bool,
+        },
+        defaults={
+            "name": "Setup1",
+            "sweep_start": "0GHz",
+            "sweep_stop": "67GHz",
+            "sweep_type": "Interpolating",
+            "sweep_points": 501,
+            "use_q3d_for_dc": True,
+        },
     ),
     "solve_layout": NodeInputSchema(
         required={"setup": (str, dict)},

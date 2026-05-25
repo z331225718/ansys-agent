@@ -10,7 +10,7 @@ def test_render_demo_page_contains_workspace_sections():
     assert "AEDT Agent End-to-End Demo" in html
     assert "Microstrip S-Parameter Workflow" in html
     assert "Dipole 天线 S11" in html
-    assert "BRD/MCM Cutout S 参数 + TDR" in html
+    assert "BRD/MCM Cutout 建模" in html
     assert "Dipole Antenna S11 Workflow" in html
     assert "用户需求" in html
     assert "做一个微带线 S 参数仿真" in html
@@ -53,9 +53,10 @@ def test_render_demo_page_contains_workspace_sections():
     assert "sparamChart" in html
     assert "TDR" in html
     assert "tdrChart" in html
-    assert "Discover BRD/MCM File" in html
-    assert "Create Cutout" in html
-    assert "Configure Stackup" in html
+    assert "Open BRD/MCM with PyEDB" in html
+    assert "Create PyEDB Cutout" in html
+    assert "Load Stackup XML" in html
+    assert "Locate Port Candidates" in html
     assert "LLM 交互" in html
     assert "llmLog" in html
     assert "真实 AEDT Smoke" in html

@@ -86,6 +86,7 @@ class NodeExecutor:
             "select_layout_nets",
             "create_layout_cutout",
             "configure_layout_stackup",
+            "locate_layout_port_candidates",
             "create_layout_ports",
             "create_layout_setup",
             "solve_layout",
@@ -474,13 +475,57 @@ def _create_antenna_report(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
 
 
 def _layout_placeholder_node(node_id: str, inputs: dict[str, Any]) -> dict[str, Any]:
+    port_action_plan = None
+    if node_id == "create_layout_ports" and isinstance(inputs.get("port_candidates"), dict):
+        from aedt_agent.demo.layout_ports import plan_layout_port_actions
+
+        solderball = {
+            "type": inputs.get("solderball_type"),
+            "diameter": inputs.get("solderball_diameter"),
+            "mid_diameter": inputs.get("solderball_mid_diameter"),
+            "height": inputs.get("solderball_height"),
+            "material": inputs.get("solderball_material"),
+        }
+        solderball = {key: value for key, value in solderball.items() if value not in (None, "")}
+        port_action_plan = plan_layout_port_actions(
+            inputs["port_candidates"],
+            impedance=inputs.get("impedance", 50),
+            solderball=solderball or None,
+        )
     names = {
-        "import_layout_file": {"layout_path": inputs.get("layout_file", ""), "layout_name": Path(str(inputs.get("layout_file", "layout"))).stem},
+        "import_layout_file": {
+            "layout_path": inputs.get("layout_file", ""),
+            "layout_name": Path(str(inputs.get("layout_file", "layout"))).stem,
+            "import_backend": inputs.get("import_backend", "pyedb"),
+            "edb_backend": inputs.get("edb_backend", "auto"),
+        },
         "select_layout_nets": {"signal_nets": inputs.get("signal_nets"), "reference_nets": inputs.get("reference_nets")},
-        "create_layout_cutout": {"cutout_name": "LayoutCutout"},
-        "configure_layout_stackup": {"stackup_name": str(inputs.get("stackup_rule", "preserve_board_stackup"))},
-        "create_layout_ports": {"port_names": ["P1", "P2"]},
-        "create_layout_setup": {"setup_name": inputs.get("name", "Setup1"), "sweep_name": "Sweep1"},
+        "create_layout_cutout": {"cutout_name": "LayoutCutout", "threads": inputs.get("threads")},
+        "configure_layout_stackup": {
+            "stackup_name": str(inputs.get("stackup_rule", "preserve_board_stackup")),
+            "stackup_xml": inputs.get("stackup_xml", ""),
+        },
+        "locate_layout_port_candidates": {
+            "candidate_rule": inputs.get("candidate_rule", "differential_component_endpoints"),
+            "candidate_report": "LayoutPortCandidates",
+        },
+        "create_layout_ports": {
+            "port_names": [
+                action.get("port_name", f"P{index + 1}")
+                for index, action in enumerate((port_action_plan or {}).get("port_actions", []))
+            ]
+            or ["P1", "P2"],
+            **({"port_action_plan": port_action_plan} if port_action_plan else {}),
+        },
+        "create_layout_setup": {
+            "setup_name": inputs.get("name", "Setup1"),
+            "sweep_name": "Sweep1",
+            "sweep_start": inputs.get("sweep_start", "0GHz"),
+            "sweep_stop": inputs.get("sweep_stop", "67GHz"),
+            "sweep_type": inputs.get("sweep_type", "Interpolating"),
+            "sweep_points": inputs.get("sweep_points", 501),
+            "use_q3d_for_dc": inputs.get("use_q3d_for_dc", True),
+        },
         "solve_layout": {"solved_setup": inputs.get("setup", "Setup1")},
         "create_layout_sparam_tdr_report": {
             "touchstone_path": str(Path(inputs.get("output_dir") or ".") / inputs.get("touchstone_name", "import_cutout_demo.s2p")),
@@ -491,7 +536,12 @@ def _layout_placeholder_node(node_id: str, inputs: dict[str, Any]) -> dict[str, 
         "created": {"objects": [], "ports": [], "boundaries": [], "setups": [], "sweeps": [], "farfields": [], "reports": []},
         "output": names.get(node_id, {}),
         **names.get(node_id, {}),
-        "postcheck": {"passed": True, "checks": [f"{node_id}_accepted"]},
+        "postcheck": {
+            "passed": True,
+            "checks": [f"{node_id}_accepted"],
+            "experimental": True,
+            "note": "Layout/BRD node is experimental in the MCP NodeExecutor path; real demo execution is implemented in a dedicated pipeline.",
+        },
     }
 
 

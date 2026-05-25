@@ -1,5 +1,7 @@
 node_id: select_face
 summary: Identify a target face to be used for a port or boundary operation.
+status: stable
+track: hfss-core
 allowed_apis:
   - Hfss.modeler.get_object_faces
   - Hfss.modeler.get_face_center

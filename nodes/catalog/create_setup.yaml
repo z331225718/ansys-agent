@@ -1,5 +1,7 @@
 node_id: create_setup
 summary: Create the HFSS analysis setup.
+status: stable
+track: hfss-core
 allowed_apis:
   - Hfss.create_setup
 inputs:

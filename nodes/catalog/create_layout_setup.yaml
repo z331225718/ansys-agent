@@ -1,10 +1,13 @@
 node_id: create_layout_setup
 summary: Create a 3D Layout adaptive setup and sweep.
+status: experimental
+track: layout-brd
 allowed_apis:
   - Hfss3dLayout.create_setup
   - Hfss3dLayout.create_linear_count_sweep
 inputs:
   required: [frequency]
+  optional: [sweep_start, sweep_stop, sweep_type, sweep_points, use_q3d_for_dc]
 outputs:
   creates: [setup, sweep]
 prerequisites:

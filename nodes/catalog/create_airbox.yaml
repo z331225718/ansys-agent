@@ -1,5 +1,7 @@
 node_id: create_airbox
 summary: Create an air or open region around the model.
+status: candidate
+track: hfss-core
 allowed_apis:
   - Hfss.modeler.create_box
   - Hfss.modeler.create_region

@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import aedt_agent.demo.import_cutout as import_cutout
 from aedt_agent.demo.import_cutout import (
     apply_aedt_environment,
     build_import_cutout_request,
@@ -8,6 +9,7 @@ from aedt_agent.demo.import_cutout import (
     parse_net_patterns,
     read_tdr_csv,
     run_fake_import_cutout,
+    run_real_import_cutout,
     _net_suggestions,
 )
 
@@ -24,6 +26,23 @@ def test_expand_net_patterns_is_case_insensitive_and_preserves_board_names():
     matched = expand_net_patterns(["*soc*tx*", "SOC_RX0", "vdd_1v0"], available)
 
     assert matched == ["SOC_TX0", "soc_rx0", "VDD_1V0"]
+
+
+def test_expand_net_patterns_falls_back_to_closest_differential_pair_for_incomplete_user_net():
+    available = [
+        "GND",
+        "P_SRDSH_ALT",
+        "SRDS_0_TX0_N",
+        "SRDS_0_TX0_P",
+        "SRDS_0_RX1_N",
+        "SRDS_0_RX1_P",
+        "SRDS_0_RX0_N",
+        "SRDS_0_RX0_P",
+    ]
+
+    matched = expand_net_patterns(["SRDS_3_RX1"], available, fuzzy=True)
+
+    assert matched == ["SRDS_0_RX1_N", "SRDS_0_RX1_P"]
 
 
 def test_discover_layout_files_prefers_brd_and_mcm(tmp_path):
@@ -58,6 +77,47 @@ def test_fake_import_cutout_writes_sparameter_and_tdr_artifacts(tmp_path):
     assert tdr["point_count"] == 6
 
 
+def test_build_import_cutout_request_discovers_stackup_xml_next_to_layout(tmp_path):
+    layout_file = tmp_path / "case.brd"
+    layout_file.write_text("", encoding="utf-8")
+    stackup_xml = tmp_path / "stackup_board.xml"
+    stackup_xml.write_text("<c:Control />", encoding="utf-8")
+
+    request = build_import_cutout_request({"layout_file": str(layout_file)})
+
+    assert request.stackup_xml == stackup_xml
+
+
+def test_build_import_cutout_request_accepts_high_speed_port_and_sweep_settings(tmp_path):
+    layout_file = tmp_path / "case.brd"
+    layout_file.write_text("", encoding="utf-8")
+
+    request = build_import_cutout_request(
+        {
+            "layout_file": str(layout_file),
+            "sweep_start": "0GHz",
+            "sweep_stop": "67GHz",
+            "sweep_points": 501,
+            "use_q3d_for_dc": True,
+            "solderball_diameter": "18mil",
+            "solderball_mid_diameter": "16mil",
+            "solderball_height": "8mil",
+            "solderball_material": "pec",
+        }
+    )
+
+    assert request.sweep_start == "0GHz"
+    assert request.sweep_stop == "67GHz"
+    assert request.sweep_points == 501
+    assert request.use_q3d_for_dc is True
+    assert request.solderball == {
+        "diameter": "18mil",
+        "mid_diameter": "16mil",
+        "height": "8mil",
+        "material": "pec",
+    }
+
+
 def test_apply_aedt_environment_sets_versioned_roots(monkeypatch, tmp_path):
     ansysem_root = tmp_path / "v261" / "AnsysEM"
     awp_root = tmp_path / "v261"
@@ -74,3 +134,289 @@ def test_net_suggestions_surface_matching_tokens_when_wildcard_misses():
     suggestions = _net_suggestions(["*56g*tx*"], ["GND", "GDDR6_VDD", "SRDS_0_TX0_N", "SRDS_0_TX0_P"])
 
     assert suggestions == ["SRDS_0_TX0_N", "SRDS_0_TX0_P"]
+
+
+def test_real_import_cutout_uses_pyedb_cutout_before_hfss3dlayout(monkeypatch, tmp_path):
+    layout_file = tmp_path / "case.brd"
+    layout_file.write_text("brd", encoding="utf-8")
+    stackup_xml = tmp_path / "stackup.xml"
+    stackup_xml.write_text("<c:Control />", encoding="utf-8")
+    ansysem_root = tmp_path / "ansys" / "v261" / "AnsysEM"
+    ansysem_root.mkdir(parents=True)
+    awp_root = ansysem_root.parent
+    calls: list[tuple[str, object]] = []
+
+    class FakeEdb:
+        def __init__(self, edbpath, version=None, grpc=None):
+            self.edbpath = str(Path(edbpath).with_suffix(".aedb"))
+            self.nets = type("Nets", (), {"nets": {"GND": object(), "SRDS_0_TX0_N": object(), "SRDS_0_TX0_P": object()}})()
+            self.stackup = type("Stackup", (), {"load_from_xml": lambda _, path: calls.append(("pyedb_stackup_xml", Path(path).name)) or True})()
+            self.excitation_manager = type(
+                "ExcitationManager",
+                (),
+                {
+                    "create_port_between_pin_and_layer": lambda _, **kwargs: calls.append(
+                        ("edb_create_vertical_circuit_port", kwargs)
+                    )
+                    or type("Terminal", (), {"name": f"{kwargs['component_name']}_{kwargs['pins_name']}"})()
+                },
+            )()
+            calls.append(("edb_open", Path(edbpath).name))
+
+        def cutout(self, **kwargs):
+            Path(kwargs["output_aedb_path"]).mkdir(parents=True)
+            calls.append(("cutout", kwargs["signal_nets"], kwargs["reference_nets"], kwargs["number_of_threads"]))
+            return [1, 2, 3]
+
+        def close(self):
+            calls.append(("edb_close", None))
+
+        def save(self):
+            calls.append(("edb_save", None))
+            return True
+
+    class FakeHfss3dLayout:
+        def __init__(self, project, version=None, non_graphical=None, new_desktop=None, close_on_exit=None):
+            self.project_file = str(Path(project).with_suffix(".aedt"))
+            self._ports = []
+            outer = self
+            fake_component = type(
+                "Component",
+                (),
+                {
+                    "set_die_type": lambda _, **kwargs: calls.append(("hfss_set_die_type", kwargs)) or True,
+                    "set_solderball": lambda _, **kwargs: calls.append(("hfss_set_solderball", kwargs)) or True,
+                },
+            )()
+            fake_signal_n = type(
+                "Geometry",
+                (),
+                {
+                    "name": "trace_n",
+                    "net_name": "SRDS_0_TX0_N",
+                    "edge_by_point": lambda _, point: calls.append(("hfss_edge_by_point", "trace_n", point)) or 1,
+                },
+            )()
+            fake_signal_p = type(
+                "Geometry",
+                (),
+                {
+                    "name": "trace_p",
+                    "net_name": "SRDS_0_TX0_P",
+                    "edge_by_point": lambda _, point: calls.append(("hfss_edge_by_point", "trace_p", point)) or 2,
+                },
+            )()
+            fake_ground = type(
+                "Geometry",
+                (),
+                {
+                    "name": "gnd_ref",
+                    "net_name": "GND",
+                    "edge_by_point": lambda _, point: calls.append(("hfss_edge_by_point", "gnd_ref", point)) or 0,
+                },
+            )()
+            self.modeler = type(
+                "Modeler",
+                (),
+                {
+                    "components": {"U1": fake_component},
+                    "geometries": {"trace_n": fake_signal_n, "trace_p": fake_signal_p, "gnd_ref": fake_ground},
+                    "oeditor": type(
+                        "Editor",
+                        (),
+                        {
+                            "ImportStackupXML": lambda _, path: calls.append(("hfss_stackup_xml", Path(path).name)),
+                            "ToggleViaPin": lambda _, args: calls.append(("hfss_toggle_via_pin", args))
+                            or outer._ports.append(
+                                f"{args[1].split('-', 1)[0]}.{args[1].split('-', 1)[1]}.SRDS_0_TX0_N"
+                                if args[1].endswith("-1")
+                                else f"{args[1].split('-', 1)[0]}.{args[1].split('-', 1)[1]}.SRDS_0_TX0_P"
+                            ),
+                        },
+                    )(),
+                    "change_property": lambda _, assignment, name, value, aedt_tab: calls.append(
+                        ("hfss_change_property", assignment, name, value, aedt_tab)
+                    ),
+                },
+            )()
+            calls.append(("hfss_open", Path(project).name, non_graphical, close_on_exit))
+
+        @property
+        def port_list(self):
+            return list(self._ports)
+
+        def save_project(self):
+            Path(self.project_file).write_text("aedt", encoding="utf-8")
+            calls.append(("hfss_save", Path(self.project_file).name))
+
+        def create_setup(self, name="Setup1", **kwargs):
+            calls.append(("hfss_create_setup", name, kwargs))
+            return name
+
+        def create_linear_count_sweep(self, setup, unit, start_frequency, stop_frequency, num_of_freq_points, **kwargs):
+            calls.append(("hfss_create_sweep", setup, unit, start_frequency, stop_frequency, num_of_freq_points, kwargs))
+            return kwargs.get("name", "Sweep1")
+
+        def create_edge_port(self, assignment, edge_number, **kwargs):
+            calls.append(("hfss_create_edge_port", assignment, edge_number, kwargs))
+            return type("Port", (), {"name": f"{assignment}_{edge_number}"})()
+
+        def analyze_setup(self, name=None, **kwargs):
+            raise AssertionError("BRD/MCM model-build demo must not run analyze_setup")
+
+        def export_touchstone(self, setup=None, sweep=None, output_file=None, **kwargs):
+            raise AssertionError("BRD/MCM model-build demo must not export solved Touchstone data")
+
+        def create_ports_on_component_by_nets(self, component, nets):
+            calls.append(("hfss_create_ports_on_component_by_nets", component, nets))
+            return [type("Port", (), {"name": f"{component}_{net}"})() for net in nets]
+
+        def release_desktop(self, *args, **kwargs):
+            calls.append(("hfss_release", args, kwargs))
+
+    monkeypatch.setattr(import_cutout, "_edb_class", lambda: FakeEdb, raising=False)
+    monkeypatch.setattr(import_cutout, "_hfss3dlayout_class", lambda: FakeHfss3dLayout, raising=False)
+    monkeypatch.setattr(
+        import_cutout,
+        "_locate_layout_port_candidates",
+        lambda *args, **kwargs: {
+            "status": "ready",
+            "signal_nets": ["SRDS_0_TX0_N", "SRDS_0_TX0_P"],
+            "reference_nets": ["GND"],
+            "recommended_endpoints": [
+                {
+                    "name": "U1",
+                    "components": ["U1"],
+                    "partname": "BGA_DEVICE",
+                    "component_type": "ic",
+                    "pins": [
+                        {"pin": "A1", "net": "SRDS_0_TX0_N", "position": [0, 0], "padstack": "BALL20"},
+                        {"pin": "A2", "net": "SRDS_0_TX0_P", "position": [1, 0], "padstack": "BALL20"},
+                        {"pin": "A3", "net": "GND", "position": [0.5, 0], "padstack": "BALL20"},
+                    ],
+                },
+                {
+                    "name": "J33",
+                    "components": ["J33"],
+                    "partname": "CONNECTOR",
+                    "component_type": "io",
+                    "pins": [
+                        {"pin": "1", "net": "SRDS_0_TX0_N", "position": [5, 0], "padstack": "RECT", "start_layer": "L2_GND"},
+                        {"pin": "2", "net": "SRDS_0_TX0_P", "position": [6, 0], "padstack": "RECT", "start_layer": "L2_GND"},
+                        {"pin": "3", "net": "GND", "position": [5.5, 0], "padstack": "RECT", "start_layer": "L2_GND"},
+                    ],
+                },
+            ],
+            "candidates": [{"name": "U1"}, {"name": "J33"}],
+        },
+        raising=False,
+    )
+    request = build_import_cutout_request(
+        {
+            "layout_file": str(layout_file),
+            "signal_nets": "srds_0_tx0_*",
+            "reference_nets": "gnd",
+            "stackup_xml": str(stackup_xml),
+            "artifact_dir": str(tmp_path / "run"),
+            "threads": 8,
+            "sweep_start": "0GHz",
+            "sweep_stop": "67GHz",
+            "sweep_points": 501,
+            "use_q3d_for_dc": True,
+            "solderball_diameter": "18mil",
+            "solderball_mid_diameter": "16mil",
+            "solderball_height": "8mil",
+        }
+    )
+
+    result = run_real_import_cutout(
+        request,
+        aedt_version="2026.1",
+        ansysem_root=str(ansysem_root),
+        awp_root=str(awp_root),
+        non_graphical=False,
+    )
+
+    assert result["status"] == "succeeded"
+    assert result["adapter"] == "real_pyedb_cutout"
+    assert result["signal_nets"] == ["SRDS_0_TX0_N", "SRDS_0_TX0_P"]
+    assert result["reference_nets"] == ["GND"]
+    assert result["cutout_extent_points"] == 3
+    assert result["stackup_xml"] == str(stackup_xml)
+    assert result["stackup_applied"] is True
+    assert result["port_execution"]["status"] == "succeeded"
+    assert result["port_execution"]["created_ports"] == [
+        "U1_srds_0_tx0_n",
+        "U1_srds_0_tx0_p",
+        "J33.1.SRDS_0_TX0_N",
+        "J33.2.SRDS_0_TX0_P",
+    ]
+    assert result["layout_setup"]["setup_name"] == "Setup1"
+    assert result["layout_setup"]["sweep_name"] == "Sweep1"
+    assert result["layout_setup"]["mode"] == "broadband"
+    assert result["layout_setup"]["low_frequency"] == "5GHz"
+    assert result["layout_setup"]["high_frequency"] == "67GHz"
+    assert result["layout_solve"]["status"] == "skipped"
+    assert result["layout_solve"]["reason"] == "model_build_only"
+    assert result["touchstone"] == ""
+    assert result["tdr"] == ""
+    assert [step["step_id"] for step in result["steps"]] == [
+        "discover_file",
+        "import_layout",
+        "select_nets",
+        "cutout",
+        "stackup",
+        "port_candidates",
+        "ports",
+        "setup",
+    ]
+    assert all(step["status"] == "succeeded" for step in result["steps"])
+    assert result["port_candidates"]["port_action_plan"]["status"] == "ready"
+    assert result["port_candidates"]["port_action_plan"]["port_actions"][0]["strategy"] == "component_cylinder_port"
+    assert result["port_candidates"]["port_action_plan"]["port_actions"][1]["strategy"] == "toggle_via_pin_gap_port"
+    assert result["edb_path"].endswith("_cutout.aedb")
+    assert result["aedt_project"].endswith("_cutout_hfss.aedt")
+    assert ("cutout", ["SRDS_0_TX0_N", "SRDS_0_TX0_P"], ["GND"], 8) in calls
+    assert ("hfss_stackup_xml", "stackup.xml") in calls
+    assert any(
+        call[0] == "hfss_set_die_type"
+        and call[1]["die_type"] == 1
+        and call[1]["orientation"] == 1
+        for call in calls
+    )
+    assert any(
+        call[0] == "hfss_set_solderball"
+        and call[1]["diameter"] == "18mil"
+        and call[1]["mid_diameter"] == "16mil"
+        and call[1]["height"] == "8mil"
+        for call in calls
+    )
+    assert ("hfss_create_ports_on_component_by_nets", "U1", ["srds_0_tx0_n", "srds_0_tx0_p"]) in calls
+    assert any(
+        call[0] == "hfss_toggle_via_pin"
+        and call[1] == ["NAME:elements", "J33-1"]
+        for call in calls
+    )
+    assert not any(call[0] == "edb_create_vertical_circuit_port" for call in calls)
+    assert not any(call[0] == "hfss_create_edge_port" for call in calls)
+    assert ("pyedb_stackup_xml", "stackup.xml") not in calls
+    assert any(call[0] == "hfss_open" and call[1].endswith("_cutout_hfss.aedb") and call[2] is False and call[3] is False for call in calls)
+    assert any(
+        call[0] == "hfss_create_setup"
+        and call[1] == "Setup1"
+        and call[2]["props"]["AdaptiveSettings"]["AdaptType"] == "kBroadband"
+        and call[2]["props"]["AdaptiveSettings"]["BroadbandFrequencyDataList"]["AdaptiveFrequencyData"][0]["AdaptiveFrequency"] == "5GHz"
+        and call[2]["props"]["AdaptiveSettings"]["BroadbandFrequencyDataList"]["AdaptiveFrequencyData"][1]["AdaptiveFrequency"] == "67GHz"
+        for call in calls
+    )
+    assert any(
+        call[0] == "hfss_create_sweep"
+        and call[3] == 0.0
+        and call[4] == 67.0
+        and call[5] == 501
+        and call[6]["sweep_type"] == "Interpolating"
+        and call[6]["use_q3d_for_dc"] is True
+        for call in calls
+    )
+    assert not any(call[0] == "hfss_analyze_setup" for call in calls)
+    assert not any(call[0] == "hfss_export_touchstone" for call in calls)

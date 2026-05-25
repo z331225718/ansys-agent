@@ -1,5 +1,7 @@
 node_id: create_substrate
 summary: Create substrate geometry and assign its dielectric material.
+status: stable
+track: hfss-core
 allowed_apis:
   - Hfss.modeler.create_box
   - Hfss.assign_material

@@ -2,7 +2,9 @@ import time
 from pathlib import Path
 from unittest.mock import Mock
 
-from aedt_agent.demo.service import DemoService, _agent_run_kind, _read_demo_sparameters, _stream_process_logs
+import aedt_agent.demo.service as demo_service
+from aedt_agent.demo.config import AedtConfig
+from aedt_agent.demo.service import DemoRunJob, DemoService, _agent_run_kind, _read_demo_sparameters, _stream_process_logs
 
 
 def test_demo_service_lists_nodes_templates_and_reports():
@@ -312,9 +314,101 @@ def test_demo_service_agent_run_starts_import_cutout_job_with_fake_adapter(tmp_p
     assert status["run_kind"] == "import_cutout"
     assert status["status"] == "succeeded"
     assert status["template_id"] == "import_brd_cutout_sparam_tdr"
-    assert status["sparameters"]["point_count"] == 6
+    assert status["sparameters"]["point_count"] == 8
     assert status["tdr"]["point_count"] == 6
     assert status["import_cutout"]["signal_nets"] == ["56G_TX0_P", "56G_TX0_N"]
+
+
+def test_demo_service_import_cutout_run_applies_template_defaults_when_llm_omits_nets(tmp_path, monkeypatch):
+    service = DemoService(Path("."), run_dir=tmp_path / "stage_c1_demo")
+
+    def fake_run(job, parameters):
+        job.status = "succeeded"
+        job.finished_at = time.time()
+        job.returncode = 0
+
+    monkeypatch.setattr(service, "_run_import_cutout_job", fake_run)
+
+    started = service.start_agent_run(
+        {
+            "user_request": "导入 brd 文件做 56GHz 到 67GHz 的高速 cutout",
+            "adapter": "real",
+            "stream_to_terminal": False,
+            "parameters": {"frequency": "56GHz", "sweep_stop": "67GHz"},
+        }
+    )
+
+    deadline = time.time() + 5
+    while started["job_id"] not in service._jobs and time.time() < deadline:
+        time.sleep(0.05)
+
+    assert started["run_kind"] == "import_cutout"
+    params = __import__("json").loads((Path(started["run_dir"]) / "params.json").read_text(encoding="utf-8"))
+    assert params["layout_file"].endswith("c03010211_56g_2512031835.brd")
+    assert params["signal_nets"] == "SRDS_3_RX1_*"
+    assert params["reference_nets"] == "GND"
+    assert params["stackup_xml"].endswith("stackup_yibo_202512042235.xml")
+    assert params["frequency"] == "56GHz"
+    assert params["sweep_stop"] == "67GHz"
+    assert params["artifact_dir"].endswith(started["job_id"])
+
+
+def test_demo_service_real_import_cutout_runs_in_subprocess_main_thread(monkeypatch, tmp_path):
+    calls = []
+    layout_file = tmp_path / "case.brd"
+    layout_file.write_text("brd", encoding="utf-8")
+    ansysem_root = tmp_path / "ansys" / "v261" / "AnsysEM"
+    ansysem_root.mkdir(parents=True)
+    service = DemoService(
+        Path("."),
+        run_dir=tmp_path / "stage_c1_demo",
+        aedt_config=AedtConfig(version="2026.1", ansysem_root=str(ansysem_root), awp_root=str(ansysem_root.parent)),
+    )
+    job = DemoRunJob(
+        job_id="job1",
+        template_id="import_brd_cutout_sparam_tdr",
+        adapter="real",
+        run_dir=tmp_path / "run",
+        run_kind="import_cutout",
+        stream_to_terminal=False,
+    )
+    job.run_dir.mkdir()
+
+    def fail_if_direct(*args, **kwargs):
+        raise AssertionError("real import/cutout must run in a subprocess, not the service thread")
+
+    class FakeProcess:
+        stdout = ['{"status":"succeeded"}\n']
+        stderr = []
+
+        def wait(self):
+            return 0
+
+    def fake_popen(command, **kwargs):
+        calls.append((command, kwargs))
+        summary_path = job.run_dir / "import_cutout_summary.json"
+        summary_path.write_text('{"status":"succeeded","aedt_project":"demo.aedt","steps":[]}\n', encoding="utf-8")
+        return FakeProcess()
+
+    monkeypatch.setattr(demo_service, "run_real_import_cutout", fail_if_direct)
+    monkeypatch.setattr(demo_service.subprocess, "Popen", fake_popen)
+
+    service._run_import_cutout_job(
+        job,
+        {
+            "layout_file": str(layout_file),
+            "signal_nets": "SRDS_3_RX1*",
+            "reference_nets": "GND",
+        },
+    )
+
+    assert job.status == "succeeded"
+    assert job.returncode == 0
+    command = calls[0][0]
+    assert command[:2] == [__import__("sys").executable, str(service.repo_root / "scripts/run_stage_c_import_cutout.py")]
+    assert "--aedt-version" in command
+    assert "--params" in command
+    assert (job.run_dir / "stdout.log").exists()
 
 
 def test_read_demo_sparameters_selects_nearest_frequency_and_converts_to_db(tmp_path):

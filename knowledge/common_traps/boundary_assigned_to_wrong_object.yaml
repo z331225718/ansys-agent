@@ -1,0 +1,17 @@
+trap_id: boundary_assigned_to_wrong_object
+domain: hfss
+applies_to:
+  - Hfss.assign_radiation_boundary_to_objects
+  - Hfss.assign_perfecte_to_sheets
+description: Radiation and PerfectE boundaries can be syntactically created on the wrong object or sheet; object existence alone is not enough validation.
+symptom: Boundary names appear in the model, but the airbox, radiator, substrate, or conductor assignment is wrong.
+root_cause: The planner normalized a previous node output to the wrong object or face.
+why_silent: Boundary creation may return success even when the assignment is physically meaningless.
+detection_rule: validate_boundary_assignment_matches_expected_object
+detection: Check that each boundary assignment matches the expected object class, such as radiation on airbox and PEC on conductor sheets.
+avoidance:
+  - Assign radiation to the airbox/open region, not to conductors or substrate.
+  - Assign PerfectE/PEC to conductor sheets only when material assignment is insufficient.
+validation_rule: validate_boundary_assignment_matches_expected_object
+prevention: Propagate typed node outputs for airbox, conductor, substrate, and selected face assignments instead of using the first object name blindly.
+source: "Local radiation-airbox smoke and Stage B trap-validation lessons."

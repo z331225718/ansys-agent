@@ -1,5 +1,7 @@
 node_id: create_antenna_report
 summary: Create a far-field antenna report such as gain or realized gain after solving.
+status: candidate
+track: postprocess
 allowed_apis:
   - PostProcessor3D.create_report
   - PostProcessor3D.export_report_to_file

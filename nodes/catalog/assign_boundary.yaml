@@ -1,5 +1,7 @@
 node_id: assign_boundary
 summary: Assign radiation or conductor-related boundaries to target geometry.
+status: candidate
+track: hfss-core
 allowed_apis:
   - Hfss.assign_radiation_boundary_to_objects
   - Hfss.assign_perfecte_to_sheets

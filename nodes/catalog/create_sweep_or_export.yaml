@@ -1,5 +1,7 @@
 node_id: create_sweep_or_export
 summary: Create a sweep or export solved network data.
+status: stable
+track: hfss-core
 allowed_apis:
   - SetupHFSS.create_frequency_sweep
   - SetupHFSS.create_linear_count_sweep

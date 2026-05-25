@@ -160,11 +160,35 @@ def test_import_cutout_template_uses_layout_specific_nodes():
         "select_layout_nets",
         "create_layout_cutout",
         "configure_layout_stackup",
+        "locate_layout_port_candidates",
         "create_layout_ports",
         "create_layout_setup",
-        "solve_layout",
-        "create_layout_sparam_tdr_report",
     ]
+    first_step = template.workflow.nodes[0]
+    cutout_step = template.workflow.nodes[2]
+    stackup_step = template.workflow.nodes[3]
+    port_candidate_step = template.workflow.nodes[4]
+    defaults = {parameter.name: parameter.default for parameter in template.workflow.parameters}
+    assert defaults["signal_nets"] == "SRDS_3_RX1_*"
+    assert defaults["sweep_start"] == "0GHz"
+    assert defaults["sweep_stop"] == "67GHz"
+    assert defaults["sweep_points"] == 501
+    assert defaults["use_q3d_for_dc"] is True
+    assert defaults["solderball_diameter"] == "20mil"
+    assert defaults["solderball_height"] == "10mil"
+    assert first_step.inputs["import_backend"] == "pyedb"
+    assert first_step.inputs["edb_backend"] == "auto"
+    assert cutout_step.inputs["threads"] == {"$ref": "parameters.cutout_threads"}
+    assert stackup_step.inputs["stackup_rule"] == "load_stackup_xml"
+    assert stackup_step.inputs["stackup_xml"] == {"$ref": "parameters.stackup_xml"}
+    assert port_candidate_step.node_id == "locate_layout_port_candidates"
+    ports_step = template.workflow.nodes[5]
+    setup_step = template.workflow.nodes[6]
+    assert ports_step.inputs["solderball_diameter"] == {"$ref": "parameters.solderball_diameter"}
+    assert setup_step.inputs["sweep_start"] == {"$ref": "parameters.sweep_start"}
+    assert setup_step.inputs["sweep_stop"] == {"$ref": "parameters.sweep_stop"}
+    assert setup_step.inputs["sweep_points"] == {"$ref": "parameters.sweep_points"}
+    assert setup_step.inputs["use_q3d_for_dc"] == {"$ref": "parameters.use_q3d_for_dc"}
     assert _validator().validate(template.workflow).passed is True
 
 

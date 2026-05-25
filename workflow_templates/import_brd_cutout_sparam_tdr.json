@@ -1,19 +1,19 @@
 {
   "template_id": "import_brd_cutout_sparam_tdr",
-  "name": "3D Layout BRD/MCM Cutout S-Parameter and TDR",
-  "description": "Import a Cadence BRD/MCM file, select nets, create a cutout, configure stackup and ports, solve, then show S11/S21 and TDR.",
+  "name": "3D Layout BRD/MCM Cutout Model Build",
+  "description": "Import a Cadence BRD/MCM file, select nets, create a cutout, configure stackup, ports, setup, and sweep without running solve.",
   "scenario": "High-speed board workflow for imported BRD/MCM designs.",
-  "tags": ["hfss-3d-layout", "brd", "mcm", "cutout", "s-parameter", "tdr"],
-  "validation_checks": ["layout_imported", "nets_selected", "cutout_created", "layout_ports_created", "layout_setup_created", "layout_setup_solved", "sparameter_report_created", "tdr_report_created"],
+  "tags": ["hfss-3d-layout", "brd", "mcm", "cutout", "model-build"],
+  "validation_checks": ["layout_imported", "nets_selected", "cutout_created", "stackup_configured", "layout_ports_created", "layout_setup_created"],
   "known_limits": [
     "Real stackup edits and port placement are board-specific and require board rules after the import/cutout step.",
-    "The demo can run fake S-parameter/TDR data for UI rehearsal when AEDT/Cadence import is not available."
+    "This demo intentionally stops before analyze so the generated model can be inspected on resource-limited machines."
   ],
   "workflow": {
     "workflow_id": "import_brd_cutout_sparam_tdr_v1",
-    "name": "Import BRD/MCM Cutout S-Parameter and TDR",
+    "name": "Import BRD/MCM Cutout Model Build",
     "version": "0.1.0",
-    "description": "Controlled 3D Layout workflow for imported high-speed board cutout simulation.",
+    "description": "Controlled 3D Layout workflow for imported high-speed board cutout model generation.",
     "parameters": [
       {
         "name": "layout_file",
@@ -24,7 +24,7 @@
       {
         "name": "signal_nets",
         "type": "string",
-        "default": "SRDS_0_TX0_*",
+        "default": "SRDS_3_RX1_*",
         "label": "Signal net wildcard"
       },
       {
@@ -32,6 +32,12 @@
         "type": "string",
         "default": "GND",
         "label": "Reference nets"
+      },
+      {
+        "name": "stackup_xml",
+        "type": "string",
+        "default": "/home/zzmjay/work/brd/stackup_yibo_202512042235.xml",
+        "label": "Stackup XML"
       },
       {
         "name": "frequency",
@@ -43,22 +49,64 @@
       {
         "name": "sweep_start",
         "type": "string",
-        "default": "1GHz",
+        "default": "0GHz",
         "unit": "GHz",
         "label": "Sweep start"
       },
       {
         "name": "sweep_stop",
         "type": "string",
-        "default": "56GHz",
+        "default": "67GHz",
         "unit": "GHz",
         "label": "Sweep stop"
+      },
+      {
+        "name": "sweep_points",
+        "type": "integer",
+        "default": 501,
+        "label": "Sweep points"
+      },
+      {
+        "name": "use_q3d_for_dc",
+        "type": "boolean",
+        "default": true,
+        "label": "Use Q3D for DC point"
+      },
+      {
+        "name": "solderball_diameter",
+        "type": "string",
+        "default": "20mil",
+        "label": "Solder ball cylinder diameter"
+      },
+      {
+        "name": "solderball_mid_diameter",
+        "type": "string",
+        "default": "20mil",
+        "label": "Solder ball cylinder mid diameter"
+      },
+      {
+        "name": "solderball_height",
+        "type": "string",
+        "default": "10mil",
+        "label": "Solder ball cylinder height"
+      },
+      {
+        "name": "solderball_material",
+        "type": "string",
+        "default": "solder",
+        "label": "Solder ball cylinder material"
       },
       {
         "name": "artifact_dir",
         "type": "string",
         "default": "benchmarks/runs/stage_c1_demo_latest",
         "label": "Artifact directory"
+      },
+      {
+        "name": "cutout_threads",
+        "type": "integer",
+        "default": 8,
+        "label": "PyEDB cutout threads"
       }
     ],
     "nodes": [
@@ -67,7 +115,9 @@
         "node_id": "import_layout_file",
         "inputs": {
           "layout_file": {"$ref": "parameters.layout_file"},
-          "output_dir": {"$ref": "parameters.artifact_dir"}
+          "output_dir": {"$ref": "parameters.artifact_dir"},
+          "import_backend": "pyedb",
+          "edb_backend": "auto"
         }
       },
       {
@@ -86,7 +136,8 @@
           "signal_nets": {"$ref": "select_nets.output.signal_nets"},
           "reference_nets": {"$ref": "select_nets.output.reference_nets"},
           "expansion_size": 0.002,
-          "extent_type": "ConvexHull"
+          "extent_type": "ConvexHull",
+          "threads": {"$ref": "parameters.cutout_threads"}
         }
       },
       {
@@ -94,7 +145,18 @@
         "node_id": "configure_layout_stackup",
         "inputs": {
           "layout": {"$ref": "cutout.output.cutout_name"},
-          "stackup_rule": "preserve_board_stackup"
+          "stackup_rule": "load_stackup_xml",
+          "stackup_xml": {"$ref": "parameters.stackup_xml"}
+        }
+      },
+      {
+        "id": "port_candidates",
+        "node_id": "locate_layout_port_candidates",
+        "inputs": {
+          "layout": {"$ref": "cutout.output.cutout_name"},
+          "signal_nets": {"$ref": "select_nets.output.signal_nets"},
+          "reference_nets": {"$ref": "select_nets.output.reference_nets"},
+          "candidate_rule": "differential_component_endpoints"
         }
       },
       {
@@ -104,8 +166,13 @@
           "layout": {"$ref": "cutout.output.cutout_name"},
           "signal_nets": {"$ref": "select_nets.output.signal_nets"},
           "reference_nets": {"$ref": "select_nets.output.reference_nets"},
-          "port_rule": "pin_or_cutout_edge_ports",
-          "impedance": 50
+          "port_candidates": {"$ref": "port_candidates.output.candidate_report"},
+          "port_rule": "component_cylinder_or_toggle_via_pin_gap_ports",
+          "impedance": 50,
+          "solderball_diameter": {"$ref": "parameters.solderball_diameter"},
+          "solderball_mid_diameter": {"$ref": "parameters.solderball_mid_diameter"},
+          "solderball_height": {"$ref": "parameters.solderball_height"},
+          "solderball_material": {"$ref": "parameters.solderball_material"}
         }
       },
       {
@@ -116,24 +183,9 @@
           "sweep_start": {"$ref": "parameters.sweep_start"},
           "sweep_stop": {"$ref": "parameters.sweep_stop"},
           "sweep_type": "Interpolating",
+          "sweep_points": {"$ref": "parameters.sweep_points"},
+          "use_q3d_for_dc": {"$ref": "parameters.use_q3d_for_dc"},
           "name": "Setup1"
-        }
-      },
-      {
-        "id": "solve",
-        "node_id": "solve_layout",
-        "inputs": {
-          "setup": {"$ref": "setup.output.setup_name"}
-        }
-      },
-      {
-        "id": "postprocess",
-        "node_id": "create_layout_sparam_tdr_report",
-        "inputs": {
-          "setup": {"$ref": "setup.output.setup_name"},
-          "output_dir": {"$ref": "parameters.artifact_dir"},
-          "touchstone_name": "import_cutout_demo.s2p",
-          "tdr_name": "import_cutout_tdr.csv"
         }
       }
     ],
@@ -142,21 +194,23 @@
       {"from": "select_nets.output.signal_nets", "to": "cutout.inputs.signal_nets"},
       {"from": "select_nets.output.reference_nets", "to": "cutout.inputs.reference_nets"},
       {"from": "cutout.output.cutout_name", "to": "stackup.inputs.layout"},
-      {"from": "cutout.output.cutout_name", "to": "ports.inputs.layout"},
-      {"from": "setup.output.setup_name", "to": "solve.inputs.setup"},
-      {"from": "setup.output.setup_name", "to": "postprocess.inputs.setup"}
+      {"from": "cutout.output.cutout_name", "to": "port_candidates.inputs.layout"},
+      {"from": "select_nets.output.signal_nets", "to": "port_candidates.inputs.signal_nets"},
+      {"from": "select_nets.output.reference_nets", "to": "port_candidates.inputs.reference_nets"},
+      {"from": "port_candidates.output.candidate_report", "to": "ports.inputs.port_candidates"},
+      {"from": "cutout.output.cutout_name", "to": "ports.inputs.layout"}
     ],
     "validation": [],
     "outputs": [
       {
-        "name": "touchstone",
-        "source": "postprocess.output.touchstone_path",
-        "description": "Exported S11/S21 Touchstone file."
+        "name": "aedt_project",
+        "source": "discover_file.output.layout_path",
+        "description": "Generated AEDT project for manual inspection."
       },
       {
-        "name": "tdr",
-        "source": "postprocess.output.tdr_path",
-        "description": "Exported TDR CSV file."
+        "name": "setup",
+        "source": "setup.output.setup_name",
+        "description": "Created 3D Layout setup and DC-to-67GHz sweep."
       }
     ],
     "metadata": {

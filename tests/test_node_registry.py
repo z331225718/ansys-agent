@@ -14,9 +14,10 @@ def test_node_definition_from_yaml_reads_whitelist():
 def test_registry_loads_all_stage_c_nodes():
     registry = NodeRegistry.from_directory(Path("nodes/catalog"))
 
-    assert len(registry.list_nodes()) == 21
+    assert len(registry.list_nodes()) == 22
     assert registry.get("create_substrate").summary
     assert registry.get("import_layout_file").summary
+    assert registry.get("locate_layout_port_candidates").summary
 
 
 def test_registry_api_whitelist_merges_in_order():

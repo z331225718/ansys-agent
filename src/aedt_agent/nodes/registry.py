@@ -21,12 +21,15 @@ class NodeRegistry:
     def get(self, node_id: str) -> NodeDefinition:
         return self.nodes[node_id]
 
-    def list_nodes(self) -> list[NodeDefinition]:
-        return [self.nodes[node_id] for node_id in sorted(self.nodes)]
+    def list_nodes(self, include_experimental: bool = True) -> list[NodeDefinition]:
+        nodes = [self.nodes[node_id] for node_id in sorted(self.nodes)]
+        if include_experimental:
+            return nodes
+        return [node for node in nodes if node.status in {"candidate", "stable"}]
 
-    def api_whitelist(self, node_ids: list[str] | None = None) -> list[str]:
+    def api_whitelist(self, node_ids: list[str] | None = None, include_experimental: bool = True) -> list[str]:
         if node_ids is None:
-            selected = self.list_nodes()
+            selected = self.list_nodes(include_experimental=include_experimental)
         else:
             selected = [self.get(node_id) for node_id in node_ids]
         seen: set[str] = set()

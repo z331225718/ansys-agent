@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AEDT Agent — 原始愿景 vs 当前实施 · 差距分析</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --orange: #d2991d;
+    --purple: #a371f7;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.6;
+    max-width: 960px; margin: 0 auto; padding: 2rem 1.5rem;
+  }
+  h1 { font-size: 1.8rem; margin-bottom: .25rem; color: #f0f6fc; }
+  h2 { font-size: 1.35rem; margin: 2.5rem 0 .75rem; padding-bottom: .4rem; border-bottom: 1px solid var(--border); color: #f0f6fc; }
+  h3 { font-size: 1.1rem; margin: 1.5rem 0 .5rem; color: #e6edf3; }
+  .subtitle { color: var(--muted); margin-bottom: 2rem; }
+  p, li { margin-bottom: .5rem; }
+  ul, ol { padding-left: 1.25rem; margin-bottom: 1rem; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; font-size: .88em; background: var(--surface); padding: .12em .4em; border-radius: 4px; }
+  pre { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; overflow-x: auto; font-size: .85em; line-height: 1.5; margin-bottom: 1rem; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 1.25rem; font-size: .92em; }
+  th, td { padding: .55em .75em; border: 1px solid var(--border); text-align: left; }
+  th { background: var(--surface); font-weight: 600; }
+  tr:nth-child(even) { background: #161b2233; }
+
+  .badge { display: inline-block; padding: .15em .55em; border-radius: 10px; font-size: .78em; font-weight: 600; }
+  .badge-ok { background: #1a3a1a; color: var(--green); }
+  .badge-warn { background: #3a2e0a; color: var(--orange); }
+  .badge-gap { background: #3a1414; color: var(--red); }
+  .badge-info { background: #1a1a3a; color: var(--purple); }
+
+  .callout { border-left: 3px solid; padding: .75rem 1rem; margin: 1rem 0; border-radius: 0 6px 6px 0; background: var(--surface); }
+  .callout-severe { border-color: var(--red); }
+  .callout-moderate { border-color: var(--orange); }
+  .callout-info { border-color: var(--accent); }
+  .callout-good { border-color: var(--green); }
+
+  .toc { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 1rem 1.25rem; margin-bottom: 2rem; }
+  .toc ol { margin-bottom: 0; }
+  .toc li { margin-bottom: .25rem; }
+
+  .gap-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; margin-bottom: 1.5rem; }
+  .gap-card h3 { margin-top: 0; display: flex; align-items: center; gap: .5rem; }
+  .gap-card .severity { margin-left: auto; }
+  .hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem; }
+  @media (max-width: 680px) { .two-col { grid-template-columns: 1fr; } }
+
+  .check { color: var(--green); }
+  .cross { color: var(--red); }
+</style>
+</head>
+<body>
+
+<h1>🔍 AEDT Agent 差距分析</h1>
+<p class="subtitle">原始设计规格（2026-05-08）vs 当前代码库实施状态<br>分析日期：2026-05-21 &nbsp;|&nbsp; 源代码：<code>src/aedt_agent/</code> &nbsp;|&nbsp; 规格：<code>docs/superpowers/specs/</code></p>
+
+<div class="toc">
+<strong>目录</strong>
+<ol>
+  <li><a href="#summary">执行摘要</a></li>
+  <li><a href="#vision">原始愿景回顾</a></li>
+  <li><a href="#current">实际实施状态</a></li>
+  <li><a href="#gaps">十大差距（按严重程度排序）</a></li>
+  <li><a href="#bright">架构亮点</a></li>
+  <li><a href="#risks">关键风险矩阵</a></li>
+  <li><a href="#path">建议的纠正路径</a></li>
+  <li><a href="#appendix">附录：规格对照表</a></li>
+</ol>
+</div>
+
+<!-- ──────────────────────────────────────────── -->
+<h2 id="summary">1. 执行摘要</h2>
+
+<div class="callout callout-moderate">
+<strong>一句话结论：</strong>代码库在工程执行上超出了 Stage A/B 的规格，但核心数据资产（知识约束、陷阱、节点状态）仍为骨架状态；MCP 服务器与真实 AEDT 之间存在断裂；Stage C 范围已在 Stage B 基础未稳固前入侵。
+</div>
+
+<p>该项目实现了令人印象深刻的基准测试框架、节点执行器和工作流引擎 — 但在原规格视为<strong>最关键差异化因素</strong>的方面却出现倒退：将详尽的 API 约束和领域知识注入 LLM 上下文。规格将"使用约束"描述为"LLM 最缺的" — 但这些字段目前在数据库中<strong>全部为空</strong>。</p>
+
+<p>与此同时，21 个节点（含 8 个无实际逻辑的布局占位符）、DAG 工作流引擎、演化治理系统和 Web 演示 UI 已将项目推入 Stage C 领域，而 Stage B 的核心交付物（FastMCP 服务器 + 真实 AEDT）尚未完成集成。</p>
+
+<!-- ──────────────────────────────────────────── -->
+<h2 id="vision">2. 原始愿景回顾</h2>
+
+<p>项目核心宣言（摘自 <a href="superpowers/specs/2026-05-08-aedt-node-simulation-design.md">设计规格 §12</a>）：</p>
+
+<blockquote style="border-left:3px solid var(--accent); padding:.5rem 1rem; margin:1rem 0; color:var(--muted);">
+本项目的核心不是让 LLM 记住 pyaedt，而是把 AEDT/HFSS 仿真流程拆成可约束、可检查、可复用、可演进的工程节点。
+</blockquote>
+
+<h3>2.1 三阶段路线图</h3>
+
+<table>
+<tr><th>阶段</th><th>目标</th><th>关键交付物</th><th>Gate</th></tr>
+<tr>
+  <td><strong>Stage A</strong></td>
+  <td>证明轻量融合（知识 + 白名单 + 陷阱）优于裸 LLM</td>
+  <td>30 项基准测试 · A/B/C 组对比 · API 语义 DB · 7 个陷阱 · 离线评分</td>
+  <td><span class="badge badge-ok">✅ 已完成</span></td>
+</tr>
+<tr>
+  <td><strong>Stage B</strong></td>
+  <td>受控 MCP + 真实 AEDT 上的静态节点</td>
+  <td>FastMCP 服务器 · 8 个核心节点 · 会话管理器 · 执行队列 · AST 守护 · 审计日志 · 真实 AEDT 抽查</td>
+  <td><span class="badge badge-warn">⚠️ 部分</span></td>
+</tr>
+<tr>
+  <td><strong>Stage C</strong></td>
+  <td>图谱增强 · 节点演化 · DAG 运行时</td>
+  <td>GitNexusProvider · 完整 DAG · 可视化编辑器 · 节点版本治理</td>
+  <td><span class="badge badge-warn">⚠️ 过早</span></td>
+</tr>
+</table>
+
+<h3>2.2 Go / No-Go 标准</h3>
+
+<p>进入 Stage B 必须满足（§7.5）：</p>
+<ul>
+  <li>Group C 比 Group B semantic pass 提升 ≥ 15%</li>
+  <li>Trap 捕获率 ≥ 80%</li>
+  <li>至少 3 个任务类型真实 AEDT 抽检通过</li>
+  <li>首批节点中至少 5 个达到 <code>candidate-ready</code></li>
+</ul>
+
+<h3>2.3 关键约束</h3>
+
+<ul>
+  <li><strong>HFSS-only</strong> — 不含 Maxwell、Icepak、Mechanical、EDB、Optimetrics（§1.2）</li>
+  <li><strong>8 个核心节点</strong> + 1 个待分解过渡节点（§5.1）</li>
+  <li><strong>正式路径不暴露裸 execute_script</strong> — 仅开发期可用（§6.1）</li>
+  <li><strong>GitNexus 仅在 Stage C</strong> 中作为可插拔 Provider（§3.3）</li>
+  <li><strong>Stage C 项目不得在 Stage A/B Go 条件通过前启动</strong>（§9.3）</li>
+</ul>
+
+<!-- ──────────────────────────────────────────── -->
+<h2 id="current">3. 实际实施状态</h2>
+
+<table>
+<tr><th>模块</th><th>路径</th><th>状态</th><th>超出规格？</th></tr>
+<tr><td>基准测试框架</td><td><code>benchmark/</code></td><td><span class="badge badge-ok">完整</span></td><td>否 — Stage A</td></tr>
+<tr><td>知识提供程序</td><td><code>knowledge/</code></td><td><span class="badge badge-warn">骨架</span></td><td>否 — 数据为空</td></tr>
+<tr><td>MCP 服务器</td><td><code>mcp/server.py</code></td><td><span class="badge badge-warn">仅 Fake</span></td><td>否 — 缺少真实 AEDT</td></tr>
+<tr><td>会话 / 队列</td><td><code>mcp/session_manager.py</code></td><td><span class="badge badge-ok">完整</span></td><td>否</td></tr>
+<tr><td>AST 守护</td><td><code>mcp/ast_guard.py</code></td><td><span class="badge badge-ok">完整</span></td><td>否</td></tr>
+<tr><td>审计日志</td><td><code>mcp/audit_log.py</code></td><td><span class="badge badge-ok">完整</span></td><td>否</td></tr>
+<tr><td>节点注册表</td><td><code>nodes/</code> (21 个)</td><td><span class="badge badge-warn">超出范围</span></td><td>是 — 21 个节点，含 8 个占位符</td></tr>
+<tr><td>节点执行器</td><td><code>mcp/node_executor.py</code></td><td><span class="badge badge-ok">扎实</span></td><td>否 — 核心逻辑良好</td></tr>
+<tr><td>DAG 工作流</td><td><code>workflow/</code></td><td><span class="badge badge-warn">完整</span></td><td>是 — Stage C 范围</td></tr>
+<tr><td>工作流模板</td><td><code>workflow_templates/</code></td><td><span class="badge badge-warn">5 个模板</span></td><td>是 — Stage C</td></tr>
+<tr><td>Chat Planner</td><td><code>chat/</code></td><td><span class="badge badge-warn">完整</span></td><td>是 — Stage C</td></tr>
+<tr><td>节点演化</td><td><code>evolution/</code></td><td><span class="badge badge-warn">仅报告</span></td><td>是 — Stage C</td></tr>
+<tr><td>Web Demo</td><td><code>demo/</code></td><td><span class="badge badge-warn">完整</span></td><td>是 — Stage C</td></tr>
+<tr><td>模型验证</td><td><code>validation/</code></td><td><span class="badge badge-warn">仅结构</span></td><td>否 — 缺少语义</td></tr>
+</table>
+
+<!-- ──────────────────────────────────────────── -->
+<h2 id="gaps">4. 十大差距</h2>
+
+<!-- GAP 1 -->
+<div class="gap-card">
+<h3>GAP 1 · 知识层为空 <span class="severity badge badge-gap">极严重</span></h3>
+
+<div class="two-col">
+<div>
+<strong>规格要求：</strong>
+<p>约束字段（<code>constraints_json</code>、<code>common_errors_json</code>、<code>common_traps_json</code>）应包含真实使用约束 — "LLM 最缺的"数据。68 个 API 语义条目应有参数约束和示例引用。</p>
+</div>
+<div>
+<strong>当前状态：</strong>
+<p><code>api_semantics.seed.jsonl</code> 的 68 条目中，<strong>全部深层字段为空</strong>：</p>
+<pre>"constraints_json": "[]"
+"common_errors_json": "[]"
+"common_traps_json": "[]"
+"examples_ref_json": "[]"
+"params_json": "[]"
+"returns_json": "{}"</pre>
+</div>
+</div>
+
+<div class="callout callout-severe">
+<strong>影响：</strong>该系统声称将 API 语义知识注入基准测试上下文，但约束存储是空的。Group B/C 的提升来自<strong>白名单约束</strong>（每节点限 3-5 个 API），而非知识检索。这相当于把核心价值主张掏空了。
+</div>
+</div>
+
+<!-- GAP 2 -->
+<div class="gap-card">
+<h3>GAP 2 · 常见陷阱严重不足 <span class="severity badge badge-gap">严重</span></h3>
+
+<table>
+<tr><th>规格中的 7 个陷阱</th><th>已实现？</th></tr>
+<tr><td><code>waveport_no_background_contact</code></td><td><span class="cross">❌ 缺失</span></td></tr>
+<tr><td><code>airbox_too_small</code></td><td><span class="check">✅</span></td></tr>
+<tr><td><code>missing_ground_plane</code></td><td><span class="check">✅</span></td></tr>
+<tr><td><code>wrong_face_selected_for_port</code></td><td><span class="check">✅</span></td></tr>
+<tr><td><code>sweep_range_misses_target_frequency</code></td><td><span class="cross">❌ 缺失</span></td></tr>
+<tr><td><code>material_or_unit_mismatch</code></td><td><span class="cross">❌ 缺失</span></td></tr>
+<tr><td><code>boundary_assigned_to_wrong_object</code></td><td><span class="cross">❌ 缺失</span></td></tr>
+</table>
+
+<p>4/7 缺失。基准测试中的陷阱任务（<code>Trap_airbox_too_small</code> 等）存在但引用的陷阱 ID 可能未定义。</p>
+</div>
+
+<!-- GAP 3 -->
+<div class="gap-card">
+<h3>GAP 3 · 节点目录超出范围 <span class="severity badge badge-gap">严重</span></h3>
+
+<p><strong>规格要求：</strong>Stage A/B 的 8 个核心 HFSS 节点。不含 EDB、Maxwell、Icepak。</p>
+<p><strong>当前状态：</strong><code>nodes/catalog/</code> 包含 <strong>21 个节点</strong>，其中 8 个布局节点返回硬编码假数据（<code>_layout_placeholder_node()</code>）：</p>
+
+<table>
+<tr><th>占位符节点</th><th>实际行为</th></tr>
+<tr><td><code>import_layout_file</code></td><td>返回假 layout_path</td></tr>
+<tr><td><code>select_layout_nets</code></td><td>返回假 signal_nets</td></tr>
+<tr><td><code>create_layout_cutout</code></td><td>返回假 cutout_name</td></tr>
+<tr><td><code>configure_layout_stackup</code></td><td>返回假 stackup_name</td></tr>
+<tr><td><code>create_layout_ports</code></td><td>返回假 port_names</td></tr>
+<tr><td><code>create_layout_setup</code></td><td>返回假 setup_name</td></tr>
+<tr><td><code>solve_layout</code></td><td>返回假 solved_setup</td></tr>
+<tr><td><code>create_layout_sparam_tdr_report</code></td><td>返回假文件路径</td></tr>
+</table>
+
+<div class="callout callout-severe">
+<strong>违反规格：</strong>规格明确排除 EDB，且规定"Stage C 项目不得在 Stage A/B Go 条件通过前启动"（§9.3）。布局节点引入了 PCB/封装仿真范围，却没有对应的验证。
+</div>
+</div>
+
+<!-- GAP 4 -->
+<div class="gap-card">
+<h3>GAP 4 · MCP 服务器与真实 AEDT 断开 <span class="severity badge badge-gap">严重</span></h3>
+
+<div class="two-col">
+<div>
+<strong>规格要求：</strong>
+<p>MCP 服务器应维护持久化 pyaedt 实例，通过 .NET interop 与真实 AEDT 通信 — 这是 Stage B 的核心交付物。</p>
+</div>
+<div>
+<strong>当前状态：</strong>
+<p><code>mcp/server.py</code> 硬编码 <code>create_fake_kernel()</code>，使用 <code>FakeAedtAdapter</code>。真实 AEDT 的 <code>pyaedt_adapter.py</code> 存在但<strong>未连接到 FastMCP 服务器</strong>。</p>
+</div>
+</div>
+
+<p>唯一的真实 AEDT 执行路径是独立脚本 <code>scripts/run_stage_c_real_workflow_smoke.py</code> — 它完全绕过 MCP 协议和节点执行器。Stage B 的核心承诺"受控 MCP + 真实 AEDT"从未集成。</p>
+</div>
+
+<!-- GAP 5 -->
+<div class="gap-card">
+<h3>GAP 5 · 基准测试评估仅离线 <span class="severity badge badge-warn">中度</span></h3>
+
+<p><strong>规格要求：</strong>4 层评估 — Syntax、API、Runtime（真实 AEDT 抽样）、Semantic（validation script 判断）。Trap 任务<strong>必须</strong>进入真实 AEDT 抽检（§7.2）。</p>
+<p><strong>当前状态：</strong>评分器仅检查 Syntax、Security 和 API pass。<code>semantic_lite.py</code> 只验证 <code>Hfss</code> 是否被导入 — 不是真正的语义验证。整个基准测试管道是<strong>纯离线</strong>运行。执行报告承认了这一点："当前 validation 检查的是结构性正确"，但未实现规格中的 Semantic Pass ≥ 70% 标准。</p>
+</div>
+
+<!-- GAP 6 -->
+<div class="gap-card">
+<h3>GAP 6 · 节点状态生命周期缺失 <span class="severity badge badge-warn">中度</span></h3>
+
+<p><strong>规格要求：</strong>每个节点必须有 <code>status: pseudo | candidate | candidate-ready | stable | deprecated</code> 字段，并设定明确的过渡门控（§4.5、§5.4）。</p>
+<p><strong>当前状态：</strong>节点 YAML（如 <code>create_substrate.yaml</code>）<strong>没有 <code>status</code> 字段</strong>。演化模型定义了 <code>ReviewStatus</code> 枚举但未连接到节点目录。系统不知道哪些节点是"候选就绪"的，哪些是"稳定"的。节点目录是扁平的，没有治理。</p>
+</div>
+
+<!-- GAP 7 -->
+<div class="gap-card">
+<h3>GAP 7 · create_conductor_or_geometry_group 从未分解 <span class="severity badge badge-warn">中度</span></h3>
+
+<p><strong>规格要求：</strong>该节点被标记为过渡节点，必须在满足触发条件时分解为 <code>create_box_body</code>、<code>create_sheet_conductor</code>、<code>create_ground</code>、<code>create_patch</code>、<code>create_feed_geometry</code> 等（§5.3）。触发条件：基准测试中 ≥3 次失败、API 白名单 > 8 个、postcheck 无法判断正确性。</p>
+<p><strong>当前状态：</strong>该节点仍为单体，接受通用 <code>geometry</code> 列表参数。分解逻辑从未启动。</p>
+</div>
+
+<!-- GAP 8 -->
+<div class="gap-card">
+<h3>GAP 8 · GitNexus 已放弃，无替代方案 <span class="severity badge badge-warn">中度</span></h3>
+
+<p><strong>规格要求：</strong>GitNexus 是推荐的代码结构图谱工具，用于跟踪 API 调用链和生成节点的 <code>api_scope</code>（§3.8）。</p>
+<p><strong>当前状态：</strong>代码库中<strong>无 GitNexus 集成</strong>。<code>official_retriever.py</code> 存在但未被基准测试管道主动调用。从 pyaedt 源码自动生成 API 语义从未实现 — 68 个种子条目是手工编写的。</p>
+</div>
+
+<!-- GAP 9 -->
+<div class="gap-card">
+<h3>GAP 9 · 演化系统无实际效用 <span class="severity badge badge-info">低</span></h3>
+
+<p>完整的演化包（<code>evolution/</code>）包含模型、方案提出器、挖掘器、评估器和策略 — 但它仅作为报告生成器运行（<code>generate_node_evolution_report.py</code>），而不修改节点目录。演化产生的是 HTML 报告，不是目录更新。</p>
+</div>
+
+<!-- GAP 10 -->
+<div class="gap-card">
+<h3>GAP 10 · 工作流案例不足 · 语义验证缺失 <span class="severity badge badge-info">低</span></h3>
+
+<p><strong>工作流案例：</strong>规格要求 7 个案例，实际仅 4 个。缺失：<code>microstrip_line</code>、<code>rectangular_waveguide</code>、<code>coaxial_feed</code>、<code>cavity_resonator</code>、<code>simple_sparameter_export</code>。</p>
+<p><strong>语义验证：</strong>规格中的 "Semantic Pass ≥ 70%" Go/No-Go 指标没有可操作的实现。当前 <code>validation/</code> 模块仅检查对象是否存在、材料是否匹配 — 没有电磁物理正确性检查。</p>
+</div>
+
+<!-- ──────────────────────────────────────────── -->
+<h2 id="bright">5. 架构亮点</h2>
+
+<div class="callout callout-good">
+尽管存在差距，以下工程成果值得认可：
+</div>
+
+<table>
+<tr><th>模块</th><th>评价</th></tr>
+<tr>
+  <td><strong>基准测试框架</strong><br><code>benchmark/runner.py</code></td>
+  <td>设计精良的 A/B/C 组对比，支持在线生成（OpenAI/Anthropic/file）和离线重放。Go/No-Go 计算、节点就绪度评估、HTML 报告管道均完备。</td>
+</tr>
+<tr>
+  <td><strong>节点执行器</strong><br><code>mcp/node_executor.py</code></td>
+  <td>真正的工程级代码 — 实际上每个核心节点都被实现，具有正确的 AEDT API 调用、边界框计算、面选择、频率单位归一化、圆柱体几何推断。整个模块结构清晰，可直接部署。</td>
+</tr>
+<tr>
+  <td><strong>工作流 DAG 模型</strong><br><code>workflow/models.py</code></td>
+  <td>结构清晰、可组合的 DAG 模型（Workflow → WorkflowNode → WorkflowEdge → WorkflowOutput），支持 <code>$ref</code> 参数引用、模板实例化、JSON 序列化，已做好产品化准备。</td>
+</tr>
+<tr>
+  <td><strong>MCP 协议层</strong><br><code>mcp/tools.py</code> + <code>mcp/server.py</code></td>
+  <td>设计正确。6 个工具（create_session、release_session、list_available_nodes、describe_node、execute_node、get_model_info）遵循了规格的强制执行模式。dev_mode 开关控制 execute_script_restricted 访问。会话管理器、FIFO 队列、AST 守护、审计日志均就位。</td>
+</tr>
+<tr>
+  <td><strong>假适配器</strong><br><code>mcp/fake_aedt.py</code></td>
+  <td>异常精细 — 以足够的保真度建模了真实 AEDT 对象状态（Face 对象含 id/center/area、box/cylinder/rectangle 几何类型、对象边界框计算、面选择逻辑、Sweep/Touchstone 导出）。使得无需真实 AEDT 即可运行完整的离线测试。</td>
+</tr>
+<tr>
+  <td><strong>输入 Schema 验证</strong><br><code>mcp/node_schemas.py</code></td>
+  <td>每个节点有类型化输入 Schema，含 required/optional/defaults。sweep type 别名归一化、节点输出引用检测、频率单位解析均正确实现。</td>
+</tr>
+</table>
+
+<!-- ──────────────────────────────────────────── -->
+<h2 id="risks">6. 关键风险矩阵</h2>
+
+<table>
+<tr><th>风险</th><th>严重程度</th><th>可能性</th><th>说明</th></tr>
+<tr>
+  <td>知识层为空</td>
+  <td><span class="badge badge-gap">极严重</span></td>
+  <td><span class="badge badge-ok">已发生</span></td>
+  <td>系统承诺的约束/陷阱注入完全未兑现。当前基准测试提升来源于白名单，一旦白名单效果边际递减，Group C 优势将消失。</td>
+</tr>
+<tr>
+  <td>MCP 与真实 AEDT 断开</td>
+  <td><span class="badge badge-gap">极严重</span></td>
+  <td><span class="badge badge-ok">已发生</span></td>
+  <td>Stage B 核心交付物缺失。如果用户试图将 MCP 服务器连接到外部 AI 客户端，所有 execute_node 调用都将落在假适配器上。</td>
+</tr>
+<tr>
+  <td>Stage C 范围入侵</td>
+  <td><span class="badge badge-gap">严重</span></td>
+  <td><span class="badge badge-ok">已发生</span></td>
+  <td>21 个节点（8 个占位符）、DAG、演化、Web Demo 在 Stage B 基础未稳固前构建。违反架构约束。</td>
+</tr>
+<tr>
+  <td>节点治理缺失</td>
+  <td><span class="badge badge-warn">中度</span></td>
+  <td><span class="badge badge-ok">已发生</span></td>
+  <td>无 status 字段、无稳定过渡、无目录修剪。GeometryGroup 从未分解。系统不能区分可部署节点和实验节点。</td>
+</tr>
+<tr>
+  <td>语义验证虚假</td>
+  <td><span class="badge badge-warn">中度</span></td>
+  <td><span class="badge badge-ok">已发生</span></td>
+  <td><code>semantic_lite_pass</code> 仅检查 Hfss 导入。真实的电磁正确性从未验证。Semantic Pass ≥ 70% 的 Go 条件无法评估。</td>
+</tr>
+</table>
+
+<!-- ──────────────────────────────────────────── -->
+<h2 id="path">7. 建议的纠正路径</h2>
+
+<p>按优先级排序：</p>
+
+<table>
+<tr><th>#</th><th>行动</th><th>影响</th><th>工作量</th></tr>
+<tr>
+  <td><strong>P0</strong></td>
+  <td><strong>填充知识层。</strong>为所有 68 个 API 语义条目编写 <code>constraints_json</code>、<code>common_errors_json</code>、<code>params_json</code> 字段。每条目至少 2 条约束和 1 个常见错误。来源必须来自 pyaedt 源码或 AEDT 文档，禁止猜测。</td>
+  <td>立即提升基准测试 semantic_lite 分数；使知识检索成为真正的价值来源</td>
+  <td>2-3 天</td>
+</tr>
+<tr>
+  <td><strong>P0</strong></td>
+  <td><strong>将 pyaedt_adapter 连接到 MCP 服务器。</strong>创建 <code>create_real_kernel()</code> 工厂方法，通过配置开关（环境变量或 config）在 fake/real 之间切换。确保 <code>execute_node</code> 在真实 AEDT 上可运行。</td>
+  <td>完成 Stage B 核心交付物；使 MCP 服务器可被外部 AI 客户端使用</td>
+  <td>1-2 天</td>
+</tr>
+<tr>
+  <td><strong>P1</strong></td>
+  <td><strong>修剪节点目录。</strong>移除 8 个布局占位符（它们在所有代码路径中返回硬编码假数据）。为剩余 13 个节点添加 <code>status</code> 字段。将核心 8 个节点标记为 <code>candidate</code>，5 个后处理节点标记为 <code>proposed</code>。</td>
+  <td>恢复目录可维护性；启用节点治理</td>
+  <td>0.5 天</td>
+</tr>
+<tr>
+  <td><strong>P1</strong></td>
+  <td><strong>完成 4 个缺失的陷阱 YAML。</strong>编写 <code>waveport_no_background_contact</code>、<code>sweep_range_misses_target_frequency</code>、<code>material_or_unit_mismatch</code>、<code>boundary_assigned_to_wrong_object</code>。连接到基准测试上下文构建器。</td>
+  <td>完成 Stage A 交付物；使陷阱任务可评分</td>
+  <td>1 天</td>
+</tr>
+<tr>
+  <td><strong>P2</strong></td>
+  <td><strong>暂停 Stage C 范围扩展。</strong>直到 P0/P1 项完成且所有 Stage B Go 条件验证通过后，再考虑新的 DAG、演化或 Web 功能。</td>
+  <td>阻止进一步的架构债务</td>
+  <td>治理决策</td>
+</tr>
+</table>
+
+<!-- ──────────────────────────────────────────── -->
+<h2 id="appendix">附录：规格对照表</h2>
+
+<table>
+<tr><th>规格项</th><th>要求</th><th>实际</th><th>状态</th></tr>
+<tr><td>API 语义 DB</td><td>68 个条目含约束 / 错误 / 陷阱 / 示例</td><td>68 个条目，所有深层字段为空</td><td><span class="cross">❌</span></td></tr>
+<tr><td>常见陷阱</td><td>7 个，含检测规则</td><td>3/7</td><td><span class="cross">❌</span></td></tr>
+<tr><td>工作流案例</td><td>7 个 YAML</td><td>4/7</td><td><span class="cross">❌</span></td></tr>
+<tr><td>核心节点</td><td>8 个 HFSS-only</td><td>21 个（含 8 个无实际逻辑的布局占位符）</td><td><span class="cross">❌</span></td></tr>
+<tr><td>节点 status 字段</td><td>pseudo → candidate → stable</td><td>缺失</td><td><span class="cross">❌</span></td></tr>
+<tr><td>MCP 服务器 + 真实 AEDT</td><td>持久化 pyaedt 实例 via FastMCP</td><td>仅 FakeAedtAdapter</td><td><span class="cross">❌</span></td></tr>
+<tr><td>真实 AEDT 抽检</td><td>每个任务类型抽样执行</td><td>未集成到基准测试管道</td><td><span class="cross">❌</span></td></tr>
+<tr><td>Semantic Pass ≥ 70%</td><td>Go/No-Go 指标</td><td>无法评估</td><td><span class="cross">❌</span></td></tr>
+<tr><td>GitNexus 集成</td><td>推荐工具</td><td>未集成</td><td><span class="cross">❌</span></td></tr>
+<tr><td>GeometryGroup 分解</td><td>必须按触发条件分解</td><td>未触发</td><td><span class="cross">❌</span></td></tr>
+<tr><td>离线基准测试框架</td><td>30 任务 × 3 组</td><td>30 任务，A/B/C 组，HTML 报告</td><td><span class="check">✅</span></td></tr>
+<tr><td>AST 守护</td><td>import 白名单，os/sys/subprocess 禁止</td><td>完整</td><td><span class="check">✅</span></td></tr>
+<tr><td>会话管理 / 执行队列 / 审计</td><td>FIFO，checkpoint，traceback 分类</td><td>完整</td><td><span class="check">✅</span></td></tr>
+<tr><td>节点执行器</td><td>8 个节点真实实现</td><td>14 个真实实现 + 8 个占位符</td><td><span class="check">✅</span></td></tr>
+<tr><td>工作流引擎</td><td>Stage C 预留</td><td>完整 DAG + 模板 + 验证器 + 执行器</td><td><span class="badge badge-warn">超出</span></td></tr>
+</table>
+
+<div class="hr"></div>
+
+<p style="color: var(--muted); font-size: .85em;">
+生成于 2026-05-21 · 基于 <code>src/aedt_agent/</code> 全库代码审查 · 规格源：<code>docs/superpowers/specs/2026-05-08-aedt-node-simulation-design.md</code>
+</p>
+
+</body>
+</html>

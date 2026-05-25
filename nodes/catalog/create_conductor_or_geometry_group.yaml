@@ -1,5 +1,7 @@
 node_id: create_conductor_or_geometry_group
 summary: Create one or more conductors or related geometry primitives.
+status: stable
+track: hfss-core
 allowed_apis:
   - Hfss.modeler.create_box
   - Hfss.modeler.create_rectangle

@@ -49,7 +49,7 @@ def render_demo_page() -> str:
         <select id="workflowSelect" onchange="changeWorkflow(this.value)">
           <option value="microstrip_sparameter">Microstrip S 参数</option>
           <option value="dipole_antenna_s11_farfield">Dipole 天线 S11</option>
-          <option value="import_brd_cutout_sparam_tdr">BRD/MCM Cutout S 参数 + TDR</option>
+          <option value="import_brd_cutout_sparam_tdr">BRD/MCM Cutout 建模</option>
         </select>
       </div>
       <div class="field">
@@ -163,22 +163,21 @@ const WORKFLOWS = {
     ]
   },
   import_brd_cutout_sparam_tdr: {
-    title: 'BRD/MCM Cutout S-Parameter + TDR Workflow',
-    request: '导入 /home/zzmjay/work/brd/c03010211_56g_2512031835.brd，选择 SRDS_0_TX0 差分 net，参考 GND，cutout 后设置端口、求解，显示 S11/S21 和 TDR。',
-    expected: 'BRD/MCM · Net wildcard · Cutout · Stackup · Ports · S2P · TDR',
-    s21Label: 'S21 at selected frequency',
+    title: 'BRD/MCM Cutout Model Build Workflow',
+    request: '导入 /home/zzmjay/work/brd/c03010211_56g_2512031835.brd，选择 SRDS_3_RX1 差分 net，参考 GND，cutout 后设置叠层、端口和 DC 到 67GHz 扫频，不运行仿真。',
+    expected: 'BRD/MCM · Net wildcard · Cutout · Stackup · Ports · DC-67GHz setup',
+    s21Label: 'Model build status',
     diagram: '<div class="air"></div><div class="substrate" style="bottom:56px;height:48px"></div><div class="trace" style="left:42px;right:42px;bottom:109px"></div><div class="trace" style="left:74px;right:102px;bottom:82px;background:#0f766e"></div><div class="port p1" style="left:58px;height:68px"></div><div class="port p2" style="right:58px;height:68px"></div><div class="diagram-label l1">Imported BRD/MCM nets</div><div class="diagram-label l2">Cutout + ports + TDR</div>',
     steps: [
-      ['discover_file','Discover BRD/MCM File','从 ~/work 发现或使用用户指定文件'],
-      ['import_layout','Import Layout','带 Cadence 环境导入 BRD/MCM'],
-      ['select_nets','Select Nets','展开 signal/reference net 通配符'],
-      ['cutout','Create Cutout','按选中 net 创建 EDB cutout'],
-      ['stackup','Configure Stackup','保留或设置板级叠层'],
+      ['discover_file','Open BRD/MCM with PyEDB','打开用户指定文件并读取 board nets'],
+      ['import_layout','Stage Source EDB','带 Cadence 环境生成 source EDB'],
+      ['select_nets','Select Nets','展开 signal/reference net 通配符并给出候选'],
+      ['cutout','Create PyEDB Cutout','多线程创建 cutout AEDB，并复制给 HFSS 3D Layout'],
+      ['stackup','Load Stackup XML','导入 stackup XML 并保存 cutout AEDB'],
+      ['port_candidates','Locate Port Candidates','识别信号两端 component/pin/ball 候选'],
       ['ports','Create Ports','按 board rule 创建端口'],
-      ['setup','Create Setup/Sweep','创建 3D Layout setup 和扫频'],
-      ['solve','Solve Layout','运行 3D Layout 仿真'],
-      ['postprocess','Postprocess S/TDR','导出 S11/S21 和 TDR'],
-      ['validation','Validate Result','校验文件、net、artifact 和曲线']
+      ['setup','Create Setup/Sweep','创建 3D Layout setup 和 DC-67GHz 扫频'],
+      ['validation','Validate Model','校验 cutout、叠层、端口、setup 和工程文件']
     ]
   }
 };

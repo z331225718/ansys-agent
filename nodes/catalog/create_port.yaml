@@ -1,5 +1,7 @@
 node_id: create_port
 summary: Create a modal excitation such as a wave or lumped port.
+status: candidate
+track: hfss-core
 allowed_apis:
   - Hfss.wave_port
   - Hfss.lumped_port

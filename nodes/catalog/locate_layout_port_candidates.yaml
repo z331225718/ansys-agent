@@ -1,0 +1,16 @@
+node_id: locate_layout_port_candidates
+summary: Locate and score likely HFSS 3D Layout port endpoint components for selected signal and reference nets.
+status: experimental
+track: layout-brd
+allowed_apis:
+  - pyedb.Edb.components.get_components_from_nets
+  - pyedb.Edb.components.get_component_net_connection_info
+  - pyedb.Edb.components.get_pin_position
+inputs:
+  required: [layout, signal_nets, reference_nets]
+  optional: [candidate_rule]
+outputs:
+  creates: [port_candidate_report]
+prerequisites:
+  - configure_layout_stackup
+examples: [import_brd_cutout_sparam_tdr]

@@ -1,11 +1,13 @@
 node_id: import_layout_file
-summary: Import a Cadence BRD/MCM layout into EDB/3D Layout.
+summary: Open a Cadence BRD/MCM layout with PyEDB so nets can be resolved before cutout.
+status: experimental
+track: layout-brd
 allowed_apis:
-  - pyedb.Edb.import_layout_file
-  - Hfss3dLayout.import_edb
+  - pyedb.Edb
+  - pyedb.Edb.nets
 inputs:
   required: [layout_file]
 outputs:
-  creates: [layout]
+  creates: [source_edb, net_inventory]
 prerequisites: []
 examples: [import_brd_cutout_sparam_tdr]

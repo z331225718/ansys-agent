@@ -1,0 +1,18 @@
+trap_id: sweep_range_misses_target_frequency
+domain: hfss
+applies_to:
+  - Hfss.create_setup
+  - Hfss.create_linear_count_sweep
+  - create_sweep_or_export
+description: The requested analysis or optimization frequency must fall inside the sweep range; otherwise plots and tuning logic can look valid while missing the target.
+symptom: A report is generated but the requested resonance or inspection frequency is absent from the sweep data.
+root_cause: The planner confused setup frequency, sweep stop frequency, and optimization target frequency.
+why_silent: AEDT can solve a valid sweep even when it does not cover the user target.
+detection_rule: validate_target_frequency_inside_sweep
+detection: Check that every requested target/report/tuning frequency lies inside the sweep start and stop range.
+avoidance:
+  - Parse setup frequency, sweep start, sweep stop, and tuning target as separate parameters.
+  - For tuning, judge resonance against the optimization target rather than the setup frequency.
+validation_rule: validate_target_frequency_inside_sweep
+prevention: Track setup frequency, sweep range, and tuning target as separate workflow parameters.
+source: "Local dipole tuning demo issue where user asked to optimize resonance to a different frequency."

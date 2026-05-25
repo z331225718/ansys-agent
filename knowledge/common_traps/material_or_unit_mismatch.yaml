@@ -1,0 +1,18 @@
+trap_id: material_or_unit_mismatch
+domain: hfss
+applies_to:
+  - Hfss.modeler.create_box
+  - Hfss.modeler.create_rectangle
+  - Hfss.assign_material
+description: Geometry may be created with correct-looking dimensions but wrong units or missing conductor materials, causing invalid electromagnetic behavior.
+symptom: Model objects exist, but traces or ground are not conductive, or dimensions are scaled unexpectedly.
+root_cause: Generated code omitted copper/PEC assignments or mixed mm, mil, and meter values.
+why_silent: AEDT may create the geometry without throwing an error.
+detection_rule: validate_units_and_conductor_materials
+detection: Check active model units, object dimensions, and explicit material/boundary assignments for conductors and dielectrics.
+avoidance:
+  - Assign PEC or copper to signal traces and ground conductors.
+  - Keep template dimensions in one declared unit system and convert derived lengths explicitly.
+validation_rule: validate_units_and_conductor_materials
+prevention: Use one declared unit system per template and explicitly assign conductor and dielectric materials.
+source: "Local microstrip demo failures where trace and ground existed but lacked conductor behavior."

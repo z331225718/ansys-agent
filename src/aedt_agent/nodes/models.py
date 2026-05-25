@@ -34,13 +34,25 @@ class NodeDefinition:
     outputs: dict[str, Any] = field(default_factory=dict)
     prerequisites: list[str] = field(default_factory=list)
     examples: list[str] = field(default_factory=list)
+    status: str = "experimental"
+    track: str = "hfss-core"
 
     @property
     def api_whitelist(self) -> list[str]:
         return list(self.allowed_apis)
 
+    @property
+    def is_experimental(self) -> bool:
+        return self.status == "experimental"
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "NodeDefinition":
+        status = str(data.get("status", "experimental"))
+        track = str(data.get("track", "hfss-core"))
+        if status not in {"experimental", "candidate", "stable", "deprecated"}:
+            raise ValueError(f"invalid node status: {status}")
+        if track not in {"hfss-core", "hfss-demo", "layout-brd", "postprocess"}:
+            raise ValueError(f"invalid node track: {track}")
         return cls(
             node_id=str(data["node_id"]),
             summary=str(data["summary"]),
@@ -49,6 +61,8 @@ class NodeDefinition:
             outputs=_mapping(data, "outputs"),
             prerequisites=_list_of_strings(data, "prerequisites"),
             examples=_list_of_strings(data, "examples"),
+            status=status,
+            track=track,
         )
 
     @classmethod

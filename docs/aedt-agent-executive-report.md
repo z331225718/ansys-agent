@@ -98,6 +98,16 @@ flowchart LR
 - 端口/边界/setup/sweep 是否存在。
 - 关键引用关系是否合理。
 
+## Validation 边界
+
+当前系统的验证分三层：
+
+1. 结构性验证：检查对象、材料、端口、边界、setup、sweep、report 是否按 workflow 预期创建。
+2. 结果文件验证：检查 Touchstone、CSV、TDR 等文件是否存在、可解析，且频率范围覆盖用户目标。
+3. 电磁语义验证：只在少数模板中使用启发式规则，例如谐振点是否接近目标频率；这不是完整电磁正确性证明。
+
+因此，当前结论应表述为“受控 workflow 能稳定生成并验证 AEDT 模型结构和基础结果文件”，不应表述为“自动保证仿真设计物理正确”。
+
 未来还需要增强：
 
 - 电磁语义检查。
@@ -134,4 +144,3 @@ flowchart LR
 - Stage B 复现文档：`docs/stage-b-controlled-node-benchmark.md`
 - Stage B 对照报告：`benchmarks/reports/stage_b_10task_compare.html`
 - 一键报告脚本：`scripts/build_stage_b_report.py`
-

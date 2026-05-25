@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AEDT Agent — Codex 项目方向评估报告</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface-2: #1c2128;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --orange: #d2991d;
+    --purple: #a371f7;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.65;
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+  }
+  h1 { font-size: 1.85rem; margin-bottom: .25rem; color: #f0f6fc; }
+  h2 {
+    font-size: 1.35rem;
+    margin: 2.5rem 0 .75rem;
+    padding-bottom: .4rem;
+    border-bottom: 1px solid var(--border);
+    color: #f0f6fc;
+  }
+  h3 { font-size: 1.1rem; margin: 1.25rem 0 .5rem; color: #e6edf3; }
+  p, li { margin-bottom: .5rem; }
+  ul, ol { padding-left: 1.25rem; margin-bottom: 1rem; }
+  code {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: .88em;
+    background: var(--surface);
+    padding: .12em .4em;
+    border-radius: 4px;
+  }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0 1.25rem; font-size: .92em; }
+  th, td { padding: .6em .75em; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+  th { background: var(--surface); font-weight: 600; color: #f0f6fc; }
+  tr:nth-child(even) { background: #161b2233; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .subtitle { color: var(--muted); margin-bottom: 2rem; }
+  .toc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 2rem;
+  }
+  .toc li { margin-bottom: .25rem; }
+  .badge {
+    display: inline-block;
+    padding: .15em .55em;
+    border-radius: 10px;
+    font-size: .78em;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .badge-ok { background: #1a3a1a; color: var(--green); }
+  .badge-warn { background: #3a2e0a; color: var(--orange); }
+  .badge-gap { background: #3a1414; color: var(--red); }
+  .badge-info { background: #1a1a3a; color: var(--purple); }
+  .callout {
+    border-left: 3px solid;
+    padding: .8rem 1rem;
+    margin: 1rem 0;
+    border-radius: 0 6px 6px 0;
+    background: var(--surface);
+  }
+  .callout-good { border-color: var(--green); }
+  .callout-warn { border-color: var(--orange); }
+  .callout-severe { border-color: var(--red); }
+  .callout-info { border-color: var(--accent); }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.1rem;
+    margin: 1rem 0;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+    margin: 1rem 0;
+  }
+  .metric {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+  }
+  .metric strong {
+    display: block;
+    font-size: 1.45rem;
+    color: #f0f6fc;
+  }
+  .muted { color: var(--muted); }
+  .ok { color: var(--green); font-weight: 700; }
+  .warn { color: var(--orange); font-weight: 700; }
+  .gap { color: var(--red); font-weight: 700; }
+  @media (max-width: 760px) {
+    body { padding: 1.25rem .9rem; }
+    .grid { grid-template-columns: 1fr; }
+    table { font-size: .86em; }
+  }
+</style>
+</head>
+<body>
+
+<h1>AEDT Agent 项目方向评估报告</h1>
+<p class="subtitle">Codex 独立判断 · 面向项目执行 agent<br>
+分析日期：2026-05-25 · 对照材料：初始 spec、Stage A/B/C plan、阶段报告、当前代码与 <code>ansys-agent_difference_analyze.html</code></p>
+
+<div class="toc">
+  <strong>目录</strong>
+  <ol>
+    <li><a href="#summary">执行摘要</a></li>
+    <li><a href="#direction">项目方向判断</a></li>
+    <li><a href="#agreement">与差距分析报告的一致点</a></li>
+    <li><a href="#corrections">需要修正或补充的判断</a></li>
+    <li><a href="#gaps">我认为最关键的差异</a></li>
+    <li><a href="#recommendation">建议路线</a></li>
+    <li><a href="#agent">给执行 agent 的任务优先级</a></li>
+    <li><a href="#decision">建议的项目决策</a></li>
+  </ol>
+</div>
+
+<h2 id="summary">1. 执行摘要</h2>
+
+<div class="callout callout-warn">
+  <strong>一句话结论：</strong>项目从“HFSS-only 受控节点仿真基座”演进到“workflow 产品化 demo 骨架”这个方向总体正确，但 Stage B 的对外执行入口、知识数据资产、节点治理还没有闭合；同时 Layout/BRD/EDB 方向已经明显超出初始范围，必须从主线中隔离。
+</div>
+
+<p>我不同意把当前进展简单定义为“跑偏”。更准确的判断是：<strong>主技术路线选对了，但阶段门控没有跟上。</strong>Stage A/B 已经证明了两个重要事实：grounding 能明显提升 PyAEDT 生成效果；受控 node plan 比自由 Python 更可控、更可审计。Stage C 的 workflow、template、validator、demo server 是合理产品化延伸。</p>
+
+<p>真正的问题不在于做了 Stage C，而在于 Stage C 的表层能力发展很快，底层的 Stage B contract 仍有缺口：FastMCP server 默认使用 fake adapter，API 语义库的约束字段基本为空，节点 catalog 没有稳定等级，Layout 节点以占位符形式进入了正式目录。</p>
+
+<div class="grid">
+  <div class="metric"><strong>方向</strong>受控 workflow agent 是正确主线</div>
+  <div class="metric"><strong>风险</strong>Stage B contract 未闭合，Stage C 继续扩张</div>
+  <div class="metric"><strong>决策</strong>冻结扩张，补齐真实 MCP、知识层、catalog 治理</div>
+</div>
+
+<h2 id="direction">2. 项目方向判断</h2>
+
+<table>
+  <tr><th>问题</th><th>我的判断</th><th>原因</th></tr>
+  <tr>
+    <td>项目是否偏离初始定义？</td>
+    <td><span class="badge badge-warn">部分偏离</span></td>
+    <td>HFSS 受控节点主线仍在，但 Layout/BRD/EDB 节点、demo tuning、import cutout 已超出初始 HFSS-only MVP。</td>
+  </tr>
+  <tr>
+    <td>Stage C 是否完全不该做？</td>
+    <td><span class="badge badge-info">不应一刀切</span></td>
+    <td>workflow model、validator、executor、template 是受控节点路线的自然产品化，不应回滚；但继续扩功能前需要补 Stage B 缺口。</td>
+  </tr>
+  <tr>
+    <td>当前最大工程债是什么？</td>
+    <td><span class="badge badge-gap">入口 contract 不一致</span></td>
+    <td>真实 AEDT 能通过脚本跑受控 executor，但 FastMCP server 入口仍固定 fake，外部 agent 接入时拿不到真实执行能力。</td>
+  </tr>
+  <tr>
+    <td>当前最大产品风险是什么？</td>
+    <td><span class="badge badge-gap">demo 叙事超过验证证据</span></td>
+    <td>报告和 UI 已经像产品，但 validation 仍以结构性检查为主，planner benchmark 和真实 smoke 覆盖都还偏小。</td>
+  </tr>
+</table>
+
+<h2 id="agreement">3. 与差距分析报告的一致点</h2>
+
+<div class="card">
+  <h3>3.1 知识层确实没有兑现初始价值主张</h3>
+  <p>初始 spec 强调 API 语义、参数约束、common errors、common traps 是系统差异化基础。但当前 <code>knowledge/api_semantics/api_semantics.seed.jsonl</code> 的 68 条记录中，<code>params_json</code>、<code>returns_json</code>、<code>constraints_json</code>、<code>common_errors_json</code>、<code>common_traps_json</code> 基本为空结构。这样会让“知识检索”退化为 API 名称和签名提示，而不是工程约束注入。</p>
+  <p><strong>判断：</strong><span class="gap">这是 P0 级缺口。</span>如果不补，项目很难证明它的成功来自可维护知识资产，而不是 prompt、白名单和 benchmark 任务适配。</p>
+</div>
+
+<div class="card">
+  <h3>3.2 FastMCP server 与真实 AEDT 没有闭合</h3>
+  <p><code>src/aedt_agent/mcp/server.py</code> 中 <code>create_server()</code> 固定调用 <code>create_fake_kernel()</code>。真实 AEDT 路径存在于 <code>PyaedtAdapter</code> 和 smoke 脚本中，但没有通过 MCP server 暴露给外部 AI 客户端。</p>
+  <p><strong>判断：</strong><span class="gap">这是 Stage B contract 的核心缺口。</span>只要外部入口仍是 fake，Stage B 就不能算对外完成。</p>
+</div>
+
+<div class="card">
+  <h3>3.3 Layout/BRD 节点进入 catalog 是范围污染</h3>
+  <p>初始 Stage A/B 明确 HFSS-only，不含 EDB。当前 <code>nodes/catalog/</code> 已出现 <code>import_layout_file</code>、<code>create_layout_cutout</code>、<code>create_layout_ports</code>、<code>solve_layout</code> 等节点；其中一批在 <code>NodeExecutor</code> 中路由到 <code>_layout_placeholder_node()</code>，返回结构化假结果。</p>
+  <p><strong>判断：</strong><span class="gap">这些节点不应出现在 stable/candidate 主 catalog。</span>如果保留，必须标记为 experimental，并禁止默认 planner 选择。</p>
+</div>
+
+<h2 id="corrections">4. 需要修正或补充的判断</h2>
+
+<table>
+  <tr><th>差距报告中的说法</th><th>我的修正</th><th>执行含义</th></tr>
+  <tr>
+    <td>“真实 AEDT 执行完全绕过节点执行器”</td>
+    <td>不完全准确。真实 smoke 脚本没有走 MCP 协议，但确实使用了 <code>SessionManager + PyaedtAdapter + NodeExecutor + WorkflowExecutor</code>。</td>
+    <td>不需要重做真实执行链路；需要把已存在链路接到 FastMCP server。</td>
+  </tr>
+  <tr>
+    <td>“Stage C 过早，应暂停”</td>
+    <td>应暂停 Stage C 扩张，而不是回滚 Stage C 基础设施。workflow、validator、template 对产品化有价值。</td>
+    <td>保留已有 Stage C 骨架，冻结新功能，优先补 Stage B 门控。</td>
+  </tr>
+  <tr>
+    <td>“GitNexus 已放弃”</td>
+    <td>代码里仍有 GitNexus harness 配置、retriever 和 tool usage 分析；但它没有沉淀为可复用的 KnowledgeProvider 主链路。</td>
+    <td>短期不必强行重做 GitNexusProvider，先把已验证的检索结果固化进 API 语义库。</td>
+  </tr>
+  <tr>
+    <td>“语义验证虚假”</td>
+    <td>应区分 benchmark 的 <code>semantic_lite</code> 和 Stage C 的 model validation。后者不是物理正确性，但已经能检查对象、端口、边界、setup、sweep、report。</td>
+    <td>报告口径要改成“结构性 validation 已有，物理/结果 validation 不足”。</td>
+  </tr>
+</table>
+
+<h2 id="gaps">5. 我认为最关键的差异</h2>
+
+<table>
+  <tr><th>差异</th><th>初始定义</th><th>当前状态</th><th>判断</th></tr>
+  <tr>
+    <td>项目定位</td>
+    <td>HFSS 工程师提效工具；节点化仿真执行与评估基座</td>
+    <td>受控 workflow + demo + planner + tuning + layout import 探索</td>
+    <td><span class="warn">主线合理，边界扩张过快</span></td>
+  </tr>
+  <tr>
+    <td>执行入口</td>
+    <td><code>execute_node</code> 通过 MCP 管控真实 AEDT session</td>
+    <td>MCP server 默认 fake；真实 AEDT 通过脚本路径跑 executor</td>
+    <td><span class="gap">需要立即闭合</span></td>
+  </tr>
+  <tr>
+    <td>知识资产</td>
+    <td>API 约束、错误、陷阱、案例作为 grounding 核心</td>
+    <td>字段大多为空，common traps 不完整</td>
+    <td><span class="gap">需要恢复为核心资产</span></td>
+  </tr>
+  <tr>
+    <td>节点治理</td>
+    <td>pseudo / candidate / candidate-ready / stable / deprecated</td>
+    <td>YAML 缺少 lifecycle status；layout 占位符混入目录</td>
+    <td><span class="gap">需要 catalog 分层</span></td>
+  </tr>
+  <tr>
+    <td>验证标准</td>
+    <td>语法、API、真实 AEDT、validation/postcheck 同时满足</td>
+    <td>真实 smoke 有，但覆盖少；validation 多为结构性</td>
+    <td><span class="warn">需要增加结果级检查</span></td>
+  </tr>
+  <tr>
+    <td>Stage C 产品化</td>
+    <td>Stage A/B 后启动，做 DAG、版本治理、节点进化</td>
+    <td>workflow/DAG/demo 已完成较多，演化仍是报告机制</td>
+    <td><span class="ok">可保留，但要停止横向扩张</span></td>
+  </tr>
+</table>
+
+<h2 id="recommendation">6. 建议路线</h2>
+
+<div class="callout callout-info">
+  <strong>推荐策略：</strong>不要回滚 Stage C，也不要继续堆 demo。进入一个短周期的“Stage B/C contract stabilization”阶段，用 1-2 周把真实 MCP、知识层、catalog 状态、验证口径补齐。
+</div>
+
+<h3>6.1 主线应重新命名为 HFSS Controlled Workflow Agent</h3>
+<p>执行 agent 应把当前主线定义为：</p>
+<p><code>自然语言 / 模板 -> workflow JSON -> validator -> controlled NodeExecutor -> AEDT -> model/result validation -> audit/report</code></p>
+<p>这个定义既继承初始 spec 的节点化思想，也容纳 Stage C 已完成的 workflow/product 骨架。</p>
+
+<h3>6.2 Layout/BRD/EDB 应拆成 experimental track</h3>
+<p>Layout import、BRD cutout、PyEDB、HFSS 3D Layout 不是坏方向，但它们不是当前 HFSS MVP 的主线。建议建立独立 track：</p>
+<ul>
+  <li>目录上标记为 <code>experimental-layout</code>。</li>
+  <li>默认 demo/planner 不展示为稳定节点。</li>
+  <li>真实实现和 placeholder 不能共用同一个稳定节点 ID。</li>
+  <li>等有独立 spec、benchmark、real smoke 后再进入 candidate。</li>
+</ul>
+
+<h3>6.3 Validation 应分三层表述</h3>
+<table>
+  <tr><th>层级</th><th>当前状态</th><th>下一步</th></tr>
+  <tr>
+    <td>结构性 validation</td>
+    <td>已有：对象、材料、端口、边界、setup、sweep、report</td>
+    <td>继续作为基础验收</td>
+  </tr>
+  <tr>
+    <td>结果级 validation</td>
+    <td>部分 demo 已导出 Touchstone / CSV</td>
+    <td>检查频点范围、S 参数文件可读、目标频率被覆盖、报告非空</td>
+  </tr>
+  <tr>
+    <td>电磁语义 validation</td>
+    <td>基本没有</td>
+    <td>只对少数模板加启发式规则，不要宣称完整物理正确</td>
+  </tr>
+</table>
+
+<h2 id="agent">7. 给执行 agent 的任务优先级</h2>
+
+<table>
+  <tr><th>优先级</th><th>任务</th><th>验收标准</th></tr>
+  <tr>
+    <td><strong>P0</strong></td>
+    <td>为 MCP server 增加 real/fake kernel 配置。复用现有 <code>PyaedtAdapter</code>、<code>SessionManager</code>、<code>NodeExecutor</code>，不要重写执行链路。</td>
+    <td>外部 FastMCP <code>execute_node</code> 可选择真实 AEDT；fake 仍为默认测试模式；有单元测试和手动 smoke 命令。</td>
+  </tr>
+  <tr>
+    <td><strong>P0</strong></td>
+    <td>给 node catalog 增加 lifecycle 字段：<code>experimental</code>、<code>candidate</code>、<code>stable</code>、<code>deprecated</code>。Layout 节点全部 experimental。</td>
+    <td>catalog JSON 输出包含 status；planner 默认只选择 candidate/stable；placeholder 节点不会被误报为稳定能力。</td>
+  </tr>
+  <tr>
+    <td><strong>P1</strong></td>
+    <td>补齐高频 API 语义字段。先覆盖 Stage B/C 当前真实用到的 API，不必一次性补满全部 68 条。</td>
+    <td>核心 20-30 个 API 至少有 params、constraints、common_errors、source_refs；context builder 能使用这些字段。</td>
+  </tr>
+  <tr>
+    <td><strong>P1</strong></td>
+    <td>补齐 common traps，并把 trap 与 benchmark/context/validation 连接起来。</td>
+    <td>7 个 trap YAML 齐全；trap 任务能在报告中显示被哪个规则捕获或未捕获。</td>
+  </tr>
+  <tr>
+    <td><strong>P1</strong></td>
+    <td>把 Stage C 报告口径改为“结构性验证 + 少量结果验证”，避免暗示完整电磁正确性。</td>
+    <td>README、stage progress report、HTML dashboard 中明确 validation 边界。</td>
+  </tr>
+  <tr>
+    <td><strong>P2</strong></td>
+    <td>为 microstrip、wave port、radiation airbox、dipole 增加结果级 validation。</td>
+    <td>Touchstone/CSV 文件存在且可解析；目标频率或 sweep range 被覆盖；基础曲线数据非空。</td>
+  </tr>
+</table>
+
+<h2 id="decision">8. 建议的项目决策</h2>
+
+<div class="callout callout-good">
+  <strong>建议保留：</strong>workflow model、validator、executor、template catalog、demo server、real smoke artifact、node evolution review。这些是受控 workflow agent 的正确产品化资产。
+</div>
+
+<div class="callout callout-warn">
+  <strong>建议冻结：</strong>新的 demo 功能、更多 layout/BRD 节点、更多 tuning/optimization 能力。冻结不是删除，而是在 Stage B contract 补齐前不继续扩张。
+</div>
+
+<div class="callout callout-severe">
+  <strong>建议立即整改：</strong>FastMCP real adapter、catalog status、layout experimental 隔离、知识库高频 API 约束、trap 规则。这些决定项目能否从“演示有效”进入“工程可信”。
+</div>
+
+<h3>最终判断</h3>
+<p>项目目前不是失败，也不是简单跑偏。它已经找到了正确的架构中心：<strong>LLM 不直接写可执行 PyAEDT，而是生成受控 workflow；系统用节点、schema、validator、真实 AEDT、audit 和 report 约束执行。</strong></p>
+
+<p>但这个中心需要被工程 contract 固定下来。执行 agent 接下来应少做展示层，多做闭环层：让同一套能力能通过 FastMCP 对外使用，能说明每个节点的稳定等级，能用真实知识约束模型输出，能用明确 validation 证明自己做到了什么、没做到什么。</p>
+
+<p class="muted" style="margin-top:2rem; font-size:.86em;">
+生成于 2026-05-25 · 文件：<code>benchmarks/reports/ansys-agent_codex_direction_report.html</code> · 作者：Codex
+</p>
+
+</body>
+</html>

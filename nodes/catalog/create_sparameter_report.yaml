@@ -1,5 +1,7 @@
 node_id: create_sparameter_report
 summary: Create an S-parameter report and export Touchstone data after solving.
+status: candidate
+track: postprocess
 allowed_apis:
   - Hfss.create_scattering
   - Hfss.export_touchstone

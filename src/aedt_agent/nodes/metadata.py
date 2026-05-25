@@ -23,6 +23,7 @@ class NodeMetadata:
     required_capabilities: list[str] = field(default_factory=list)
     version: str = "0.1.0"
     stability: NodeStability = NodeStability.CANDIDATE
+    track: str = "hfss-core"
     ui_hints: dict[str, Any] = field(default_factory=dict)
     postchecks: list[str] = field(default_factory=list)
 
@@ -36,7 +37,9 @@ class NodeMetadata:
             "output_schema": _json_safe(self.output_schema),
             "required_capabilities": list(self.required_capabilities),
             "version": self.version,
+            "status": self.stability.value,
             "stability": self.stability.value,
+            "track": self.track,
             "ui_hints": _json_safe(self.ui_hints),
             "postchecks": list(self.postchecks),
         }

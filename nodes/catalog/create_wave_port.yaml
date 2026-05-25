@@ -1,5 +1,7 @@
 node_id: create_wave_port
 summary: Create a wave port excitation on a selected face or port sheet.
+status: candidate
+track: hfss-core
 allowed_apis:
   - Hfss.wave_port
 inputs:
