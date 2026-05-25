@@ -1,6 +1,8 @@
 from pathlib import Path
+import sqlite3
 
 from aedt_agent.knowledge.build_sqlite import build_api_semantics_db
+from aedt_agent.knowledge.build_sqlite import main as build_sqlite_main
 from aedt_agent.knowledge.models import ApiSemantic, CommonTrap, WorkflowCase
 from aedt_agent.knowledge.sqlite_provider import SQLiteKnowledgeProvider
 
@@ -148,3 +150,38 @@ def test_sqlite_provider_lists_common_traps_filtered():
 
     assert len(traps) >= 1
     assert traps[0].trap_id == "airbox_too_small"
+
+
+def test_build_sqlite_cli_rebuilds_default_db(monkeypatch, tmp_path):
+    db_path = tmp_path / "api_semantics.sqlite"
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "build_sqlite",
+            "--schema",
+            "knowledge/api_semantics/api_semantics.schema.sql",
+            "--seed",
+            "knowledge/api_semantics/api_semantics.seed.jsonl",
+            "--db",
+            str(db_path),
+        ],
+    )
+
+    build_sqlite_main()
+
+    with sqlite3.connect(db_path) as conn:
+        count = conn.execute("select count(*) from api_semantics").fetchone()[0]
+        create_box = conn.execute(
+            "select constraints_json from api_semantics where fqname = ?",
+            ("Hfss.modeler.create_box",),
+        ).fetchone()
+        toggle = conn.execute(
+            "select fqname from api_semantics where fqname = ?",
+            ("Hfss3dLayout.oeditor.ToggleViaPin",),
+        ).fetchone()
+
+    assert count >= 75
+    assert create_box is not None
+    assert "sizes must be positive" in create_box[0]
+    assert toggle is not None

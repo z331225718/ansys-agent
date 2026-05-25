@@ -27,6 +27,7 @@ class McpToolKernel:
         queue: ExecutionQueue,
         ast_guard: AstGuard,
         dev_mode: bool = False,
+        include_experimental: bool = False,
     ) -> None:
         self.registry = registry
         self.session_manager = session_manager
@@ -34,6 +35,7 @@ class McpToolKernel:
         self.queue = queue
         self.ast_guard = ast_guard
         self.dev_mode = dev_mode
+        self.include_experimental = include_experimental
 
     def create_session(self, project_id: str, design_id: str) -> dict[str, str]:
         session = self.session_manager.create_session(project_id, design_id)
@@ -44,13 +46,15 @@ class McpToolKernel:
         return {"released": session_id}
 
     def list_available_nodes(self) -> list[str]:
-        return [node.node_id for node in self.registry.list_nodes()]
+        return [node.node_id for node in self.registry.list_nodes(include_experimental=self.include_experimental)]
 
     def describe_node(self, node_id: str) -> dict[str, Any]:
         node = self.registry.get(node_id)
         description = describe_node_schema(node_id)
         description["summary"] = node.summary
         description["allowed_apis"] = node.allowed_apis
+        description["status"] = node.status
+        description["track"] = node.track
         return description
 
     def execute_node(self, node_id: str, inputs: dict[str, Any], session_id: str) -> ExecutionResult:
@@ -83,7 +87,12 @@ class McpToolKernel:
         )
 
 
-def create_fake_kernel(node_catalog_dir: Path, audit_path: Path | None = None, dev_mode: bool = False) -> McpToolKernel:
+def create_fake_kernel(
+    node_catalog_dir: Path,
+    audit_path: Path | None = None,
+    dev_mode: bool = False,
+    include_experimental: bool = False,
+) -> McpToolKernel:
     registry = NodeRegistry.from_directory(node_catalog_dir)
     session_manager = SessionManager(lambda project_id, design_id: FakeAedtAdapter(project_id, design_id))
     queue = ExecutionQueue(timeout_seconds=5.0)
@@ -100,6 +109,7 @@ def create_fake_kernel(node_catalog_dir: Path, audit_path: Path | None = None, d
         queue=queue,
         ast_guard=AstGuard(),
         dev_mode=dev_mode,
+        include_experimental=include_experimental,
     )
 
 
@@ -112,6 +122,7 @@ def create_real_kernel(
     non_graphical: bool = True,
     ansysem_root: str = "",
     awp_root: str = "",
+    include_experimental: bool = False,
 ) -> McpToolKernel:
     registry = NodeRegistry.from_directory(node_catalog_dir)
 
@@ -140,6 +151,7 @@ def create_real_kernel(
         queue=queue,
         ast_guard=AstGuard(),
         dev_mode=dev_mode,
+        include_experimental=include_experimental,
     )
 
 
@@ -153,9 +165,15 @@ def create_kernel(
     non_graphical: bool = True,
     ansysem_root: str = "",
     awp_root: str = "",
+    include_experimental: bool = False,
 ) -> McpToolKernel:
     if adapter == "fake":
-        return create_fake_kernel(node_catalog_dir=node_catalog_dir, audit_path=audit_path, dev_mode=dev_mode)
+        return create_fake_kernel(
+            node_catalog_dir=node_catalog_dir,
+            audit_path=audit_path,
+            dev_mode=dev_mode,
+            include_experimental=include_experimental,
+        )
     if adapter == "real":
         return create_real_kernel(
             node_catalog_dir=node_catalog_dir,
@@ -166,6 +184,7 @@ def create_kernel(
             non_graphical=non_graphical,
             ansysem_root=ansysem_root,
             awp_root=awp_root,
+            include_experimental=include_experimental,
         )
     raise ValueError("adapter must be fake or real")
 

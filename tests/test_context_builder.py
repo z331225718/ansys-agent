@@ -44,6 +44,23 @@ def test_group_c_context_contains_nodes_api_and_traps(tmp_path):
     assert "API whitelist" in context
     assert "Common traps" in context
     assert "create_substrate" in context
+    assert "sizes must be positive" in context
+    assert "negative or zero size creates invalid geometry" in context
+    assert "airbox_too_small" in context
+    assert "frequency-aware" in context
+
+
+def test_group_c_context_contains_sweep_trap_details(tmp_path):
+    task = BenchmarkTask.from_yaml(Path("benchmarks/tasks/Trap_sweep_misses_freq.yaml"))
+    context = build_context(
+        group="C",
+        task=task,
+        provider=_provider(tmp_path),
+        registry=NodeRegistry.from_directory(Path("nodes/catalog")),
+    )
+
+    assert "target/report/tuning frequency lies inside the sweep" in context
+    assert "sweep_range_misses_target_frequency" in context
 
 
 def test_group_c_context_within_token_limit(tmp_path):

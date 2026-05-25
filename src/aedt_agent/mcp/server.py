@@ -11,6 +11,7 @@ def create_server(
     adapter: str | None = None,
     audit_path: Path | None = None,
     dev_mode: bool = False,
+    include_experimental: bool | None = None,
 ):
     try:
         from fastmcp import FastMCP
@@ -22,6 +23,11 @@ def create_server(
         node_catalog_dir=node_catalog_dir,
         audit_path=audit_path,
         dev_mode=dev_mode,
+        include_experimental=(
+            include_experimental
+            if include_experimental is not None
+            else os.environ.get("AEDT_AGENT_INCLUDE_EXPERIMENTAL_NODES", "").lower() in {"1", "true", "yes"}
+        ),
     )
     server = FastMCP("aedt-agent")
 

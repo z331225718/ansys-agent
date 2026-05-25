@@ -90,9 +90,9 @@ class NodeCatalog:
         self.metadata = dict(metadata)
 
     @classmethod
-    def from_registry(cls, registry: NodeRegistry) -> "NodeCatalog":
+    def from_registry(cls, registry: NodeRegistry, include_experimental: bool = False) -> "NodeCatalog":
         metadata: dict[str, NodeMetadata] = {}
-        for definition in registry.list_nodes():
+        for definition in registry.list_nodes(include_experimental=include_experimental):
             schema = NODE_SCHEMAS.get(definition.node_id)
             if schema is None:
                 continue
@@ -113,8 +113,8 @@ class NodeCatalog:
         return cls(metadata)
 
     @classmethod
-    def from_directory(cls, directory: Path) -> "NodeCatalog":
-        return cls.from_registry(NodeRegistry.from_directory(directory))
+    def from_directory(cls, directory: Path, include_experimental: bool = False) -> "NodeCatalog":
+        return cls.from_registry(NodeRegistry.from_directory(directory), include_experimental=include_experimental)
 
     def get(self, node_id: str) -> NodeMetadata:
         return self.metadata[node_id]
@@ -132,12 +132,12 @@ class NodeCatalog:
         return json.dumps(self.to_dict(), ensure_ascii=False, indent=indent, sort_keys=True)
 
 
-def load_node_catalog(directory: Path = Path("nodes/catalog")) -> NodeCatalog:
-    return NodeCatalog.from_directory(directory)
+def load_node_catalog(directory: Path = Path("nodes/catalog"), include_experimental: bool = True) -> NodeCatalog:
+    return NodeCatalog.from_directory(directory, include_experimental=include_experimental)
 
 
 def write_node_catalog_json(directory: Path, output_path: Path) -> None:
-    output_path.write_text(NodeCatalog.from_directory(directory).to_json() + "\n", encoding="utf-8")
+    output_path.write_text(NodeCatalog.from_directory(directory, include_experimental=True).to_json() + "\n", encoding="utf-8")
 
 
 def _input_schema_to_json_schema(schema: NodeInputSchema) -> dict[str, Any]:

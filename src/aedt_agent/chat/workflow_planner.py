@@ -44,7 +44,13 @@ class ChatWorkflowPlanner:
         if not request:
             return ChatPlannerOutput(missing_information=["user_request"], confidence=0.0)
 
-        template_id = _select_template(request, planner_input.workflow_templates)
+        template_id, blocked_reason = _select_template(request, planner_input.workflow_templates, planner_input.node_catalog)
+        if blocked_reason is not None:
+            return ChatPlannerOutput(
+                missing_information=[blocked_reason],
+                assumptions=["Matched an experimental workflow, but experimental nodes are not enabled in the supplied node catalog."],
+                confidence=0.3,
+            )
         if template_id:
             template = planner_input.workflow_templates.get(template_id)
             workflow = template.instantiate(_parameter_overrides(request))
@@ -72,10 +78,10 @@ class ChatWorkflowPlanner:
         )
 
 
-def _select_template(request: str, templates: WorkflowTemplateCatalog) -> str | None:
+def _select_template(request: str, templates: WorkflowTemplateCatalog, node_catalog: NodeCatalog) -> tuple[str | None, str | None]:
     lowered = request.lower()
     candidates = {
-        "import_brd_cutout_sparam_tdr": ["brd", "mcm", "cutout", "cadence", "allegro", "tdr", "切割", "导入"],
+        "import_brd_cutout_sparam_tdr": ["brd", "mcm", "cutout", "cadence", "allegro", "切割", "导入"],
         "dipole_antenna_s11_farfield": ["dipole", "偶极子", "far field", "farfield", "gain pattern", "方向图", "增益"],
         "microstrip_sparameter": ["microstrip", "s-parameter", "s parameter", "transmission line"],
         "wave_port_setup": ["wave port", "waveport", "port face"],
@@ -83,8 +89,15 @@ def _select_template(request: str, templates: WorkflowTemplateCatalog) -> str | 
     }
     for template_id, keywords in candidates.items():
         if template_id in templates.templates and any(keyword in lowered for keyword in keywords):
-            return template_id
-    return None
+            if _template_nodes_available(templates.get(template_id), node_catalog):
+                return template_id, None
+            return None, "experimental_workflow_not_enabled"
+    return None, None
+
+
+def _template_nodes_available(template: Any, node_catalog: NodeCatalog) -> bool:
+    available = set(node_catalog.metadata)
+    return all(node.node_id in available for node in template.workflow.nodes)
 
 
 def _parameter_overrides(request: str) -> dict[str, Any]:

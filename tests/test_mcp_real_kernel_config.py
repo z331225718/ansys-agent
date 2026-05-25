@@ -18,6 +18,16 @@ def test_create_kernel_defaults_to_fake():
 
     assert session["project_id"] == "Project"
     assert session["design_id"] == "Design"
+    assert "create_substrate" in kernel.list_available_nodes()
+    assert "create_layout_cutout" not in kernel.list_available_nodes()
+
+
+def test_create_kernel_can_include_experimental_nodes():
+    from aedt_agent.mcp.tools import create_kernel
+
+    kernel = create_kernel(adapter="fake", node_catalog_dir=Path("nodes/catalog"), include_experimental=True)
+
+    assert "create_layout_cutout" in kernel.list_available_nodes()
 
 
 def test_create_kernel_rejects_unknown_adapter():

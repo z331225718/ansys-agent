@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import sqlite3
 from pathlib import Path
@@ -57,3 +58,31 @@ def build_api_semantics_db(schema_path: Path, seed_path: Path, db_path: Path) ->
                 )
         conn.commit()
     return db_path
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Build the AEDT API semantics SQLite database from JSONL seed data.")
+    parser.add_argument(
+        "--schema",
+        type=Path,
+        default=Path("knowledge/api_semantics/api_semantics.schema.sql"),
+        help="Path to the api_semantics schema SQL file.",
+    )
+    parser.add_argument(
+        "--seed",
+        type=Path,
+        default=Path("knowledge/api_semantics/api_semantics.seed.jsonl"),
+        help="Path to the api_semantics JSONL seed file.",
+    )
+    parser.add_argument(
+        "--db",
+        type=Path,
+        default=Path("knowledge/api_semantics/api_semantics.sqlite"),
+        help="Output SQLite database path.",
+    )
+    args = parser.parse_args()
+    build_api_semantics_db(args.schema, args.seed, args.db)
+
+
+if __name__ == "__main__":
+    main()

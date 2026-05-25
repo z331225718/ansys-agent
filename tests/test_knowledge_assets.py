@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 
 import yaml
@@ -58,3 +59,25 @@ def test_common_traps_have_detection_rules():
         assert data.get("description") or data.get("symptom")
         assert data.get("detection_rule") or data.get("validation_rule")
         assert data.get("avoidance") or data.get("prevention")
+
+
+def test_default_sqlite_database_matches_seed_assets():
+    db_path = Path("knowledge/api_semantics/api_semantics.sqlite")
+    assert db_path.exists()
+
+    with sqlite3.connect(db_path) as conn:
+        count = conn.execute("select count(*) from api_semantics").fetchone()[0]
+        create_box = conn.execute(
+            "select constraints_json, common_errors_json from api_semantics where fqname = ?",
+            ("Hfss.modeler.create_box",),
+        ).fetchone()
+        toggle = conn.execute(
+            "select fqname from api_semantics where fqname = ?",
+            ("Hfss3dLayout.oeditor.ToggleViaPin",),
+        ).fetchone()
+
+    assert count >= 75
+    assert create_box is not None
+    assert "sizes must be positive" in create_box[0]
+    assert "negative or zero size creates invalid geometry" in create_box[1]
+    assert toggle is not None

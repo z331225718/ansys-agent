@@ -6,10 +6,10 @@ from aedt_agent.nodes.catalog import NodeCatalog
 from aedt_agent.workflow.templates import WorkflowTemplateCatalog
 
 
-def _planner_input(request: str) -> ChatPlannerInput:
+def _planner_input(request: str, *, include_experimental: bool = False) -> ChatPlannerInput:
     return ChatPlannerInput(
         user_request=request,
-        node_catalog=NodeCatalog.from_directory(Path("nodes/catalog")),
+        node_catalog=NodeCatalog.from_directory(Path("nodes/catalog"), include_experimental=include_experimental),
         workflow_templates=WorkflowTemplateCatalog.from_directory(Path("workflow_templates")),
     )
 
@@ -79,7 +79,9 @@ def test_chat_planner_separates_setup_frequency_from_resonance_target():
 
 
 def test_chat_planner_selects_import_cutout_template_for_board_request():
-    output = ChatWorkflowPlanner().plan(_planner_input("导入 brd 文件，选择 56G tx net cutout，显示 s11 s21 和 tdr"))
+    output = ChatWorkflowPlanner().plan(
+        _planner_input("导入 brd 文件，选择 56G tx net cutout，显示 s11 s21 和 tdr", include_experimental=True)
+    )
 
     assert output.selected_template == "import_brd_cutout_sparam_tdr"
     assert output.generated_workflow is not None

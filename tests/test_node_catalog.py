@@ -35,6 +35,21 @@ def test_node_catalog_exports_all_executable_nodes():
     }
 
 
+def test_default_node_catalog_excludes_experimental_layout_nodes():
+    catalog = NodeCatalog.from_directory(Path("nodes/catalog"))
+    node_ids = {metadata.node_id for metadata in catalog.list_metadata()}
+
+    assert "create_substrate" in node_ids
+    assert "create_layout_cutout" not in node_ids
+
+
+def test_node_catalog_can_include_experimental_layout_nodes():
+    catalog = NodeCatalog.from_directory(Path("nodes/catalog"), include_experimental=True)
+    node_ids = {metadata.node_id for metadata in catalog.list_metadata()}
+
+    assert "create_layout_cutout" in node_ids
+
+
 def test_catalog_metadata_has_product_fields():
     catalog = NodeCatalog.from_directory(Path("nodes/catalog"))
     port = catalog.get("create_port")
@@ -51,7 +66,7 @@ def test_catalog_metadata_has_product_fields():
 
 
 def test_catalog_json_is_serializable_and_frontend_safe():
-    catalog = NodeCatalog.from_directory(Path("nodes/catalog"))
+    catalog = NodeCatalog.from_directory(Path("nodes/catalog"), include_experimental=True)
 
     payload = catalog.to_dict()
     encoded = json.dumps(payload)

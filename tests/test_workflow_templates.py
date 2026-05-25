@@ -5,8 +5,8 @@ from aedt_agent.workflow.templates import WorkflowTemplate, WorkflowTemplateCata
 from aedt_agent.workflow.validator import WorkflowValidator
 
 
-def _validator() -> WorkflowValidator:
-    return WorkflowValidator(NodeCatalog.from_directory(Path("nodes/catalog")))
+def _validator(*, include_experimental: bool = False) -> WorkflowValidator:
+    return WorkflowValidator(NodeCatalog.from_directory(Path("nodes/catalog"), include_experimental=include_experimental))
 
 
 def test_template_catalog_loads_starter_templates():
@@ -35,7 +35,7 @@ def test_templates_export_ui_safe_summary():
 
 
 def test_all_templates_pass_workflow_validator():
-    validator = _validator()
+    validator = _validator(include_experimental=True)
     catalog = WorkflowTemplateCatalog.from_directory(Path("workflow_templates"))
 
     results = {template.template_id: validator.validate(template.workflow) for template in catalog.list_templates()}
@@ -105,7 +105,7 @@ def test_dipole_template_reuses_common_nodes_and_keeps_real_smoke_stable():
     assert "create_substrate" not in node_ids
     assert "create_dipole_antenna" not in node_ids
     assert "create_antenna_report" not in node_ids
-    assert _validator().validate(template.workflow).passed is True
+    assert _validator(include_experimental=True).validate(template.workflow).passed is True
 
 
 def test_dipole_template_derives_arm_length_from_frequency():
@@ -189,7 +189,7 @@ def test_import_cutout_template_uses_layout_specific_nodes():
     assert setup_step.inputs["sweep_stop"] == {"$ref": "parameters.sweep_stop"}
     assert setup_step.inputs["sweep_points"] == {"$ref": "parameters.sweep_points"}
     assert setup_step.inputs["use_q3d_for_dc"] == {"$ref": "parameters.use_q3d_for_dc"}
-    assert _validator().validate(template.workflow).passed is True
+    assert _validator(include_experimental=True).validate(template.workflow).passed is True
 
 
 def test_template_full_dict_includes_workflow_for_chat_planner():
