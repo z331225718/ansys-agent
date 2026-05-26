@@ -77,6 +77,28 @@ def test_fake_import_cutout_writes_sparameter_and_tdr_artifacts(tmp_path):
     assert tdr["point_count"] == 6
 
 
+def test_fake_import_cutout_emits_progress_events(tmp_path):
+    layout_file = tmp_path / "case.brd"
+    layout_file.write_text("", encoding="utf-8")
+    request = build_import_cutout_request(
+        {"layout_file": str(layout_file), "signal_nets": "*tx0*", "reference_nets": "gnd", "artifact_dir": str(tmp_path / "run")}
+    )
+    events = []
+
+    run_fake_import_cutout(request, progress_callback=lambda event: events.append(event))
+
+    assert [event["step_id"] for event in events if event["status"] == "running"] == [
+        "import_layout_file",
+        "select_layout_nets",
+        "create_layout_cutout",
+        "configure_layout_stackup",
+        "locate_layout_port_candidates",
+        "create_layout_ports",
+        "create_layout_setup",
+    ]
+    assert events[-1]["status"] == "succeeded"
+
+
 def test_build_import_cutout_request_discovers_stackup_xml_next_to_layout(tmp_path):
     layout_file = tmp_path / "case.brd"
     layout_file.write_text("", encoding="utf-8")
@@ -420,3 +442,31 @@ def test_real_import_cutout_uses_pyedb_cutout_before_hfss3dlayout(monkeypatch, t
     )
     assert not any(call[0] == "hfss_analyze_setup" for call in calls)
     assert not any(call[0] == "hfss_export_touchstone" for call in calls)
+
+
+def test_real_import_cutout_reports_failed_progress_when_open_layout_fails(monkeypatch, tmp_path):
+    layout_file = tmp_path / "case.brd"
+    layout_file.write_text("", encoding="utf-8")
+    request = build_import_cutout_request({"layout_file": str(layout_file), "artifact_dir": str(tmp_path / "run")})
+    events = []
+
+    def fail_open(*args, **kwargs):
+        raise RuntimeError("cannot open board")
+
+    monkeypatch.setattr(import_cutout, "_open_layout_with_pyedb", fail_open)
+
+    try:
+        import_cutout.import_brd_with_pyedb_cutout(
+            request,
+            aedt_version="2026.1",
+            non_graphical=False,
+            progress_callback=lambda event: events.append(event),
+        )
+    except RuntimeError:
+        pass
+
+    assert events[0]["step_id"] == "import_layout_file"
+    assert events[0]["status"] == "running"
+    assert events[-1]["status"] == "failed"
+    assert events[-1]["step_id"] == "import_layout_file"
+    assert "cannot open board" in events[-1]["error_message"]

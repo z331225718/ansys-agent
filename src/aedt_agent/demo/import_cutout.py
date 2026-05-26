@@ -7,6 +7,7 @@ import shlex
 import shutil
 import tempfile
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,21 @@ from aedt_agent.layout.import_cutout import parse_net_patterns
 
 
 LAYOUT_SUFFIXES = {".brd", ".mcm"}
+ProgressCallback = Callable[[dict[str, Any]], None]
+
+
+def _emit_progress(
+    progress_callback: ProgressCallback | None,
+    step_id: str,
+    label: str,
+    status: str,
+    **payload: Any,
+) -> None:
+    if progress_callback is None:
+        return
+    event = {"step_id": step_id, "label": label, "status": status}
+    event.update(payload)
+    progress_callback(event)
 
 
 @dataclass(frozen=True)
@@ -86,8 +102,9 @@ def build_import_cutout_request(parameters: dict[str, Any], *, default_work_root
     )
 
 
-def run_fake_import_cutout(request: ImportCutoutRequest) -> dict[str, Any]:
+def run_fake_import_cutout(request: ImportCutoutRequest, progress_callback: ProgressCallback | None = None) -> dict[str, Any]:
     request.output_dir.mkdir(parents=True, exist_ok=True)
+    _emit_progress(progress_callback, "import_layout_file", "Open BRD/MCM with PyEDB", "running")
     available_nets = [
         "GND",
         "VSS",
@@ -98,12 +115,23 @@ def run_fake_import_cutout(request: ImportCutoutRequest) -> dict[str, Any]:
         "REFCLK_P",
         "REFCLK_N",
     ]
+    _emit_progress(progress_callback, "import_layout_file", "Open BRD/MCM with PyEDB", "succeeded", layout_file=str(request.layout_file))
+    _emit_progress(progress_callback, "select_layout_nets", "Select Nets", "running")
     signal_nets = expand_net_patterns(request.signal_net_patterns, available_nets)
     reference_nets = expand_net_patterns(request.reference_net_patterns, available_nets)
     if not signal_nets:
         signal_nets = ["56G_TX0_P", "56G_TX0_N"]
     if not reference_nets:
         reference_nets = ["GND"]
+    _emit_progress(
+        progress_callback,
+        "select_layout_nets",
+        "Select Nets",
+        "succeeded",
+        signal_nets=signal_nets,
+        reference_nets=reference_nets,
+    )
+    _emit_progress(progress_callback, "create_layout_cutout", "Create PyEDB Cutout", "running")
     touchstone = request.output_dir / "import_cutout_demo.s2p"
     tdr = request.output_dir / "import_cutout_tdr.csv"
     summary = {
@@ -118,9 +146,20 @@ def run_fake_import_cutout(request: ImportCutoutRequest) -> dict[str, Any]:
         "tdr": str(tdr),
         "steps": _step_results("succeeded"),
     }
+    _emit_progress(progress_callback, "create_layout_cutout", "Create PyEDB Cutout", "succeeded", edb_path=summary["edb_path"])
+    _emit_progress(progress_callback, "configure_layout_stackup", "Load Stackup XML", "running")
+    _emit_progress(progress_callback, "configure_layout_stackup", "Load Stackup XML", "succeeded")
+    _emit_progress(progress_callback, "locate_layout_port_candidates", "Locate Port Candidates", "running")
+    _emit_progress(progress_callback, "locate_layout_port_candidates", "Locate Port Candidates", "succeeded")
+    _emit_progress(progress_callback, "create_layout_ports", "Create Ports", "running")
+    _emit_progress(progress_callback, "create_layout_ports", "Create Ports", "succeeded")
+    _emit_progress(progress_callback, "create_layout_setup", "Create Setup/Sweep", "running")
+    _emit_progress(progress_callback, "create_layout_setup", "Create Setup/Sweep", "succeeded", aedt_project=summary["aedt_project"])
+    _emit_progress(progress_callback, "validate_layout_model", "Validate Model", "succeeded")
     _write_demo_touchstone(touchstone)
     _write_demo_tdr(tdr)
     (request.output_dir / "import_cutout_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _emit_progress(progress_callback, "workflow", "BRD/MCM model build", "succeeded", outputs=summary)
     return summary
 
 
@@ -132,15 +171,27 @@ def run_real_import_cutout(
     ansysem_root: str = "",
     awp_root: str = "",
     non_graphical: bool = False,
+    progress_callback: ProgressCallback | None = None,
 ) -> dict[str, Any]:
     request.output_dir.mkdir(parents=True, exist_ok=True)
     if cadence_launcher:
         apply_cadence_launcher_environment(Path(cadence_launcher).expanduser())
     apply_aedt_environment(aedt_version, ansysem_root=ansysem_root, awp_root=awp_root)
-    return import_brd_with_pyedb_cutout(request, aedt_version=aedt_version, non_graphical=non_graphical)
+    return import_brd_with_pyedb_cutout(
+        request,
+        aedt_version=aedt_version,
+        non_graphical=non_graphical,
+        progress_callback=progress_callback,
+    )
 
 
-def import_brd_with_pyedb_cutout(request: ImportCutoutRequest, *, aedt_version: str, non_graphical: bool = False) -> dict[str, Any]:
+def import_brd_with_pyedb_cutout(
+    request: ImportCutoutRequest,
+    *,
+    aedt_version: str,
+    non_graphical: bool = False,
+    progress_callback: ProgressCallback | None = None,
+) -> dict[str, Any]:
     request.output_dir.mkdir(parents=True, exist_ok=True)
     project_name = request.layout_file.stem
     source_edb_dir = Path(tempfile.mkdtemp(prefix=f"{project_name}_source_", dir=request.output_dir))
@@ -149,67 +200,197 @@ def import_brd_with_pyedb_cutout(request: ImportCutoutRequest, *, aedt_version: 
     start_time = time.time()
     edb = None
     try:
-        edb, source_edb_path = _open_layout_with_pyedb(
-            request.layout_file,
-            source_edb_dir,
-            aedt_version=aedt_version,
-            edb_backend=request.edb_backend,
-        )
-        available_nets = sorted(edb.nets.nets.keys())
-        if not available_nets:
-            raise RuntimeError("EDB opened, but no nets were read from the BRD/MCM file.")
-        signal_nets = expand_net_patterns(request.signal_net_patterns, available_nets, fuzzy=True)
-        reference_nets = expand_net_patterns(request.reference_net_patterns, available_nets)
-        if not signal_nets:
-            raise ValueError(
-                f"no signal nets matched {request.signal_net_patterns}; "
-                f"suggestions: {_net_suggestions(request.signal_net_patterns, available_nets)}; "
-                f"available examples: {available_nets[:20]}"
+        _emit_progress(progress_callback, "import_layout_file", "Open BRD/MCM with PyEDB", "running")
+        try:
+            edb, source_edb_path = _open_layout_with_pyedb(
+                request.layout_file,
+                source_edb_dir,
+                aedt_version=aedt_version,
+                edb_backend=request.edb_backend,
             )
-        if not reference_nets:
-            raise ValueError(
-                f"no reference nets matched {request.reference_net_patterns}; "
-                f"suggestions: {_net_suggestions(request.reference_net_patterns, available_nets)}; "
-                f"available examples: {available_nets[:20]}"
+        except Exception as exc:
+            _emit_progress(
+                progress_callback,
+                "import_layout_file",
+                "Open BRD/MCM with PyEDB",
+                "failed",
+                error_type=type(exc).__name__,
+                error_message=str(exc),
             )
-        if cutout_aedb.exists():
-            shutil.rmtree(cutout_aedb)
-        extent_points = edb.cutout(
+            raise
+        _emit_progress(progress_callback, "import_layout_file", "Open BRD/MCM with PyEDB", "succeeded", source_edb_path=str(source_edb_path))
+
+        _emit_progress(progress_callback, "select_layout_nets", "Select Nets", "running")
+        try:
+            available_nets = sorted(edb.nets.nets.keys())
+            if not available_nets:
+                raise RuntimeError("EDB opened, but no nets were read from the BRD/MCM file.")
+            signal_nets = expand_net_patterns(request.signal_net_patterns, available_nets, fuzzy=True)
+            reference_nets = expand_net_patterns(request.reference_net_patterns, available_nets)
+            if not signal_nets:
+                raise ValueError(
+                    f"no signal nets matched {request.signal_net_patterns}; "
+                    f"suggestions: {_net_suggestions(request.signal_net_patterns, available_nets)}; "
+                    f"available examples: {available_nets[:20]}"
+                )
+            if not reference_nets:
+                raise ValueError(
+                    f"no reference nets matched {request.reference_net_patterns}; "
+                    f"suggestions: {_net_suggestions(request.reference_net_patterns, available_nets)}; "
+                    f"available examples: {available_nets[:20]}"
+                )
+        except Exception as exc:
+            _emit_progress(
+                progress_callback,
+                "select_layout_nets",
+                "Select Nets",
+                "failed",
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+            )
+            raise
+        _emit_progress(
+            progress_callback,
+            "select_layout_nets",
+            "Select Nets",
+            "succeeded",
             signal_nets=signal_nets,
             reference_nets=reference_nets,
-            extent_type=request.extent_type,
-            expansion_size=request.expansion_size,
-            output_aedb_path=str(cutout_aedb),
-            use_pyaedt_cutout=True,
-            number_of_threads=threads,
-            open_cutout_at_end=False,
+            available_net_count=len(available_nets),
         )
-        port_candidate_report = _write_layout_port_candidate_report(
-            cutout_aedb,
-            signal_nets,
-            reference_nets,
-            request.output_dir,
-            aedt_version=aedt_version,
-            edb_backend=request.edb_backend,
-            solderball=request.solderball,
+
+        _emit_progress(progress_callback, "create_layout_cutout", "Create PyEDB Cutout", "running")
+        if cutout_aedb.exists():
+            shutil.rmtree(cutout_aedb)
+        try:
+            extent_points = edb.cutout(
+                signal_nets=signal_nets,
+                reference_nets=reference_nets,
+                extent_type=request.extent_type,
+                expansion_size=request.expansion_size,
+                output_aedb_path=str(cutout_aedb),
+                use_pyaedt_cutout=True,
+                number_of_threads=threads,
+                open_cutout_at_end=False,
+            )
+        except Exception as exc:
+            _emit_progress(
+                progress_callback,
+                "create_layout_cutout",
+                "Create PyEDB Cutout",
+                "failed",
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+            )
+            raise
+        _emit_progress(
+            progress_callback,
+            "create_layout_cutout",
+            "Create PyEDB Cutout",
+            "succeeded",
+            edb_path=str(cutout_aedb),
+            cutout_threads=threads,
+            cutout_extent_points=len(extent_points) if extent_points else 0,
         )
-        edb_port_execution = _apply_edb_port_actions_to_cutout(
-            cutout_aedb,
-            port_candidate_report.get("port_action_plan"),
-            aedt_version=aedt_version,
-            edb_backend=request.edb_backend,
+
+        _emit_progress(progress_callback, "locate_layout_port_candidates", "Locate Port Candidates", "running")
+        try:
+            port_candidate_report = _write_layout_port_candidate_report(
+                cutout_aedb,
+                signal_nets,
+                reference_nets,
+                request.output_dir,
+                aedt_version=aedt_version,
+                edb_backend=request.edb_backend,
+                solderball=request.solderball,
+            )
+        except Exception as exc:
+            _emit_progress(
+                progress_callback,
+                "locate_layout_port_candidates",
+                "Locate Port Candidates",
+                "failed",
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+            )
+            raise
+        _emit_progress(
+            progress_callback,
+            "locate_layout_port_candidates",
+            "Locate Port Candidates",
+            "succeeded",
+            candidate_count=port_candidate_report.get("candidate_count", 0),
         )
+
+        _emit_progress(progress_callback, "create_layout_ports", "Create Ports", "running")
+        try:
+            edb_port_execution = _apply_edb_port_actions_to_cutout(
+                cutout_aedb,
+                port_candidate_report.get("port_action_plan"),
+                aedt_version=aedt_version,
+                edb_backend=request.edb_backend,
+            )
+        except Exception as exc:
+            _emit_progress(
+                progress_callback,
+                "create_layout_ports",
+                "Create Ports",
+                "failed",
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+            )
+            raise
         port_candidate_report["edb_port_execution"] = edb_port_execution
-        project_path, stackup_applied, port_execution, layout_setup, layout_solve, layout_reports = _open_cutout_in_hfss3dlayout(
-            cutout_aedb,
-            request.output_dir,
-            project_name,
-            aedt_version,
-            stackup_xml=request.stackup_xml,
-            port_action_plan=port_candidate_report.get("port_action_plan"),
-            request=request,
-            non_graphical=non_graphical,
+
+        _emit_progress(progress_callback, "configure_layout_stackup", "Load Stackup XML", "running")
+        _emit_progress(progress_callback, "create_layout_setup", "Create Setup/Sweep", "running")
+        try:
+            project_path, stackup_applied, port_execution, layout_setup, layout_solve, layout_reports = _open_cutout_in_hfss3dlayout(
+                cutout_aedb,
+                request.output_dir,
+                project_name,
+                aedt_version,
+                stackup_xml=request.stackup_xml,
+                port_action_plan=port_candidate_report.get("port_action_plan"),
+                request=request,
+                non_graphical=non_graphical,
+            )
+        except Exception as exc:
+            _emit_progress(
+                progress_callback,
+                "create_layout_setup",
+                "Create Setup/Sweep",
+                "failed",
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+            )
+            raise
+        _emit_progress(
+            progress_callback,
+            "configure_layout_stackup",
+            "Load Stackup XML",
+            "succeeded",
+            stackup_xml=str(request.stackup_xml) if request.stackup_xml else "",
+            stackup_applied=stackup_applied,
         )
+        merged_port_execution = _merge_port_executions(edb_port_execution, port_execution)
+        _emit_progress(
+            progress_callback,
+            "create_layout_ports",
+            "Create Ports",
+            "succeeded",
+            port_execution=merged_port_execution,
+        )
+        _emit_progress(
+            progress_callback,
+            "create_layout_setup",
+            "Create Setup/Sweep",
+            "succeeded",
+            aedt_project=str(project_path),
+            layout_setup=layout_setup,
+            layout_solve=layout_solve,
+        )
+        _emit_progress(progress_callback, "validate_layout_model", "Validate Model", "succeeded", aedt_project=str(project_path))
         summary = {
             "status": "succeeded",
             "adapter": "real_pyedb_cutout",
@@ -225,7 +406,7 @@ def import_brd_with_pyedb_cutout(request: ImportCutoutRequest, *, aedt_version: 
             "stackup_xml": str(request.stackup_xml) if request.stackup_xml else "",
             "stackup_applied": stackup_applied,
             "port_candidates": port_candidate_report,
-            "port_execution": _merge_port_executions(edb_port_execution, port_execution),
+            "port_execution": merged_port_execution,
             "layout_setup": layout_setup,
             "layout_solve": layout_solve,
             "layout_reports": layout_reports,
@@ -256,6 +437,7 @@ def import_brd_with_pyedb_cutout(request: ImportCutoutRequest, *, aedt_version: 
             json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
+        _emit_progress(progress_callback, "workflow", "BRD/MCM model build", "succeeded", outputs=summary)
         return summary
     finally:
         _close_edb(edb)
