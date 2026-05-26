@@ -9,6 +9,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from aedt_agent.demo.import_cutout import build_import_cutout_request, run_fake_import_cutout, run_real_import_cutout
+from aedt_agent.layout.progress import BrdWorkflowProgressWriter
 from aedt_agent.layout.workflow_run import import_cutout_summary_to_workflow_run
 
 
@@ -34,8 +35,28 @@ def main() -> None:
         raise TypeError("--params must point to a JSON object")
     parameters["artifact_dir"] = str(run_dir)
     request = build_import_cutout_request(parameters)
+    progress = BrdWorkflowProgressWriter(
+        run_dir / "workflow_run.json",
+        layout_file=str(request.layout_file),
+        signal_nets=request.signal_net_patterns,
+        reference_nets=request.reference_net_patterns,
+    )
+
+    def on_progress(event: dict[str, object]) -> None:
+        step_id = str(event.get("step_id") or "")
+        label = str(event.get("label") or step_id)
+        status = str(event.get("status") or "running")
+        output = {key: value for key, value in event.items() if key not in {"step_id", "label", "status", "error_type", "error_message"}}
+        if status == "running":
+            progress.step_running(step_id, label, output)
+        elif status == "succeeded":
+            progress.step_succeeded(step_id, label, output)
+        elif status == "failed":
+            progress.step_failed(step_id, label, str(event.get("error_type") or ""), str(event.get("error_message") or ""))
+        print(f"[brd-progress] {step_id} {status} {label}", flush=True)
+
     if args.adapter == "fake":
-        result = run_fake_import_cutout(request)
+        result = run_fake_import_cutout(request, progress_callback=on_progress)
     else:
         result = run_real_import_cutout(
             request,
@@ -44,6 +65,7 @@ def main() -> None:
             ansysem_root=args.ansysem_root,
             awp_root=args.awp_root,
             non_graphical=args.non_graphical,
+            progress_callback=on_progress,
         )
     (run_dir / "import_cutout_summary.json").write_text(
         json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",

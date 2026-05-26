@@ -319,6 +319,30 @@ def test_demo_service_agent_run_starts_import_cutout_job_with_fake_adapter(tmp_p
     assert status["import_cutout"]["signal_nets"] == ["56G_TX0_P", "56G_TX0_N"]
 
 
+def test_demo_service_fake_import_cutout_writes_workflow_run(tmp_path):
+    layout_file = tmp_path / "case.brd"
+    layout_file.write_text("", encoding="utf-8")
+    service = DemoService(Path("."), run_dir=tmp_path / "stage_c1_demo")
+
+    started = service.start_import_cutout_run(
+        {
+            "adapter": "fake",
+            "stream_to_terminal": False,
+            "parameters": {"layout_file": str(layout_file), "signal_nets": "*tx0*", "reference_nets": "gnd"},
+        }
+    )
+    deadline = time.time() + 10
+    status = started
+    while status["status"] in {"queued", "running"} and time.time() < deadline:
+        time.sleep(0.1)
+        status = service.real_run_status(started["job_id"])
+
+    workflow_run = Path(status["artifacts"]["workflow_run"])
+    assert workflow_run.exists()
+    assert status["workflow_run"]["workflow_id"] == "import_brd_cutout_sparam_tdr_v1"
+    assert any(step["step_id"] == "create_layout_setup" for step in status["steps"])
+
+
 def test_demo_service_import_cutout_run_applies_template_defaults_when_llm_omits_nets(tmp_path, monkeypatch):
     service = DemoService(Path("."), run_dir=tmp_path / "stage_c1_demo")
 

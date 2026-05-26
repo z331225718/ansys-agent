@@ -415,22 +415,7 @@ def import_brd_with_pyedb_cutout(
             "touchstone": layout_reports.get("touchstone_path", ""),
             "tdr": layout_reports.get("tdr_path", ""),
             "elapsed_seconds": round(time.time() - start_time, 2),
-            "steps": _step_results(
-                "succeeded",
-                stop_after=None
-                if layout_reports.get("tdr_path")
-                else "solve"
-                if layout_solve.get("status") == "succeeded"
-                else "setup"
-                if layout_setup
-                else "ports"
-                if port_execution
-                else "port_candidates"
-                if port_candidate_report
-                else "stackup"
-                if stackup_applied
-                else "cutout",
-            ),
+            "steps": _step_results("succeeded"),
             "note": "BRD/MCM was opened with PyEDB, nets were resolved with wildcard matching, cutout AEDB was created, then stackup XML was imported through HFSS 3D Layout before saving the project.",
         }
         (request.output_dir / "import_cutout_summary.json").write_text(
@@ -970,16 +955,14 @@ def _version_suffix(version: str) -> str:
 
 def _step_results(status: str, *, stop_after: str | None = None) -> list[dict[str, Any]]:
     steps = [
-        {"step_id": "discover_file", "status": status},
-        {"step_id": "import_layout", "status": status},
-        {"step_id": "select_nets", "status": status},
-        {"step_id": "cutout", "status": status},
-        {"step_id": "stackup", "status": status},
-        {"step_id": "port_candidates", "status": status},
-        {"step_id": "ports", "status": status},
-        {"step_id": "setup", "status": status},
-        {"step_id": "solve", "status": status},
-        {"step_id": "postprocess", "status": status},
+        {"step_id": "import_layout_file", "status": status},
+        {"step_id": "select_layout_nets", "status": status},
+        {"step_id": "create_layout_cutout", "status": status},
+        {"step_id": "configure_layout_stackup", "status": status},
+        {"step_id": "locate_layout_port_candidates", "status": status},
+        {"step_id": "create_layout_ports", "status": status},
+        {"step_id": "create_layout_setup", "status": status},
+        {"step_id": "validate_layout_model", "status": status},
     ]
     if stop_after is None:
         return steps

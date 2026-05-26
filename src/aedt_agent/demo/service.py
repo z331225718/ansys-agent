@@ -17,6 +17,8 @@ from aedt_agent.demo.config import AedtConfig, PlannerConfig
 from aedt_agent.demo.import_cutout import build_import_cutout_request, read_tdr_csv, run_fake_import_cutout, run_real_import_cutout
 from aedt_agent.demo.planner import PlannerRunner, WorkflowProposalClient, _parse_json_content
 from aedt_agent.demo.tuning import _advisor_advice, _parse_frequency_hz, find_s11_resonance, next_dipole_arm_length, run_fake_dipole_tuning
+from aedt_agent.layout.progress import BrdWorkflowProgressWriter
+from aedt_agent.layout.workflow_run import import_cutout_summary_to_workflow_run
 from aedt_agent.mcp.audit_log import AuditLogger
 from aedt_agent.mcp.execution_queue import ExecutionQueue
 from aedt_agent.mcp.fake_aedt import FakeAedtAdapter
@@ -472,12 +474,36 @@ class DemoService:
                 print(f"[demo:{job.job_id}] import/cutout layout={request.layout_file}", flush=True)
                 print(f"[demo:{job.job_id}] signal_nets={request.signal_net_patterns} reference_nets={request.reference_net_patterns}", flush=True)
             if job.adapter == "fake":
-                result = run_fake_import_cutout(request)
+                progress = BrdWorkflowProgressWriter(
+                    job.run_dir / "workflow_run.json",
+                    layout_file=str(request.layout_file),
+                    signal_nets=request.signal_net_patterns,
+                    reference_nets=request.reference_net_patterns,
+                )
+
+                def on_progress(event: dict[str, object]) -> None:
+                    step_id = str(event.get("step_id") or "")
+                    label = str(event.get("label") or step_id)
+                    status = str(event.get("status") or "running")
+                    output = {
+                        key: value
+                        for key, value in event.items()
+                        if key not in {"step_id", "label", "status", "error_type", "error_message"}
+                    }
+                    if status == "running":
+                        progress.step_running(step_id, label, output)
+                    elif status == "succeeded":
+                        progress.step_succeeded(step_id, label, output)
+                    elif status == "failed":
+                        progress.step_failed(step_id, label, str(event.get("error_type") or ""), str(event.get("error_message") or ""))
+
+                result = run_fake_import_cutout(request, progress_callback=on_progress)
                 job.returncode = 0
                 (job.run_dir / "import_cutout_summary.json").write_text(
                     json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
                     encoding="utf-8",
                 )
+                import_cutout_summary_to_workflow_run(result).write_json(job.run_dir / "workflow_run.json")
             else:
                 params_path = job.run_dir / "params.json"
                 parameters = dict(parameters)

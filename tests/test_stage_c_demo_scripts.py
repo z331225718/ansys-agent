@@ -163,6 +163,38 @@ def test_import_cutout_script_writes_workflow_run_artifact(tmp_path):
     assert '"workflow_id": "import_brd_cutout_sparam_tdr_v1"' in result.stdout
 
 
+def test_import_cutout_script_prints_progress_heartbeat(tmp_path):
+    layout_file = tmp_path / "case.brd"
+    layout_file.write_text("", encoding="utf-8")
+    params = tmp_path / "params.json"
+    params.write_text(
+        __import__("json").dumps({"layout_file": str(layout_file), "signal_nets": "*tx0*", "reference_nets": "gnd"}),
+        encoding="utf-8",
+    )
+    run_dir = tmp_path / "run"
+
+    result = __import__("subprocess").run(
+        [
+            __import__("sys").executable,
+            "scripts/run_stage_c_import_cutout.py",
+            "--adapter",
+            "fake",
+            "--params",
+            str(params),
+            "--run-dir",
+            str(run_dir),
+        ],
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+    assert "[brd-progress] import_layout_file running" in result.stdout
+    assert "[brd-progress] create_layout_setup succeeded" in result.stdout
+    workflow_run = __import__("json").loads((run_dir / "workflow_run.json").read_text(encoding="utf-8"))
+    assert workflow_run["status"] == "succeeded"
+
+
 def test_generate_stage_c_smoke_dashboard_writes_html_and_json(tmp_path, monkeypatch):
     import scripts.generate_stage_c_smoke_dashboard as script
 

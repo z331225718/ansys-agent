@@ -383,14 +383,14 @@ def test_real_import_cutout_uses_pyedb_cutout_before_hfss3dlayout(monkeypatch, t
     assert result["touchstone"] == ""
     assert result["tdr"] == ""
     assert [step["step_id"] for step in result["steps"]] == [
-        "discover_file",
-        "import_layout",
-        "select_nets",
-        "cutout",
-        "stackup",
-        "port_candidates",
-        "ports",
-        "setup",
+        "import_layout_file",
+        "select_layout_nets",
+        "create_layout_cutout",
+        "configure_layout_stackup",
+        "locate_layout_port_candidates",
+        "create_layout_ports",
+        "create_layout_setup",
+        "validate_layout_model",
     ]
     assert all(step["status"] == "succeeded" for step in result["steps"])
     assert result["port_candidates"]["port_action_plan"]["status"] == "ready"
