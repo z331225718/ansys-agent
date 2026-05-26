@@ -827,11 +827,15 @@ def _read_real_run_artifacts(run_dir: Path) -> dict[str, Any]:
     workflow_path = run_dir / "workflow_run.json"
     if workflow_path.exists():
         workflow = _read_json(workflow_path)
+        data["workflow_run"] = workflow
         data["workflow_id"] = workflow.get("workflow_id", "")
         data["model_validation"] = workflow.get("model_validation", {})
         data["validation"] = workflow.get("validation", {})
         data["steps"] = workflow.get("steps", [])
         data["outputs"] = workflow.get("outputs", {})
+        outputs = workflow.get("outputs", {}) if isinstance(workflow.get("outputs"), dict) else {}
+        data["aedt_project"] = outputs.get("aedt_project", data.get("aedt_project", ""))
+        data["edb_path"] = outputs.get("edb_path", data.get("edb_path", ""))
     params = _read_json(run_dir / "params.json")
     outputs = data.get("outputs", {})
     if isinstance(outputs, dict) and outputs.get("touchstone"):

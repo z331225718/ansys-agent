@@ -411,6 +411,44 @@ def test_demo_service_real_import_cutout_runs_in_subprocess_main_thread(monkeypa
     assert (job.run_dir / "stdout.log").exists()
 
 
+def test_demo_service_import_cutout_status_prefers_workflow_run_artifact(tmp_path):
+    service = DemoService(Path("."), run_dir=tmp_path / "stage_c1_demo")
+    job = DemoRunJob(
+        job_id="job1",
+        template_id="import_brd_cutout_sparam_tdr",
+        adapter="fake",
+        run_dir=tmp_path / "run",
+        run_kind="import_cutout",
+        stream_to_terminal=False,
+    )
+    job.run_dir.mkdir()
+    job.status = "succeeded"
+    job.returncode = 0
+    workflow_run = {
+        "workflow_id": "import_brd_cutout_sparam_tdr_v1",
+        "status": "succeeded",
+        "steps": [
+            {"step_id": "import_layout_file", "node_id": "import_layout_file", "status": "succeeded", "output": {}},
+            {"step_id": "create_layout_cutout", "node_id": "create_layout_cutout", "status": "succeeded", "output": {}},
+        ],
+        "outputs": {
+            "aedt_project": "demo.aedt",
+            "edb_path": "demo.aedb",
+            "signal_nets": ["P", "N"],
+            "reference_nets": ["GND"],
+        },
+    }
+    (job.run_dir / "workflow_run.json").write_text(__import__("json").dumps(workflow_run), encoding="utf-8")
+    service._jobs[job.job_id] = job
+
+    status = service.real_run_status(job.job_id)
+
+    assert status["workflow_run"]["workflow_id"] == "import_brd_cutout_sparam_tdr_v1"
+    assert [step["step_id"] for step in status["steps"]] == ["import_layout_file", "create_layout_cutout"]
+    assert status["artifacts"]["workflow_run"].endswith("workflow_run.json")
+    assert status["aedt_project"] == "demo.aedt"
+
+
 def test_read_demo_sparameters_selects_nearest_frequency_and_converts_to_db(tmp_path):
     touchstone = tmp_path / "sample.s2p"
     touchstone.write_text(

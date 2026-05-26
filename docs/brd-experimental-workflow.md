@@ -27,3 +27,12 @@ BRD/MCM workflow 是 Stage C 的 experimental track，不属于默认 HFSS core 
 - 不同 BRD 的 component naming、pin naming、stackup layer naming 可能需要板级规则。
 - 端口候选选择仍是启发式，复杂拓扑如串联电容、AC coupling、connector breakout 需要后续规则。
 - TDR/S 参数后处理需要 solve，当前工作流默认跳过。
+
+## Artifact 约定
+
+BRD/MCM experimental workflow 同时保留两个 artifact：
+
+- `import_cutout_summary.json`：板级 model-build 的原始执行摘要，包含 PyEDB cutout、stackup、端口、setup、AEDT project path。
+- `workflow_run.json`：转换后的统一 workflow artifact，包含标准 `workflow_id`、`status`、`steps`、`outputs`，供 demo UI、报告和后续 repair/evolution 使用。
+
+当前仍是 model-build only：默认不运行 analyze，不承诺 S 参数/TDR solve 结果。

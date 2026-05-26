@@ -9,6 +9,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from aedt_agent.demo.import_cutout import build_import_cutout_request, run_fake_import_cutout, run_real_import_cutout
+from aedt_agent.layout.workflow_run import import_cutout_summary_to_workflow_run
 
 
 def main() -> None:
@@ -48,7 +49,11 @@ def main() -> None:
         json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    workflow_run = import_cutout_summary_to_workflow_run(result)
+    workflow_run.write_json(run_dir / "workflow_run.json")
+    print(json.dumps(workflow_run.to_dict(), ensure_ascii=False, indent=2, sort_keys=True))
+    if not workflow_run.succeeded:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

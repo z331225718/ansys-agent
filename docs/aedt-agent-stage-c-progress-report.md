@@ -111,6 +111,8 @@ Node Evolution Proposal
 
 BRD/MCM import-cutout remains experimental and opt-in. The reusable boundary is documented in `docs/brd-experimental-workflow.md`; the default HFSS core catalog does not expose these nodes unless experimental nodes are enabled. The current BRD workflow is model-build only and intentionally stops before analyze on resource-limited machines.
 
+BRD job now emits both `import_cutout_summary.json` and `workflow_run.json`, so demo/report consumers can use the same artifact shape as HFSS core workflows.
+
 ## Validation 边界
 
 当前系统的验证分三层：

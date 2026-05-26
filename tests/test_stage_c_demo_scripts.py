@@ -124,6 +124,45 @@ def test_run_stage_c_real_workflow_smoke_supports_fake_adapter(tmp_path, monkeyp
     assert (run_dir / "validation.json").exists()
 
 
+def test_import_cutout_script_writes_workflow_run_artifact(tmp_path):
+    layout_file = tmp_path / "case.brd"
+    layout_file.write_text("", encoding="utf-8")
+    params = tmp_path / "params.json"
+    params.write_text(
+        __import__("json").dumps(
+            {
+                "layout_file": str(layout_file),
+                "signal_nets": "*tx0*",
+                "reference_nets": "gnd",
+            }
+        ),
+        encoding="utf-8",
+    )
+    run_dir = tmp_path / "run"
+
+    result = __import__("subprocess").run(
+        [
+            __import__("sys").executable,
+            "scripts/run_stage_c_import_cutout.py",
+            "--adapter",
+            "fake",
+            "--params",
+            str(params),
+            "--run-dir",
+            str(run_dir),
+        ],
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+    workflow_run = __import__("json").loads((run_dir / "workflow_run.json").read_text(encoding="utf-8"))
+    assert workflow_run["workflow_id"] == "import_brd_cutout_sparam_tdr_v1"
+    assert workflow_run["status"] == "succeeded"
+    assert workflow_run["outputs"]["signal_nets"] == ["56G_TX0_P", "56G_TX0_N"]
+    assert '"workflow_id": "import_brd_cutout_sparam_tdr_v1"' in result.stdout
+
+
 def test_generate_stage_c_smoke_dashboard_writes_html_and_json(tmp_path, monkeypatch):
     import scripts.generate_stage_c_smoke_dashboard as script
 
