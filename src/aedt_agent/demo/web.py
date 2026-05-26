@@ -164,7 +164,7 @@ const WORKFLOWS = {
   },
   import_brd_cutout_sparam_tdr: {
     title: 'BRD/MCM Cutout Model Build Workflow',
-    request: '导入 /home/zzmjay/work/brd/c03010211_56g_2512031835.brd，选择 SRDS_3_RX1 差分 net，参考 GND，cutout 后设置叠层、端口和 DC 到 67GHz 扫频，不运行仿真。',
+    request: '导入一个 BRD 文件，选择 SRDS_3_RX1 差分 net，参考 GND，cutout 后设置叠层、端口和 DC 到 67GHz 扫频，不运行仿真。',
     expected: 'BRD/MCM · Net wildcard · Cutout · Stackup · Ports · DC-67GHz setup',
     s21Label: 'Model build status',
     diagram: '<div class="air"></div><div class="substrate" style="bottom:56px;height:48px"></div><div class="trace" style="left:42px;right:42px;bottom:109px"></div><div class="trace" style="left:74px;right:102px;bottom:82px;background:#0f766e"></div><div class="port p1" style="left:58px;height:68px"></div><div class="port p2" style="right:58px;height:68px"></div><div class="diagram-label l1">Imported BRD/MCM nets</div><div class="diagram-label l2">Cutout + ports + TDR</div>',

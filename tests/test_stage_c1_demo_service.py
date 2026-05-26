@@ -368,10 +368,10 @@ def test_demo_service_import_cutout_run_applies_template_defaults_when_llm_omits
 
     assert started["run_kind"] == "import_cutout"
     params = __import__("json").loads((Path(started["run_dir"]) / "params.json").read_text(encoding="utf-8"))
-    assert params["layout_file"].endswith("c03010211_56g_2512031835.brd")
+    assert "layout_file" not in params
     assert params["signal_nets"] == "SRDS_3_RX1_*"
     assert params["reference_nets"] == "GND"
-    assert params["stackup_xml"].endswith("stackup_yibo_202512042235.xml")
+    assert "stackup_xml" not in params
     assert params["frequency"] == "56GHz"
     assert params["sweep_stop"] == "67GHz"
     assert params["artifact_dir"].endswith(started["job_id"])

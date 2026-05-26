@@ -765,7 +765,10 @@ def apply_cadence_launcher_environment(launcher: Path) -> None:
         raise FileNotFoundError(f"Cadence launcher not found: {launcher}")
     text = launcher.read_text(encoding="utf-8")
     assignments = _launcher_assignments(text)
-    cdsroot = Path(assignments.get("CDSROOT", "/home/zzmjay/Cadence/SPB221")).expanduser()
+    cdsroot_value = assignments.get("CDSROOT") or os.environ.get("CDSROOT")
+    if not cdsroot_value:
+        raise ValueError("Cadence launcher must define CDSROOT, or CDSROOT must already be set in the environment.")
+    cdsroot = Path(cdsroot_value).expanduser()
     tools = Path(assignments.get("TOOLS", str(cdsroot / "tools.lnx86"))).expanduser()
     os.environ["CDSROOT"] = str(cdsroot)
     os.environ["CDS_AUTO_64BIT"] = "ALL"
@@ -795,15 +798,34 @@ def apply_cadence_launcher_environment(launcher: Path) -> None:
 
 def apply_aedt_environment(version: str, *, ansysem_root: str = "", awp_root: str = "") -> None:
     suffix = _version_suffix(version)
-    resolved_awp_root = Path(awp_root).expanduser() if awp_root else Path("~/ansys_inc").expanduser() / f"v{suffix}"
-    resolved_ansysem_root = Path(ansysem_root).expanduser() if ansysem_root else resolved_awp_root / "AnsysEM"
-    if not resolved_awp_root.exists():
-        raise FileNotFoundError(f"AWP root not found: {resolved_awp_root}")
-    if not resolved_ansysem_root.exists():
-        raise FileNotFoundError(f"ANSYSEM root not found: {resolved_ansysem_root}")
-    os.environ[f"AWP_ROOT{suffix}"] = str(resolved_awp_root)
-    os.environ[f"ANSYSEM_ROOT{suffix}"] = str(resolved_ansysem_root)
-    os.environ["PATH"] = str(resolved_ansysem_root) + os.pathsep + os.environ.get("PATH", "")
+    awp_var = f"AWP_ROOT{suffix}"
+    ansysem_var = f"ANSYSEM_ROOT{suffix}"
+    resolved_awp_root = _existing_optional_path(awp_root)
+    resolved_ansysem_root = _existing_optional_path(ansysem_root)
+    if awp_root and resolved_awp_root is None:
+        raise FileNotFoundError(f"AWP root not found: {Path(awp_root).expanduser()}")
+    if ansysem_root and resolved_ansysem_root is None:
+        raise FileNotFoundError(f"ANSYSEM root not found: {Path(ansysem_root).expanduser()}")
+    if resolved_awp_root is None:
+        resolved_awp_root = _existing_optional_path(os.environ.get(awp_var, ""))
+    if resolved_ansysem_root is None:
+        resolved_ansysem_root = _existing_optional_path(os.environ.get(ansysem_var, ""))
+    if resolved_ansysem_root is None and resolved_awp_root is not None:
+        candidate = resolved_awp_root / "AnsysEM"
+        if candidate.exists():
+            resolved_ansysem_root = candidate
+    if resolved_awp_root is not None:
+        os.environ[awp_var] = str(resolved_awp_root)
+    if resolved_ansysem_root is not None:
+        os.environ[ansysem_var] = str(resolved_ansysem_root)
+        os.environ["PATH"] = str(resolved_ansysem_root) + os.pathsep + os.environ.get("PATH", "")
+
+
+def _existing_optional_path(value: str) -> Path | None:
+    if not value:
+        return None
+    path = Path(value).expanduser()
+    return path if path.exists() else None
 
 
 def read_tdr_csv(path: Any) -> dict[str, Any]:

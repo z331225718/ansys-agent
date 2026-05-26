@@ -15,7 +15,8 @@ def test_render_demo_page_contains_workspace_sections():
     assert "用户需求" in html
     assert "做一个微带线 S 参数仿真" in html
     assert "做一个偶极子天线 S11 仿真" in html
-    assert "导入 /home/zzmjay/work/brd" in html
+    assert "导入一个 BRD 文件" in html
+    assert "/home/zzmjay/work/brd" not in html
     assert "syncRequestToParameters" not in html
     assert "changeWorkflow" in html
     assert "derivedDipoleArmLength" not in html

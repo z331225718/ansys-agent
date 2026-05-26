@@ -157,11 +157,36 @@ curl -s -X POST http://127.0.0.1:8765/api/run \
 
 ## 真实 AEDT 与离线模式
 
-浏览器首页默认主按钮会启动真实 AEDT graphical smoke。它依赖本机 AEDT 2026.1、license、桌面环境和 `~/ansys_inc` 安装路径，运行时间明显长于 fake adapter。离线 fake adapter 仍保留为 fallback，因为真实 AEDT：
+浏览器首页默认主按钮会启动真实 AEDT graphical smoke。它依赖本机 AEDT、license 和桌面环境，运行时间明显长于 fake adapter。离线 fake adapter 仍保留为 fallback，因为真实 AEDT：
 
 - 依赖本机安装和 license。
 - 启动慢，容易受进程状态影响。
 - 需要独立记录 stdout、stderr、workflow_run、validation、audit 和 report artifact。
+
+生产环境不要依赖仓库内默认路径。复制并编辑本地配置文件：
+
+```bash
+cp config/demo_config.example.json config/demo_config.local.json
+```
+
+Windows 生产机可以在 `config/demo_config.local.json` 中配置：
+
+```json
+{
+  "execution": {
+    "default_adapter": "real",
+    "run_dir": "D:/aedt-agent-runs/stage_c_demo"
+  },
+  "aedt": {
+    "version": "2026.1",
+    "ansysem_root": "C:/Program Files/AnsysEM/v261/Win64",
+    "awp_root": "C:/Program Files/ANSYS Inc/v261",
+    "cadence_launcher": ""
+  }
+}
+```
+
+如果生产机已经正确设置 `ANSYSEM_ROOT261`、`AWP_ROOT261` 和 `PATH`，也可以把 `ansysem_root`、`awp_root` 留空，让 PyAEDT 使用系统环境。BRD/MCM demo 的 `layout_file` 和 `stackup_xml` 不再写死在模板里，建议在对话需求中明确给出文件路径，或通过页面/请求参数传入。
 
 命令行仍可以直接运行真实 AEDT smoke：
 

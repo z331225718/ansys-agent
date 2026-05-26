@@ -18,7 +18,7 @@
       {
         "name": "layout_file",
         "type": "string",
-        "default": "/home/zzmjay/work/brd/c03010211_56g_2512031835.brd",
+        "default": "",
         "label": "BRD/MCM file"
       },
       {
@@ -36,7 +36,7 @@
       {
         "name": "stackup_xml",
         "type": "string",
-        "default": "/home/zzmjay/work/brd/stackup_yibo_202512042235.xml",
+        "default": "",
         "label": "Stackup XML"
       },
       {

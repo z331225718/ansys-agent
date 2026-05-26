@@ -152,6 +152,42 @@ def test_apply_aedt_environment_sets_versioned_roots(monkeypatch, tmp_path):
     assert __import__("os").environ["AWP_ROOT261"] == str(awp_root)
 
 
+def test_apply_aedt_environment_allows_platform_autodiscovery_when_roots_are_blank(monkeypatch):
+    monkeypatch.delenv("ANSYSEM_ROOT261", raising=False)
+    monkeypatch.delenv("AWP_ROOT261", raising=False)
+
+    apply_aedt_environment("2026.1", ansysem_root="", awp_root="")
+
+    assert "ANSYSEM_ROOT261" not in __import__("os").environ
+    assert "AWP_ROOT261" not in __import__("os").environ
+
+
+def test_apply_aedt_environment_reuses_existing_versioned_environment(monkeypatch, tmp_path):
+    awp_root = tmp_path / "AWP" / "v261"
+    ansysem_root = awp_root / "AnsysEM"
+    ansysem_root.mkdir(parents=True)
+    monkeypatch.setenv("AWP_ROOT261", str(awp_root))
+    monkeypatch.setenv("ANSYSEM_ROOT261", str(ansysem_root))
+
+    apply_aedt_environment("2026.1", ansysem_root="", awp_root="")
+
+    assert __import__("os").environ["AWP_ROOT261"] == str(awp_root)
+    assert __import__("os").environ["ANSYSEM_ROOT261"] == str(ansysem_root)
+
+
+def test_cadence_launcher_requires_explicit_cdsroot(monkeypatch, tmp_path):
+    launcher = tmp_path / "start_cadence.sh"
+    launcher.write_text('TOOLS="/cadence/tools.lnx86"\n', encoding="utf-8")
+    monkeypatch.delenv("CDSROOT", raising=False)
+
+    try:
+        import_cutout.apply_cadence_launcher_environment(launcher)
+    except ValueError as exc:
+        assert "CDSROOT" in str(exc)
+    else:
+        raise AssertionError("missing CDSROOT should fail instead of using a developer machine path")
+
+
 def test_net_suggestions_surface_matching_tokens_when_wildcard_misses():
     suggestions = _net_suggestions(["*56g*tx*"], ["GND", "GDDR6_VDD", "SRDS_0_TX0_N", "SRDS_0_TX0_P"])
 

@@ -18,9 +18,9 @@
   "aedt": {
     "version": "2026.1",
     "non_graphical": true,
-    "ansysem_root": "~/ansys_inc/v261/AnsysEM",
-    "awp_root": "~/ansys_inc/v261",
+    "ansysem_root": "",
+    "awp_root": "",
     "timeout": 900,
-    "cadence_launcher": "~/code/start_aedt_cadence.sh"
+    "cadence_launcher": ""
   }
 }

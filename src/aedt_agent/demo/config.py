@@ -32,10 +32,10 @@ class ExecutionConfig:
 class AedtConfig:
     version: str = "2026.1"
     non_graphical: bool = True
-    ansysem_root: str = "~/ansys_inc/v261/AnsysEM"
-    awp_root: str = "~/ansys_inc/v261"
+    ansysem_root: str = ""
+    awp_root: str = ""
     timeout: int = 900
-    cadence_launcher: str = "~/code/start_aedt_cadence.sh"
+    cadence_launcher: str = ""
 
 
 @dataclass(frozen=True)

@@ -169,6 +169,8 @@ def test_import_cutout_template_uses_layout_specific_nodes():
     stackup_step = template.workflow.nodes[3]
     port_candidate_step = template.workflow.nodes[4]
     defaults = {parameter.name: parameter.default for parameter in template.workflow.parameters}
+    assert defaults["layout_file"] == ""
+    assert defaults["stackup_xml"] == ""
     assert defaults["signal_nets"] == "SRDS_3_RX1_*"
     assert defaults["sweep_start"] == "0GHz"
     assert defaults["sweep_stop"] == "67GHz"
