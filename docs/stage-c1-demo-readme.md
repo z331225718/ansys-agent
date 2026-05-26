@@ -188,6 +188,36 @@ Windows 生产机可以在 `config/demo_config.local.json` 中配置：
 
 如果生产机已经正确设置 `ANSYSEM_ROOT261`、`AWP_ROOT261` 和 `PATH`，也可以把 `ansysem_root`、`awp_root` 留空，让 PyAEDT 使用系统环境。BRD/MCM demo 的 `layout_file` 和 `stackup_xml` 不再写死在模板里，建议在对话需求中明确给出文件路径，或通过页面/请求参数传入。
 
+迁移到内网生产机后，先跑 Stage C 预检，不要直接启动长任务：
+
+```bash
+.venv/bin/python scripts/check_stage_c_demo_environment.py \
+  --config config/demo_config.example.json \
+  --local-config config/demo_config.local.json
+```
+
+如果要预检某个 BRD/MCM 任务，把本次运行参数保存成 JSON：
+
+```json
+{
+  "layout_file": "D:/boards/case.brd",
+  "stackup_xml": "D:/boards/stackup.xml",
+  "signal_nets": "SRDS_3_RX1_P,SRDS_3_RX1_N",
+  "reference_nets": "GND"
+}
+```
+
+然后运行：
+
+```bash
+.venv/bin/python scripts/check_stage_c_demo_environment.py \
+  --config config/demo_config.example.json \
+  --local-config config/demo_config.local.json \
+  --params D:/boards/stage_c_brd_params.json
+```
+
+预检会检查 PyAEDT Python 包、`ANSYSEM_ROOTxxx`、`AWP_ROOTxxx`、Cadence/CDSROOT、BRD/MCM 文件和 stackup XML。默认模式下，系统可自动发现 AEDT 的项目会给 warning；如果需要把 warning 也当成阻塞项，加 `--strict`。自动化流水线可以加 `--json` 读取结构化结果。
+
 命令行仍可以直接运行真实 AEDT smoke：
 
 ```bash
