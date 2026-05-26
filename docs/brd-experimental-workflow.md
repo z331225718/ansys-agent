@@ -36,3 +36,20 @@ BRD/MCM experimental workflow 同时保留两个 artifact：
 - `workflow_run.json`：转换后的统一 workflow artifact，包含标准 `workflow_id`、`status`、`steps`、`outputs`，供 demo UI、报告和后续 repair/evolution 使用。
 
 当前仍是 model-build only：默认不运行 analyze，不承诺 S 参数/TDR solve 结果。
+
+## Live progress contract
+
+BRD/MCM demo runs write `workflow_run.json` while the model-build job is still running. The page should treat this file as the single source of truth for node status.
+
+Canonical step ids:
+
+- `import_layout_file`
+- `select_layout_nets`
+- `create_layout_cutout`
+- `configure_layout_stackup`
+- `locate_layout_port_candidates`
+- `create_layout_ports`
+- `create_layout_setup`
+- `validate_layout_model`
+
+The BRD/MCM path remains `experimental` and `model-build-only` by default. Heavy board analyze is intentionally skipped unless a future explicit run mode enables it.

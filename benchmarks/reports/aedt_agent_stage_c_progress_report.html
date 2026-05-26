@@ -118,10 +118,13 @@ Node Evolution Proposal</div>
 
   <h2>BRD Experimental Track</h2>
   <p>BRD/MCM workflow 面向真实高频板级场景：导入 Cadence BRD/MCM、解析 net、PyEDB cutout、导入 stackup、定位端口候选、创建 3D Layout port 和宽频 setup。当前产物重点是可复用 layout service、明确的 experimental 节点 contract、MCP fake/real smoke 入口，以及可人工检查的 AEDT model-build artifact。</p>
-  <p>BRD job now emits both <code>import_cutout_summary.json</code> and <code>workflow_run.json</code>, so demo/report consumers can use the same artifact shape as HFSS core workflows.</p>
+  <p>BRD job 同时输出 <code>import_cutout_summary.json</code> 和 <code>workflow_run.json</code>，demo/report consumer 可以复用 HFSS core workflow 的统一 artifact 形状。</p>
+
+  <h2>BRD/MCM 演示可观测性</h2>
+  <p>最新版本将 BRD/MCM cutout 建模过程接入统一 <code>workflow_run.json</code>：页面可以看到 import、net selection、cutout、stackup、port、setup、validation 的实时状态。该链路仍保持 experimental、默认只建模不求解，避免重型板级仿真影响演示稳定性。</p>
 
   <h2>下一步</h2>
-  <p>下一步优先为 node evolution proposal 增加 HTML 报告和人工审核字段，并把真实 smoke 结果整合进更适合展示的 dashboard。完整拖拽 UI 继续靠后。</p>
+  <p>工程路线继续围绕真实工作型 workflow 展开：先把复杂链路做成可观察、可验收的节点图，再逐步沉淀为可复用模板和节点进化证据。完整拖拽 UI 继续靠后。</p>
 </main>
 </body>
 </html>
