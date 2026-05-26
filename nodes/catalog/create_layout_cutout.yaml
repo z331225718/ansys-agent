@@ -1,5 +1,5 @@
 node_id: create_layout_cutout
-summary: Create a multi-threaded PyEDB cutout around selected signal nets with reference nets.
+summary: Experimental Layout/BRD node that creates a multi-threaded PyEDB cutout around selected signal nets with reference nets.
 status: experimental
 track: layout-brd
 allowed_apis:
@@ -11,3 +11,6 @@ outputs:
 prerequisites:
   - select_layout_nets
 examples: [import_brd_cutout_sparam_tdr]
+notes:
+  - Experimental Layout/BRD node; not included in default HFSS core planning.
+  - Requires explicit experimental catalog enablement.

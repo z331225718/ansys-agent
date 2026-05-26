@@ -1,5 +1,5 @@
 node_id: locate_layout_port_candidates
-summary: Locate and score likely HFSS 3D Layout port endpoint components for selected signal and reference nets.
+summary: Experimental Layout/BRD node that locates and scores likely HFSS 3D Layout port endpoint components for selected signal and reference nets.
 status: experimental
 track: layout-brd
 allowed_apis:
@@ -14,3 +14,6 @@ outputs:
 prerequisites:
   - configure_layout_stackup
 examples: [import_brd_cutout_sparam_tdr]
+notes:
+  - Experimental Layout/BRD node; not included in default HFSS core planning.
+  - Requires explicit experimental catalog enablement.

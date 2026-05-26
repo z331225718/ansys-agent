@@ -5,6 +5,7 @@ from aedt_agent.demo.layout_ports import (
     plan_layout_port_actions,
     score_layout_port_candidates,
 )
+from aedt_agent.layout.ports import plan_layout_port_actions as reusable_plan_layout_port_actions
 
 
 def test_score_layout_port_candidates_prefers_bga_component_and_paired_caps():
@@ -139,6 +140,44 @@ def test_plan_layout_port_actions_uses_cylinder_for_bga_and_toggle_via_pin_gap_p
     assert plan["port_actions"][1]["pin_pairs"][0]["signal_pin"] == "25"
     assert plan["port_actions"][1]["pin_pairs"][0]["reference_pin"] == "16"
     assert plan["port_actions"][1]["pin_pairs"][0]["reference_layer"] == "TOP"
+
+
+def test_reusable_layout_port_planner_matches_demo_strategy():
+    candidates = {
+        "status": "ready",
+        "signal_nets": ["SRDS_3_RX1_P", "SRDS_3_RX1_N"],
+        "reference_nets": ["GND"],
+        "recommended_endpoints": [
+            {
+                "name": "U1",
+                "components": ["U1"],
+                "component_type": "ic",
+                "partname": "BGA_DEVICE",
+                "pins": [
+                    {"pin": "A1", "net": "SRDS_3_RX1_P", "position": [0, 0], "padstack": "BALL20"},
+                    {"pin": "A2", "net": "SRDS_3_RX1_N", "position": [1, 0], "padstack": "BALL20"},
+                    {"pin": "A3", "net": "GND", "position": [0.5, 0], "padstack": "BALL20"},
+                ],
+            },
+            {
+                "name": "J33",
+                "components": ["J33"],
+                "component_type": "io",
+                "partname": "CONNECTOR",
+                "pins": [
+                    {"pin": "25", "net": "SRDS_3_RX1_N", "position": [10, 0], "padstack": "PIN"},
+                    {"pin": "26", "net": "SRDS_3_RX1_P", "position": [11, 0], "padstack": "PIN"},
+                    {"pin": "24", "net": "GND", "position": [10.5, 0], "padstack": "PIN"},
+                ],
+            },
+        ],
+    }
+
+    plan = reusable_plan_layout_port_actions(candidates, impedance=50, solderball={"diameter": "20mil", "height": "10mil"})
+
+    strategies = [action["strategy"] for action in plan["port_actions"]]
+    assert "component_cylinder_port" in strategies
+    assert "toggle_via_pin_gap_port" in strategies
 
 
 def test_apply_edb_layout_port_actions_skips_hfss_toggle_via_pin_ports():

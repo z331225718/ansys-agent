@@ -136,7 +136,7 @@ NODE_SCHEMAS: dict[str, NodeInputSchema] = {
     ),
     "select_layout_nets": NodeInputSchema(
         required={"signal_nets": (str, list), "reference_nets": (str, list)},
-        optional={},
+        optional={"available_nets": list},
         defaults={},
     ),
     "create_layout_cutout": NodeInputSchema(

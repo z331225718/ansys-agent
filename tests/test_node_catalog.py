@@ -50,6 +50,28 @@ def test_node_catalog_can_include_experimental_layout_nodes():
     assert "create_layout_cutout" in node_ids
 
 
+def test_layout_nodes_are_documented_as_experimental_with_limits():
+    catalog = NodeCatalog.from_directory(Path("nodes/catalog"), include_experimental=True)
+    layout_nodes = [
+        catalog.get("import_layout_file"),
+        catalog.get("select_layout_nets"),
+        catalog.get("create_layout_cutout"),
+        catalog.get("configure_layout_stackup"),
+        catalog.get("locate_layout_port_candidates"),
+        catalog.get("create_layout_ports"),
+        catalog.get("create_layout_setup"),
+    ]
+
+    for metadata in layout_nodes:
+        serialized = metadata.to_dict()
+        assert serialized["status"] == "experimental"
+        assert serialized["track"] == "layout-brd"
+        assert (
+            "experimental" in serialized["description"].lower()
+            or "experimental" in serialized["ui_hints"].get("badge", "").lower()
+        )
+
+
 def test_catalog_metadata_has_product_fields():
     catalog = NodeCatalog.from_directory(Path("nodes/catalog"))
     port = catalog.get("create_port")

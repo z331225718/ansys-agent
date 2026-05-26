@@ -476,8 +476,23 @@ def _create_antenna_report(app: Any, inputs: dict[str, Any]) -> dict[str, Any]:
 
 def _layout_placeholder_node(node_id: str, inputs: dict[str, Any]) -> dict[str, Any]:
     port_action_plan = None
+    resolved_layout_nets = None
+    if node_id == "select_layout_nets":
+        from aedt_agent.layout.import_cutout import normalize_net_patterns, resolve_matching_nets
+
+        available_nets = [str(item) for item in inputs.get("available_nets", [])]
+        signal_patterns = normalize_net_patterns(inputs.get("signal_nets"))
+        reference_patterns = normalize_net_patterns(inputs.get("reference_nets"))
+        signal_nets = resolve_matching_nets(signal_patterns, available_nets) if available_nets else signal_patterns
+        reference_nets = resolve_matching_nets(reference_patterns, available_nets) if available_nets else reference_patterns
+        resolved_layout_nets = {
+            "signal_nets": signal_nets,
+            "reference_nets": reference_nets,
+            "signal_patterns": signal_patterns,
+            "reference_patterns": reference_patterns,
+        }
     if node_id == "create_layout_ports" and isinstance(inputs.get("port_candidates"), dict):
-        from aedt_agent.demo.layout_ports import plan_layout_port_actions
+        from aedt_agent.layout.ports import plan_layout_port_actions
 
         solderball = {
             "type": inputs.get("solderball_type"),
@@ -499,7 +514,8 @@ def _layout_placeholder_node(node_id: str, inputs: dict[str, Any]) -> dict[str, 
             "import_backend": inputs.get("import_backend", "pyedb"),
             "edb_backend": inputs.get("edb_backend", "auto"),
         },
-        "select_layout_nets": {"signal_nets": inputs.get("signal_nets"), "reference_nets": inputs.get("reference_nets")},
+        "select_layout_nets": resolved_layout_nets
+        or {"signal_nets": inputs.get("signal_nets"), "reference_nets": inputs.get("reference_nets")},
         "create_layout_cutout": {"cutout_name": "LayoutCutout", "threads": inputs.get("threads")},
         "configure_layout_stackup": {
             "stackup_name": str(inputs.get("stackup_rule", "preserve_board_stackup")),

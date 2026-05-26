@@ -1,5 +1,5 @@
 node_id: create_layout_setup
-summary: Create a 3D Layout adaptive setup and sweep.
+summary: Experimental Layout/BRD node that creates a 3D Layout adaptive setup and sweep.
 status: experimental
 track: layout-brd
 allowed_apis:
@@ -13,3 +13,8 @@ outputs:
 prerequisites:
   - create_layout_ports
 examples: [import_brd_cutout_sparam_tdr]
+notes:
+  - Experimental Layout/BRD node; not included in default HFSS core planning.
+  - Requires explicit experimental catalog enablement.
+  - Model-build default; solve_layout is intentionally not part of the default BRD demo on resource-limited machines.
+  - High-speed broadband workflows should cover DC to 67GHz when TDR is required.

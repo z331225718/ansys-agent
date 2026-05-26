@@ -192,6 +192,17 @@ def test_import_cutout_template_uses_layout_specific_nodes():
     assert _validator(include_experimental=True).validate(template.workflow).passed is True
 
 
+def test_import_cutout_template_declares_model_build_only_limit():
+    template = WorkflowTemplate.from_file(Path("workflow_templates/import_brd_cutout_sparam_tdr.json"))
+
+    assert "model-build" in template.tags
+    assert any(
+        "stops before analyze" in limit.lower() or "without running solve" in limit.lower()
+        for limit in template.known_limits
+    )
+    assert template.workflow.metadata["experimental"] is True
+
+
 def test_template_full_dict_includes_workflow_for_chat_planner():
     template = WorkflowTemplate.from_file(Path("workflow_templates/wave_port_setup.json"))
 

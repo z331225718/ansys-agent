@@ -86,6 +86,7 @@ Node Evolution Proposal</div>
     <div class="card"><strong>11</strong>node evolution proposals，全部保持 needs_review。</div>
     <div class="card"><strong>0.82</strong>chat planning confidence，选择 microstrip_sparameter。</div>
     <div class="card"><strong>23 / 11</strong>node evolution evidence / proposal。</div>
+    <div class="card"><strong>experimental</strong>BRD/MCM import-cutout 已隔离为 opt-in track，默认 catalog 不暴露。</div>
   </div>
 
   <h2>关键 Artifact</h2>
@@ -109,10 +110,14 @@ Node Evolution Proposal</div>
     <tr><td>Node evolution review JSON</td><td><code>benchmarks/reports/stage_c_node_evolution_review.json</code></td></tr>
     <tr><td>Demo index</td><td><code>benchmarks/reports/stage_c_demo_index.html</code></td></tr>
     <tr><td>Demo index JSON</td><td><code>benchmarks/reports/stage_c_demo_index.json</code></td></tr>
+    <tr><td>BRD experimental contract</td><td><code>docs/brd-experimental-workflow.md</code></td></tr>
   </table>
 
   <h2>边界</h2>
-  <p>已跑通 3 个真实 AEDT smoke，分别覆盖 geometry/setup/sweep、select_face/port、airbox/boundary。validation 仍是结构性检查，不等价于完整电磁物理正确。chat planner 当前是确定性骨架，后续可接主模型，但输出仍必须限制为 workflow JSON。node evolution 只生成 proposal，不自动发布 stable 节点。</p>
+  <p>已跑通 3 个真实 AEDT smoke，分别覆盖 geometry/setup/sweep、select_face/port、airbox/boundary。BRD/MCM import-cutout 仍是 experimental track，默认不进入 HFSS core catalog；当前路径是 model-build only，资源受限机器上默认不 analyze。validation 仍是结构性检查，不等价于完整电磁物理正确。chat planner 当前是确定性骨架，后续可接主模型，但输出仍必须限制为 workflow JSON。node evolution 只生成 proposal，不自动发布 stable 节点。</p>
+
+  <h2>BRD Experimental Track</h2>
+  <p>BRD/MCM workflow 面向真实高频板级场景：导入 Cadence BRD/MCM、解析 net、PyEDB cutout、导入 stackup、定位端口候选、创建 3D Layout port 和宽频 setup。当前产物重点是可复用 layout service、明确的 experimental 节点 contract、MCP fake/real smoke 入口，以及可人工检查的 AEDT model-build artifact。</p>
 
   <h2>下一步</h2>
   <p>下一步优先为 node evolution proposal 增加 HTML 报告和人工审核字段，并把真实 smoke 结果整合进更适合展示的 dashboard。完整拖拽 UI 继续靠后。</p>

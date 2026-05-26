@@ -96,6 +96,26 @@ def test_node_executor_plans_layout_ports_from_candidate_report(tmp_path):
     assert result.output["port_action_plan"]["port_actions"][1]["strategy"] == "toggle_via_pin_gap_port"
 
 
+def test_node_executor_select_layout_nets_resolves_wildcards_when_inventory_available(tmp_path):
+    manager, executor = _executor(tmp_path)
+    session = manager.create_session("p1", "d1")
+
+    result = executor.execute_node(
+        session.ref.session_id,
+        "select_layout_nets",
+        {
+            "signal_nets": "SRDS_3_RX1_*",
+            "reference_nets": "GND",
+            "available_nets": ["GND", "SRDS_3_RX1_P", "SRDS_3_RX1_N", "SRDS_0_TX0_P"],
+        },
+    )
+
+    assert result.status == ExecutionStatus.SUCCEEDED
+    assert result.output["signal_nets"] == ["SRDS_3_RX1_N", "SRDS_3_RX1_P"]
+    assert result.output["reference_nets"] == ["GND"]
+    assert result.output["postcheck"]["experimental"] is True
+
+
 def test_node_executor_selects_face_from_object(tmp_path):
     manager, executor = _executor(tmp_path)
     session = manager.create_session("p1", "d1")

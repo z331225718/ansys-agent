@@ -1,5 +1,5 @@
 node_id: create_layout_ports
-summary: Create 3D Layout ports for selected nets using a board-specific port rule.
+summary: Experimental Layout/BRD node that creates 3D Layout ports for selected nets using a board-specific port rule.
 status: experimental
 track: layout-brd
 allowed_apis:
@@ -16,3 +16,8 @@ prerequisites:
   - locate_layout_port_candidates
   - configure_layout_stackup
 examples: [import_brd_cutout_sparam_tdr]
+notes:
+  - Experimental Layout/BRD node; not included in default HFSS core planning.
+  - Requires explicit experimental catalog enablement.
+  - Connector pin ports use ToggleViaPin plus HFSS Type Gap based on local AEDT UI recording.
+  - BGA/IC endpoints may require component solder-ball cylinder settings supplied by user or board rules.

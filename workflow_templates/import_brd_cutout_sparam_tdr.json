@@ -215,7 +215,9 @@
     ],
     "metadata": {
       "stage": "C",
-      "demo": true
+      "demo": true,
+      "experimental": true,
+      "mode": "model-build-only"
     }
   }
 }

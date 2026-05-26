@@ -1,5 +1,5 @@
 node_id: configure_layout_stackup
-summary: Load a stackup XML through HFSS 3D Layout after the cutout EDB is opened as a 3D Layout project.
+summary: Experimental Layout/BRD node that loads a stackup XML through HFSS 3D Layout after the cutout EDB is opened as a 3D Layout project.
 status: experimental
 track: layout-brd
 allowed_apis:
@@ -12,3 +12,6 @@ outputs:
 prerequisites:
   - create_layout_cutout
 examples: [import_brd_cutout_sparam_tdr]
+notes:
+  - Experimental Layout/BRD node; not included in default HFSS core planning.
+  - Requires explicit experimental catalog enablement.

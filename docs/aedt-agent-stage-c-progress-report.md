@@ -102,9 +102,14 @@ Node Evolution Proposal
 ## 当前能力边界
 
 - 已跑通 3 个真实 AEDT smoke，分别覆盖 geometry/setup/sweep、select_face/port、airbox/boundary。
+- BRD/MCM import-cutout 仍是 experimental track，并且默认不进入 HFSS core catalog。它现在有独立文档、可复用 layout service、model-build-only template 和 MCP fake/real smoke 入口。
 - validation 仍是结构性检查，不等价于完整电磁物理正确。
 - chat planner 当前是确定性骨架，后续可接主模型，但输出仍必须限制为 workflow JSON。
 - node evolution 只生成 proposal，不自动发布 stable 节点。
+
+## BRD Experimental Track
+
+BRD/MCM import-cutout remains experimental and opt-in. The reusable boundary is documented in `docs/brd-experimental-workflow.md`; the default HFSS core catalog does not expose these nodes unless experimental nodes are enabled. The current BRD workflow is model-build only and intentionally stops before analyze on resource-limited machines.
 
 ## Validation 边界
 
