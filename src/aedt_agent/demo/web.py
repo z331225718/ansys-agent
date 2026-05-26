@@ -169,15 +169,14 @@ const WORKFLOWS = {
     s21Label: 'Model build status',
     diagram: '<div class="air"></div><div class="substrate" style="bottom:56px;height:48px"></div><div class="trace" style="left:42px;right:42px;bottom:109px"></div><div class="trace" style="left:74px;right:102px;bottom:82px;background:#0f766e"></div><div class="port p1" style="left:58px;height:68px"></div><div class="port p2" style="right:58px;height:68px"></div><div class="diagram-label l1">Imported BRD/MCM nets</div><div class="diagram-label l2">Cutout + ports + TDR</div>',
     steps: [
-      ['discover_file','Open BRD/MCM with PyEDB','打开用户指定文件并读取 board nets'],
-      ['import_layout','Stage Source EDB','带 Cadence 环境生成 source EDB'],
-      ['select_nets','Select Nets','展开 signal/reference net 通配符并给出候选'],
-      ['cutout','Create PyEDB Cutout','多线程创建 cutout AEDB，并复制给 HFSS 3D Layout'],
-      ['stackup','Load Stackup XML','导入 stackup XML 并保存 cutout AEDB'],
-      ['port_candidates','Locate Port Candidates','识别信号两端 component/pin/ball 候选'],
-      ['ports','Create Ports','按 board rule 创建端口'],
-      ['setup','Create Setup/Sweep','创建 3D Layout setup 和 DC-67GHz 扫频'],
-      ['validation','Validate Model','校验 cutout、叠层、端口、setup 和工程文件']
+      ['import_layout_file','Open BRD/MCM with PyEDB','打开用户指定文件并读取 board nets'],
+      ['select_layout_nets','Select Nets','展开 signal/reference net 通配符并给出候选'],
+      ['create_layout_cutout','Create PyEDB Cutout','多线程创建 cutout AEDB，并复制给 HFSS 3D Layout'],
+      ['configure_layout_stackup','Load Stackup XML','导入 stackup XML 并保存 cutout AEDB'],
+      ['locate_layout_port_candidates','Locate Port Candidates','识别信号两端 component/pin/ball 候选'],
+      ['create_layout_ports','Create Ports','按 board rule 创建端口'],
+      ['create_layout_setup','Create Setup/Sweep','创建 3D Layout setup 和 DC-67GHz 扫频'],
+      ['validate_layout_model','Validate Model','校验 cutout、叠层、端口、setup 和工程文件']
     ]
   }
 };
@@ -328,7 +327,8 @@ function renderTdr(tdr) {
   const maxY = Math.ceil((Math.max(...ys) + 2) / 5) * 5;
   const x = value => left + ((value - minX) / (maxX - minX || 1)) * plotW;
   const y = value => top + ((maxY - value) / (maxY - minY || 1)) * plotH;
-  const path = samples.map((item, index) => `${index ? 'L' : 'M'}${x(item.time_ps).toFixed(2)},${y(item.impedance_ohm).toFixed(2)}`).join(' ');
+  const tdrSamples = samples;
+  const path = tdrSamples.map((item, index) => `${index ? 'L' : 'M'}${x(item.time_ps).toFixed(2)},${y(item.impedance_ohm).toFixed(2)}`).join(' ');
   svg.innerHTML = `
     <rect x="0" y="0" width="${width}" height="${height}" fill="#fff"/>
     <line x1="${left}" y1="${y(50)}" x2="${width - right}" y2="${y(50)}" stroke="#e5e7eb" stroke-dasharray="4 4"/>

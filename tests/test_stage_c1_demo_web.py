@@ -57,6 +57,16 @@ def test_render_demo_page_contains_workspace_sections():
     assert "Create PyEDB Cutout" in html
     assert "Load Stackup XML" in html
     assert "Locate Port Candidates" in html
+    assert "import_layout_file" in html
+    assert "select_layout_nets" in html
+    assert "create_layout_cutout" in html
+    assert "configure_layout_stackup" in html
+    assert "locate_layout_port_candidates" in html
+    assert "create_layout_ports" in html
+    assert "create_layout_setup" in html
+    assert "validate_layout_model" in html
+    assert "const path = samples.map((item, index) => `${index ? 'L' : 'M'}${x(item.time_ps)" not in html
+    assert "tdrSamples.map" in html
     assert "LLM 交互" in html
     assert "llmLog" in html
     assert "真实 AEDT Smoke" in html
