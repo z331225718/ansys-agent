@@ -218,6 +218,23 @@ Windows 生产机可以在 `config/demo_config.local.json` 中配置：
 
 预检会检查 PyAEDT Python 包、`ANSYSEM_ROOTxxx`、`AWP_ROOTxxx`、Cadence/CDSROOT、BRD/MCM 文件和 stackup XML。默认模式下，系统可自动发现 AEDT 的项目会给 warning；如果需要把 warning 也当成阻塞项，加 `--strict`。自动化流水线可以加 `--json` 读取结构化结果。
 
+BRD/MCM 生产验收建议使用一站式命令。它会保存 `preflight.json`、`params.json`、`workflow_run.json`、`import_cutout_summary.json`，并生成中文 `acceptance_report.html`：
+
+```bash
+.venv/bin/python scripts/run_stage_c_brd_acceptance.py \
+  --adapter real \
+  --params D:/boards/stage_c_brd_params.json \
+  --run-dir D:/aedt-agent-runs/brd_case_001 \
+  --config config/demo_config.example.json \
+  --local-config config/demo_config.local.json
+```
+
+如果已经有一个 run 目录，只想离线补验收报告：
+
+```bash
+.venv/bin/python scripts/package_stage_c_brd_run.py --run-dir D:/aedt-agent-runs/brd_case_001
+```
+
 命令行仍可以直接运行真实 AEDT smoke：
 
 ```bash

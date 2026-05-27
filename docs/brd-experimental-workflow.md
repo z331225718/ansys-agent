@@ -35,7 +35,36 @@ BRD/MCM experimental workflow 同时保留两个 artifact：
 - `import_cutout_summary.json`：板级 model-build 的原始执行摘要，包含 PyEDB cutout、stackup、端口、setup、AEDT project path。
 - `workflow_run.json`：转换后的统一 workflow artifact，包含标准 `workflow_id`、`status`、`steps`、`outputs`，供 demo UI、报告和后续 repair/evolution 使用。
 
-当前仍是 model-build only：默认不运行 analyze，不承诺 S 参数/TDR solve 结果。
+当前仍是 model-build only / model-build-only：默认不 analyze，默认不运行 analyze，不承诺 S 参数/TDR solve 结果。
+
+## Production acceptance artifacts
+
+生产验收运行会把一次 BRD/MCM model-build 打包成可复盘目录。核心 artifact：
+
+- `preflight.json`：运行前环境预检结果，包括 PyAEDT、AEDT root、Cadence/CDSROOT、layout 文件和 stackup 文件。
+- `params.json`：本次用户输入和运行参数快照。
+- `workflow_run.json`：统一 workflow 节点状态。
+- `import_cutout_summary.json`：PyEDB/HFSS 3D Layout 原始执行摘要。
+- `acceptance_report.json`：生产验收结构化摘要。
+- `acceptance_report.html`：中文生产验收报告，面向工程 review 和失败复盘。
+- `stdout.log` / `stderr.log`：真实运行日志。
+
+生产验收入口：
+
+```bash
+.venv/bin/python scripts/run_stage_c_brd_acceptance.py \
+  --adapter real \
+  --params D:/boards/stage_c_brd_params.json \
+  --run-dir D:/aedt-agent-runs/brd_case_001 \
+  --config config/demo_config.example.json \
+  --local-config config/demo_config.local.json
+```
+
+对已有 run directory 离线补报告：
+
+```bash
+.venv/bin/python scripts/package_stage_c_brd_run.py --run-dir D:/aedt-agent-runs/brd_case_001
+```
 
 ## Live progress contract
 
