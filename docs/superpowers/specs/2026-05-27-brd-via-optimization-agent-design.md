@@ -187,6 +187,21 @@ LLM 不直接自由改 AEDT 模型。LLM 的职责是：
 - 能标记 RL 是否达到 -20dB。
 - 能输出中文诊断报告。
 
+Stage C.4 command line entry points:
+
+```bash
+.venv/bin/python scripts/score_stage_c_channel.py \
+  --touchstone D:/runs/case.s2p \
+  --tdr D:/runs/case_tdr.csv \
+  --output-json D:/runs/channel_score.json \
+  --output-html D:/runs/channel_score.html
+
+.venv/bin/python scripts/compare_stage_c_channel.py \
+  --before D:/runs/before_score.json \
+  --after D:/runs/after_score.json \
+  --output D:/runs/channel_compare.json
+```
+
 ### Stage C.5: Single-Iteration Real AEDT Optimization
 
 接入用户提供的“导入到仿真脚本”和“某层挖空脚本”。只做单轮：建模、仿真、评分、提出一个挖空调整、执行一次、再仿真、对比。
