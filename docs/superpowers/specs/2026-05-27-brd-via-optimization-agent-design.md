@@ -206,6 +206,21 @@ Stage C.4 command line entry points:
 
 接入用户提供的“导入到仿真脚本”和“某层挖空脚本”。只做单轮：建模、仿真、评分、提出一个挖空调整、执行一次、再仿真、对比。
 
+录制脚本处理原则：
+
+- 录制脚本是事实来源，用来提取真实 AEDT 操作顺序、对象名、变量和报告配置。
+- 产品化节点优先使用 PyAEDT/PyEDB 包装 API，例如 `Hfss3dLayout.create_ports_on_component_by_nets()`、`Hfss3dLayout.create_edge_port()`、`Hfss3dLayout.create_setup()`、`Hfss3dLayout.create_linear_step_sweep()`、`Hfss3dLayout.analyze()`。
+- 没有稳定包装的操作才保留为 raw AEDT fallback，并且必须隔离在 action schema 后面，例如 `CreateCircleVoid`、`CreateRectangleVoid`、`SetDiffPairs`。
+
+Recorded workflow bridge command:
+
+```bash
+.venv/bin/python scripts/analyze_stage_c_recorded_workflow.py \
+  --source /path/to/recoard_workflow.py \
+  --output-json D:/runs/recorded_workflow_analysis.json \
+  --output-html D:/runs/recorded_workflow_analysis.html
+```
+
 验收：
 
 - 每轮都有 before/after AEDT project。
