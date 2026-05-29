@@ -221,6 +221,19 @@ Recorded workflow bridge command:
   --output-html D:/runs/recorded_workflow_analysis.html
 ```
 
+Build-only runner command:
+
+```bash
+.venv/bin/python scripts/run_stage_c5_recorded_build.py \
+  --adapter real \
+  --params D:/runs/stage_c5_params.json \
+  --recorded-analysis D:/runs/recorded_workflow_analysis.json \
+  --run-dir D:/runs/stage_c5_build \
+  --graphical
+```
+
+这个 runner 默认强制 `solve_enabled=false`，只完成建模、端口、setup/sweep 和 action record 输出；大板仿真和 before/after 指标对比放到模型人工检查通过之后。
+
 验收：
 
 - 每轮都有 before/after AEDT project。
