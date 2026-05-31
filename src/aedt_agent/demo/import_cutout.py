@@ -14,6 +14,7 @@ from typing import Any
 
 from aedt_agent.layout.import_cutout import expand_net_patterns
 from aedt_agent.layout.import_cutout import parse_net_patterns
+from aedt_agent.layout.local_cut import bbox_to_polygon, parse_local_cut_region
 
 
 LAYOUT_SUFFIXES = {".brd", ".mcm"}
@@ -60,6 +61,9 @@ class ImportCutoutRequest:
     recorded_setup_curve_approximation: dict[str, Any] = field(default_factory=dict)
     recorded_sweep_options: dict[str, Any] = field(default_factory=dict)
     interpolation_max_solutions: int = 250
+    local_cut_region: dict[str, Any] = field(default_factory=dict)
+    local_cut_polygon: dict[str, Any] = field(default_factory=dict)
+    uniform_line_port_hint: dict[str, Any] = field(default_factory=dict)
 
 
 def discover_layout_files(root: Path = Path("~/work")) -> list[Path]:
@@ -87,6 +91,11 @@ def build_import_cutout_request(parameters: dict[str, Any], *, default_work_root
     if stackup_xml is None:
         stackup_xml = discover_stackup_xml(layout_file.parent)
     recorded_sweep_options = _mapping_parameter(parameters.get("recorded_sweep_options"))
+    local_cut_region = {}
+    local_cut_polygon = {}
+    if parameters.get("local_cut_region"):
+        local_cut_region = parse_local_cut_region(parameters.get("local_cut_region"))
+        local_cut_polygon = bbox_to_polygon(local_cut_region)
     return ImportCutoutRequest(
         layout_file=layout_file,
         signal_net_patterns=signal_patterns,
@@ -116,6 +125,9 @@ def build_import_cutout_request(parameters: dict[str, Any], *, default_work_root
         interpolation_max_solutions=int(
             parameters.get("interpolation_max_solutions") or parameters.get("max_solutions") or recorded_sweep_options.get("MaxSolutions") or 250
         ),
+        local_cut_region=local_cut_region,
+        local_cut_polygon=local_cut_polygon,
+        uniform_line_port_hint=_mapping_parameter(parameters.get("uniform_line_port_hint")),
     )
 
 
@@ -163,6 +175,9 @@ def run_fake_import_cutout(request: ImportCutoutRequest, progress_callback: Prog
         "tdr": str(tdr),
         "steps": _step_results("succeeded"),
         "recorded_layout_settings": _recorded_layout_settings_summary(request),
+        "local_cut_region": dict(request.local_cut_region),
+        "local_cut_polygon": dict(request.local_cut_polygon),
+        "uniform_line_port_hint": dict(request.uniform_line_port_hint),
     }
     _emit_progress(progress_callback, "create_layout_cutout", "Create PyEDB Cutout", "succeeded", edb_path=summary["edb_path"])
     _emit_progress(progress_callback, "configure_layout_stackup", "Load Stackup XML", "running")
@@ -429,6 +444,9 @@ def import_brd_with_pyedb_cutout(
             "layout_solve": layout_solve,
             "layout_reports": layout_reports,
             "recorded_layout_settings": _recorded_layout_settings_summary(request),
+            "local_cut_region": dict(request.local_cut_region),
+            "local_cut_polygon": dict(request.local_cut_polygon),
+            "uniform_line_port_hint": dict(request.uniform_line_port_hint),
             "edb_path": str(cutout_aedb),
             "aedt_project": str(project_path),
             "touchstone": layout_reports.get("touchstone_path", ""),

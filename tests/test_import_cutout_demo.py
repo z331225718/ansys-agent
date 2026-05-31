@@ -140,6 +140,23 @@ def test_build_import_cutout_request_accepts_high_speed_port_and_sweep_settings(
     }
 
 
+def test_build_import_cutout_request_accepts_local_cut_region(tmp_path):
+    layout_file = tmp_path / "case.brd"
+    layout_file.write_text("brd", encoding="utf-8")
+
+    request = build_import_cutout_request(
+        {
+            "layout_file": str(layout_file),
+            "local_cut_region": {"type": "bbox", "unit": "mil", "x_min": 1, "y_min": 2, "x_max": 3, "y_max": 4},
+            "uniform_line_port_hint": {"side": "right", "layer": "ART03", "port_type": "edge"},
+        }
+    )
+
+    assert request.local_cut_region["unit"] == "mil"
+    assert request.local_cut_polygon["points"] == [[1.0, 2.0], [3.0, 2.0], [3.0, 4.0], [1.0, 4.0], [1.0, 2.0]]
+    assert request.uniform_line_port_hint == {"side": "right", "layer": "ART03", "port_type": "edge"}
+
+
 def test_apply_aedt_environment_sets_versioned_roots(monkeypatch, tmp_path):
     ansysem_root = tmp_path / "v261" / "AnsysEM"
     awp_root = tmp_path / "v261"
