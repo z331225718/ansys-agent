@@ -69,6 +69,49 @@ def score_layout_port_candidates(
     }
 
 
+def find_uniform_line_edge_candidates(
+    primitives: list[Any],
+    *,
+    signal_nets: list[str],
+    local_cut_region: dict[str, Any],
+    hint: dict[str, Any],
+) -> dict[str, Any]:
+    from aedt_agent.layout.local_cut import parse_local_cut_region
+
+    region = parse_local_cut_region(local_cut_region)
+    side = str(hint.get("side") or "right")
+    layer = str(hint.get("layer") or "")
+    signals = {net.casefold() for net in signal_nets}
+    candidates: list[dict[str, Any]] = []
+    for primitive in primitives:
+        if str(getattr(primitive, "net_name", "")).casefold() not in signals:
+            continue
+        if layer and str(getattr(primitive, "layer", "")) != layer:
+            continue
+        for edge_number, edge in enumerate(getattr(primitive, "edges", []) or []):
+            midpoint = _edge_midpoint(edge)
+            distance = _distance_to_bbox_side(midpoint, region, side)
+            candidates.append(
+                {
+                    "primitive": str(getattr(primitive, "name", "")),
+                    "edge_number": edge_number,
+                    "net": str(getattr(primitive, "net_name", "")),
+                    "layer": str(getattr(primitive, "layer", "")),
+                    "side": side,
+                    "midpoint": midpoint,
+                    "distance_to_side": round(distance, 6),
+                }
+            )
+    candidates.sort(key=lambda item: (item["distance_to_side"], item["primitive"], item["edge_number"]))
+    if not candidates:
+        status = "needs_user_hint"
+    elif len(candidates) >= 2 and abs(candidates[0]["distance_to_side"] - candidates[1]["distance_to_side"]) <= 0.05:
+        status = "ambiguous"
+    else:
+        status = "ready"
+    return {"status": status, "candidates": candidates}
+
+
 def plan_layout_port_actions(
     candidate_report: dict[str, Any],
     *,
@@ -91,6 +134,22 @@ def plan_layout_port_actions(
         "endpoint_count": len(endpoints),
         "port_actions": actions,
     }
+
+
+def _edge_midpoint(edge: Any) -> list[float]:
+    return [(float(edge[0][0]) + float(edge[1][0])) / 2.0, (float(edge[0][1]) + float(edge[1][1])) / 2.0]
+
+
+def _distance_to_bbox_side(point: list[float], region: dict[str, Any], side: str) -> float:
+    if side == "left":
+        return abs(point[0] - region["x_min"])
+    if side == "right":
+        return abs(point[0] - region["x_max"])
+    if side == "bottom":
+        return abs(point[1] - region["y_min"])
+    if side == "top":
+        return abs(point[1] - region["y_max"])
+    raise ValueError("uniform_line_port_hint.side must be one of left, right, bottom, top")
 
 
 def apply_layout_port_actions(app: Any, port_action_plan: dict[str, Any]) -> dict[str, Any]:
