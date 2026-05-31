@@ -24,6 +24,7 @@ def render_recorded_workflow_html(analysis: Mapping[str, Any]) -> str:
     design_options = _mapping_rows(analysis.get("design_options") or {})
     setup_options = _mapping_rows((analysis.get("setup") or {}).get("options") or {})
     setup_advanced = _mapping_rows((analysis.get("setup") or {}).get("advanced_settings") or {})
+    setup_curve = _mapping_rows((analysis.get("setup") or {}).get("curve_approximation") or {})
     sweep_options = _mapping_rows((analysis.get("sweep") or {}).get("options") or {})
     paths = analysis.get("paths") or {}
     nets = analysis.get("nets") or {}
@@ -61,7 +62,7 @@ def render_recorded_workflow_html(analysis: Mapping[str, Any]) -> str:
   <h2>录制求解设置</h2>
   <table><tr><th>Design Option</th><th>Value</th></tr>{design_options}</table>
   <h2>录制 Setup 设置</h2>
-  <table><tr><th>Setup Option</th><th>Value</th></tr>{setup_options}{setup_advanced}</table>
+  <table><tr><th>Setup Option</th><th>Value</th></tr>{setup_options}{setup_advanced}{setup_curve}</table>
   <h2>录制 Sweep 设置</h2>
   <table><tr><th>Sweep Option</th><th>Value</th></tr>{sweep_options}</table>
   <h2>PyAEDT 优先迁移表</h2>

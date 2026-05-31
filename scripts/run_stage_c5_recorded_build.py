@@ -84,6 +84,7 @@ def _merge_recorded_layout_settings(params: dict[str, object], recorded_analysis
     params["recorded_design_options"] = dict(recorded_analysis.get("design_options") or {})
     params["recorded_setup_options"] = dict(setup.get("options") or {})
     params["recorded_setup_advanced_settings"] = dict(setup.get("advanced_settings") or {})
+    params["recorded_setup_curve_approximation"] = dict(setup.get("curve_approximation") or {})
     params["recorded_sweep_options"] = dict(sweep_options)
     if "UseQ3DForDC" in sweep_options:
         params["use_q3d_for_dc"] = sweep_options["UseQ3DForDC"]

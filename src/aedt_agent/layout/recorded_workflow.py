@@ -116,6 +116,18 @@ def _extract_setup(text: str) -> dict[str, Any]:
                 "PhiMesherDeltaZRatio",
             ],
         ),
+        "curve_approximation": _extract_known_options(
+            _named_section(block, "CurveApproximation"),
+            [
+                "ArcAngle",
+                "StartAzimuth",
+                "UseError",
+                "Error",
+                "MaxPoints",
+                "UnionPolys",
+                "Replace3DTriangles",
+            ],
+        ),
     }
 
 
@@ -160,8 +172,9 @@ def _extract_sweep(text: str) -> dict[str, Any]:
 
 
 def _extract_hfss_extents(text: str) -> dict[str, Any]:
-    return _extract_known_options(
-        _between(text, "oDesign.EditHfssExtents(", "oDesign.DesignOptions"),
+    block = _between(text, "oDesign.EditHfssExtents(", "oDesign.DesignOptions")
+    options = _extract_known_options(
+        block,
         [
             "ExtentType",
             "DielExtentType",
@@ -176,6 +189,8 @@ def _extract_hfss_extents(text: str) -> dict[str, Any]:
             "Smooth",
         ],
     )
+    options.update(_extract_compound_options(block, ["DielExt", "AirHorExt", "AirPosZExt", "AirNegZExt"]))
+    return options
 
 
 def _extract_design_options(text: str) -> dict[str, Any]:
@@ -259,6 +274,18 @@ def _extract_known_options(text: str, keys: list[str]) -> dict[str, Any]:
         value = _extract_aedt_value(text, key)
         if value is not None:
             options[key] = value
+    return options
+
+
+def _extract_compound_options(text: str, keys: list[str]) -> dict[str, dict[str, Any]]:
+    options: dict[str, dict[str, Any]] = {}
+    for key in keys:
+        match = re.search(rf'"{re.escape(key)}:="\s*,\s*\[(.*?)\]', text, flags=re.S)
+        if not match:
+            continue
+        item = _extract_known_options(match.group(1), ["Ext", "Dim"])
+        if item:
+            options[key] = item
     return options
 
 

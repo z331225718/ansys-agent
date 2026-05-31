@@ -458,6 +458,7 @@ def test_real_import_cutout_uses_pyedb_cutout_before_hfss3dlayout(monkeypatch, t
             "recorded_design_options": {"MeshingMethod": "PhiPlus", "PhiMesherDeltaZRatio": 100000},
             "recorded_setup_options": {"SliderType": "Balanced", "MeshSizeFactor": 1.5, "HfssMesh": True},
             "recorded_setup_advanced_settings": {"OrderBasis": -1, "MeshingMethod": "Auto", "PhiMesherDeltaZRatio": 100000},
+            "recorded_setup_curve_approximation": {"ArcAngle": "10deg", "MaxPoints": 12, "UnionPolys": True},
             "recorded_sweep_options": {"UseQ3DForDC": False, "MaxSolutions": 2500, "InterpUseFullBasis": True},
             "interpolation_max_solutions": 2500,
             "solderball_diameter": "18mil",
@@ -495,6 +496,7 @@ def test_real_import_cutout_uses_pyedb_cutout_before_hfss3dlayout(monkeypatch, t
     assert result["layout_setup"]["high_frequency"] == "67GHz"
     assert result["layout_setup"]["recorded_layout_settings"]["design_options"]["MeshingMethod"] == "PhiPlus"
     assert result["recorded_layout_settings"]["setup_options"]["MeshSizeFactor"] == 1.5
+    assert result["recorded_layout_settings"]["setup_curve_approximation"]["MaxPoints"] == 12
     assert result["layout_solve"]["status"] == "skipped"
     assert result["layout_solve"]["reason"] == "model_build_only"
     assert result["touchstone"] == ""
@@ -560,6 +562,8 @@ def test_real_import_cutout_uses_pyedb_cutout_before_hfss3dlayout(monkeypatch, t
         and call[2]["props"]["SliderType"] == "Balanced"
         and call[2]["props"]["MeshSizeFactor"] == 1.5
         and call[2]["props"]["AdvancedSettings"]["OrderBasis"] == -1
+        and call[2]["props"]["CurveApproximation"]["ArcAngle"] == "10deg"
+        and call[2]["props"]["CurveApproximation"]["MaxPoints"] == 12
         and call[2]["props"]["AdaptiveSettings"]["BroadbandFrequencyDataList"]["AdaptiveFrequencyData"][0]["AdaptiveFrequency"] == "5GHz"
         and call[2]["props"]["AdaptiveSettings"]["BroadbandFrequencyDataList"]["AdaptiveFrequencyData"][1]["AdaptiveFrequency"] == "67GHz"
         for call in calls

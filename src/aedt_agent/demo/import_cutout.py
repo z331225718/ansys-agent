@@ -57,6 +57,7 @@ class ImportCutoutRequest:
     recorded_design_options: dict[str, Any] = field(default_factory=dict)
     recorded_setup_options: dict[str, Any] = field(default_factory=dict)
     recorded_setup_advanced_settings: dict[str, Any] = field(default_factory=dict)
+    recorded_setup_curve_approximation: dict[str, Any] = field(default_factory=dict)
     recorded_sweep_options: dict[str, Any] = field(default_factory=dict)
     interpolation_max_solutions: int = 250
 
@@ -110,6 +111,7 @@ def build_import_cutout_request(parameters: dict[str, Any], *, default_work_root
         recorded_design_options=_mapping_parameter(parameters.get("recorded_design_options")),
         recorded_setup_options=_mapping_parameter(parameters.get("recorded_setup_options")),
         recorded_setup_advanced_settings=_mapping_parameter(parameters.get("recorded_setup_advanced_settings")),
+        recorded_setup_curve_approximation=_mapping_parameter(parameters.get("recorded_setup_curve_approximation")),
         recorded_sweep_options=recorded_sweep_options,
         interpolation_max_solutions=int(
             parameters.get("interpolation_max_solutions") or parameters.get("max_solutions") or recorded_sweep_options.get("MaxSolutions") or 250
@@ -695,6 +697,8 @@ def _layout_setup_props(request: ImportCutoutRequest, low_frequency: str, high_f
     props.update(request.recorded_setup_options)
     if request.recorded_setup_advanced_settings:
         props["AdvancedSettings"] = dict(request.recorded_setup_advanced_settings)
+    if request.recorded_setup_curve_approximation:
+        props["CurveApproximation"] = dict(request.recorded_setup_curve_approximation)
     return props
 
 
@@ -725,7 +729,16 @@ def _apply_recorded_sweep_options(sweep: Any, options: dict[str, Any]) -> None:
 def _aedt_options_list(name: str, options: dict[str, Any]) -> list[Any]:
     output: list[Any] = [f"NAME:{name}"]
     for key, value in options.items():
-        output.extend([f"{key}:=", value])
+        output.extend([f"{key}:=", _aedt_option_value(value)])
+    return output
+
+
+def _aedt_option_value(value: Any) -> Any:
+    if not isinstance(value, dict):
+        return value
+    output: list[Any] = []
+    for key, item in value.items():
+        output.extend([f"{key}:=", item])
     return output
 
 
@@ -735,6 +748,7 @@ def _recorded_layout_settings_summary(request: ImportCutoutRequest) -> dict[str,
         "design_options": dict(request.recorded_design_options),
         "setup_options": dict(request.recorded_setup_options),
         "setup_advanced_settings": dict(request.recorded_setup_advanced_settings),
+        "setup_curve_approximation": dict(request.recorded_setup_curve_approximation),
         "sweep_options": dict(request.recorded_sweep_options),
     }
 

@@ -32,6 +32,7 @@ def build_recorded_optimization_action_plan(
                     "design_options": dict(recorded_analysis.get("design_options") or {}),
                     "setup_options": dict(((recorded_analysis.get("setup") or {}).get("options") or {})),
                     "setup_advanced_settings": dict(((recorded_analysis.get("setup") or {}).get("advanced_settings") or {})),
+                    "setup_curve_approximation": dict(((recorded_analysis.get("setup") or {}).get("curve_approximation") or {})),
                     "sweep_options": dict(((recorded_analysis.get("sweep") or {}).get("options") or {})),
                 },
             },
