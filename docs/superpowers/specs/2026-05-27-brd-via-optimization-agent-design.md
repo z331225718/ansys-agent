@@ -204,7 +204,9 @@ Stage C.4 command line entry points:
 
 ### Stage C.5: Single-Iteration Real AEDT Optimization
 
-接入用户提供的“导入到仿真脚本”和“某层挖空脚本”。只做单轮：建模、仿真、评分、提出一个挖空调整、执行一次、再仿真、对比。
+Stage C.5 的生产方向修正为 local cut optimization cell，而不是整条 channel 或整板优化。优化阶段必须由用户提供 bbox 坐标，局部 cutout 只保留目标 BGA/过孔和一段均匀线；端口分为 BGA/component 端口和均匀线边界 edge/circuit 端口。详细设计见 `docs/superpowers/specs/2026-05-31-stage-c5-local-cut-optimization-cell-design.md`。
+
+接入用户提供的“导入到仿真脚本”和“局部 cut/挖空脚本”。第一步仍然 build-only：局部建模、端口、setup/sweep、action record 输出，不默认 analyze。
 
 录制脚本处理原则：
 
@@ -236,8 +238,11 @@ Build-only runner command:
 
 验收：
 
-- 每轮都有 before/after AEDT project。
-- 每轮都有 before/after S 参数和 TDR。
+- build-only 阶段 summary 中必须记录用户 bbox。
+- cutout 不允许在 bbox 失败时静默退化成整条 channel。
+- BGA 端口和均匀线边界端口必须分别记录创建策略。
+- 每轮都有 before/after local-cell AEDT project。
+- 进入 solve 阶段后，每轮都有 before/after S 参数和 TDR。
 - 报告能说明改了哪一层、为什么改、指标是否改善。
 
 ### Stage C.6: Controlled Multi-Iteration Loop
