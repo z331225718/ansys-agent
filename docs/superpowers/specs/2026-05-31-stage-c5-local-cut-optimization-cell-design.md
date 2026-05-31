@@ -128,6 +128,17 @@ Stage C.5 local cut implementation should produce:
 - build-only AEDT project
 - action plan including bbox, BGA port action, uniform-line port action, and recorded solve settings
 
+Build-only local cut runner:
+
+```bash
+.venv/bin/python scripts/run_stage_c5_local_cut_build.py \
+  --adapter real \
+  --params D:/runs/stage_c5_local_cut_params.json \
+  --recorded-analysis D:/runs/recorded_workflow_analysis.json \
+  --run-dir D:/runs/stage_c5_local_cut_build \
+  --graphical
+```
+
 ## Acceptance
 
 Build-only acceptance:
@@ -152,4 +163,3 @@ Existing recorded-workflow analysis and build-only runner remain useful, but the
 - recorded analysis provides solve settings and raw fallback facts.
 - build-only runner provides environment setup and HFSS 3D Layout project creation.
 - local cut cell adds the missing production constraint: user-defined bbox and uniform-line endpoint porting.
-
