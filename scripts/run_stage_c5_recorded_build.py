@@ -20,6 +20,7 @@ def main() -> None:
     recorded_analysis = _read_json_object(args.recorded_analysis)
     params["artifact_dir"] = str(run_dir)
     params["solve_enabled"] = False
+    _merge_recorded_layout_settings(params, recorded_analysis)
 
     action_plan = build_recorded_optimization_action_plan(recorded_analysis, solve_enabled=False)
     (run_dir / "stage_c5_action_plan.json").write_text(
@@ -73,6 +74,21 @@ def _read_json_object(path: Path) -> dict[str, object]:
     if not isinstance(data, dict):
         raise TypeError(f"{path} must contain a JSON object")
     return data
+
+
+def _merge_recorded_layout_settings(params: dict[str, object], recorded_analysis: dict[str, object]) -> None:
+    setup = recorded_analysis.get("setup") if isinstance(recorded_analysis.get("setup"), dict) else {}
+    sweep = recorded_analysis.get("sweep") if isinstance(recorded_analysis.get("sweep"), dict) else {}
+    sweep_options = sweep.get("options") if isinstance(sweep.get("options"), dict) else {}
+    params["recorded_hfss_extents"] = dict(recorded_analysis.get("hfss_extents") or {})
+    params["recorded_design_options"] = dict(recorded_analysis.get("design_options") or {})
+    params["recorded_setup_options"] = dict(setup.get("options") or {})
+    params["recorded_setup_advanced_settings"] = dict(setup.get("advanced_settings") or {})
+    params["recorded_sweep_options"] = dict(sweep_options)
+    if "UseQ3DForDC" in sweep_options:
+        params["use_q3d_for_dc"] = sweep_options["UseQ3DForDC"]
+    if "MaxSolutions" in sweep_options:
+        params["interpolation_max_solutions"] = sweep_options["MaxSolutions"]
 
 
 if __name__ == "__main__":

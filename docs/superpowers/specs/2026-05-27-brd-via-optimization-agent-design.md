@@ -232,7 +232,7 @@ Build-only runner command:
   --graphical
 ```
 
-这个 runner 默认强制 `solve_enabled=false`，只完成建模、端口、setup/sweep 和 action record 输出；大板仿真和 before/after 指标对比放到模型人工检查通过之后。
+这个 runner 默认强制 `solve_enabled=false`，只完成建模、端口、setup/sweep 和 action record 输出；大板仿真和 before/after 指标对比放到模型人工检查通过之后。录制脚本中的 `DesignOptions`、HFSS extents、setup mesh/basis 设置和 sweep interpolation/passivity 设置必须进入 recorded analysis，并在 build-only 阶段尽量应用到 AEDT 工程，例如 `MeshingMethod=PhiPlus`、`PhiMesherDeltaZRatio=100000`、`MeshSizeFactor=1.5`、`MaxSolutions=2500`。
 
 验收：
 

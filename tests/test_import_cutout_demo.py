@@ -362,6 +362,14 @@ def test_real_import_cutout_uses_pyedb_cutout_before_hfss3dlayout(monkeypatch, t
                     ),
                 },
             )()
+            self.odesign = type(
+                "Design",
+                (),
+                {
+                    "EditHfssExtents": lambda _, args: calls.append(("hfss_edit_extents", args)),
+                    "DesignOptions": lambda _, args, flag: calls.append(("hfss_design_options", args, flag)),
+                },
+            )()
             calls.append(("hfss_open", Path(project).name, non_graphical, close_on_exit))
 
         @property
@@ -446,6 +454,12 @@ def test_real_import_cutout_uses_pyedb_cutout_before_hfss3dlayout(monkeypatch, t
             "sweep_stop": "67GHz",
             "sweep_points": 501,
             "use_q3d_for_dc": True,
+            "recorded_hfss_extents": {"OpenRegionType": "Radiation", "UseRadBound": True, "OperFreq": "5GHz"},
+            "recorded_design_options": {"MeshingMethod": "PhiPlus", "PhiMesherDeltaZRatio": 100000},
+            "recorded_setup_options": {"SliderType": "Balanced", "MeshSizeFactor": 1.5, "HfssMesh": True},
+            "recorded_setup_advanced_settings": {"OrderBasis": -1, "MeshingMethod": "Auto", "PhiMesherDeltaZRatio": 100000},
+            "recorded_sweep_options": {"UseQ3DForDC": False, "MaxSolutions": 2500, "InterpUseFullBasis": True},
+            "interpolation_max_solutions": 2500,
             "solderball_diameter": "18mil",
             "solderball_mid_diameter": "16mil",
             "solderball_height": "8mil",
@@ -479,6 +493,8 @@ def test_real_import_cutout_uses_pyedb_cutout_before_hfss3dlayout(monkeypatch, t
     assert result["layout_setup"]["mode"] == "broadband"
     assert result["layout_setup"]["low_frequency"] == "5GHz"
     assert result["layout_setup"]["high_frequency"] == "67GHz"
+    assert result["layout_setup"]["recorded_layout_settings"]["design_options"]["MeshingMethod"] == "PhiPlus"
+    assert result["recorded_layout_settings"]["setup_options"]["MeshSizeFactor"] == 1.5
     assert result["layout_solve"]["status"] == "skipped"
     assert result["layout_solve"]["reason"] == "model_build_only"
     assert result["touchstone"] == ""
@@ -525,9 +541,25 @@ def test_real_import_cutout_uses_pyedb_cutout_before_hfss3dlayout(monkeypatch, t
     assert ("pyedb_stackup_xml", "stackup.xml") not in calls
     assert any(call[0] == "hfss_open" and call[1].endswith("_cutout_hfss.aedb") and call[2] is False and call[3] is False for call in calls)
     assert any(
+        call[0] == "hfss_design_options"
+        and "MeshingMethod:=" in call[1]
+        and "PhiPlus" in call[1]
+        and "PhiMesherDeltaZRatio:=" in call[1]
+        for call in calls
+    )
+    assert any(
+        call[0] == "hfss_edit_extents"
+        and "OpenRegionType:=" in call[1]
+        and "Radiation" in call[1]
+        for call in calls
+    )
+    assert any(
         call[0] == "hfss_create_setup"
         and call[1] == "Setup1"
         and call[2]["props"]["AdaptiveSettings"]["AdaptType"] == "kBroadband"
+        and call[2]["props"]["SliderType"] == "Balanced"
+        and call[2]["props"]["MeshSizeFactor"] == 1.5
+        and call[2]["props"]["AdvancedSettings"]["OrderBasis"] == -1
         and call[2]["props"]["AdaptiveSettings"]["BroadbandFrequencyDataList"]["AdaptiveFrequencyData"][0]["AdaptiveFrequency"] == "5GHz"
         and call[2]["props"]["AdaptiveSettings"]["BroadbandFrequencyDataList"]["AdaptiveFrequencyData"][1]["AdaptiveFrequency"] == "67GHz"
         for call in calls
@@ -538,7 +570,8 @@ def test_real_import_cutout_uses_pyedb_cutout_before_hfss3dlayout(monkeypatch, t
         and call[4] == 67.0
         and call[5] == 501
         and call[6]["sweep_type"] == "Interpolating"
-        and call[6]["use_q3d_for_dc"] is True
+        and call[6]["use_q3d_for_dc"] is False
+        and call[6]["interpolation_max_solutions"] == 2500
         for call in calls
     )
     assert not any(call[0] == "hfss_analyze_setup" for call in calls)

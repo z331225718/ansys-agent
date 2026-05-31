@@ -21,6 +21,10 @@ def render_recorded_workflow_html(analysis: Mapping[str, Any]) -> str:
         for item in analysis.get("voids", [])
         if isinstance(item, Mapping)
     )
+    design_options = _mapping_rows(analysis.get("design_options") or {})
+    setup_options = _mapping_rows((analysis.get("setup") or {}).get("options") or {})
+    setup_advanced = _mapping_rows((analysis.get("setup") or {}).get("advanced_settings") or {})
+    sweep_options = _mapping_rows((analysis.get("sweep") or {}).get("options") or {})
     paths = analysis.get("paths") or {}
     nets = analysis.get("nets") or {}
     return f"""<!doctype html>
@@ -54,10 +58,20 @@ def render_recorded_workflow_html(analysis: Mapping[str, Any]) -> str:
   <table><tr><th>变量</th><th>值</th></tr>{variables}</table>
   <h2>反焊盘/挖空操作</h2>
   <table><tr><th>Layer</th><th>Kind</th></tr>{voids}</table>
+  <h2>录制求解设置</h2>
+  <table><tr><th>Design Option</th><th>Value</th></tr>{design_options}</table>
+  <h2>录制 Setup 设置</h2>
+  <table><tr><th>Setup Option</th><th>Value</th></tr>{setup_options}{setup_advanced}</table>
+  <h2>录制 Sweep 设置</h2>
+  <table><tr><th>Sweep Option</th><th>Value</th></tr>{sweep_options}</table>
   <h2>PyAEDT 优先迁移表</h2>
   <table><tr><th>Recorded operation</th><th>Preferred wrapper</th><th>Fallback</th></tr>{rows}</table>
 </main></body></html>
 """
+
+
+def _mapping_rows(data: Mapping[str, Any]) -> str:
+    return "".join(f"<tr><td>{_e(key)}</td><td>{_e(value)}</td></tr>" for key, value in sorted(data.items()))
 
 
 def _e(value: Any) -> str:

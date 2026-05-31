@@ -36,6 +36,8 @@ def analyze_recorded_workflow(path: Path) -> dict[str, Any]:
         "paths": paths,
         "nets": {"signal": signal_nets, "reference": reference_nets},
         "component": _extract_component(text),
+        "hfss_extents": _extract_hfss_extents(text),
+        "design_options": _extract_design_options(text),
         "setup": _extract_setup(text),
         "sweep": _extract_sweep(text),
         "reports": _extract_reports(text),
@@ -77,7 +79,44 @@ def _extract_component(text: str) -> str:
 def _extract_setup(text: str) -> dict[str, Any]:
     name = _first_match(text, r'oModule\.Add\(\s*\[\s*"NAME:([^"]+)"') or ""
     frequency = _first_match(text, r'"Frequency:="\s*,\s*"([^"]+)"') or ""
-    return {"name": name, "frequency": frequency}
+    block = _between(text, "oModule.Add(", "oModule.AddSweep")
+    return {
+        "name": name,
+        "frequency": frequency,
+        "options": _extract_known_options(
+            block,
+            [
+                "SliderType",
+                "ElementType",
+                "SolveSetupType",
+                "PercentRefinementPerPass",
+                "MinNumberOfPasses",
+                "MinNumberOfConvergedPasses",
+                "MeshSizeFactor",
+                "HfssMesh",
+                "Style25DVia",
+                "ViaMeshPlating",
+                "UseDefeature",
+                "ViaNumSides",
+            ],
+        ),
+        "advanced_settings": _extract_known_options(
+            _named_section(block, "AdvancedSettings"),
+            [
+                "OrderBasis",
+                "SolveInsideMetalBasis",
+                "MaxDeltaZo",
+                "CausalMaterials",
+                "CircuitSparamDefinition",
+                "CircuitIntegrationType",
+                "MeshingMethod",
+                "UseAlternativeMeshMethodsAsFallBack",
+                "BroadbandFreqOption",
+                "BroadbandMaxNumFreq",
+                "PhiMesherDeltaZRatio",
+            ],
+        ),
+    }
 
 
 def _extract_sweep(text: str) -> dict[str, Any]:
@@ -89,7 +128,75 @@ def _extract_sweep(text: str) -> dict[str, Any]:
         setup_name, sweep_name = match.group(1), match.group(2)
     data = _first_match(text, r'"Data:="\s*,\s*"([^"]+)"') or ""
     stop = _stop_ghz_from_sweep_data(data)
-    return {"name": sweep_name or name or "", "setup": setup_name, "data": data, "stop_ghz": stop}
+    block = _between(text, "AddSweep(", "oModule.SetDiffPairs")
+    return {
+        "name": sweep_name or name or "",
+        "setup": setup_name,
+        "data": data,
+        "stop_ghz": stop,
+        "options": _extract_known_options(
+            block,
+            [
+                "GenerateSurfaceCurrent",
+                "SaveRadFieldsOnly",
+                "SAbsError",
+                "ZoPercentError",
+                "EnforcePassivity",
+                "PassivityTolerance",
+                "UseQ3DForDC",
+                "UseComputeDC",
+                "MaxSolutions",
+                "InterpUseSMatrix",
+                "InterpUsePortImpedance",
+                "InterpUsePropConst",
+                "InterpUseFullBasis",
+                "AdvDCExtrapolation",
+                "MinSolvedFreq",
+                "AutoSMatOnlySolve",
+                "MinFreqSMatrixOnlySolve",
+            ],
+        ),
+    }
+
+
+def _extract_hfss_extents(text: str) -> dict[str, Any]:
+    return _extract_known_options(
+        _between(text, "oDesign.EditHfssExtents(", "oDesign.DesignOptions"),
+        [
+            "ExtentType",
+            "DielExtentType",
+            "HonorUserDiel",
+            "Include3D",
+            "TruncAtGnd",
+            "SyncZExt",
+            "OpenRegionType",
+            "UseRadBound",
+            "OperFreq",
+            "UseStackupForZExtFact",
+            "Smooth",
+        ],
+    )
+
+
+def _extract_design_options(text: str) -> dict[str, Any]:
+    return _extract_known_options(
+        _between(text, "oDesign.DesignOptions(", "oModule = oDesign.GetModule"),
+        [
+            "CausalMaterials",
+            "MeshingMethod",
+            "EnableDesignIntersectionCheck",
+            "UseAlternativeMeshMethodsAsFallBack",
+            "CircuitSparamDefinition",
+            "CircuitIntegrationType",
+            "ExportAfterSolve",
+            "BroadbandFreqOption",
+            "BroadbandMaxNumFreq",
+            "SaveADP",
+            "UseAdvancedDCExtrap",
+            "ModeOption",
+            "PhiMesherDeltaZRatio",
+        ],
+    )
 
 
 def _extract_reports(text: str) -> list[dict[str, str]]:
@@ -144,6 +251,51 @@ def _extract_steps(text: str) -> list[str]:
 def _stop_ghz_from_sweep_data(data: str) -> float:
     match = re.search(r"LIN\s+([0-9.]+)GHz\s+([0-9.]+)GHz", data, re.I)
     return float(match.group(2)) if match else 0.0
+
+
+def _extract_known_options(text: str, keys: list[str]) -> dict[str, Any]:
+    options: dict[str, Any] = {}
+    for key in keys:
+        value = _extract_aedt_value(text, key)
+        if value is not None:
+            options[key] = value
+    return options
+
+
+def _extract_aedt_value(text: str, key: str) -> Any:
+    match = re.search(rf'"{re.escape(key)}:="\s*,\s*("[^"]*"|True|False|-?[0-9]+(?:\.[0-9]+)?(?:E-?[0-9]+)?)', text)
+    if not match:
+        return None
+    raw = match.group(1)
+    if raw.startswith('"') and raw.endswith('"'):
+        return raw[1:-1]
+    if raw == "True":
+        return True
+    if raw == "False":
+        return False
+    if "." in raw or "E" in raw:
+        return float(raw)
+    return int(raw)
+
+
+def _between(text: str, start: str, end: str) -> str:
+    start_index = text.find(start)
+    if start_index < 0:
+        return ""
+    end_index = text.find(end, start_index + len(start))
+    if end_index < 0:
+        return text[start_index:]
+    return text[start_index:end_index]
+
+
+def _named_section(text: str, name: str) -> str:
+    start = text.find(f'"NAME:{name}"')
+    if start < 0:
+        return ""
+    next_section = text.find('["NAME:', start + len(name) + 7)
+    if next_section < 0:
+        return text[start:]
+    return text[start:next_section]
 
 
 def _first_match(text: str, pattern: str, *, flags: int = 0) -> str | None:

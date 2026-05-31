@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-import os
 import json
+import os
 import re
 import shlex
 import shutil
 import tempfile
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -53,6 +53,12 @@ class ImportCutoutRequest:
     edb_backend: str = "auto"
     stackup_xml: Path | None = None
     solderball: dict[str, str] | None = None
+    recorded_hfss_extents: dict[str, Any] = field(default_factory=dict)
+    recorded_design_options: dict[str, Any] = field(default_factory=dict)
+    recorded_setup_options: dict[str, Any] = field(default_factory=dict)
+    recorded_setup_advanced_settings: dict[str, Any] = field(default_factory=dict)
+    recorded_sweep_options: dict[str, Any] = field(default_factory=dict)
+    interpolation_max_solutions: int = 250
 
 
 def discover_layout_files(root: Path = Path("~/work")) -> list[Path]:
@@ -79,6 +85,7 @@ def build_import_cutout_request(parameters: dict[str, Any], *, default_work_root
     stackup_xml = _optional_existing_path(parameters.get("stackup_xml") or parameters.get("stackup_file"))
     if stackup_xml is None:
         stackup_xml = discover_stackup_xml(layout_file.parent)
+    recorded_sweep_options = _mapping_parameter(parameters.get("recorded_sweep_options"))
     return ImportCutoutRequest(
         layout_file=layout_file,
         signal_net_patterns=signal_patterns,
@@ -89,7 +96,7 @@ def build_import_cutout_request(parameters: dict[str, Any], *, default_work_root
         sweep_stop=str(parameters.get("sweep_stop") or "67GHz"),
         sweep_type=str(parameters.get("sweep_type") or "Interpolating"),
         sweep_points=int(parameters.get("sweep_points") or parameters.get("points") or 501),
-        use_q3d_for_dc=_bool_parameter(parameters.get("use_q3d_for_dc"), default=True),
+        use_q3d_for_dc=_bool_parameter(recorded_sweep_options.get("UseQ3DForDC", parameters.get("use_q3d_for_dc")), default=True),
         solve_enabled=_bool_parameter(parameters.get("solve_enabled") or parameters.get("analyze"), default=False),
         expansion_size=float(parameters.get("expansion_size") or 0.002),
         extent_type=str(parameters.get("extent_type") or "ConvexHull"),
@@ -99,6 +106,14 @@ def build_import_cutout_request(parameters: dict[str, Any], *, default_work_root
         edb_backend=str(parameters.get("edb_backend") or "auto"),
         stackup_xml=stackup_xml,
         solderball=_solderball_settings(parameters),
+        recorded_hfss_extents=_mapping_parameter(parameters.get("recorded_hfss_extents")),
+        recorded_design_options=_mapping_parameter(parameters.get("recorded_design_options")),
+        recorded_setup_options=_mapping_parameter(parameters.get("recorded_setup_options")),
+        recorded_setup_advanced_settings=_mapping_parameter(parameters.get("recorded_setup_advanced_settings")),
+        recorded_sweep_options=recorded_sweep_options,
+        interpolation_max_solutions=int(
+            parameters.get("interpolation_max_solutions") or parameters.get("max_solutions") or recorded_sweep_options.get("MaxSolutions") or 250
+        ),
     )
 
 
@@ -145,6 +160,7 @@ def run_fake_import_cutout(request: ImportCutoutRequest, progress_callback: Prog
         "touchstone": str(touchstone),
         "tdr": str(tdr),
         "steps": _step_results("succeeded"),
+        "recorded_layout_settings": _recorded_layout_settings_summary(request),
     }
     _emit_progress(progress_callback, "create_layout_cutout", "Create PyEDB Cutout", "succeeded", edb_path=summary["edb_path"])
     _emit_progress(progress_callback, "configure_layout_stackup", "Load Stackup XML", "running")
@@ -410,6 +426,7 @@ def import_brd_with_pyedb_cutout(
             "layout_setup": layout_setup,
             "layout_solve": layout_solve,
             "layout_reports": layout_reports,
+            "recorded_layout_settings": _recorded_layout_settings_summary(request),
             "edb_path": str(cutout_aedb),
             "aedt_project": str(project_path),
             "touchstone": layout_reports.get("touchstone_path", ""),
@@ -573,6 +590,9 @@ def _open_cutout_in_hfss3dlayout(
     )
     try:
         stackup_applied = _import_stackup_xml_in_hfss3dlayout(app, stackup_xml)
+        if request is not None:
+            _apply_recorded_hfss_extents(app, request.recorded_hfss_extents)
+            _apply_recorded_design_options(app, request.recorded_design_options)
         port_execution = _apply_layout_port_actions(app, port_action_plan)
         layout_setup: dict[str, Any] = {}
         layout_solve: dict[str, Any] = {}
@@ -614,7 +634,7 @@ def _solve_and_export_layout_results(app: Any, request: ImportCutoutRequest) -> 
     high_frequency = request.sweep_stop
     setup = app.create_setup(
         name=setup_name,
-        props={"AdaptiveSettings": _layout_broadband_adaptive_settings(low_frequency, high_frequency)},
+        props=_layout_setup_props(request, low_frequency, high_frequency),
     )
     setup_name = _aedt_object_name(setup, setup_name)
     start_value, unit = _frequency_value_and_unit(request.sweep_start)
@@ -630,8 +650,10 @@ def _solve_and_export_layout_results(app: Any, request: ImportCutoutRequest) -> 
         name=sweep_name,
         sweep_type=request.sweep_type,
         use_q3d_for_dc=request.use_q3d_for_dc,
+        interpolation_max_solutions=request.interpolation_max_solutions,
         save_fields=False,
     )
+    _apply_recorded_sweep_options(sweep, request.recorded_sweep_options)
     sweep_name = _aedt_object_name(sweep, sweep_name)
     layout_setup = {
         "setup_name": setup_name,
@@ -645,6 +667,8 @@ def _solve_and_export_layout_results(app: Any, request: ImportCutoutRequest) -> 
         "sweep_type": request.sweep_type,
         "sweep_points": request.sweep_points,
         "use_q3d_for_dc": request.use_q3d_for_dc,
+        "interpolation_max_solutions": request.interpolation_max_solutions,
+        "recorded_layout_settings": _recorded_layout_settings_summary(request),
     }
     if not request.solve_enabled:
         return (
@@ -664,6 +688,55 @@ def _solve_and_export_layout_results(app: Any, request: ImportCutoutRequest) -> 
         {"status": "succeeded", "setup_name": setup_name},
         {"touchstone_path": str(touchstone), "tdr_path": str(tdr)},
     )
+
+
+def _layout_setup_props(request: ImportCutoutRequest, low_frequency: str, high_frequency: str) -> dict[str, Any]:
+    props = {"AdaptiveSettings": _layout_broadband_adaptive_settings(low_frequency, high_frequency)}
+    props.update(request.recorded_setup_options)
+    if request.recorded_setup_advanced_settings:
+        props["AdvancedSettings"] = dict(request.recorded_setup_advanced_settings)
+    return props
+
+
+def _apply_recorded_hfss_extents(app: Any, options: dict[str, Any]) -> None:
+    design = getattr(app, "odesign", None)
+    if not options or design is None or not hasattr(design, "EditHfssExtents"):
+        return
+    design.EditHfssExtents(_aedt_options_list("HfssExportInfo", options))
+
+
+def _apply_recorded_design_options(app: Any, options: dict[str, Any]) -> None:
+    design = getattr(app, "odesign", None)
+    if not options or design is None or not hasattr(design, "DesignOptions"):
+        return
+    design.DesignOptions(_aedt_options_list("options", options), 0)
+
+
+def _apply_recorded_sweep_options(sweep: Any, options: dict[str, Any]) -> None:
+    props = getattr(sweep, "props", None)
+    if not isinstance(props, dict):
+        return
+    props.update(options)
+    update = getattr(sweep, "update", None)
+    if callable(update):
+        update()
+
+
+def _aedt_options_list(name: str, options: dict[str, Any]) -> list[Any]:
+    output: list[Any] = [f"NAME:{name}"]
+    for key, value in options.items():
+        output.extend([f"{key}:=", value])
+    return output
+
+
+def _recorded_layout_settings_summary(request: ImportCutoutRequest) -> dict[str, Any]:
+    return {
+        "hfss_extents": dict(request.recorded_hfss_extents),
+        "design_options": dict(request.recorded_design_options),
+        "setup_options": dict(request.recorded_setup_options),
+        "setup_advanced_settings": dict(request.recorded_setup_advanced_settings),
+        "sweep_options": dict(request.recorded_sweep_options),
+    }
 
 
 def _layout_broadband_adaptive_settings(low_frequency: str, high_frequency: str) -> dict[str, Any]:
@@ -883,6 +956,10 @@ def _solderball_settings(parameters: dict[str, Any]) -> dict[str, str] | None:
     }
     settings = {key: str(value) for key, value in mapping.items() if value not in (None, "")}
     return settings or None
+
+
+def _mapping_parameter(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
 
 
 def _bool_parameter(value: Any, *, default: bool) -> bool:

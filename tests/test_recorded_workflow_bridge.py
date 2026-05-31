@@ -21,8 +21,10 @@ oEditor.CutOutSubDesign([
 oEditor.ChangeProperty(["NAME:AllTabs", ["NAME:BaseElementTab", ["NAME:PropServers", "U1"], ["NAME:ChangedProps", ["NAME:Model Info"]]]])
 oEditor.CreatePortsOnComponentsByNet(["NAME:Components", "U1"], ["NAME:Nets", "SRDS_0_RX0_N", "SRDS_0_RX0_P"], "Port", "0", "0", "0")
 oEditor.CreateEdgePort(["NAME:Contents", "edge:=", ["et:=", "pe", "prim:=", "line__42040", "edge:=", 13]])
-oModule.Add(["NAME:Setup1", "Frequency:=", "10GHz"])
-oModule.AddSweep("Setup1", ["NAME:Sweep1", "Data:=", "LIN 0GHz 67GHz 0.05GHz", "FreqSweepType:=", "kInterpolating"])
+oDesign.EditHfssExtents(["NAME:HfssExportInfo", "OpenRegionType:=", "Radiation", "UseRadBound:=", True, "OperFreq:=", "5GHz"])
+oDesign.DesignOptions(["NAME:options", "CausalMaterials:=", True, "MeshingMethod:=", "PhiPlus", "UseAlternativeMeshMethodsAsFallBack:=", True, "PhiMesherDeltaZRatio:=", 100000], 0)
+oModule.Add(["NAME:Setup1", "SliderType:=", "Balanced", "Frequency:=", "10GHz", "MeshSizeFactor:=", 1.5, "HfssMesh:=", True, ["NAME:AdvancedSettings", "OrderBasis:=", -1, "MeshingMethod:=", "Auto", "PhiMesherDeltaZRatio:=", 100000]])
+oModule.AddSweep("Setup1", ["NAME:Sweep1", "Data:=", "LIN 0GHz 67GHz 0.05GHz", "FreqSweepType:=", "kInterpolating", "EnforcePassivity:=", True, "InterpUseFullBasis:=", True, "MaxSolutions:=", 2500])
 oModule.SetDiffPairs(["NAME:DiffPairs", "Pair:=", ["Pos:=", "Port1:SRDS_0_RX0_N", "Neg:=", "Port1:SRDS_0_RX0_P", "Dif:=", "Diff1"]])
 oModule.CreateReport("S Parameter Plot1", "Standard", "Rectangular Plot", "Setup1 : Sweep1", [], [], ["Y Component:=", ["dB(S(Diff1,Diff1))"]])
 oModule.CreateReport("TDR Impedance Plot1", "Standard", "Rectangular Plot", "Setup1 : Sweep1", [], [], ["Y Component:=", ["TDRZ(Diff1)"]])
@@ -48,7 +50,16 @@ def test_analyze_recorded_workflow_extracts_operations_and_parameters(tmp_path):
     assert result["nets"]["reference"] == ["GND"]
     assert result["component"] == "U1"
     assert result["setup"]["name"] == "Setup1"
+    assert result["design_options"]["MeshingMethod"] == "PhiPlus"
+    assert result["design_options"]["PhiMesherDeltaZRatio"] == 100000
+    assert result["hfss_extents"]["OpenRegionType"] == "Radiation"
+    assert result["setup"]["options"]["SliderType"] == "Balanced"
+    assert result["setup"]["options"]["MeshSizeFactor"] == 1.5
+    assert result["setup"]["advanced_settings"]["OrderBasis"] == -1
+    assert result["setup"]["advanced_settings"]["PhiMesherDeltaZRatio"] == 100000
     assert result["sweep"]["stop_ghz"] == 67.0
+    assert result["sweep"]["options"]["EnforcePassivity"] is True
+    assert result["sweep"]["options"]["MaxSolutions"] == 2500
     assert result["optimization_variables"] == [{"name": "r_cut_L3", "value": "15mil"}]
     assert {"layer": "ART03", "kind": "circle"} in result["voids"]
     assert {"layer": "ART03", "kind": "rectangle"} in result["voids"]
@@ -71,6 +82,9 @@ def test_render_recorded_workflow_html_contains_pyaedt_mapping(tmp_path):
     assert "Hfss3dLayout.create_ports_on_component_by_nets" in html
     assert "raw CreateCircleVoid" in html
     assert "r_cut_L3" in html
+    assert "MeshingMethod" in html
+    assert "PhiPlus" in html
+    assert "InterpUseFullBasis" in html
 
 
 def test_analyze_stage_c_recorded_workflow_cli_writes_json_and_html(tmp_path):

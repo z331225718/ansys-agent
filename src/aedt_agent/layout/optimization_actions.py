@@ -27,6 +27,13 @@ def build_recorded_optimization_action_plan(
                 "reference_nets": list(((recorded_analysis.get("nets") or {}).get("reference") or [])),
                 "setup": dict(recorded_analysis.get("setup") or {}),
                 "sweep": dict(recorded_analysis.get("sweep") or {}),
+                "recorded_layout_settings": {
+                    "hfss_extents": dict(recorded_analysis.get("hfss_extents") or {}),
+                    "design_options": dict(recorded_analysis.get("design_options") or {}),
+                    "setup_options": dict(((recorded_analysis.get("setup") or {}).get("options") or {})),
+                    "setup_advanced_settings": dict(((recorded_analysis.get("setup") or {}).get("advanced_settings") or {})),
+                    "sweep_options": dict(((recorded_analysis.get("sweep") or {}).get("options") or {})),
+                },
             },
         },
         {

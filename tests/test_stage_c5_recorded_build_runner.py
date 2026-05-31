@@ -9,7 +9,20 @@ def _recorded_analysis():
         "nets": {"signal": ["SRDS_0_RX0_N", "SRDS_0_RX0_P"], "reference": ["GND"]},
         "component": "U1",
         "setup": {"name": "Setup1", "frequency": "10GHz"},
-        "sweep": {"name": "Sweep1", "data": "LIN 0GHz 67GHz 0.05GHz", "stop_ghz": 67.0},
+        "design_options": {"MeshingMethod": "PhiPlus", "PhiMesherDeltaZRatio": 100000},
+        "hfss_extents": {"OpenRegionType": "Radiation", "UseRadBound": True, "OperFreq": "5GHz"},
+        "setup": {
+            "name": "Setup1",
+            "frequency": "10GHz",
+            "options": {"SliderType": "Balanced", "MeshSizeFactor": 1.5, "HfssMesh": True},
+            "advanced_settings": {"OrderBasis": -1, "MeshingMethod": "Auto", "PhiMesherDeltaZRatio": 100000},
+        },
+        "sweep": {
+            "name": "Sweep1",
+            "data": "LIN 0GHz 67GHz 0.05GHz",
+            "stop_ghz": 67.0,
+            "options": {"UseQ3DForDC": False, "MaxSolutions": 2500, "InterpUseFullBasis": True},
+        },
         "optimization_variables": [{"name": "r_cut_L3", "value": "15mil"}],
         "voids": [{"layer": "ART03", "kind": "circle"}, {"layer": "ART03", "kind": "rectangle"}],
     }
@@ -27,6 +40,8 @@ def test_build_recorded_optimization_action_plan_prefers_wrappers_without_solve(
         "save_project",
     ]
     assert plan["actions"][0]["api"] == "pyedb_hfss3dlayout_build"
+    assert plan["actions"][0]["inputs"]["recorded_layout_settings"]["design_options"]["MeshingMethod"] == "PhiPlus"
+    assert plan["actions"][0]["inputs"]["recorded_layout_settings"]["sweep_options"]["MaxSolutions"] == 2500
     assert plan["actions"][1]["api"] == "raw_aedt_void_fallback"
     assert plan["actions"][1]["variable"] == "r_cut_L3"
     assert plan["actions"][2]["api"] == "Hfss3dLayout.save_project"
@@ -90,5 +105,7 @@ def test_run_stage_c5_recorded_build_cli_fake_writes_build_artifacts(tmp_path):
     assert (run_dir / "import_cutout_summary.json").exists()
     assert build_summary["status"] == "succeeded"
     assert build_summary["layout_solve"]["status"] == "skipped"
+    assert build_summary["recorded_layout_settings"]["design_options"]["MeshingMethod"] == "PhiPlus"
+    assert build_summary["recorded_layout_settings"]["sweep_options"]["MaxSolutions"] == 2500
     assert action_plan["actions"][1]["api"] == "raw_aedt_void_fallback"
     assert "Stage C.5 recorded build" in result.stdout
