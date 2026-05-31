@@ -794,6 +794,9 @@ def apply_cadence_launcher_environment(launcher: Path) -> None:
     os.environ.setdefault("MWRT_MODE", "classic")
     os.environ.setdefault("GDK_BACKEND", "x11")
     os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
+    for key, value in assignments.items():
+        if key.startswith(("AWP_ROOT", "ANSYSEM_ROOT")) and value:
+            os.environ[key] = value
 
 
 def apply_aedt_environment(version: str, *, ansysem_root: str = "", awp_root: str = "") -> None:
@@ -958,13 +961,31 @@ def _write_demo_tdr(path: Path) -> None:
 def _launcher_assignments(text: str) -> dict[str, str]:
     assignments: dict[str, str] = {}
     for line in text.splitlines():
-        match = re.match(r'^\s*([A-Z_]+)="?([^"\n]+)"?\s*$', line)
+        match = re.match(r'^\s*(?:export\s+)?([A-Z_][A-Z0-9_]*)=(.+?)\s*$', line)
         if match:
-            value = match.group(2)
+            value = _normalize_launcher_value(match.group(2), assignments)
+            if value == "":
+                continue
             for key, replacement in assignments.items():
                 value = value.replace(f"${key}", replacement)
-            assignments[match.group(1)] = shlex.split(value)[0] if value else ""
+            assignments[match.group(1)] = value
     return assignments
+
+
+def _normalize_launcher_value(value: str, assignments: dict[str, str]) -> str:
+    value = value.strip()
+    if "#" in value:
+        value = value.split("#", 1)[0].strip()
+    try:
+        parts = shlex.split(value)
+    except ValueError:
+        return ""
+    value = parts[0] if parts else ""
+    default_match = re.fullmatch(r"\$\{([A-Z_][A-Z0-9_]*):-([^}]+)\}", value)
+    if default_match:
+        key, fallback = default_match.groups()
+        return os.environ.get(key) or assignments.get(key) or fallback
+    return value
 
 
 def _version_suffix(version: str) -> str:

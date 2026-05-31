@@ -188,6 +188,71 @@ def test_cadence_launcher_requires_explicit_cdsroot(monkeypatch, tmp_path):
         raise AssertionError("missing CDSROOT should fail instead of using a developer machine path")
 
 
+def test_cadence_launcher_exports_aedt_roots_from_launcher(monkeypatch, tmp_path):
+    cdsroot = tmp_path / "cadence"
+    awp_root = tmp_path / "ansys_inc" / "v261"
+    ansysem_root = awp_root / "AnsysEM"
+    (cdsroot / "tools/bin").mkdir(parents=True)
+    (cdsroot / "tools/pcb/bin").mkdir(parents=True)
+    (cdsroot / "tools.lnx86/bin").mkdir(parents=True)
+    (cdsroot / "tools/bin/extracta").write_text("", encoding="utf-8")
+    ansysem_root.mkdir(parents=True)
+    launcher = tmp_path / "start_aedt_cadence.sh"
+    launcher.write_text(
+        "\n".join(
+            [
+                f'CDSROOT="{cdsroot}"',
+                'TOOLS="$CDSROOT/tools.lnx86"',
+                f'AEDT_ROOT="${{AEDT_ROOT:-{awp_root}}}"',
+                'export AWP_ROOT261="$AEDT_ROOT"',
+                'export ANSYSEM_ROOT261="$AEDT_ROOT/AnsysEM"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("AWP_ROOT261", raising=False)
+    monkeypatch.delenv("ANSYSEM_ROOT261", raising=False)
+
+    import_cutout.apply_cadence_launcher_environment(launcher)
+
+    assert __import__("os").environ["AWP_ROOT261"] == str(awp_root)
+    assert __import__("os").environ["ANSYSEM_ROOT261"] == str(ansysem_root)
+
+
+def test_cadence_launcher_ignores_multiline_library_assignment(monkeypatch, tmp_path):
+    cdsroot = tmp_path / "cadence"
+    awp_root = tmp_path / "ansys_inc" / "v261"
+    ansysem_root = awp_root / "AnsysEM"
+    (cdsroot / "tools/bin").mkdir(parents=True)
+    (cdsroot / "tools/pcb/bin").mkdir(parents=True)
+    (cdsroot / "tools.lnx86/bin").mkdir(parents=True)
+    (cdsroot / "tools/bin/extracta").write_text("", encoding="utf-8")
+    ansysem_root.mkdir(parents=True)
+    launcher = tmp_path / "start_aedt_cadence.sh"
+    launcher.write_text(
+        "\n".join(
+            [
+                f'CDSROOT="{cdsroot}"',
+                'TOOLS="$CDSROOT/tools.lnx86"',
+                f'AEDT_ROOT="${{AEDT_ROOT:-{awp_root}}}"',
+                'export AWP_ROOT261="$AEDT_ROOT"',
+                'export ANSYSEM_ROOT261="$AEDT_ROOT/AnsysEM"',
+                'export LD_LIBRARY_PATH="\\',
+                '$AEDT_ROOT/AnsysEM/common/mono/Linux64/lib64:\\',
+                '${LD_LIBRARY_PATH:-}"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("AWP_ROOT261", raising=False)
+    monkeypatch.delenv("ANSYSEM_ROOT261", raising=False)
+
+    import_cutout.apply_cadence_launcher_environment(launcher)
+
+    assert __import__("os").environ["AWP_ROOT261"] == str(awp_root)
+    assert __import__("os").environ["ANSYSEM_ROOT261"] == str(ansysem_root)
+
+
 def test_net_suggestions_surface_matching_tokens_when_wildcard_misses():
     suggestions = _net_suggestions(["*56g*tx*"], ["GND", "GDDR6_VDD", "SRDS_0_TX0_N", "SRDS_0_TX0_P"])
 
