@@ -599,6 +599,74 @@ def test_real_import_cutout_uses_pyedb_cutout_before_hfss3dlayout(monkeypatch, t
     assert not any(call[0] == "hfss_export_touchstone" for call in calls)
 
 
+def test_real_import_cutout_uses_bbox_polygon_for_local_cut(monkeypatch, tmp_path):
+    layout_file = tmp_path / "case.brd"
+    layout_file.write_text("brd", encoding="utf-8")
+    calls = []
+
+    class FakeEdb:
+        def __init__(self, edbpath, version=None, grpc=None):
+            self.edbpath = str(Path(edbpath).with_suffix(".aedb"))
+            self.nets = type("Nets", (), {"nets": {"GND": object(), "SIG_P": object(), "SIG_N": object()}})()
+            self.excitation_manager = type("ExcitationManager", (), {})()
+            calls.append(("edb_open", Path(edbpath).name))
+
+        def cutout(self, **kwargs):
+            Path(kwargs["output_aedb_path"]).mkdir(parents=True)
+            calls.append(("cutout", kwargs))
+            return [1, 2, 3]
+
+        def close(self):
+            calls.append(("edb_close", None))
+
+    monkeypatch.setattr(import_cutout, "_edb_class", lambda: FakeEdb, raising=False)
+    monkeypatch.setattr(
+        import_cutout,
+        "_write_layout_port_candidate_report",
+        lambda *args, **kwargs: {
+            "status": "needs_user_hint",
+            "port_action_plan": {"status": "needs_user_hint", "port_actions": []},
+            "candidate_count": 0,
+        },
+    )
+    monkeypatch.setattr(
+        import_cutout,
+        "_apply_edb_port_actions_to_cutout",
+        lambda *args, **kwargs: {"status": "skipped", "created_ports": [], "deferred_actions": [], "failed_actions": []},
+    )
+    monkeypatch.setattr(
+        import_cutout,
+        "_open_cutout_in_hfss3dlayout",
+        lambda *args, **kwargs: (
+            str(tmp_path / "case.aedt"),
+            False,
+            {"status": "skipped", "created_ports": [], "deferred_actions": [], "failed_actions": []},
+            {"setup_name": "Setup1"},
+            {"status": "skipped"},
+            {},
+        ),
+    )
+
+    request = build_import_cutout_request(
+        {
+            "layout_file": str(layout_file),
+            "signal_nets": "SIG_*",
+            "reference_nets": "GND",
+            "artifact_dir": str(tmp_path / "run"),
+            "local_cut_region": {"type": "bbox", "unit": "mil", "x_min": 1, "y_min": 2, "x_max": 3, "y_max": 4},
+        }
+    )
+
+    result = run_real_import_cutout(request, aedt_version="2026.1")
+
+    cutout_call = next(call for call in calls if call[0] == "cutout")[1]
+    assert cutout_call["signal_nets"] == ["SIG_N", "SIG_P"]
+    assert cutout_call["reference_nets"] == ["GND"]
+    assert cutout_call["extent_type"] == "Polygon"
+    assert cutout_call["custom_extent"] == [[1.0, 2.0], [3.0, 2.0], [3.0, 4.0], [1.0, 4.0], [1.0, 2.0]]
+    assert result["local_cut_region"]["unit"] == "mil"
+
+
 def test_real_import_cutout_reports_failed_progress_when_open_layout_fails(monkeypatch, tmp_path):
     layout_file = tmp_path / "case.brd"
     layout_file.write_text("", encoding="utf-8")

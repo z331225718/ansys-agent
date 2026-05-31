@@ -296,16 +296,7 @@ def import_brd_with_pyedb_cutout(
         if cutout_aedb.exists():
             shutil.rmtree(cutout_aedb)
         try:
-            extent_points = edb.cutout(
-                signal_nets=signal_nets,
-                reference_nets=reference_nets,
-                extent_type=request.extent_type,
-                expansion_size=request.expansion_size,
-                output_aedb_path=str(cutout_aedb),
-                use_pyaedt_cutout=True,
-                number_of_threads=threads,
-                open_cutout_at_end=False,
-            )
+            extent_points = edb.cutout(**_cutout_kwargs(request, signal_nets, reference_nets, cutout_aedb, threads))
         except Exception as exc:
             _emit_progress(
                 progress_callback,
@@ -314,6 +305,7 @@ def import_brd_with_pyedb_cutout(
                 "failed",
                 error_type=type(exc).__name__,
                 error_message=str(exc),
+                local_cut_region=request.local_cut_region,
             )
             raise
         _emit_progress(
@@ -464,6 +456,29 @@ def import_brd_with_pyedb_cutout(
     finally:
         _close_edb(edb)
         shutil.rmtree(source_edb_dir, ignore_errors=True)
+
+
+def _cutout_kwargs(
+    request: ImportCutoutRequest,
+    signal_nets: list[str],
+    reference_nets: list[str],
+    output_aedb: Path,
+    threads: int,
+) -> dict[str, Any]:
+    kwargs = {
+        "signal_nets": signal_nets,
+        "reference_nets": reference_nets,
+        "extent_type": request.extent_type,
+        "expansion_size": request.expansion_size,
+        "output_aedb_path": str(output_aedb),
+        "use_pyaedt_cutout": True,
+        "number_of_threads": threads,
+        "open_cutout_at_end": False,
+    }
+    if request.local_cut_polygon:
+        kwargs["extent_type"] = "Polygon"
+        kwargs["custom_extent"] = request.local_cut_polygon["points"]
+    return kwargs
 
 
 def _open_layout_with_pyedb(
