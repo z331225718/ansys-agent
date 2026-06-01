@@ -667,6 +667,65 @@ def test_real_import_cutout_uses_bbox_polygon_for_local_cut(monkeypatch, tmp_pat
     assert result["local_cut_region"]["unit"] == "mil"
 
 
+def test_write_layout_port_candidate_report_includes_uniform_line_edge_candidates(monkeypatch, tmp_path):
+    cutout_aedb = tmp_path / "case_cutout.aedb"
+    cutout_aedb.mkdir()
+    layout_file = tmp_path / "case.brd"
+    layout_file.write_text("brd", encoding="utf-8")
+    request = build_import_cutout_request(
+        {
+            "layout_file": str(layout_file),
+            "local_cut_region": {"type": "bbox", "unit": "mil", "x_min": 1, "y_min": 2, "x_max": 10, "y_max": 5},
+            "uniform_line_port_hint": {"side": "right", "layer": "ART03", "port_type": "edge"},
+        }
+    )
+
+    monkeypatch.setattr(
+        import_cutout,
+        "_locate_layout_port_candidates",
+        lambda *args, **kwargs: {
+            "status": "ready",
+            "signal_nets": ["SIG_P"],
+            "reference_nets": ["GND"],
+            "recommended_endpoints": [{"name": "U1", "components": ["U1"], "pins": []}],
+            "candidates": [{"name": "U1"}],
+        },
+    )
+    monkeypatch.setattr(
+        import_cutout,
+        "_locate_uniform_line_edge_candidates",
+        lambda *args, **kwargs: {
+            "status": "ready",
+            "candidates": [
+                {
+                    "primitive": "sig_right",
+                    "edge_number": 0,
+                    "net": "SIG_P",
+                    "layer": "ART03",
+                    "side": "right",
+                    "midpoint": [9.8, 3.0],
+                    "distance_to_side": 0.2,
+                }
+            ],
+        },
+        raising=False,
+    )
+
+    report = import_cutout._write_layout_port_candidate_report(
+        cutout_aedb,
+        ["SIG_P"],
+        ["GND"],
+        tmp_path,
+        aedt_version="2026.1",
+        edb_backend="auto",
+        request=request,
+    )
+    report_file = __import__("json").loads((tmp_path / "port_candidates.json").read_text(encoding="utf-8"))
+
+    assert report["uniform_line_edge_candidates"]["status"] == "ready"
+    assert report_file["uniform_line_edge_candidates"]["candidates"][0]["primitive"] == "sig_right"
+
+
 def test_real_import_cutout_reports_failed_progress_when_open_layout_fails(monkeypatch, tmp_path):
     layout_file = tmp_path / "case.brd"
     layout_file.write_text("", encoding="utf-8")

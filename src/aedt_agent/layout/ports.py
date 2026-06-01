@@ -81,7 +81,8 @@ def find_uniform_line_edge_candidates(
     region = parse_local_cut_region(local_cut_region)
     side = str(hint.get("side") or "right")
     layer = str(hint.get("layer") or "")
-    signals = {net.casefold() for net in signal_nets}
+    signal_order = {net.casefold(): index for index, net in enumerate(signal_nets)}
+    signals = set(signal_order)
     candidates: list[dict[str, Any]] = []
     for primitive in primitives:
         if str(getattr(primitive, "net_name", "")).casefold() not in signals:
@@ -102,13 +103,15 @@ def find_uniform_line_edge_candidates(
                     "distance_to_side": round(distance, 6),
                 }
             )
-    candidates.sort(key=lambda item: (item["distance_to_side"], item["primitive"], item["edge_number"]))
+    candidates.sort(key=lambda item: (signal_order.get(str(item["net"]).casefold(), 999), item["distance_to_side"], item["primitive"], item["edge_number"]))
     if not candidates:
         status = "needs_user_hint"
-    elif len(candidates) >= 2 and abs(candidates[0]["distance_to_side"] - candidates[1]["distance_to_side"]) <= 0.05:
+    elif _has_ambiguous_uniform_edge_candidate(candidates):
         status = "ambiguous"
-    else:
+    elif {str(candidate["net"]).casefold() for candidate in candidates} >= signals:
         status = "ready"
+    else:
+        status = "needs_user_hint"
     return {"status": status, "candidates": candidates}
 
 
@@ -125,15 +128,74 @@ def plan_layout_port_actions(
         _plan_endpoint_port_action(index + 1, endpoint, signal_nets, reference_nets, impedance=impedance, solderball=solderball)
         for index, endpoint in enumerate(endpoints)
     ]
+    uniform_line_action = _plan_uniform_line_edge_action(candidate_report, len(actions) + 1, impedance=impedance)
+    if uniform_line_action:
+        actions.append(uniform_line_action)
     status = "ready" if actions and all(action["strategy"] != "needs_reference_pin" for action in actions) else "needs_user_hint"
     if len(actions) < 2:
         status = "needs_user_hint"
     return {
         "status": status,
         "impedance": impedance,
-        "endpoint_count": len(endpoints),
+        "endpoint_count": len(actions),
         "port_actions": actions,
     }
+
+
+def _has_ambiguous_uniform_edge_candidate(candidates: list[dict[str, Any]]) -> bool:
+    by_net: dict[str, list[dict[str, Any]]] = {}
+    for candidate in candidates:
+        by_net.setdefault(str(candidate.get("net", "")).casefold(), []).append(candidate)
+    for net_candidates in by_net.values():
+        if len(net_candidates) >= 2 and abs(float(net_candidates[0]["distance_to_side"]) - float(net_candidates[1]["distance_to_side"])) <= 0.05:
+            return True
+    return False
+
+
+def _plan_uniform_line_edge_action(
+    candidate_report: dict[str, Any],
+    index: int,
+    *,
+    impedance: int | float | str,
+) -> dict[str, Any] | None:
+    uniform_report = candidate_report.get("uniform_line_edge_candidates") or {}
+    if uniform_report.get("status") != "ready":
+        return None
+    edges = _best_uniform_line_edges(
+        list(uniform_report.get("candidates") or []),
+        list(candidate_report.get("signal_nets") or []),
+    )
+    if not edges:
+        return None
+    return {
+        "endpoint": "uniform_line",
+        "component": "",
+        "port_name": f"P{index}_uniform_line",
+        "strategy": "uniform_line_edge_port",
+        "api": "Hfss3dLayout.create_edge_port",
+        "requires_solder_ball_cylinders": False,
+        "edges": edges,
+        "impedance": impedance,
+        "reason": "Uniform-line endpoint is represented by explicit trace edges near the user-defined local cut bbox boundary.",
+    }
+
+
+def _best_uniform_line_edges(candidates: list[dict[str, Any]], signal_nets: list[str]) -> list[dict[str, Any]]:
+    output: list[dict[str, Any]] = []
+    for net in signal_nets:
+        matches = [candidate for candidate in candidates if str(candidate.get("net", "")).casefold() == str(net).casefold()]
+        if not matches:
+            continue
+        best = min(matches, key=lambda item: (float(item.get("distance_to_side", 0.0)), str(item.get("primitive", "")), int(item.get("edge_number", 0))))
+        output.append(
+            {
+                "primitive": str(best.get("primitive", "")),
+                "edge_number": int(best.get("edge_number", 0)),
+                "net": str(best.get("net", "")),
+                "layer": str(best.get("layer", "")),
+            }
+        )
+    return output
 
 
 def _edge_midpoint(edge: Any) -> list[float]:
@@ -201,6 +263,12 @@ def apply_layout_port_actions(app: Any, port_action_plan: dict[str, Any]) -> dic
                     continue
                 if last_error:
                     failed_actions.append({"action": action, "error": last_error})
+            continue
+        if strategy == "uniform_line_edge_port":
+            edge_result = _create_uniform_line_edge_ports(app, action)
+            created_ports.extend(edge_result["created_ports"])
+            deferred_actions.extend(edge_result["deferred_actions"])
+            failed_actions.extend(edge_result["failed_actions"])
             continue
         if strategy == "pin_to_ground_lumped_port":
             deferred_actions.append(
@@ -619,6 +687,55 @@ def _create_edge_port_at_pin(app: Any, action: dict[str, Any], pin_pair: dict[st
     if port is False:
         return {"port_name": "", "deferred_action": None, "error": "create_edge_port returned False"}
     return {"port_name": str(getattr(port, "name", name)), "deferred_action": None, "error": ""}
+
+
+def _create_uniform_line_edge_ports(app: Any, action: dict[str, Any]) -> dict[str, Any]:
+    if not hasattr(app, "create_edge_port"):
+        return {
+            "created_ports": [],
+            "deferred_actions": [
+                {
+                    "strategy": action.get("strategy", ""),
+                    "reason": "Hfss3dLayout.create_edge_port is unavailable for uniform-line endpoint",
+                }
+            ],
+            "failed_actions": [],
+        }
+    created_ports: list[str] = []
+    deferred_actions: list[dict[str, Any]] = []
+    failed_actions: list[dict[str, Any]] = []
+    for edge in action.get("edges") or []:
+        primitive = str(edge.get("primitive") or "")
+        if not primitive:
+            deferred_actions.append(
+                {
+                    "strategy": action.get("strategy", ""),
+                    "reason": "uniform-line edge candidate is missing primitive name",
+                    "edge": edge,
+                }
+            )
+            continue
+        try:
+            edge_number = int(edge.get("edge_number"))
+        except (TypeError, ValueError):
+            deferred_actions.append(
+                {
+                    "strategy": action.get("strategy", ""),
+                    "reason": "uniform-line edge candidate is missing edge_number",
+                    "edge": edge,
+                }
+            )
+            continue
+        try:
+            port = app.create_edge_port(primitive, edge_number, is_circuit_port=True, is_wave_port=False)
+        except Exception as exc:
+            failed_actions.append({"action": action, "edge": edge, "error": str(exc)})
+            continue
+        if port is False:
+            failed_actions.append({"action": action, "edge": edge, "error": "create_edge_port returned False"})
+            continue
+        created_ports.append(str(getattr(port, "name", f"{primitive}_{edge_number}")))
+    return {"created_ports": created_ports, "deferred_actions": deferred_actions, "failed_actions": failed_actions}
 
 
 def _find_nearest_layout_edge(app: Any, *, net: str, position: list[Any]) -> dict[str, Any] | None:

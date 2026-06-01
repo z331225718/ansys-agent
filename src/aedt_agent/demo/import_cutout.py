@@ -328,6 +328,7 @@ def import_brd_with_pyedb_cutout(
                 aedt_version=aedt_version,
                 edb_backend=request.edb_backend,
                 solderball=request.solderball,
+                request=request,
             )
         except Exception as exc:
             _emit_progress(
@@ -508,6 +509,7 @@ def _write_layout_port_candidate_report(
     aedt_version: str,
     edb_backend: str,
     solderball: dict[str, str] | None = None,
+    request: ImportCutoutRequest | None = None,
 ) -> dict[str, Any]:
     from aedt_agent.layout.ports import plan_layout_port_actions
 
@@ -518,6 +520,17 @@ def _write_layout_port_candidate_report(
         aedt_version=aedt_version,
         edb_backend=edb_backend,
     )
+    uniform_line_edge_candidates: dict[str, Any] = {}
+    if request and request.local_cut_region and request.uniform_line_port_hint:
+        uniform_line_edge_candidates = _locate_uniform_line_edge_candidates(
+            cutout_aedb,
+            signal_nets,
+            request.local_cut_region,
+            request.uniform_line_port_hint,
+            aedt_version=aedt_version,
+            edb_backend=edb_backend,
+        )
+        report["uniform_line_edge_candidates"] = uniform_line_edge_candidates
     port_action_plan = plan_layout_port_actions(report, solderball=solderball)
     report["port_action_plan"] = port_action_plan
     report_path = output_dir / "port_candidates.json"
@@ -526,9 +539,65 @@ def _write_layout_port_candidate_report(
         "status": report.get("status"),
         "path": str(report_path),
         "recommended_endpoints": report.get("recommended_endpoints", []),
+        "uniform_line_edge_candidates": uniform_line_edge_candidates,
         "port_action_plan": port_action_plan,
         "candidate_count": len(report.get("candidates", [])),
     }
+
+
+def _locate_uniform_line_edge_candidates(
+    cutout_aedb: Path,
+    signal_nets: list[str],
+    local_cut_region: dict[str, Any],
+    uniform_line_port_hint: dict[str, Any],
+    *,
+    aedt_version: str,
+    edb_backend: str,
+) -> dict[str, Any]:
+    from aedt_agent.layout.ports import find_uniform_line_edge_candidates
+
+    grpc = {"auto": None, "grpc": True, "dotnet": False}.get(edb_backend)
+    edb = _edb_class()(edbpath=str(cutout_aedb), version=aedt_version, grpc=grpc)
+    try:
+        primitives = _edb_layout_primitives(edb)
+        if not primitives:
+            return {
+                "status": "needs_user_hint",
+                "candidates": [],
+                "reason": "no layout primitives with edge data were available for uniform-line port selection",
+            }
+        return find_uniform_line_edge_candidates(
+            primitives,
+            signal_nets=signal_nets,
+            local_cut_region=local_cut_region,
+            hint=uniform_line_port_hint,
+        )
+    finally:
+        _close_edb(edb)
+
+
+def _edb_layout_primitives(edb: Any) -> list[Any]:
+    modeler = getattr(edb, "modeler", None)
+    collections = [
+        getattr(modeler, "primitives", None),
+        getattr(modeler, "paths", None),
+        getattr(modeler, "polygons", None),
+        getattr(modeler, "rectangles", None),
+        getattr(edb, "primitives", None),
+    ]
+    primitives: list[Any] = []
+    for collection in collections:
+        if collection is None:
+            continue
+        if isinstance(collection, dict):
+            values = collection.values()
+        else:
+            try:
+                values = list(collection)
+            except TypeError:
+                continue
+        primitives.extend(values)
+    return primitives
 
 
 def _locate_layout_port_candidates(
