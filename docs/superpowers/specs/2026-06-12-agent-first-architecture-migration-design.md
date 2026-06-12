@@ -7,6 +7,19 @@
 - Scope: Package architecture migration and runtime boundaries
 - First production scenario: BRD local-cut via optimization
 
+> 文档语言约定：从本规格的后续实施计划开始，项目新增的设计、计划和交付报告默认使用中文。代码标识符、协议字段和第三方专有名词保留英文。
+
+## 中文决策摘要
+
+本次迁移采用“旧应用归档、领域能力共享”的方案：
+
+- 原有 `demo`、`benchmark`、`chat`、`evolution` 和旧 CLI 迁入 `aedt_agent.v0`。
+- `workflow`、`nodes`、`layout`、`validation`、`mcp`、`knowledge`、`reporting` 第一阶段保持原路径，供新旧系统共享。
+- 新的 `aedt_agent.agent` 成为默认产品入口，负责 Mission、规划、Worker 调度、评估、审批、恢复和最终交付。
+- 第一个正式 Agent 场景是 BRD local-cut 高速过孔优化，偶极子调谐仅保留为快速回归测试。
+- Pi 暂不进入核心运行时；待 Mission、Worker、Event、Approval API 在真实 AEDT 场景稳定后，再作为可插拔会话与交互层进行 PoC。
+- 主运行链不依赖 VLM。服务器可只部署无视觉能力的强文本模型，通过结构化仿真证据完成规划、诊断和受控决策。
+
 ## Goal
 
 Restructure `ansys-agent` so that the default product is a persistent,
@@ -302,6 +315,124 @@ inconclusive
 The LLM may explain or select among allowed actions, but it is not the authority
 for numeric pass/fail decisions.
 
+## 无视觉模型优先的证据架构
+
+生产环境默认假设部署的是无视觉能力但推理能力较强的文本模型，例如服务器上的 GLM。系统不得因为模型不能读取图片而中断 Mission，也不得把曲线截图识别作为核心评估方法。
+
+### 核心原则
+
+```text
+AEDT 原始结果
+    -> 确定性解析与特征提取
+    -> 结构化 Evidence Package
+    -> 规则 Evaluator 给出客观判定
+    -> 文本模型解释、诊断并选择受控动作
+    -> 可选 VLM / 人工复核作为补充证据
+```
+
+图片是审计和辅助诊断产物，不是主链路输入。能够从 AEDT 导出数值、对象属性或采样数据时，不允许退化为“让模型看截图读数”。
+
+### Evidence Package
+
+每次建模、求解和评估 Job 都输出结构化证据包。证据包分为摘要和可追溯 artifact：
+
+```json
+{
+  "model_facts": {
+    "objects": [],
+    "materials": [],
+    "ports": [],
+    "boundaries": [],
+    "setups": [],
+    "stackup": {},
+    "cutout_region": {},
+    "geometry_checks": []
+  },
+  "channel_metrics": {
+    "rl_worst_db": -17.4,
+    "rl_worst_frequency_ghz": 18.2,
+    "rl_pass_bands": [],
+    "tdr_peak_deviation_ohm": 8.1,
+    "tdr_anomaly_window_ps": {}
+  },
+  "field_features": {
+    "available": false,
+    "peak_regions": [],
+    "energy_by_region": [],
+    "surface_current_hotspots": []
+  },
+  "comparison": {},
+  "artifact_refs": []
+}
+```
+
+文本模型只接收压缩后的证据摘要、工程约束、历史动作和允许的 Action Schema。完整 Touchstone、TDR CSV、场采样数据和工程文件通过 `artifact_refs` 保留，不直接塞入模型上下文。
+
+### 结构化提取优先级
+
+1. **曲线与频域结果**：解析 Touchstone、CSV 或 AEDT report 数据，计算 worst RL、pass band、谐振点、插损和频点覆盖。
+2. **时域结果**：解析 TDR 数值，提取峰值偏差、局部斜率、异常时间窗口和前后变化。
+3. **模型事实**：提取对象、材料、层叠、端口、边界、setup、mesh 和 cutout 范围，验证模型是否具备可优化条件。
+4. **场分布**：优先导出数值采样网格或区域统计，计算峰值位置、热点区域、区域能量和表面电流集中度。
+5. **图片**：仅在缺少可用数值导出、需要观察复杂空间关系或结构化诊断结果为 `inconclusive` 时使用。
+
+### 纯文本 GLM 的职责
+
+无视觉模型可以基于 Evidence Package：
+
+- 判断当前问题属于模型错误、端口错误、求解问题还是设计指标未达标；
+- 结合 stackup、TDR 异常窗口、目标层和历史动作解释可能原因；
+- 从预注册 Action Schema 中选择下一步动作；
+- 比较多个候选动作的风险、成本和约束冲突；
+- 生成面向工程师的中文诊断、审批说明和最终报告。
+
+文本模型不能：
+
+- 自己读取图片并声称获得了其中的数值；
+- 覆盖确定性 Evaluator 的 pass/fail；
+- 在没有结构化证据时猜测场热点位置；
+- 生成任意 PyAEDT/PyEDB 修改代码；
+- 在证据不足时强行选择优化动作。
+
+### 可选 VLM Sidecar
+
+VLM 被实现为可选的 `VisualEvidenceWorker`，而不是 Planner 或 Evaluator 的强依赖。
+
+触发条件限定为：
+
+- 结构化提取结果为 `inconclusive`；
+- AEDT 只提供了图片形式的关键结果；
+- 需要判断难以数值化的空间模式、场型或几何关系；
+- 工程师主动要求视觉复核。
+
+VLM 输出必须包含：
+
+- 对应的图片 artifact；
+- 观察结论；
+- 置信度；
+- 无法确认的内容；
+- 建议的结构化验证步骤。
+
+VLM 结论属于辅助 Evidence，不能单独触发模型修改、判定达标或跳过人工审批。没有 VLM 部署时，Mission 继续使用结构化证据；若该任务确实依赖视觉判断，则进入 `waiting_approval`，由工程师查看已导出的图片。
+
+### 模型能力协商
+
+模型配置显式声明能力，而不是由业务代码假设模型具备 Vision：
+
+```json
+{
+  "model_id": "glm-server",
+  "capabilities": {
+    "text": true,
+    "vision": false,
+    "structured_output": true,
+    "tool_calling": true
+  }
+}
+```
+
+Planner 根据能力选择上下文构建器。`vision=false` 时不生成图片消息，也不影响 Mission 的正常规划和执行。后续接入 VLM、Pi 或其他模型提供方时，均通过相同的能力声明与 Evidence API 工作。
+
 ### Orchestrator
 
 Advances the Mission state machine. It is the only component that creates the
@@ -506,6 +637,10 @@ Acceptance:
 ### Scenario tests
 
 - fake/replay BRD Mission for fast CI;
+- text-only GLM context built entirely from structured evidence;
+- Mission completion without any configured VLM;
+- optional VLM failure does not fail the main Mission;
+- inconclusive visual-only evidence enters engineering approval;
 - ambiguous port candidate;
 - license retry;
 - solver timeout;
@@ -526,7 +661,8 @@ This migration does not include:
 - Redis, Celery, Kafka, or Kubernetes;
 - multi-agent conversation;
 - arbitrary Python execution;
-- VLM-based numeric acceptance;
+- mandatory VLM dependency;
+- VLM-based numeric acceptance or automatic model modification;
 - automatic bbox invention;
 - Pi source-code fork or deep modification;
 - multi-tenant authorization.
@@ -545,3 +681,5 @@ The architecture migration is successful when:
    requirements, retryable infrastructure failure, and budget exhaustion.
 6. Pi can be evaluated through stable public boundaries instead of dictating
    the Python runtime architecture.
+7. The BRD Mission can complete its normal build, solve, evaluation, approval,
+   and delivery path with a text-only model and no configured VLM.
