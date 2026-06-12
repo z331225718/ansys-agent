@@ -355,6 +355,14 @@ AEDT 原始结果
     "tdr_peak_deviation_ohm": 8.1,
     "tdr_anomaly_window_ps": {}
   },
+  "spectral_summary": {
+    "frequency_start_ghz": 0.0,
+    "frequency_stop_ghz": 67.0,
+    "sample_count": 1341,
+    "traces": {},
+    "anomaly_windows": [],
+    "before_after_delta": {}
+  },
   "field_features": {
     "available": false,
     "peak_regions": [],
@@ -367,6 +375,114 @@ AEDT 原始结果
 ```
 
 文本模型只接收压缩后的证据摘要、工程约束、历史动作和允许的 Action Schema。完整 Touchstone、TDR CSV、场采样数据和工程文件通过 `artifact_refs` 保留，不直接塞入模型上下文。
+
+### 大规模 S 参数处理
+
+完整 S 参数只保存在 artifact 和本地数值处理层，不直接进入模型上下文。例如 `0~67 GHz`、步长 `0.05 GHz` 的单条 trace 约有 1341 个采样点；如果同时包含 S11、S21、差分/共模、幅度、相位、群时延以及多轮 before/after，原始数据会迅速占满上下文，而且大量相邻点对语言模型没有额外诊断价值。
+
+系统采用“全精度计算、分层摘要、按需查询”的三层结构：
+
+```text
+Raw Trace Store
+    完整 Touchstone / CSV / 复数 S 参数
+    仅供确定性计算和 artifact 下载
+            |
+            v
+Deterministic Spectral Analyzer
+    全精度阈值判断、极值、带宽、斜率、差异和异常窗口
+            |
+            v
+LLM Spectral Summary
+    小型摘要 + 可查询的异常频段引用
+```
+
+#### 全精度确定性分析
+
+Evaluator 始终基于完整数据计算，不使用压缩曲线判定：
+
+- 每条 trace 的最差值、最好值及对应频点；
+- RL/IL 指标的阈值穿越点和连续合格/失败频段；
+- 局部峰谷、谐振点、反谐振点和显著斜率变化；
+- 相位展开和群时延异常；
+- 差分到共模转换指标；
+- passivity、causality 和 reciprocity 检查结果；
+- before/after 在全频段的改善、恶化和混合变化；
+- 需要进一步诊断的异常频段列表。
+
+#### 给 GLM 的默认摘要
+
+模型默认只收到以下内容：
+
+- 数据范围、采样间隔、trace 名称和采样数；
+- 每条 trace 的关键统计指标；
+- 最严重的若干局部极值；
+- 阈值穿越与连续失败频段；
+- 异常频段的分段最小值、最大值和代表点；
+- before/after 的主要改善区间与恶化区间；
+- 规则 Evaluator 的判定和理由；
+- 可用于深入查询的 `trace_id` 与频段引用。
+
+摘要不使用简单的等间隔抽点，因为它可能漏掉窄带尖峰。降采样必须采用保极值策略：每个频率桶至少保留最小值、最大值及其频点，并保留阈值穿越点和已识别的局部极值。
+
+#### 按需频段查询
+
+文本模型需要查看局部细节时，通过受控工具查询：
+
+```json
+{
+  "tool": "query_sparameter_window",
+  "trace_id": "iteration-2:Sdd11",
+  "frequency_start_ghz": 17.0,
+  "frequency_stop_ghz": 19.5,
+  "max_points": 128,
+  "representation": "extrema_preserving"
+}
+```
+
+工具只能返回：
+
+- 请求频段内的压缩采样；
+- 该频段的完整统计摘要；
+- 局部极值和阈值穿越；
+- 与上一轮相同频段的差异摘要；
+- 指向完整原始 artifact 的引用。
+
+默认限制：
+
+- 单次查询最多返回 128 个采样点；
+- 单轮规划最多进行 4 次频段查询；
+- 查询总结果必须遵守独立的 Evidence token 预算；
+- 超出预算时返回统计摘要，不继续追加采样点；
+- 模型不能请求整个原始 Touchstone 作为文本。
+
+这些限制应可配置，但不得由模型自行提高。
+
+#### 多尺度谱特征
+
+系统为每条 trace 预计算多尺度索引，例如 64、128、256 个频率桶。粗尺度用于判断全局趋势，细尺度用于异常频段。每个桶保存：
+
+- 频率起止；
+- 最小值、最大值和对应频点；
+- 均值和中位数；
+- 首尾值；
+- 阈值穿越数量；
+- 局部极值数量。
+
+多尺度索引是查询加速和上下文压缩结构，不替代原始数据，也不参与最终数值验收。
+
+### 上下文预算
+
+128k 是模型的最大上下文窗口，不是 Evidence 的使用目标。必须为系统提示词、Mission 历史、工程约束、工具结果和模型输出保留空间。
+
+默认预算建议：
+
+- 单次规划的结构化 Evidence 摘要不超过 8k tokens；
+- 按需谱查询累计不超过 8k tokens；
+- Mission 历史使用滚动摘要，只保留最近动作和关键 checkpoint；
+- 原始 S 参数点、完整日志和完整模型事实不进入常规上下文；
+- 达到预算时优先丢弃普通采样点，不能丢弃异常频段、阈值穿越、约束和审批记录。
+
+具体 token 上限由模型配置决定。Context Builder 在发送请求前必须估算体积，并记录实际使用的证据层级与裁剪动作，便于审计模型是否遗漏关键信息。
 
 ### 结构化提取优先级
 
@@ -384,6 +500,7 @@ AEDT 原始结果
 - 结合 stackup、TDR 异常窗口、目标层和历史动作解释可能原因；
 - 从预注册 Action Schema 中选择下一步动作；
 - 比较多个候选动作的风险、成本和约束冲突；
+- 针对摘要中标记的异常频段发起有限的局部谱查询；
 - 生成面向工程师的中文诊断、审批说明和最终报告。
 
 文本模型不能：
@@ -393,6 +510,7 @@ AEDT 原始结果
 - 在没有结构化证据时猜测场热点位置；
 - 生成任意 PyAEDT/PyEDB 修改代码；
 - 在证据不足时强行选择优化动作。
+- 请求将完整 Touchstone 或全量 S 参数数组注入上下文。
 
 ### 可选 VLM Sidecar
 
@@ -641,6 +759,11 @@ Acceptance:
 - Mission completion without any configured VLM;
 - optional VLM failure does not fail the main Mission;
 - inconclusive visual-only evidence enters engineering approval;
+- 0~67 GHz dense S-parameter traces remain outside the model context;
+- extrema-preserving summaries retain narrow-band peaks and threshold crossings;
+- full-resolution Evaluator results match direct calculations from raw traces;
+- frequency-window queries enforce point, call-count, and token budgets;
+- before/after regressions remain visible after spectral summarization;
 - ambiguous port candidate;
 - license retry;
 - solver timeout;
@@ -683,3 +806,5 @@ The architecture migration is successful when:
    the Python runtime architecture.
 7. The BRD Mission can complete its normal build, solve, evaluation, approval,
    and delivery path with a text-only model and no configured VLM.
+8. Dense S-parameter data is evaluated at full resolution while the model
+   receives only a bounded summary and bounded local-window queries.
