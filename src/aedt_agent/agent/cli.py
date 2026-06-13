@@ -32,7 +32,7 @@ def run(argv: Sequence[str] | None = None) -> int:
         "message": RUNTIME_UNAVAILABLE_MESSAGE,
         "status": "runtime_unavailable",
     }
-    print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+    print(json.dumps(payload, ensure_ascii=True, sort_keys=True))
     return 2
 
 
