@@ -28,6 +28,18 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--reference-net", action="append", default=[])
     create.add_argument("--bbox")
     create.add_argument("--artifact-dir")
+    create.add_argument("--adapter-mode", choices=["deterministic", "real_build"], default="deterministic")
+    create.add_argument("--stackup-xml")
+    create.add_argument("--recorded-analysis", type=Path)
+    create.add_argument("--aedt-version", default="2026.1")
+    create.add_argument("--edb-backend", choices=["auto", "grpc", "dotnet"], default="auto")
+    create.add_argument("--cadence-launcher", default="")
+    create.add_argument("--ansysem-root", default="")
+    create.add_argument("--awp-root", default="")
+    mode = create.add_mutually_exclusive_group()
+    mode.add_argument("--graphical", dest="non_graphical", action="store_false")
+    mode.add_argument("--non-graphical", dest="non_graphical", action="store_true")
+    create.set_defaults(non_graphical=False)
 
     run = mission_commands.add_parser("run")
     run.add_argument("--mission-id", required=True)
@@ -61,6 +73,7 @@ def run(argv: Sequence[str] | None = None) -> int:
             from aedt_agent.agent.workers import BRD_LOCAL_CUT_BUILD_CAPABILITY, build_brd_local_cut_job_input
 
             artifact_dir = Path(args.artifact_dir) if args.artifact_dir else args.db.parent / mission.mission_id
+            recorded_layout_settings = _recorded_layout_settings_from_analysis(args.recorded_analysis)
             runtime.create_job(
                 mission.mission_id,
                 BRD_LOCAL_CUT_BUILD_CAPABILITY,
@@ -72,6 +85,17 @@ def run(argv: Sequence[str] | None = None) -> int:
                     local_cut_region=_parse_bbox(args.bbox),
                     artifact_dir=artifact_dir,
                     target_metrics=criteria,
+                    adapter_mode=args.adapter_mode,
+                    stackup_xml=args.stackup_xml,
+                    recorded_layout_settings=recorded_layout_settings,
+                    aedt={
+                        "version": args.aedt_version,
+                        "non_graphical": args.non_graphical,
+                        "edb_backend": args.edb_backend,
+                        "cadence_launcher": args.cadence_launcher,
+                        "ansysem_root": args.ansysem_root,
+                        "awp_root": args.awp_root,
+                    },
                 ),
             )
         _print_json(mission.to_json_dict())
@@ -115,6 +139,26 @@ def run(argv: Sequence[str] | None = None) -> int:
         }
     )
     return 2
+
+
+def _recorded_layout_settings_from_analysis(path: Path | None) -> dict[str, Any]:
+    if path is None:
+        return {}
+    from aedt_agent.layout.recorded_settings import merge_recorded_layout_settings
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise TypeError(f"{path} must contain a JSON object")
+    params: dict[str, Any] = {}
+    merge_recorded_layout_settings(params, data)
+    return {
+        "hfss_extents": dict(params.get("recorded_hfss_extents") or {}),
+        "design_options": dict(params.get("recorded_design_options") or {}),
+        "setup_options": dict(params.get("recorded_setup_options") or {}),
+        "setup_advanced_settings": dict(params.get("recorded_setup_advanced_settings") or {}),
+        "setup_curve_approximation": dict(params.get("recorded_setup_curve_approximation") or {}),
+        "sweep_options": dict(params.get("recorded_sweep_options") or {}),
+    }
 
 
 def _parse_criterion(value: str) -> dict[str, Any]:

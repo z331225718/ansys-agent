@@ -50,3 +50,64 @@ def test_cli_runs_brd_local_cut_mission_to_model_review(tmp_path):
     assert payload["state"] == "evaluating"
     assert payload["jobs"][0]["capability"] == "brd.local_cut.build"
     assert payload["jobs"][0]["output_payload"]["evidence_summary"]["raw_sparameters"] == "artifact_only"
+
+
+def test_cli_create_brd_real_build_payload_with_recorded_analysis(tmp_path):
+    layout_file = tmp_path / "case.brd"
+    layout_file.write_text("brd", encoding="utf-8")
+    stackup = tmp_path / "stackup.xml"
+    stackup.write_text("<stackup />", encoding="utf-8")
+    recorded = tmp_path / "recorded.json"
+    recorded.write_text(
+        json.dumps(
+            {
+                "hfss_extents": {"AirHorExt": {"Ext": "3mm"}},
+                "design_options": {"MeshingMethod": "PhiPlus"},
+                "setup": {"options": {"AdaptiveSettings": {"MaxPasses": 8}}},
+                "sweep": {"options": {"MaxSolutions": 2500, "UseQ3DForDC": True}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    created = _run(
+        tmp_path,
+        "mission",
+        "create",
+        "--goal",
+        "真实 build-only",
+        "--brd-local-cut",
+        "--adapter-mode",
+        "real_build",
+        "--layout-file",
+        str(layout_file),
+        "--stackup-xml",
+        str(stackup),
+        "--signal-net",
+        "56G_TX0_P",
+        "--reference-net",
+        "GND",
+        "--bbox",
+        "mil,1,2,3,4",
+        "--recorded-analysis",
+        str(recorded),
+        "--aedt-version",
+        "2026.1",
+        "--graphical",
+    )
+    mission_id = json.loads(created.stdout)["mission_id"]
+    status = _run(tmp_path, "mission", "status", "--mission-id", mission_id)
+
+    payload = json.loads(status.stdout)["jobs"][0]["input_payload"]
+    assert payload["adapter_mode"] == "real_build"
+    assert payload["stackup_xml"] == str(stackup)
+    assert payload["recorded_layout_settings"]["hfss_extents"]["AirHorExt"]["Ext"] == "3mm"
+    assert payload["recorded_layout_settings"]["sweep_options"]["MaxSolutions"] == 2500
+    assert payload["aedt"] == {
+        "version": "2026.1",
+        "non_graphical": False,
+        "edb_backend": "auto",
+        "cadence_launcher": "",
+        "ansysem_root": "",
+        "awp_root": "",
+    }
