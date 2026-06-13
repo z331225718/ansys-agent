@@ -133,6 +133,7 @@ class FakeHfss3dLayout:
         raise AssertionError("build-only adapter must not solve")
 
     def save_project(self) -> None:
+        Path(self.project_file).write_text("new project", encoding="utf-8")
         self.calls.append(("save_project", self.project_file))
 
     def release_desktop(self, *args, **kwargs) -> None:
@@ -213,7 +214,20 @@ def test_real_build_cleans_old_hfss_project_artifacts_before_run(tmp_path):
     adapter.run(request)
 
     assert not old_result.exists()
-    assert not project_path.exists() or "old project marker" not in project_path.read_text(encoding="utf-8")
+    assert project_path.exists()
+    assert project_path.read_text(encoding="utf-8") == "new project"
+
+
+def test_real_build_uses_stable_source_edb_path_for_repeated_runs(tmp_path):
+    FakeEdb.calls = []
+    FakeHfss3dLayout.calls = []
+    request = _request(tmp_path)
+    adapter = BrdRealBuildAdapter(edb_factory=FakeEdb, hfss3dlayout_factory=FakeHfss3dLayout)
+
+    first = adapter.run(request)
+    second = adapter.run(request)
+
+    assert first.summary["source_edb_path"] == second.summary["source_edb_path"]
 
 
 class FakeHfss3dLayoutWithoutStackupImport(FakeHfss3dLayout):

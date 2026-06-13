@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import shutil
-import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -62,7 +61,10 @@ class BrdRealBuildAdapter:
         polygon = bbox_to_polygon(region)
         request.artifact_dir.mkdir(parents=True, exist_ok=True)
 
-        source_dir = Path(tempfile.mkdtemp(prefix="source_", dir=request.artifact_dir))
+        source_dir = request.artifact_dir / f"{request.layout_file.stem}_source"
+        if source_dir.exists():
+            shutil.rmtree(source_dir)
+        source_dir.mkdir(parents=True)
         source_layout = source_dir / request.layout_file.name
         shutil.copy2(request.layout_file, source_layout)
 
@@ -350,5 +352,5 @@ def _summary(
 def _available_net_names(edb: Any) -> list[str]:
     nets = getattr(getattr(edb, "nets", None), "nets", {})
     if isinstance(nets, dict):
-        return list(nets.keys())
-    return list(nets or [])
+        return sorted(nets.keys())
+    return sorted(nets or [])
