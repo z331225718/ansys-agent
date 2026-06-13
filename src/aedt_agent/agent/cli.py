@@ -22,6 +22,12 @@ def build_parser() -> argparse.ArgumentParser:
     create = mission_commands.add_parser("create")
     create.add_argument("--goal", required=True)
     create.add_argument("--criterion", action="append", default=[])
+    create.add_argument("--brd-local-cut", action="store_true")
+    create.add_argument("--layout-file")
+    create.add_argument("--signal-net", action="append", default=[])
+    create.add_argument("--reference-net", action="append", default=[])
+    create.add_argument("--bbox")
+    create.add_argument("--artifact-dir")
 
     run = mission_commands.add_parser("run")
     run.add_argument("--mission-id", required=True)
@@ -51,13 +57,48 @@ def run(argv: Sequence[str] | None = None) -> int:
     if args.group == "mission" and args.mission_command == "create":
         criteria = [_parse_criterion(value) for value in args.criterion]
         mission = runtime.create_mission(args.goal, criteria, [])
+        if args.brd_local_cut:
+            from aedt_agent.agent.workers import BRD_LOCAL_CUT_BUILD_CAPABILITY, build_brd_local_cut_job_input
+
+            artifact_dir = Path(args.artifact_dir) if args.artifact_dir else args.db.parent / mission.mission_id
+            runtime.create_job(
+                mission.mission_id,
+                BRD_LOCAL_CUT_BUILD_CAPABILITY,
+                "brd-local-cut:0",
+                build_brd_local_cut_job_input(
+                    layout_file=args.layout_file,
+                    signal_nets=args.signal_net,
+                    reference_nets=args.reference_net or ["GND"],
+                    local_cut_region=_parse_bbox(args.bbox),
+                    artifact_dir=artifact_dir,
+                    target_metrics=criteria,
+                ),
+            )
         _print_json(mission.to_json_dict())
         return 0
+
+    if args.group == "mission" and args.mission_command == "run":
+        from aedt_agent.agent.workers import BRD_LOCAL_CUT_BUILD_CAPABILITY, InMemoryWorkerRegistry, run_brd_local_cut_worker
+
+        registry = InMemoryWorkerRegistry()
+        registry.register(BRD_LOCAL_CUT_BUILD_CAPABILITY, run_brd_local_cut_worker)
+        runtime = AgentRuntime(SQLiteMissionStore(args.db), registry=registry)
+        result = runtime.execute_next_job(args.mission_id, worker_id="cli")
+        _print_json(
+            {
+                "job_id": result.job_id,
+                "status": result.status.value,
+                "output_payload": result.output_payload,
+                "artifact_refs": result.artifact_refs,
+            }
+        )
+        return 0 if result.status.value == "succeeded" else 2
 
     if args.group == "mission" and args.mission_command == "status":
         mission = runtime.get_mission(args.mission_id)
         payload: dict[str, Any] = mission.to_json_dict()
         payload["events"] = [event.to_json_dict() for event in runtime.list_events(args.mission_id)]
+        payload["jobs"] = [job.to_json_dict() for job in runtime.list_jobs(args.mission_id)]
         _print_json(payload)
         return 0
 
@@ -89,6 +130,20 @@ def _parse_number(value: str) -> float | str:
         return float(value)
     except ValueError:
         return value
+
+
+def _parse_bbox(value: str | None) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    unit, x_min, y_min, x_max, y_max = [item.strip() for item in value.split(",", 4)]
+    return {
+        "type": "bbox",
+        "unit": unit,
+        "x_min": float(x_min),
+        "y_min": float(y_min),
+        "x_max": float(x_max),
+        "y_max": float(y_max),
+    }
 
 
 def _print_json(payload: dict[str, Any]) -> None:
