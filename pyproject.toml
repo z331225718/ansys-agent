@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "aedt-agent"
 version = "0.1.0"
-description = "Stage A grounding benchmark for AEDT node simulation agent"
+description = "Goal-driven Agent runtime for controlled Ansys AEDT engineering workflows"
 requires-python = ">=3.11"
 dependencies = [
     "PyYAML>=6.0.1",
@@ -20,7 +20,8 @@ mcp = [
 ]
 
 [project.scripts]
-aedt-agent = "aedt_agent.cli:main"
+aedt-agent = "aedt_agent.agent.cli:main"
+aedt-agent-v0 = "aedt_agent.v0.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
