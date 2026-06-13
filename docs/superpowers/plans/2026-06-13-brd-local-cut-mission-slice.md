@@ -53,7 +53,7 @@
 - Create: `src/aedt_agent/agent/workers/brd_local_cut.py`
 - Modify: `src/aedt_agent/agent/workers/__init__.py`
 
-- [ ] **Step 1：编写 Worker 合同测试**
+- [x] **Step 1：编写 Worker 合同测试**
 
 Create `tests/test_agent_brd_local_cut_worker.py`:
 
@@ -133,7 +133,7 @@ def test_ambiguous_port_candidates_request_approval(tmp_path):
     assert [option["id"] for option in result["approval_required"]["options"]] == ["p1", "p2"]
 ```
 
-- [ ] **Step 2：运行测试确认失败**
+- [x] **Step 2：运行测试确认失败**
 
 Run:
 
@@ -143,7 +143,7 @@ Run:
 
 Expected: FAIL，原因是 BRD worker 尚未存在。
 
-- [ ] **Step 3：实现 Worker**
+- [x] **Step 3：实现 Worker**
 
 Create `src/aedt_agent/agent/workers/brd_local_cut.py`:
 
@@ -289,7 +289,7 @@ from aedt_agent.agent.workers.brd_local_cut import (
 
 and include the names in `__all__`.
 
-- [ ] **Step 4：运行 Worker 测试**
+- [x] **Step 4：运行 Worker 测试**
 
 Run:
 
@@ -299,7 +299,7 @@ Run:
 
 Expected: PASS。
 
-- [ ] **Step 5：提交 Worker**
+- [x] **Step 5：提交 Worker**
 
 ```powershell
 git add src/aedt_agent/agent/workers/brd_local_cut.py src/aedt_agent/agent/workers/__init__.py tests/test_agent_brd_local_cut_worker.py
@@ -315,7 +315,7 @@ git commit -m "feat: add brd local cut mission worker"
 - Modify: `src/aedt_agent/agent/orchestrator/runtime.py`
 - Modify: `src/aedt_agent/agent/workers/brd_local_cut.py`
 
-- [ ] **Step 1：编写 Runtime 垂直切片测试**
+- [x] **Step 1：编写 Runtime 垂直切片测试**
 
 Create `tests/test_agent_brd_mission_runtime.py`:
 
@@ -390,7 +390,7 @@ def test_ambiguous_ports_move_mission_to_approval_and_resume_without_duplicate_j
     assert len(runtime.list_jobs(mission.mission_id)) == 1
 ```
 
-- [ ] **Step 2：运行测试确认失败**
+- [x] **Step 2：运行测试确认失败**
 
 Run:
 
@@ -400,7 +400,7 @@ Run:
 
 Expected: FAIL，原因是 Runtime 尚未处理 `approval_required`，也不会更新 Mission state。
 
-- [ ] **Step 3：扩展 Runtime**
+- [x] **Step 3：扩展 Runtime**
 
 Modify `AgentRuntime.execute_next_job`:
 
@@ -423,7 +423,7 @@ Modify `AgentRuntime.execute_next_job`:
 
 Also import `MissionState`.
 
-- [ ] **Step 4：运行 Runtime 垂直测试**
+- [x] **Step 4：运行 Runtime 垂直测试**
 
 Run:
 
@@ -433,7 +433,7 @@ Run:
 
 Expected: PASS。
 
-- [ ] **Step 5：提交 Runtime approval path**
+- [x] **Step 5：提交 Runtime approval path**
 
 ```powershell
 git add src/aedt_agent/agent/orchestrator/runtime.py tests/test_agent_brd_mission_runtime.py
@@ -448,7 +448,7 @@ git commit -m "feat: route brd mission approvals through runtime"
 - Create: `tests/test_agent_cli_brd_mission.py`
 - Modify: `src/aedt_agent/agent/cli.py`
 
-- [ ] **Step 1：编写 CLI 垂直切片测试**
+- [x] **Step 1：编写 CLI 垂直切片测试**
 
 Create `tests/test_agent_cli_brd_mission.py`:
 
@@ -507,7 +507,7 @@ def test_cli_runs_brd_local_cut_mission_to_model_review(tmp_path):
     assert payload["jobs"][0]["output_payload"]["evidence_summary"]["raw_sparameters"] == "artifact_only"
 ```
 
-- [ ] **Step 2：运行测试确认失败**
+- [x] **Step 2：运行测试确认失败**
 
 Run:
 
@@ -517,7 +517,7 @@ Run:
 
 Expected: FAIL，原因是 CLI 尚不支持 BRD 参数和 run。
 
-- [ ] **Step 3：实现 CLI BRD 参数和 run**
+- [x] **Step 3：实现 CLI BRD 参数和 run**
 
 Modify `src/aedt_agent/agent/cli.py`:
 
@@ -588,7 +588,7 @@ def _parse_bbox(value: str | None) -> dict[str, Any] | None:
     return {"type": "bbox", "unit": unit, "x_min": float(x_min), "y_min": float(y_min), "x_max": float(x_max), "y_max": float(y_max)}
 ```
 
-- [ ] **Step 4：运行 CLI 垂直测试**
+- [x] **Step 4：运行 CLI 垂直测试**
 
 Run:
 
@@ -598,7 +598,7 @@ Run:
 
 Expected: PASS。
 
-- [ ] **Step 5：提交 CLI BRD slice**
+- [x] **Step 5：提交 CLI BRD slice**
 
 ```powershell
 git add src/aedt_agent/agent/cli.py tests/test_agent_cli_brd_mission.py
@@ -612,7 +612,7 @@ git commit -m "feat: run brd local cut missions from cli"
 **Files:**
 - Modify only if verification finds Phase 3 defects.
 
-- [ ] **Step 1：运行 Phase 3 测试**
+- [x] **Step 1：运行 Phase 3 测试**
 
 Run:
 
@@ -628,7 +628,7 @@ Run:
 
 Expected: PASS。
 
-- [ ] **Step 2：检查新 Agent 不依赖 v0**
+- [x] **Step 2：检查新 Agent 不依赖 v0**
 
 Run:
 
@@ -638,7 +638,7 @@ rg -n "aedt_agent\.v0|aedt_agent\.demo|aedt_agent\.benchmark|aedt_agent\.chat|ae
 
 Expected: 无输出。
 
-- [ ] **Step 3：CLI smoke**
+- [x] **Step 3：CLI smoke**
 
 Run:
 
@@ -655,7 +655,7 @@ $missionId = ($created | ConvertFrom-Json).mission_id
 
 Expected: run 输出 `status=succeeded`；status 输出 `state=evaluating`，jobs 中有 `brd.local_cut.build`，artifact refs 指向 `brd_local_cut_summary.json` 与 `workflow_run.json`。
 
-- [ ] **Step 4：运行 Runtime + 迁移重点测试**
+- [x] **Step 4：运行 Runtime + 迁移重点测试**
 
 Run:
 
@@ -675,7 +675,7 @@ Run:
 
 Expected: PASS。
 
-- [ ] **Step 5：运行全量测试**
+- [x] **Step 5：运行全量测试**
 
 Run:
 
@@ -685,7 +685,7 @@ Run:
 
 Expected: 失败集合不得超过已登记 9 个基线失败。
 
-- [ ] **Step 6：检查 Git 变更范围**
+- [x] **Step 6：检查 Git 变更范围**
 
 Run:
 
