@@ -135,7 +135,7 @@ def test_run_offline_benchmark_reports_progress(tmp_path):
 
 
 def test_cli_run_benchmark_with_config(tmp_path, monkeypatch):
-    from aedt_agent import cli
+    from aedt_agent.v0 import cli
 
     generated_dir = tmp_path / "generated"
     report_path = tmp_path / "report.json"
@@ -162,7 +162,7 @@ def test_cli_run_benchmark_with_config(tmp_path, monkeypatch):
 
     monkeypatch.setattr(
         "sys.argv",
-        ["aedt-agent", "run-benchmark", "--config", str(config_path), "--generate"],
+        ["aedt-agent-v0", "run-benchmark", "--config", str(config_path), "--generate"],
     )
 
     cli.main()
