@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -215,6 +216,14 @@ class SQLiteMissionStore:
             rows = db.execute("SELECT * FROM jobs WHERE mission_id = ? ORDER BY created_at, job_id", (mission_id,)).fetchall()
         return [_job_from_row(row) for row in rows]
 
+    def next_queued_job(self, mission_id: str) -> JobRecord | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM jobs WHERE mission_id = ? AND status = ? ORDER BY created_at, job_id LIMIT 1",
+                (mission_id, JobStatus.QUEUED.value),
+            ).fetchone()
+        return None if row is None else _job_from_row(row)
+
     def complete_job(self, job_id: str, output_payload: dict, artifact_refs: list[str]) -> JobRecord:
         job = self.get_job(job_id)
         now = utc_now_iso()
@@ -240,6 +249,69 @@ class SQLiteMissionStore:
             )
             self._append_event_in_tx(db, job.mission_id, EventType.JOB_FAILED, {"job_id": job_id, "error": error.to_json_dict()})
         return self.get_job(job_id)
+
+    def acquire_job_lease(
+        self,
+        job_id: str,
+        worker_id: str,
+        lease_seconds: int,
+        now: datetime | None = None,
+    ) -> WorkerLease:
+        job = self.get_job(job_id)
+        current = now or datetime.now(UTC)
+        lease = WorkerLease(
+            lease_id=str(uuid4()),
+            job_id=job_id,
+            worker_id=worker_id,
+            acquired_at=current.isoformat(),
+            expires_at=(current + timedelta(seconds=lease_seconds)).isoformat(),
+            released_at=None,
+        )
+        with self._connect() as db:
+            db.execute(
+                "UPDATE jobs SET status = ?, updated_at = ? WHERE job_id = ?",
+                (JobStatus.LEASED.value, utc_now_iso(), job_id),
+            )
+            db.execute(
+                "INSERT INTO worker_leases VALUES (?, ?, ?, ?, ?, ?)",
+                (lease.lease_id, lease.job_id, lease.worker_id, lease.acquired_at, lease.expires_at, lease.released_at),
+            )
+            self._append_event_in_tx(db, job.mission_id, EventType.JOB_LEASED, {"job_id": job_id, "worker_id": worker_id})
+        return lease
+
+    def release_job_lease(self, lease_id: str) -> WorkerLease:
+        now = utc_now_iso()
+        with self._connect() as db:
+            db.execute("UPDATE worker_leases SET released_at = ? WHERE lease_id = ?", (now, lease_id))
+            row = db.execute("SELECT * FROM worker_leases WHERE lease_id = ?", (lease_id,)).fetchone()
+        if row is None:
+            raise KeyError(f"lease not found: {lease_id}")
+        return _lease_from_row(row)
+
+    def recover_expired_leases(self, now: datetime) -> list[str]:
+        with self._connect() as db:
+            rows = db.execute(
+                """
+                SELECT worker_leases.*
+                FROM worker_leases
+                JOIN jobs ON jobs.job_id = worker_leases.job_id
+                WHERE worker_leases.released_at IS NULL
+                  AND worker_leases.expires_at < ?
+                  AND jobs.status = ?
+                """,
+                (now.isoformat(), JobStatus.LEASED.value),
+            ).fetchall()
+            job_ids = [row["job_id"] for row in rows]
+            for job_id in job_ids:
+                db.execute(
+                    "UPDATE jobs SET status = ?, updated_at = ? WHERE job_id = ?",
+                    (JobStatus.QUEUED.value, utc_now_iso(), job_id),
+                )
+            db.executemany(
+                "UPDATE worker_leases SET released_at = ? WHERE lease_id = ?",
+                [(now.isoformat(), row["lease_id"]) for row in rows],
+            )
+        return job_ids
 
     def create_checkpoint(self, mission_id: str, job_id: str, artifact_refs: list[str], payload: dict) -> CheckpointRecord:
         checkpoint = CheckpointRecord(str(uuid4()), mission_id, job_id, utc_now_iso(), artifact_refs, payload)
@@ -402,4 +474,15 @@ def _approval_from_row(row: sqlite3.Row) -> ApprovalRequest:
         resolved_at=row["resolved_at"],
         selected_option_id=row["selected_option_id"],
         comment=row["comment"],
+    )
+
+
+def _lease_from_row(row: sqlite3.Row) -> WorkerLease:
+    return WorkerLease(
+        lease_id=row["lease_id"],
+        job_id=row["job_id"],
+        worker_id=row["worker_id"],
+        acquired_at=row["acquired_at"],
+        expires_at=row["expires_at"],
+        released_at=row["released_at"],
     )
