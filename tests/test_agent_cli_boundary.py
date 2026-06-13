@@ -15,23 +15,18 @@ def test_pyproject_exposes_new_and_v0_console_scripts():
     assert project["project"]["scripts"]["aedt-agent-v0"] == "aedt_agent.v0.cli:main"
 
 
-def test_new_cli_exposes_mission_command_surface(capsys):
+def test_new_cli_exposes_mission_command_surface(tmp_path, capsys):
     from aedt_agent.agent.cli import run
 
-    exit_code = run(["mission", "status", "--mission-id", "mission-test"])
+    exit_code = run(["--db", str(tmp_path / "mission.db"), "mission", "create", "--goal", "mission-test"])
 
-    output = capsys.readouterr().out
-    payload = json.loads(output)
-    assert exit_code == 2
-    assert payload == {
-        "command": "mission.status",
-        "message": "Mission Runtime 尚未安装；当前版本只完成 Agent-First 架构迁移。",
-        "status": "runtime_unavailable",
-    }
-    assert "\\u" in output
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["state"] == "created"
+    assert payload["user_goal"] == "mission-test"
 
 
-def test_root_cli_module_executes_agent_cli():
+def test_root_cli_module_executes_agent_cli(tmp_path):
     env = os.environ.copy()
     env["PYTHONPATH"] = str(Path("src").resolve())
     result = subprocess.run(
@@ -39,9 +34,11 @@ def test_root_cli_module_executes_agent_cli():
             sys.executable,
             "-m",
             "aedt_agent.cli",
+            "--db",
+            str(tmp_path / "mission.db"),
             "mission",
-            "status",
-            "--mission-id",
+            "create",
+            "--goal",
             "mission-test",
         ],
         check=False,
@@ -51,13 +48,9 @@ def test_root_cli_module_executes_agent_cli():
         capture_output=True,
     )
 
-    assert result.returncode == 2
+    assert result.returncode == 0
     assert result.stderr == ""
-    assert json.loads(result.stdout) == {
-        "command": "mission.status",
-        "message": "Mission Runtime 尚未安装；当前版本只完成 Agent-First 架构迁移。",
-        "status": "runtime_unavailable",
-    }
+    assert json.loads(result.stdout)["state"] == "created"
 
 
 def test_root_cli_module_points_to_new_agent_cli():
