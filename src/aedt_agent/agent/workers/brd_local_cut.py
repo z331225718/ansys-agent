@@ -23,8 +23,15 @@ def build_brd_local_cut_job_input(
     target_metrics: list[dict[str, Any]] | None = None,
     port_candidates: dict[str, Any] | None = None,
     approved_port_selection: dict[str, Any] | None = None,
+    adapter_mode: str = "deterministic",
+    stackup_xml: str | Path | None = None,
+    recorded_layout_settings: dict[str, Any] | None = None,
+    uniform_line_port_hint: dict[str, Any] | None = None,
+    aedt: dict[str, Any] | None = None,
+    solve_enabled: bool = False,
 ) -> dict[str, Any]:
     return {
+        "adapter_mode": adapter_mode,
         "layout_file": str(layout_file),
         "signal_nets": list(signal_nets),
         "reference_nets": list(reference_nets),
@@ -33,18 +40,32 @@ def build_brd_local_cut_job_input(
         "target_metrics": list(target_metrics or []),
         "port_candidates": port_candidates or {"status": "ready", "recommended_endpoints": []},
         "approved_port_selection": approved_port_selection or {},
+        "stackup_xml": str(stackup_xml) if stackup_xml else "",
+        "recorded_layout_settings": dict(recorded_layout_settings or {}),
+        "uniform_line_port_hint": dict(uniform_line_port_hint or {}),
+        "aedt": dict(aedt or {}),
+        "solve_enabled": bool(solve_enabled),
     }
 
 
-def run_brd_local_cut_worker(job: JobRecord, context: WorkerContext) -> dict[str, Any]:
+def run_brd_local_cut_worker(
+    job: JobRecord,
+    context: WorkerContext,
+    *,
+    real_build_adapter: Any | None = None,
+) -> dict[str, Any]:
     payload = dict(job.input_payload)
     region = parse_local_cut_region(payload.get("local_cut_region"))
     artifact_dir = Path(str(payload["artifact_dir"]))
     artifact_dir.mkdir(parents=True, exist_ok=True)
-    port_candidates = dict(payload.get("port_candidates") or {})
-    approval_required = _approval_required(port_candidates)
+    if payload.get("adapter_mode", "deterministic") == "real_build":
+        summary = _real_build_summary(payload, region, real_build_adapter)
+        approval_required = _approval_required(dict(summary.get("port_candidates") or {}))
+    else:
+        port_candidates = dict(payload.get("port_candidates") or {})
+        approval_required = _approval_required(port_candidates)
+        summary = _summary_payload(job, context, payload, region, approval_required)
 
-    summary = _summary_payload(job, context, payload, region, approval_required)
     summary_path = artifact_dir / "brd_local_cut_summary.json"
     workflow_path = artifact_dir / "workflow_run.json"
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -67,6 +88,37 @@ def _approval_required(port_candidates: dict[str, Any]) -> dict[str, Any] | None
         return None
     options = list(port_candidates.get("candidates") or port_candidates.get("recommended_endpoints") or [])
     return {"reason": "port_candidates_ambiguous", "options": options}
+
+
+def _real_build_summary(payload: dict[str, Any], region: dict[str, Any], adapter: Any | None) -> dict[str, Any]:
+    from aedt_agent.infrastructure import BrdRealBuildAdapter, BrdRealBuildRequest, RealAedtEnvironment
+
+    if payload.get("solve_enabled"):
+        raise ValueError("solve_enabled is not supported by brd.local_cut.build real_build")
+    aedt = dict(payload.get("aedt") or {})
+    request = BrdRealBuildRequest(
+        layout_file=Path(str(payload["layout_file"])),
+        artifact_dir=Path(str(payload["artifact_dir"])),
+        signal_nets=list(payload.get("signal_nets") or []),
+        reference_nets=list(payload.get("reference_nets") or []),
+        local_cut_region=region,
+        stackup_xml=Path(str(payload["stackup_xml"])) if payload.get("stackup_xml") else None,
+        recorded_layout_settings=dict(payload.get("recorded_layout_settings") or {}),
+        uniform_line_port_hint=dict(payload.get("uniform_line_port_hint") or {}),
+        target_metrics=list(payload.get("target_metrics") or []),
+        approved_port_selection=dict(payload.get("approved_port_selection") or {}),
+        solve_enabled=False,
+        environment=RealAedtEnvironment(
+            version=str(aedt.get("version") or "2026.1"),
+            non_graphical=bool(aedt.get("non_graphical", False)),
+            edb_backend=str(aedt.get("edb_backend") or "auto"),
+            cadence_launcher=str(aedt.get("cadence_launcher") or ""),
+            ansysem_root=str(aedt.get("ansysem_root") or ""),
+            awp_root=str(aedt.get("awp_root") or ""),
+        ),
+    )
+    runner = adapter or BrdRealBuildAdapter()
+    return dict(runner.run(request).summary)
 
 
 def _summary_payload(
@@ -113,15 +165,19 @@ def _steps(status: str) -> list[dict[str, Any]]:
 def _bounded_evidence_summary(summary: dict[str, Any]) -> dict[str, Any]:
     return {
         "status": summary["status"],
+        "adapter": summary.get("adapter", ""),
         "layout_file": summary["layout_file"],
         "signal_nets": summary["signal_nets"],
         "reference_nets": summary["reference_nets"],
         "local_cut_region": summary["local_cut_region"],
         "port_candidate_status": summary.get("port_candidates", {}).get("status", "unknown"),
+        "port_execution_status": summary.get("port_execution", {}).get("status", "unknown"),
+        "setup_name": summary.get("layout_setup", {}).get("setup_name", ""),
         "target_metrics": summary["target_metrics"],
+        "edb_path": summary.get("edb_path", ""),
         "aedt_project": summary["aedt_project"],
-        "touchstone": summary["touchstone"],
-        "tdr": summary["tdr"],
+        "touchstone": summary.get("touchstone", ""),
+        "tdr": summary.get("tdr", ""),
         "raw_sparameters": "artifact_only",
         "raw_tdr": "artifact_only",
     }

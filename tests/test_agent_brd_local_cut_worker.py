@@ -72,3 +72,62 @@ def test_ambiguous_port_candidates_request_approval(tmp_path):
     assert result["status"] == "waiting_approval"
     assert result["approval_required"]["reason"] == "port_candidates_ambiguous"
     assert [option["id"] for option in result["approval_required"]["options"]] == ["p1", "p2"]
+
+
+class FakeRealBuildAdapter:
+    def __init__(self) -> None:
+        self.requests = []
+
+    def run(self, request):
+        self.requests.append(request)
+        return type(
+            "Result",
+            (),
+            {
+                "summary": {
+                    "status": "succeeded",
+                    "adapter": "real_pyedb_hfss3dlayout_build_only",
+                    "layout_file": str(request.layout_file),
+                    "signal_nets": request.signal_nets,
+                    "reference_nets": request.reference_nets,
+                    "local_cut_region": request.local_cut_region,
+                    "local_cut_polygon": {"type": "polygon", "unit": "mil", "points": [[1.0, 2.0]]},
+                    "port_candidates": {"status": "ready", "candidate_count": 1},
+                    "port_execution": {"status": "skipped"},
+                    "layout_setup": {"setup_name": "Setup1", "sweep_name": "Sweep1"},
+                    "layout_solve": {"status": "skipped", "reason": "model_review_only"},
+                    "layout_reports": {},
+                    "recorded_layout_settings": {},
+                    "edb_path": str(request.artifact_dir / "case_cutout.aedb"),
+                    "aedt_project": str(request.artifact_dir / "case_cutout_hfss.aedt"),
+                    "target_metrics": request.target_metrics,
+                    "steps": [],
+                }
+            },
+        )()
+
+
+def test_brd_local_cut_worker_can_use_real_build_adapter(tmp_path):
+    fake_adapter = FakeRealBuildAdapter()
+    job = _job(
+        tmp_path,
+        adapter_mode="real_build",
+        recorded_layout_settings={"sweep_options": {"MaxSolutions": 2500}},
+        aedt={"version": "2026.1", "non_graphical": False, "edb_backend": "auto"},
+    )
+
+    result = run_brd_local_cut_worker(job, WorkerContext("worker-1"), real_build_adapter=fake_adapter)
+
+    summary = json.loads(Path(result["summary_path"]).read_text(encoding="utf-8"))
+    assert result["status"] == "model_review"
+    assert summary["adapter"] == "real_pyedb_hfss3dlayout_build_only"
+    assert summary["layout_solve"]["status"] == "skipped"
+    assert result["evidence_summary"]["raw_sparameters"] == "artifact_only"
+    assert fake_adapter.requests[0].environment.version == "2026.1"
+
+
+def test_brd_local_cut_worker_rejects_real_build_solve_enabled(tmp_path):
+    job = _job(tmp_path, adapter_mode="real_build", solve_enabled=True)
+
+    with pytest.raises(ValueError, match="solve_enabled"):
+        run_brd_local_cut_worker(job, WorkerContext("worker-1"), real_build_adapter=FakeRealBuildAdapter())
