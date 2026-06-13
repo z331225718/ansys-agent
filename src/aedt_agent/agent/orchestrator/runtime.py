@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from aedt_agent.agent.mission import EngineeringConstraint, EventRecord, JobRecord, JobStatus, MissionRecord
+from aedt_agent.agent.mission import EngineeringConstraint, EventRecord, JobRecord, JobStatus, MissionRecord, MissionState
 from aedt_agent.agent.workers import InMemoryWorkerRegistry, WorkerContext, WorkerExecutionResult
 
 
@@ -59,6 +59,17 @@ class AgentRuntime:
         if result.status == JobStatus.SUCCEEDED:
             self.store.complete_job(job.job_id, result.output_payload, result.artifact_refs)
             self.store.create_checkpoint(mission_id, job.job_id, result.artifact_refs, {"output": result.output_payload})
+            approval_required = result.output_payload.get("approval_required")
+            if isinstance(approval_required, dict):
+                from aedt_agent.agent.approvals import ApprovalService
+
+                ApprovalService(self.store).request_approval(
+                    mission_id,
+                    str(approval_required.get("reason") or "approval_required"),
+                    list(approval_required.get("options") or []),
+                )
+            else:
+                self.store.update_mission_state(mission_id, MissionState.EVALUATING)
         else:
             assert result.error is not None
             self.store.fail_job(job.job_id, result.error)
