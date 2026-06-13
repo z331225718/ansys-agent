@@ -4,8 +4,6 @@ import json
 import tomllib
 from pathlib import Path
 
-from aedt_agent.agent.cli import run
-
 
 def test_pyproject_exposes_new_and_v0_console_scripts():
     project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
@@ -15,6 +13,8 @@ def test_pyproject_exposes_new_and_v0_console_scripts():
 
 
 def test_new_cli_exposes_mission_command_surface(capsys):
+    from aedt_agent.agent.cli import run
+
     exit_code = run(["mission", "status", "--mission-id", "mission-test"])
 
     payload = json.loads(capsys.readouterr().out)
