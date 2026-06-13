@@ -68,7 +68,9 @@ class BrdRealBuildAdapter:
 
         cutout_aedb = request.artifact_dir / f"{request.layout_file.stem}_cutout.aedb"
         hfss_aedb = request.artifact_dir / f"{request.layout_file.stem}_cutout_hfss.aedb"
-        for path in (cutout_aedb, hfss_aedb):
+        project_path = request.artifact_dir / f"{request.layout_file.stem}_cutout_hfss.aedt"
+        results_dir = Path(str(project_path) + "results")
+        for path in (cutout_aedb, hfss_aedb, project_path, results_dir):
             if path.is_dir():
                 shutil.rmtree(path)
             elif path.exists():
@@ -77,12 +79,14 @@ class BrdRealBuildAdapter:
         selected_signal_nets: list[str] = []
         selected_reference_nets: list[str] = []
         cutout_extent_points: Any = polygon["points"]
+        source_edb_path = str(source_layout)
         edb = self._edb_class()(
             edbpath=str(source_layout),
             version=request.environment.version,
             grpc=_grpc_mode(request.environment.edb_backend),
         )
         try:
+            source_edb_path = str(getattr(edb, "edbpath", source_layout))
             available_nets = _available_net_names(edb)
             selected_signal_nets = expand_net_patterns(request.signal_nets, available_nets, fuzzy=True)
             selected_reference_nets = expand_net_patterns(request.reference_nets, available_nets)
@@ -121,7 +125,7 @@ class BrdRealBuildAdapter:
             version=request.environment.version,
             non_graphical=request.environment.non_graphical,
             new_desktop=True,
-            close_on_exit=True,
+            close_on_exit=request.environment.non_graphical,
         )
         try:
             stackup_imported = _import_stackup(app, request.stackup_xml)
@@ -133,11 +137,14 @@ class BrdRealBuildAdapter:
         finally:
             release = getattr(app, "release_desktop", None)
             if callable(release):
-                release(close_projects=True, close_desktop=True)
+                release(
+                    close_projects=request.environment.non_graphical,
+                    close_desktop=request.environment.non_graphical,
+                )
 
         summary = _summary(
             request=request,
-            source_layout=source_layout,
+            source_edb_path=source_edb_path,
             cutout_aedb=cutout_aedb,
             hfss_aedb=hfss_aedb,
             aedt_project=aedt_project,
@@ -193,9 +200,10 @@ def _import_stackup(app: Any, stackup_xml: Path | None) -> bool:
     if stackup_xml is None:
         return False
     editor = getattr(getattr(app, "modeler", None), "oeditor", None)
-    if editor is None or not hasattr(editor, "ImportStackupXML"):
-        return False
-    editor.ImportStackupXML(str(stackup_xml))
+    import_stackup = getattr(editor, "ImportStackupXML", None)
+    if not callable(import_stackup):
+        raise RuntimeError("HFSS editor does not support ImportStackupXML")
+    import_stackup(str(stackup_xml))
     return True
 
 
@@ -292,7 +300,7 @@ def _close_edb(edb: Any) -> None:
 def _summary(
     *,
     request: BrdRealBuildRequest,
-    source_layout: Path,
+    source_edb_path: str,
     cutout_aedb: Path,
     hfss_aedb: Path,
     aedt_project: str,
@@ -309,7 +317,7 @@ def _summary(
         "status": "succeeded",
         "adapter": "real_pyedb_hfss3dlayout_build_only",
         "layout_file": str(request.layout_file),
-        "source_edb_path": str(source_layout),
+        "source_edb_path": source_edb_path,
         "edb_path": str(cutout_aedb),
         "hfss_aedb_path": str(hfss_aedb),
         "aedt_project": aedt_project,
@@ -321,7 +329,7 @@ def _summary(
             "path": str(request.stackup_xml) if request.stackup_xml is not None else "",
             "imported": stackup_imported,
         },
-        "cutout_extent_points": cutout_extent_points,
+        "cutout_extent_points": len(cutout_extent_points) if cutout_extent_points else 0,
         "port_candidates": {"status": "not_evaluated", "candidate_count": 0},
         "port_execution": {"status": "skipped", "created_ports": [], "deferred_actions": [], "failed_actions": []},
         "layout_setup": layout_setup,

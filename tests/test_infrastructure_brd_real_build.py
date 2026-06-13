@@ -55,7 +55,7 @@ class FakeEdb:
     calls: list[tuple[str, dict]] = []
 
     def __init__(self, *, edbpath: str, version: str, grpc: bool | None) -> None:
-        self.edbpath = edbpath
+        self.edbpath = f"fake-edb://{edbpath}"
         self.version = version
         self.grpc = grpc
         self.nets = FakeNets()
@@ -105,6 +105,18 @@ class FakeHfss3dLayout:
     calls: list[tuple[str, object]] = []
 
     def __init__(self, *, project: str, version: str, non_graphical: bool, new_desktop: bool, close_on_exit: bool) -> None:
+        self.calls.append(
+            (
+                "init",
+                {
+                    "project": project,
+                    "version": version,
+                    "non_graphical": non_graphical,
+                    "new_desktop": new_desktop,
+                    "close_on_exit": close_on_exit,
+                },
+            )
+        )
         self.project_file = str(Path(project).with_suffix(".aedt"))
         self.modeler = type("Modeler", (), {"oeditor": FakeEditor(self.calls)})()
         self.odesign = FakeDesign(self.calls)
@@ -153,7 +165,13 @@ def test_real_build_uses_pyedb_cutout_polygon_and_saves_hfss_project(tmp_path):
     assert cutout_kwargs["custom_extent"][0] == [1.0, 2.0]
     assert cutout_kwargs["signal_nets"] == ["56G_TX0_P", "56G_TX0_N"]
     assert cutout_kwargs["reference_nets"] == ["GND"]
+    assert result.summary["source_edb_path"].startswith("fake-edb://")
+    assert result.summary["source_edb_path"].endswith("case.brd")
+    assert result.summary["cutout_extent_points"] == 5
     assert result.summary["layout_solve"] == {"status": "skipped", "reason": "model_review_only"}
+    init_call = dict(FakeHfss3dLayout.calls[0][1])
+    assert init_call["close_on_exit"] is False
+    assert init_call["non_graphical"] is False
     call_names = [name for name, _ in FakeHfss3dLayout.calls]
     assert "ImportStackupXML" in call_names
     assert "EditHfssExtents" in call_names
@@ -161,3 +179,62 @@ def test_real_build_uses_pyedb_cutout_polygon_and_saves_hfss_project(tmp_path):
     assert "create_setup" in call_names
     assert "create_linear_count_sweep" in call_names
     assert "save_project" in call_names
+    release_call = [value for name, value in FakeHfss3dLayout.calls if name == "release_desktop"][-1]
+    assert release_call == {"close_projects": False, "close_desktop": False}
+
+
+def test_real_build_closes_desktop_for_non_graphical_environment(tmp_path):
+    FakeEdb.calls = []
+    FakeHfss3dLayout.calls = []
+    request = _request(tmp_path, environment=RealAedtEnvironment(version="2026.1", non_graphical=True))
+    adapter = BrdRealBuildAdapter(edb_factory=FakeEdb, hfss3dlayout_factory=FakeHfss3dLayout)
+
+    adapter.run(request)
+
+    init_call = dict(FakeHfss3dLayout.calls[0][1])
+    assert init_call["close_on_exit"] is True
+    release_call = [value for name, value in FakeHfss3dLayout.calls if name == "release_desktop"][-1]
+    assert release_call == {"close_projects": True, "close_desktop": True}
+
+
+def test_real_build_cleans_old_hfss_project_artifacts_before_run(tmp_path):
+    FakeEdb.calls = []
+    FakeHfss3dLayout.calls = []
+    request = _request(tmp_path)
+    project_path = request.artifact_dir / "case_cutout_hfss.aedt"
+    results_dir = Path(str(project_path) + "results")
+    project_path.parent.mkdir(parents=True)
+    project_path.write_text("old project marker", encoding="utf-8")
+    results_dir.mkdir()
+    old_result = results_dir / "old.txt"
+    old_result.write_text("old result marker", encoding="utf-8")
+    adapter = BrdRealBuildAdapter(edb_factory=FakeEdb, hfss3dlayout_factory=FakeHfss3dLayout)
+
+    adapter.run(request)
+
+    assert not old_result.exists()
+    assert not project_path.exists() or "old project marker" not in project_path.read_text(encoding="utf-8")
+
+
+class FakeHfss3dLayoutWithoutStackupImport(FakeHfss3dLayout):
+    def __init__(self, *, project: str, version: str, non_graphical: bool, new_desktop: bool, close_on_exit: bool) -> None:
+        super().__init__(
+            project=project,
+            version=version,
+            non_graphical=non_graphical,
+            new_desktop=new_desktop,
+            close_on_exit=close_on_exit,
+        )
+        self.modeler = type("Modeler", (), {"oeditor": object()})()
+
+
+def test_real_build_fails_when_explicit_stackup_cannot_be_imported(tmp_path):
+    FakeEdb.calls = []
+    FakeHfss3dLayoutWithoutStackupImport.calls = []
+    stackup = tmp_path / "stackup.xml"
+    stackup.write_text("<stackup />", encoding="utf-8")
+    request = _request(tmp_path, stackup_xml=stackup)
+    adapter = BrdRealBuildAdapter(edb_factory=FakeEdb, hfss3dlayout_factory=FakeHfss3dLayoutWithoutStackupImport)
+
+    with pytest.raises(RuntimeError, match="HFSS editor does not support ImportStackupXML"):
+        adapter.run(request)
