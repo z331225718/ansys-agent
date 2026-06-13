@@ -44,3 +44,120 @@ def test_real_build_request_accepts_graphical_environment(tmp_path):
 
     assert request.environment.version == "2026.1"
     assert request.environment.non_graphical is False
+
+
+class FakeNets:
+    def __init__(self) -> None:
+        self.nets = {"56G_TX0_P": object(), "56G_TX0_N": object(), "GND": object()}
+
+
+class FakeEdb:
+    calls: list[tuple[str, dict]] = []
+
+    def __init__(self, *, edbpath: str, version: str, grpc: bool | None) -> None:
+        self.edbpath = edbpath
+        self.version = version
+        self.grpc = grpc
+        self.nets = FakeNets()
+
+    def cutout(self, **kwargs):
+        FakeEdb.calls.append(("cutout", kwargs))
+        Path(kwargs["output_aedb_path"]).mkdir(parents=True)
+        return kwargs["custom_extent"]
+
+    def save(self) -> None:
+        FakeEdb.calls.append(("save", {}))
+
+    def close(self) -> None:
+        FakeEdb.calls.append(("close", {}))
+
+
+class FakeEditor:
+    def __init__(self, calls: list[tuple[str, object]]) -> None:
+        self.calls = calls
+
+    def ImportStackupXML(self, path: str) -> None:
+        self.calls.append(("ImportStackupXML", path))
+
+
+class FakeDesign:
+    def __init__(self, calls: list[tuple[str, object]]) -> None:
+        self.calls = calls
+
+    def EditHfssExtents(self, values: list[object]) -> None:
+        self.calls.append(("EditHfssExtents", values))
+
+    def DesignOptions(self, values: list[object], flags: int) -> None:
+        self.calls.append(("DesignOptions", {"values": values, "flags": flags}))
+
+
+class FakeSweep:
+    def __init__(self, calls: list[tuple[str, object]]) -> None:
+        self.props = {}
+        self.calls = calls
+        self.name = "Sweep1"
+
+    def update(self) -> None:
+        self.calls.append(("sweep_update", dict(self.props)))
+
+
+class FakeHfss3dLayout:
+    calls: list[tuple[str, object]] = []
+
+    def __init__(self, *, project: str, version: str, non_graphical: bool, new_desktop: bool, close_on_exit: bool) -> None:
+        self.project_file = str(Path(project).with_suffix(".aedt"))
+        self.modeler = type("Modeler", (), {"oeditor": FakeEditor(self.calls)})()
+        self.odesign = FakeDesign(self.calls)
+
+    def create_setup(self, *, name: str, props: dict):
+        self.calls.append(("create_setup", {"name": name, "props": props}))
+        return type("Setup", (), {"name": name})()
+
+    def create_linear_count_sweep(self, setup_name, unit, start, stop, count, *, name, sweep_type, use_q3d_for_dc, interpolation_max_solutions, save_fields):
+        self.calls.append(("create_linear_count_sweep", {"setup_name": setup_name, "unit": unit, "start": start, "stop": stop, "count": count}))
+        return FakeSweep(self.calls)
+
+    def analyze_setup(self, *args, **kwargs):
+        raise AssertionError("build-only adapter must not solve")
+
+    def save_project(self) -> None:
+        self.calls.append(("save_project", self.project_file))
+
+    def release_desktop(self, *args, **kwargs) -> None:
+        self.calls.append(("release_desktop", kwargs))
+
+
+def test_real_build_uses_pyedb_cutout_polygon_and_saves_hfss_project(tmp_path):
+    FakeEdb.calls = []
+    FakeHfss3dLayout.calls = []
+    stackup = tmp_path / "stackup.xml"
+    stackup.write_text("<stackup />", encoding="utf-8")
+    request = _request(
+        tmp_path,
+        stackup_xml=stackup,
+        recorded_layout_settings={
+            "hfss_extents": {"AirHorExt": {"Ext": "3mm"}},
+            "design_options": {"MeshingMethod": "PhiPlus"},
+            "setup_options": {"Extra": True},
+            "setup_advanced_settings": {"PhiPlusMesher": True},
+            "setup_curve_approximation": {"ArcAngle": "10deg"},
+            "sweep_options": {"MaxSolutions": 2500, "UseQ3DForDC": True},
+        },
+    )
+    adapter = BrdRealBuildAdapter(edb_factory=FakeEdb, hfss3dlayout_factory=FakeHfss3dLayout)
+
+    result = adapter.run(request)
+
+    cutout_kwargs = FakeEdb.calls[0][1]
+    assert cutout_kwargs["extent_type"] == "Polygon"
+    assert cutout_kwargs["custom_extent"][0] == [1.0, 2.0]
+    assert cutout_kwargs["signal_nets"] == ["56G_TX0_P", "56G_TX0_N"]
+    assert cutout_kwargs["reference_nets"] == ["GND"]
+    assert result.summary["layout_solve"] == {"status": "skipped", "reason": "model_review_only"}
+    call_names = [name for name, _ in FakeHfss3dLayout.calls]
+    assert "ImportStackupXML" in call_names
+    assert "EditHfssExtents" in call_names
+    assert "DesignOptions" in call_names
+    assert "create_setup" in call_names
+    assert "create_linear_count_sweep" in call_names
+    assert "save_project" in call_names
