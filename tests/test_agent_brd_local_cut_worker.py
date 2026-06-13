@@ -107,6 +107,24 @@ class FakeRealBuildAdapter:
         )()
 
 
+class MinimalRealBuildAdapter:
+    def run(self, request):
+        return type(
+            "Result",
+            (),
+            {
+                "summary": {
+                    "status": "succeeded",
+                    "adapter": "real_pyedb_hfss3dlayout_build_only",
+                    "layout_file": str(request.layout_file),
+                    "local_cut_region": request.local_cut_region,
+                    "layout_solve": {"status": "skipped", "reason": "model_review_only"},
+                    "steps": [],
+                }
+            },
+        )()
+
+
 def test_brd_local_cut_worker_can_use_real_build_adapter(tmp_path):
     fake_adapter = FakeRealBuildAdapter()
     job = _job(
@@ -131,3 +149,24 @@ def test_brd_local_cut_worker_rejects_real_build_solve_enabled(tmp_path):
 
     with pytest.raises(ValueError, match="solve_enabled"):
         run_brd_local_cut_worker(job, WorkerContext("worker-1"), real_build_adapter=FakeRealBuildAdapter())
+
+
+def test_brd_local_cut_worker_rejects_unknown_adapter_mode(tmp_path):
+    job = _job(tmp_path, adapter_mode="real_buid")
+
+    with pytest.raises(ValueError, match="unsupported adapter_mode"):
+        run_brd_local_cut_worker(job, WorkerContext("worker-1"))
+
+
+def test_brd_local_cut_worker_accepts_minimal_real_build_summary(tmp_path):
+    job = _job(tmp_path, adapter_mode="real_build")
+
+    result = run_brd_local_cut_worker(job, WorkerContext("worker-1"), real_build_adapter=MinimalRealBuildAdapter())
+
+    assert result["status"] == "model_review"
+    assert result["evidence_summary"]["status"] == "succeeded"
+    assert result["evidence_summary"]["adapter"] == "real_pyedb_hfss3dlayout_build_only"
+    assert result["evidence_summary"]["signal_nets"] == []
+    assert result["evidence_summary"]["reference_nets"] == []
+    assert result["evidence_summary"]["target_metrics"] == []
+    assert result["evidence_summary"]["aedt_project"] == ""

@@ -55,10 +55,13 @@ def run_brd_local_cut_worker(
     real_build_adapter: Any | None = None,
 ) -> dict[str, Any]:
     payload = dict(job.input_payload)
+    adapter_mode = str(payload.get("adapter_mode", "deterministic"))
+    if adapter_mode not in {"deterministic", "real_build"}:
+        raise ValueError(f"unsupported adapter_mode: {adapter_mode}")
     region = parse_local_cut_region(payload.get("local_cut_region"))
     artifact_dir = Path(str(payload["artifact_dir"]))
     artifact_dir.mkdir(parents=True, exist_ok=True)
-    if payload.get("adapter_mode", "deterministic") == "real_build":
+    if adapter_mode == "real_build":
         summary = _real_build_summary(payload, region, real_build_adapter)
         approval_required = _approval_required(dict(summary.get("port_candidates") or {}))
     else:
@@ -164,18 +167,18 @@ def _steps(status: str) -> list[dict[str, Any]]:
 
 def _bounded_evidence_summary(summary: dict[str, Any]) -> dict[str, Any]:
     return {
-        "status": summary["status"],
+        "status": summary.get("status", ""),
         "adapter": summary.get("adapter", ""),
-        "layout_file": summary["layout_file"],
-        "signal_nets": summary["signal_nets"],
-        "reference_nets": summary["reference_nets"],
-        "local_cut_region": summary["local_cut_region"],
+        "layout_file": summary.get("layout_file", ""),
+        "signal_nets": summary.get("signal_nets", []),
+        "reference_nets": summary.get("reference_nets", []),
+        "local_cut_region": summary.get("local_cut_region", {}),
         "port_candidate_status": summary.get("port_candidates", {}).get("status", "unknown"),
         "port_execution_status": summary.get("port_execution", {}).get("status", "unknown"),
         "setup_name": summary.get("layout_setup", {}).get("setup_name", ""),
-        "target_metrics": summary["target_metrics"],
+        "target_metrics": summary.get("target_metrics", []),
         "edb_path": summary.get("edb_path", ""),
-        "aedt_project": summary["aedt_project"],
+        "aedt_project": summary.get("aedt_project", ""),
         "touchstone": summary.get("touchstone", ""),
         "tdr": summary.get("tdr", ""),
         "raw_sparameters": "artifact_only",
