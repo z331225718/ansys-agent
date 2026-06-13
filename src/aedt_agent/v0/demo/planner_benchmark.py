@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from aedt_agent.demo.service import DemoService
+from aedt_agent.v0.demo.service import DemoService
 
 
 DEFAULT_TASKS = [

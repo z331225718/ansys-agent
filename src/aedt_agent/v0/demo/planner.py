@@ -5,8 +5,8 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 from urllib import request as urlrequest
 
-from aedt_agent.chat.workflow_planner import ChatPlannerInput, ChatWorkflowPlanner
-from aedt_agent.demo.config import PlannerConfig
+from aedt_agent.v0.chat.workflow_planner import ChatPlannerInput, ChatWorkflowPlanner
+from aedt_agent.v0.demo.config import PlannerConfig
 from aedt_agent.nodes.catalog import NodeCatalog
 from aedt_agent.workflow.models import Workflow
 from aedt_agent.workflow.templates import WorkflowTemplateCatalog

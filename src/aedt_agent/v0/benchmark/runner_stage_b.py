@@ -5,9 +5,9 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from aedt_agent.benchmark.node_plan_parser import NodePlanParseError, extract_node_plan
-from aedt_agent.benchmark.runner_v2 import run_aedt_benchmark_v2
-from aedt_agent.benchmark.stage_b_validation import run_stage_b_validation
+from aedt_agent.v0.benchmark.node_plan_parser import NodePlanParseError, extract_node_plan
+from aedt_agent.v0.benchmark.runner_v2 import run_aedt_benchmark_v2
+from aedt_agent.v0.benchmark.stage_b_validation import run_stage_b_validation
 from aedt_agent.mcp.tools import McpToolKernel
 from aedt_agent.mcp.types import ExecutionStatus
 
@@ -57,9 +57,9 @@ def run_stage_b_node_benchmark(
 
 
 def _run_group_c(tasks_dir, run_dir, generator, kernel, task_ids, max_attempts, progress_callback):
-    from aedt_agent.benchmark.models import load_tasks
-    from aedt_agent.benchmark.task_sets import STAGE_A_V2_TASK_IDS
-    from aedt_agent.benchmark.stage_b_models import compute_stage_b_metrics
+    from aedt_agent.v0.benchmark.models import load_tasks
+    from aedt_agent.v0.benchmark.task_sets import STAGE_A_V2_TASK_IDS
+    from aedt_agent.v0.benchmark.stage_b_models import compute_stage_b_metrics
 
     selected_task_ids = task_ids or STAGE_A_V2_TASK_IDS
     tasks_by_id = {task.task_id: task for task in load_tasks(tasks_dir)}

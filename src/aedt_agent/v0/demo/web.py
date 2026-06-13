@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-from aedt_agent.demo.config import AedtConfig, PlannerConfig
-from aedt_agent.demo.service import DemoService
+from aedt_agent.v0.demo.config import AedtConfig, PlannerConfig
+from aedt_agent.v0.demo.service import DemoService
 
 
 def render_demo_page() -> str:

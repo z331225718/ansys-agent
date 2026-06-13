@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-from aedt_agent.demo.config import DemoConfig
+from aedt_agent.v0.demo.config import DemoConfig
 
 
 @dataclass(frozen=True)

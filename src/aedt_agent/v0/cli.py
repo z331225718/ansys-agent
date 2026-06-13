@@ -4,9 +4,9 @@ import argparse
 import os
 from pathlib import Path
 
-from aedt_agent.benchmark.config import load_benchmark_config
-from aedt_agent.benchmark.generator import create_generator_from_env
-from aedt_agent.benchmark.runner import run_offline_benchmark
+from aedt_agent.v0.benchmark.config import load_benchmark_config
+from aedt_agent.v0.benchmark.generator import create_generator_from_env
+from aedt_agent.v0.benchmark.runner import run_offline_benchmark
 from aedt_agent.knowledge.build_sqlite import build_api_semantics_db
 
 
@@ -22,7 +22,7 @@ def _require_run_benchmark_args(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="aedt-agent")
+    parser = argparse.ArgumentParser(prog="aedt-agent-v0")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     build_db = subparsers.add_parser("build-db")

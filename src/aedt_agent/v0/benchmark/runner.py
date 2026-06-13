@@ -4,14 +4,14 @@ import json
 from pathlib import Path
 from typing import Callable
 
-from aedt_agent.benchmark.context_builder import build_context
-from aedt_agent.benchmark.generator import CodeGenerator
-from aedt_agent.benchmark.go_nogo import compute_go_nogo
-from aedt_agent.benchmark.graders import check_allowed_api_usage, check_restricted_python, check_syntax
-from aedt_agent.benchmark.models import BenchmarkTask, load_tasks
-from aedt_agent.benchmark.prompt_templates import build_prompt
-from aedt_agent.benchmark.node_readiness import compute_node_readiness
-from aedt_agent.benchmark.semantic_lite import check_semantic_lite
+from aedt_agent.v0.benchmark.context_builder import build_context
+from aedt_agent.v0.benchmark.generator import CodeGenerator
+from aedt_agent.v0.benchmark.go_nogo import compute_go_nogo
+from aedt_agent.v0.benchmark.graders import check_allowed_api_usage, check_restricted_python, check_syntax
+from aedt_agent.v0.benchmark.models import BenchmarkTask, load_tasks
+from aedt_agent.v0.benchmark.prompt_templates import build_prompt
+from aedt_agent.v0.benchmark.node_readiness import compute_node_readiness
+from aedt_agent.v0.benchmark.semantic_lite import check_semantic_lite
 from aedt_agent.knowledge.sqlite_provider import SQLiteKnowledgeProvider
 from aedt_agent.nodes.registry import NodeRegistry
 

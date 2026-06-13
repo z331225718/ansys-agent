@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from aedt_agent.benchmark.models import BenchmarkTask
+from aedt_agent.v0.benchmark.models import BenchmarkTask
 from aedt_agent.knowledge.models import ApiSemantic, CommonTrap
 from aedt_agent.knowledge.provider_interface import KnowledgeProvider
 from aedt_agent.nodes.registry import NodeRegistry

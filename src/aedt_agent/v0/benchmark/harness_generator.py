@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Any
 
-from aedt_agent.benchmark.tool_usage import analyze_tool_usage
+from aedt_agent.v0.benchmark.tool_usage import analyze_tool_usage
 
 
 @dataclass(frozen=True)

@@ -5,12 +5,12 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from aedt_agent.benchmark.aedt_executor import AttemptExecutor
-from aedt_agent.benchmark.generator import CodeGenerator
-from aedt_agent.benchmark.harness_generator import HarnessGeneration, HarnessGenerationError
-from aedt_agent.benchmark.models import BenchmarkTask, load_tasks
-from aedt_agent.benchmark.task_sets import STAGE_A_V2_TASK_IDS
-from aedt_agent.benchmark.v2_models import AttemptResult, GroupRunResult, compute_group_metrics
+from aedt_agent.v0.benchmark.aedt_executor import AttemptExecutor
+from aedt_agent.v0.benchmark.generator import CodeGenerator
+from aedt_agent.v0.benchmark.harness_generator import HarnessGeneration, HarnessGenerationError
+from aedt_agent.v0.benchmark.models import BenchmarkTask, load_tasks
+from aedt_agent.v0.benchmark.task_sets import STAGE_A_V2_TASK_IDS
+from aedt_agent.v0.benchmark.v2_models import AttemptResult, GroupRunResult, compute_group_metrics
 
 
 GROUP_DIRS = {"A": "group_a", "B": "group_b"}

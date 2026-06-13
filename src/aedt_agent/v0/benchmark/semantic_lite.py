@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from aedt_agent.benchmark.models import BenchmarkTask
+from aedt_agent.v0.benchmark.models import BenchmarkTask
 from aedt_agent.knowledge.models import ApiSemantic, CommonTrap
 
 

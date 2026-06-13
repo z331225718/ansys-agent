@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 
-from aedt_agent.evolution.models import EvolutionAction, NodeEvolutionEvidence, NodeEvolutionProposal, NodeEvolutionReport
+from aedt_agent.v0.evolution.models import EvolutionAction, NodeEvolutionEvidence, NodeEvolutionProposal, NodeEvolutionReport
 
 
 def propose_node_evolution(evidence: list[NodeEvolutionEvidence]) -> list[NodeEvolutionProposal]:

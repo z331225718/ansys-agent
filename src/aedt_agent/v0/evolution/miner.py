@@ -5,7 +5,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-from aedt_agent.evolution.models import NodeEvolutionEvidence
+from aedt_agent.v0.evolution.models import NodeEvolutionEvidence
 
 
 def mine_stage_b_report(path: Path) -> list[NodeEvolutionEvidence]:

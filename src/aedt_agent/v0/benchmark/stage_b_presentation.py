@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from aedt_agent.benchmark.report_html_stage_b import write_html_report_stage_b
+from aedt_agent.v0.benchmark.report_html_stage_b import write_html_report_stage_b
 
 
 DROP_ARTIFACT_KEYS = {

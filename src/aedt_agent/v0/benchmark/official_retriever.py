@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Callable
 from urllib import request
 
-from aedt_agent.benchmark.models import BenchmarkTask
+from aedt_agent.v0.benchmark.models import BenchmarkTask
 from aedt_agent.knowledge.sqlite_provider import SQLiteKnowledgeProvider
 
 

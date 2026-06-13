@@ -5,9 +5,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from aedt_agent.benchmark.generator import CodeGenerator, DefaultCodeGenerator, FileGenerator, OpenAIGenerator
-from aedt_agent.benchmark.harness_generator import HarnessGenerator, HarnessGroupConfig, load_harness_group_config
-from aedt_agent.benchmark.official_retriever import GitNexusOfficialRetriever, OfficialKnowledgeRetriever
+from aedt_agent.v0.benchmark.generator import CodeGenerator, DefaultCodeGenerator, FileGenerator, OpenAIGenerator
+from aedt_agent.v0.benchmark.harness_generator import HarnessGenerator, HarnessGroupConfig, load_harness_group_config
+from aedt_agent.v0.benchmark.official_retriever import GitNexusOfficialRetriever, OfficialKnowledgeRetriever
 
 
 @dataclass(frozen=True)

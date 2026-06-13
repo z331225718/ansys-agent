@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from aedt_agent.evolution.models import NodeEvolutionProposal, ReviewStatus
+from aedt_agent.v0.evolution.models import NodeEvolutionProposal, ReviewStatus
 
 
 @dataclass(frozen=True)

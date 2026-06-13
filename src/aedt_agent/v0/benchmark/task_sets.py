@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from aedt_agent.benchmark.models import BenchmarkTask, load_tasks
+from aedt_agent.v0.benchmark.models import BenchmarkTask, load_tasks
 
 
 STAGE_A_V2_TASK_IDS = [
