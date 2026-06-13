@@ -40,7 +40,7 @@ def test_run_stage_a_script_writes_html_report_and_progress(tmp_path, monkeypatc
     )
 
     monkeypatch.setattr(run_script, "REPO_ROOT", Path.cwd())
-    monkeypatch.setattr(run_script, "load_benchmark_config", lambda _: __import__("aedt_agent.benchmark.config", fromlist=["load_benchmark_config"]).load_benchmark_config(config_path))
+    monkeypatch.setattr(run_script, "load_benchmark_config", lambda _: __import__("aedt_agent.v0.benchmark.config", fromlist=["load_benchmark_config"]).load_benchmark_config(config_path))
     monkeypatch.setattr(run_script, "build_executor", lambda config=None: PassingExecutor())
     stdout = StringIO()
     monkeypatch.setattr("sys.stdout", stdout)
@@ -88,7 +88,7 @@ def test_run_stage_a_script_can_clear_generated_with_fresh_flag(tmp_path, monkey
     )
 
     monkeypatch.setattr(run_script, "REPO_ROOT", Path.cwd())
-    monkeypatch.setattr(run_script, "load_benchmark_config", lambda _: __import__("aedt_agent.benchmark.config", fromlist=["load_benchmark_config"]).load_benchmark_config(config_path))
+    monkeypatch.setattr(run_script, "load_benchmark_config", lambda _: __import__("aedt_agent.v0.benchmark.config", fromlist=["load_benchmark_config"]).load_benchmark_config(config_path))
     monkeypatch.setattr(run_script, "build_executor", lambda config=None: PassingExecutor())
     monkeypatch.setattr(sys, "argv", ["run_stage_a_benchmark.py", "--fresh"])
 

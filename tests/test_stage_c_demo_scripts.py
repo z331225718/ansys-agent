@@ -380,3 +380,17 @@ def test_generate_stage_c_workflow_expansion_report_writes_html_and_json(tmp_pat
     assert "偶极子天线" in html
     assert "create_farfield_setup" in html
     assert "create_dipole_antenna" not in html
+
+
+def test_stage_c_scripts_keep_legacy_import_paths_for_compatibility():
+    from pathlib import Path
+
+    script_paths = {
+        "scripts/run_stage_c1_demo_server.py": "from aedt_agent.demo",
+        "scripts/run_stage_c_import_cutout.py": "from aedt_agent.demo",
+        "scripts/run_stage_c_brd_acceptance.py": "from aedt_agent.demo",
+        "scripts/run_stage_c5_local_cut_build.py": "from aedt_agent.demo",
+    }
+
+    for path, expected_import in script_paths.items():
+        assert expected_import in Path(path).read_text(encoding="utf-8")
