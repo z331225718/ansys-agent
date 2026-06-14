@@ -1,5 +1,11 @@
 """Controlled engineering action contracts and policies."""
 
+from aedt_agent.agent.actions.approval import (
+    approve_action,
+    assert_action_approved,
+    reject_action,
+    request_action_approval,
+)
 from aedt_agent.agent.actions.contracts import (
     ActionDecision,
     ActionExecutionRecord,
@@ -17,6 +23,10 @@ __all__ = [
     "ActionRecord",
     "ActionStatus",
     "ActionValidationError",
+    "approve_action",
+    "assert_action_approved",
     "decide_action_outcome",
+    "reject_action",
+    "request_action_approval",
     "validate_action",
 ]
