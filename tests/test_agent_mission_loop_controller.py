@@ -114,6 +114,22 @@ def test_attempt_budget_exhaustion_prevents_unbounded_retry(tmp_path):
     assert len(runtime.store.list_job_attempts(job.job_id)) == 1
 
 
+def test_success_on_last_allowed_attempt_completes_instead_of_exhausting_budget(tmp_path):
+    runtime = _runtime(tmp_path, "fake.ok", lambda job, context: {"value": 1})
+    mission = runtime.create_mission("goal", [], [])
+    runtime.create_job(mission.mission_id, "fake.ok", "step-1", {})
+    profile = replace(
+        ExecutionProfile.safe_recorded(),
+        max_iterations=1,
+        max_job_attempts=1,
+    )
+
+    decision = MissionLoopController(runtime, profile=profile).advance(mission.mission_id)
+
+    assert decision.decision == LoopDecisionType.COMPLETED
+    assert runtime.get_mission(mission.mission_id).state == MissionState.COMPLETED
+
+
 def test_safe_recorded_profile_blocks_real_build_job(tmp_path):
     runtime = _runtime(tmp_path, "brd.build", lambda job, context: {"unexpected": True})
     mission = runtime.create_mission("goal", [], [])

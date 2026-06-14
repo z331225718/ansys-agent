@@ -112,17 +112,17 @@ class MissionLoopController:
 
         result = self.runtime.execute_next_job(mission_id, worker_id)
         loop = self._sync_usage(loop)
-        post_budget_decision = evaluate_mission_budget(loop, self._usage(loop))
-        if post_budget_decision is not None:
-            return self._terminate(
-                loop,
-                replace(post_budget_decision, job_id=job.job_id),
-                iteration_increment=1,
-            )
 
         if result.status == JobStatus.FAILED:
             current_job = self.runtime.get_job(job.job_id)
             if current_job.status == JobStatus.QUEUED:
+                post_budget_decision = evaluate_mission_budget(loop, self._usage(loop))
+                if post_budget_decision is not None:
+                    return self._terminate(
+                        loop,
+                        replace(post_budget_decision, job_id=job.job_id),
+                        iteration_increment=1,
+                    )
                 attempts = self.store.list_job_attempts(job.job_id)
                 delay = self._retry_delay(loop.profile, len(attempts))
                 retry_not_before = (datetime.now(UTC) + timedelta(seconds=delay)).isoformat()
@@ -172,6 +172,13 @@ class MissionLoopController:
 
         remaining = [item for item in self.runtime.list_jobs(mission_id) if item.status == JobStatus.QUEUED]
         if remaining:
+            post_budget_decision = evaluate_mission_budget(loop, self._usage(loop))
+            if post_budget_decision is not None:
+                return self._terminate(
+                    loop,
+                    replace(post_budget_decision, job_id=job.job_id),
+                    iteration_increment=1,
+                )
             self._move_to_waiting_worker(mission_id)
             decision = LoopDecision(
                 LoopDecisionType.CONTINUE,
