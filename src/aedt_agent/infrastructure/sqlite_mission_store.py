@@ -715,6 +715,25 @@ class SQLiteMissionStore:
             raise KeyError(f"approval not found: {approval_id}")
         return _approval_from_row(row)
 
+    def list_approvals(
+        self,
+        mission_id: str,
+        *,
+        decision: ApprovalDecision | None = None,
+    ) -> list[ApprovalRequest]:
+        if decision is None:
+            query = "SELECT * FROM approvals WHERE mission_id = ? ORDER BY created_at, approval_id"
+            params = (mission_id,)
+        else:
+            query = (
+                "SELECT * FROM approvals WHERE mission_id = ? AND decision = ? "
+                "ORDER BY created_at, approval_id"
+            )
+            params = (mission_id, decision.value)
+        with self._connect() as db:
+            rows = db.execute(query, params).fetchall()
+        return [_approval_from_row(row) for row in rows]
+
     def create_graph_run(self, record: GraphRunRecord) -> GraphRunRecord:
         with self._connect() as db:
             db.execute(
@@ -959,6 +978,14 @@ class SQLiteMissionStore:
                 (graph_run_id, node_id, run_index),
             ).fetchone()
         return None if row is None else str(row["job_id"])
+
+    def list_graph_bound_job_ids(self, graph_run_id: str) -> list[str]:
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT job_id FROM graph_node_jobs WHERE graph_run_id = ? ORDER BY created_at, job_id",
+                (graph_run_id,),
+            ).fetchall()
+        return [str(row["job_id"]) for row in rows]
 
     def create_node_run(self, record: NodeRunRecord) -> NodeRunRecord:
         with self._connect() as db:
