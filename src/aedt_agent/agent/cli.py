@@ -74,6 +74,14 @@ def build_parser() -> argparse.ArgumentParser:
     run_graph.add_argument("--template", required=True)
     run_graph.add_argument("--worker-id", default="cli-graph")
 
+    advance = mission_commands.add_parser("advance")
+    advance.add_argument("--mission-id", required=True)
+    advance.add_argument("--worker-id", default="cli-loop")
+    advance.add_argument("--profile", default="safe-recorded")
+
+    loop_status = mission_commands.add_parser("loop-status")
+    loop_status.add_argument("--mission-id", required=True)
+
     status = mission_commands.add_parser("status")
     status.add_argument("--mission-id", required=True)
 
@@ -110,6 +118,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     resume = mission_commands.add_parser("resume")
     resume.add_argument("--mission-id", required=True)
+    resume.add_argument("--worker-id", default="cli-resume")
+    resume.add_argument("--profile", default="safe-recorded")
 
     approve = mission_commands.add_parser("approve")
     approve.add_argument("--mission-id", required=True)
@@ -265,6 +275,37 @@ def run(argv: Sequence[str] | None = None) -> int:
         _print_json(report)
         return 0 if report["status"] == "passed" else 2
 
+    if args.group == "mission" and args.mission_command == "advance":
+        from aedt_agent.agent.orchestrator import MissionLoopController
+
+        runtime = _runtime_with_workers(args.db)
+        controller = MissionLoopController(runtime, profile=_load_execution_profile(args.profile))
+        decision = controller.advance(args.mission_id, worker_id=args.worker_id)
+        payload = controller.status(args.mission_id)
+        payload["decision"] = decision.to_json_dict()
+        _print_json(payload)
+        return _loop_exit_code(decision.decision.value)
+
+    if args.group == "mission" and args.mission_command == "loop-status":
+        from aedt_agent.agent.orchestrator import MissionLoopController
+
+        controller = MissionLoopController(runtime)
+        _print_json(controller.status(args.mission_id))
+        return 0
+
+    if args.group == "mission" and args.mission_command == "resume":
+        from aedt_agent.agent.orchestrator import MissionLoopController
+
+        runtime = _runtime_with_workers(args.db)
+        recovered = runtime.recover_expired_leases()
+        controller = MissionLoopController(runtime, profile=_load_execution_profile(args.profile))
+        decision = controller.advance(args.mission_id, worker_id=args.worker_id)
+        payload = controller.status(args.mission_id)
+        payload["decision"] = decision.to_json_dict()
+        payload["recovered_job_ids"] = recovered
+        _print_json(payload)
+        return _loop_exit_code(decision.decision.value)
+
     if args.group == "mission" and args.mission_command == "status":
         mission = runtime.get_mission(args.mission_id)
         payload: dict[str, Any] = mission.to_json_dict()
@@ -364,6 +405,29 @@ def _runtime_with_workers(db_path: Path) -> AgentRuntime:
         lambda job, context: run_brd_recorded_void_action_worker(job, context, store=store),
     )
     return AgentRuntime(store, registry=registry)
+
+
+def _load_execution_profile(value: str):
+    from aedt_agent.agent.policies import ExecutionProfile
+
+    if value == "safe-recorded":
+        return ExecutionProfile.safe_recorded()
+    path = Path(value)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise TypeError(f"{path} must contain a JSON object")
+    return ExecutionProfile.from_json_dict(payload)
+
+
+def _loop_exit_code(decision: str) -> int:
+    if decision in {
+        "failed",
+        "budget_exhausted",
+        "stopped_no_improvement",
+        "stopped_duplicate_action",
+    }:
+        return 2
+    return 0
 
 
 def _require_recorded_action_args(args) -> None:
