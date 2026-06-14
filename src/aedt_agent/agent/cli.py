@@ -59,6 +59,21 @@ def build_parser() -> argparse.ArgumentParser:
     scorecard.add_argument("--mission-id", required=True)
     scorecard.add_argument("--template", default="")
 
+    events = mission_commands.add_parser("events")
+    events.add_argument("--mission-id", required=True)
+
+    graph_runs = mission_commands.add_parser("graph-runs")
+    graph_runs.add_argument("--mission-id", required=True)
+
+    node_runs = mission_commands.add_parser("node-runs")
+    node_runs.add_argument("--graph-run-id", required=True)
+
+    artifacts = mission_commands.add_parser("artifacts")
+    artifacts.add_argument("--mission-id", required=True)
+
+    evidence = mission_commands.add_parser("evidence")
+    evidence.add_argument("--mission-id", required=True)
+
     resume = mission_commands.add_parser("resume")
     resume.add_argument("--mission-id", required=True)
 
@@ -164,6 +179,26 @@ def run(argv: Sequence[str] | None = None) -> int:
         report = score_mission(runtime, args.mission_id, template_id=args.template)
         _print_json(report)
         return 0 if report["status"] == "passed" else 2
+
+    if args.group == "mission" and args.mission_command == "events":
+        _print_json({"events": [event.to_json_dict() for event in runtime.list_events(args.mission_id)]})
+        return 0
+
+    if args.group == "mission" and args.mission_command == "graph-runs":
+        _print_json({"graph_runs": [graph_run.to_json_dict() for graph_run in runtime.store.list_graph_runs(args.mission_id)]})
+        return 0
+
+    if args.group == "mission" and args.mission_command == "node-runs":
+        _print_json({"node_runs": [node_run.to_json_dict() for node_run in runtime.store.list_node_runs(args.graph_run_id)]})
+        return 0
+
+    if args.group == "mission" and args.mission_command == "artifacts":
+        _print_json({"artifacts": [artifact.to_json_dict() for artifact in runtime.store.list_artifact_manifests(args.mission_id)]})
+        return 0
+
+    if args.group == "mission" and args.mission_command == "evidence":
+        _print_json({"evidence_packages": [evidence.to_json_dict() for evidence in runtime.store.list_evidence_packages(args.mission_id)]})
+        return 0
 
     if args.group == "mission" and args.mission_command == "cancel":
         mission = runtime.store.update_mission_state(args.mission_id, MissionState.CANCELED)
