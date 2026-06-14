@@ -62,10 +62,17 @@ class AgentRuntime:
         return self.store.list_events(mission_id)
 
     def execute_next_job(self, mission_id: str, worker_id: str) -> WorkerExecutionResult:
-        self._ensure_mission_ready_for_worker(mission_id)
         job = self.store.next_queued_job(mission_id)
         if job is None:
             raise ValueError(f"no queued job for mission: {mission_id}")
+        return self.execute_job(job.job_id, worker_id)
+
+    def execute_job(self, job_id: str, worker_id: str) -> WorkerExecutionResult:
+        job = self.get_job(job_id)
+        if job.status != JobStatus.QUEUED:
+            raise ValueError(f"job is not queued: {job_id} ({job.status.value})")
+        mission_id = job.mission_id
+        self._ensure_mission_ready_for_worker(mission_id)
         lease = self.store.acquire_job_lease(job.job_id, worker_id, self.default_lease_seconds)
         leased_job = self.store.get_job(job.job_id)
         attempt_number = len(self.store.list_job_attempts(job.job_id)) + 1

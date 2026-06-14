@@ -51,6 +51,37 @@ def test_runtime_executes_job_once_and_records_checkpoint(tmp_path):
     assert any(event.event_type.value == "checkpoint_created" for event in runtime.list_events(mission.mission_id))
 
 
+def test_runtime_executes_requested_job_instead_of_first_queued_job(tmp_path):
+    registry = InMemoryWorkerRegistry()
+    registry.register("fake.echo", lambda job, context: {"value": job.input_payload["value"]})
+    runtime = AgentRuntime(SQLiteMissionStore(tmp_path / "mission.db"), registry=registry)
+    mission = runtime.create_mission("goal", [], [])
+    first = runtime.create_job(mission.mission_id, "fake.echo", "first", {"value": 1})
+    second = runtime.create_job(mission.mission_id, "fake.echo", "second", {"value": 2})
+
+    result = runtime.execute_job(second.job_id, worker_id="graph")
+
+    assert result.output_payload["value"] == 2
+    assert runtime.get_job(first.job_id).status == JobStatus.QUEUED
+    assert runtime.get_job(second.job_id).status == JobStatus.SUCCEEDED
+
+
+def test_runtime_rejects_precisely_executing_non_queued_job(tmp_path):
+    registry = InMemoryWorkerRegistry()
+    registry.register("fake.echo", lambda job, context: {"value": 1})
+    runtime = AgentRuntime(SQLiteMissionStore(tmp_path / "mission.db"), registry=registry)
+    mission = runtime.create_mission("goal", [], [])
+    job = runtime.create_job(mission.mission_id, "fake.echo", "first", {})
+    runtime.execute_job(job.job_id, worker_id="graph")
+
+    try:
+        runtime.execute_job(job.job_id, worker_id="graph")
+    except ValueError as exc:
+        assert "job is not queued" in str(exc)
+    else:
+        raise AssertionError("succeeded job was executed twice")
+
+
 def test_expired_worker_lease_can_be_recovered(tmp_path):
     store = SQLiteMissionStore(tmp_path / "mission.db")
     runtime = AgentRuntime(store)
