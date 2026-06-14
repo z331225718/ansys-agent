@@ -41,11 +41,18 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--non-graphical", dest="non_graphical", action="store_true")
     create.set_defaults(non_graphical=False)
 
+    plan = mission_commands.add_parser("plan")
+    plan.add_argument("--template", required=True)
+
     run = mission_commands.add_parser("run")
     run.add_argument("--mission-id", required=True)
 
     status = mission_commands.add_parser("status")
     status.add_argument("--mission-id", required=True)
+
+    scorecard = mission_commands.add_parser("scorecard")
+    scorecard.add_argument("--mission-id", required=True)
+    scorecard.add_argument("--template", default="")
 
     resume = mission_commands.add_parser("resume")
     resume.add_argument("--mission-id", required=True)
@@ -101,6 +108,13 @@ def run(argv: Sequence[str] | None = None) -> int:
         _print_json(mission.to_json_dict())
         return 0
 
+    if args.group == "mission" and args.mission_command == "plan":
+        from aedt_agent.agent.graph_template import load_graph_template
+
+        template = load_graph_template(args.template)
+        _print_json(template.to_json_dict())
+        return 0
+
     if args.group == "mission" and args.mission_command == "run":
         from aedt_agent.agent.workers import BRD_LOCAL_CUT_BUILD_CAPABILITY, InMemoryWorkerRegistry, run_brd_local_cut_worker
 
@@ -125,6 +139,13 @@ def run(argv: Sequence[str] | None = None) -> int:
         payload["jobs"] = [job.to_json_dict() for job in runtime.list_jobs(args.mission_id)]
         _print_json(payload)
         return 0
+
+    if args.group == "mission" and args.mission_command == "scorecard":
+        from aedt_agent.agent.scorecard import score_mission
+
+        report = score_mission(runtime, args.mission_id, template_id=args.template)
+        _print_json(report)
+        return 0 if report["status"] == "passed" else 2
 
     if args.group == "mission" and args.mission_command == "cancel":
         mission = runtime.store.update_mission_state(args.mission_id, MissionState.CANCELED)
