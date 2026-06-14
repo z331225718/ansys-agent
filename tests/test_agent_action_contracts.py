@@ -9,6 +9,8 @@ from aedt_agent.agent.actions import (
     ActionRecord,
     ActionStatus,
     ActionValidationError,
+    InvalidActionTransition,
+    assert_action_transition,
     decide_action_outcome,
     validate_action,
 )
@@ -124,3 +126,14 @@ def test_runtime_fields_do_not_change_action_digest():
     updated = replace(action, status=ActionStatus.APPROVED, approval_id="approval-1")
 
     assert updated.digest == action.digest
+
+
+def test_action_state_machine_rejects_illegal_terminal_jump():
+    with pytest.raises(InvalidActionTransition, match="proposed -> accepted"):
+        assert_action_transition(ActionStatus.PROPOSED, ActionStatus.ACCEPTED)
+
+
+def test_action_state_machine_allows_approved_apply_accept_path():
+    assert_action_transition(ActionStatus.APPROVED, ActionStatus.APPLYING)
+    assert_action_transition(ActionStatus.APPLYING, ActionStatus.APPLIED)
+    assert_action_transition(ActionStatus.APPLIED, ActionStatus.ACCEPTED)

@@ -12,6 +12,7 @@ from aedt_agent.agent.actions import (
     ActionExecutionStatus,
     ActionRecord,
     ActionStatus,
+    assert_action_transition,
 )
 from aedt_agent.agent.mission import (
     ApprovalDecision,
@@ -856,6 +857,14 @@ class SQLiteMissionStore:
 
     def create_action(self, record: ActionRecord) -> ActionRecord:
         with self._connect() as db:
+            duplicate = db.execute(
+                "SELECT action_id FROM action_records WHERE mission_id = ? AND digest = ?",
+                (record.mission_id, record.digest),
+            ).fetchone()
+            if duplicate is not None:
+                raise ValueError(
+                    f"duplicate action digest for mission: {record.mission_id} ({record.digest})"
+                )
             db.execute(
                 """
                 INSERT INTO action_records (
@@ -910,6 +919,8 @@ class SQLiteMissionStore:
         return [_action_from_row(row) for row in rows]
 
     def update_action(self, record: ActionRecord) -> ActionRecord:
+        current = self.get_action(record.action_id)
+        assert_action_transition(current.status, record.status)
         with self._connect() as db:
             cursor = db.execute(
                 """

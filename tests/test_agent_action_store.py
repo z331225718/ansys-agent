@@ -50,9 +50,12 @@ def test_action_survives_store_restart(tmp_path):
 def test_action_status_comparison_and_decision_are_persisted(tmp_path):
     store = _store(tmp_path)
     action = store.create_action(_action())
+    action = store.update_action(action.with_status(ActionStatus.WAITING_APPROVAL, approval_id="approval-1"))
+    action = store.update_action(action.with_status(ActionStatus.APPROVED))
+    action = store.update_action(action.with_status(ActionStatus.APPLYING))
+    action = store.update_action(action.with_status(ActionStatus.APPLIED))
     updated = action.with_status(
         ActionStatus.ROLLED_BACK,
-        approval_id="approval-1",
         comparison={"status": "regressed"},
         decision=ActionDecision.ROLLBACK,
     )
@@ -64,6 +67,21 @@ def test_action_status_comparison_and_decision_are_persisted(tmp_path):
     assert loaded.approval_id == "approval-1"
     assert loaded.comparison == {"status": "regressed"}
     assert loaded.decision == ActionDecision.ROLLBACK
+
+
+def test_duplicate_action_digest_is_rejected_per_mission(tmp_path):
+    store = _store(tmp_path)
+    store.create_action(_action())
+
+    duplicate = _action()
+    duplicate = duplicate.__class__(**{**duplicate.__dict__, "action_id": "action-2"})
+
+    try:
+        store.create_action(duplicate)
+    except ValueError as exc:
+        assert "duplicate action digest" in str(exc)
+    else:
+        raise AssertionError("duplicate action digest was accepted")
 
 
 def test_action_execution_survives_store_restart(tmp_path):

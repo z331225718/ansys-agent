@@ -16,6 +16,7 @@ from aedt_agent.agent.actions.contracts import (
 )
 from aedt_agent.agent.actions.policy import decide_action_outcome
 from aedt_agent.agent.actions.executor import execute_approved_action
+from aedt_agent.agent.actions.state_machine import InvalidActionTransition, assert_action_transition
 from aedt_agent.agent.actions.validation import ActionValidationError, validate_action
 
 __all__ = [
@@ -27,8 +28,10 @@ __all__ = [
     "ActionValidationError",
     "RealAedtActionAdapter",
     "RecordedActionAdapter",
+    "InvalidActionTransition",
     "approve_action",
     "assert_action_approved",
+    "assert_action_transition",
     "decide_action_outcome",
     "execute_approved_action",
     "reject_action",
