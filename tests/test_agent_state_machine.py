@@ -4,6 +4,8 @@ import pytest
 
 from aedt_agent.agent.mission import MissionState
 from aedt_agent.agent.orchestrator.state_machine import InvalidMissionTransition, assert_transition, can_transition
+from aedt_agent.agent.orchestrator.runtime import AgentRuntime
+from aedt_agent.infrastructure import SQLiteMissionStore
 
 
 def test_allowed_mission_transitions():
@@ -28,3 +30,11 @@ def test_invalid_transition_raises_clear_error():
         assert_transition(MissionState.CREATED, MissionState.COMPLETED)
 
     assert "created -> completed" in str(error.value)
+
+
+def test_store_rejects_invalid_mission_transition(tmp_path):
+    runtime = AgentRuntime(SQLiteMissionStore(tmp_path / "mission.db"))
+    mission = runtime.create_mission("goal", [], [])
+
+    with pytest.raises(InvalidMissionTransition, match="created -> completed"):
+        runtime.store.update_mission_state(mission.mission_id, MissionState.COMPLETED)

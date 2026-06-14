@@ -4,6 +4,7 @@ import json
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from aedt_agent.agent.actions import (
@@ -38,6 +39,9 @@ from aedt_agent.agent.mission import (
     WorkerLease,
     utc_now_iso,
 )
+
+if TYPE_CHECKING:
+    from aedt_agent.agent.orchestrator.loop_contracts import MissionLoopRecord
 
 
 class SQLiteMissionStore:
@@ -227,6 +231,25 @@ class SQLiteMissionStore:
                     result_json TEXT NOT NULL,
                     error_json TEXT
                 );
+                CREATE TABLE IF NOT EXISTS mission_loops (
+                    loop_id TEXT PRIMARY KEY,
+                    mission_id TEXT NOT NULL UNIQUE REFERENCES missions(mission_id),
+                    profile_json TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    iteration_count INTEGER NOT NULL,
+                    job_attempt_count INTEGER NOT NULL,
+                    evidence_query_calls INTEGER NOT NULL,
+                    evidence_tokens INTEGER NOT NULL,
+                    duplicate_action_count INTEGER NOT NULL,
+                    consecutive_no_improvement INTEGER NOT NULL,
+                    started_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    completed_at TEXT,
+                    last_decision TEXT,
+                    last_reason TEXT,
+                    last_job_id TEXT,
+                    retry_not_before TEXT
+                );
                 """
             )
 
@@ -266,6 +289,14 @@ class SQLiteMissionStore:
         return None if row is None else _mission_from_row(row)
 
     def update_mission_state(self, mission_id: str, state: MissionState) -> MissionRecord:
+        from aedt_agent.agent.orchestrator.state_machine import assert_transition
+
+        current = self.get_mission(mission_id)
+        if current is None:
+            raise KeyError(f"mission not found: {mission_id}")
+        if current.state == state:
+            return current
+        assert_transition(current.state, state)
         now = utc_now_iso()
         with self._connect() as db:
             db.execute(
@@ -277,6 +308,125 @@ class SQLiteMissionStore:
         if mission is None:
             raise KeyError(f"mission not found: {mission_id}")
         return mission
+
+    def set_mission_final_outcome(self, mission_id: str, outcome: dict) -> MissionRecord:
+        mission = self.get_mission(mission_id)
+        if mission is None:
+            raise KeyError(f"mission not found: {mission_id}")
+        if mission.state not in {MissionState.COMPLETED, MissionState.FAILED, MissionState.CANCELED}:
+            raise ValueError("final outcome can only be set for a terminal mission")
+        now = utc_now_iso()
+        with self._connect() as db:
+            db.execute(
+                "UPDATE missions SET final_outcome_json = ?, updated_at = ? WHERE mission_id = ?",
+                (_dump(outcome), now, mission_id),
+            )
+            self._append_event_in_tx(
+                db,
+                mission_id,
+                EventType.MISSION_FINAL_OUTCOME_SET,
+                {"code": outcome.get("code"), "decision": outcome.get("decision")},
+            )
+        updated = self.get_mission(mission_id)
+        if updated is None:
+            raise KeyError(f"mission not found: {mission_id}")
+        return updated
+
+    def create_mission_loop(self, record: "MissionLoopRecord") -> "MissionLoopRecord":
+        with self._connect() as db:
+            db.execute(
+                """
+                INSERT INTO mission_loops (
+                    loop_id, mission_id, profile_json, status, iteration_count,
+                    job_attempt_count, evidence_query_calls, evidence_tokens,
+                    duplicate_action_count, consecutive_no_improvement, started_at,
+                    updated_at, completed_at, last_decision, last_reason, last_job_id,
+                    retry_not_before
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record.loop_id,
+                    record.mission_id,
+                    _dump(record.profile.to_json_dict()),
+                    record.status.value,
+                    record.iteration_count,
+                    record.job_attempt_count,
+                    record.evidence_query_calls,
+                    record.evidence_tokens,
+                    record.duplicate_action_count,
+                    record.consecutive_no_improvement,
+                    record.started_at,
+                    record.updated_at,
+                    record.completed_at,
+                    None if record.last_decision is None else record.last_decision.value,
+                    record.last_reason,
+                    record.last_job_id,
+                    record.retry_not_before,
+                ),
+            )
+            self._append_event_in_tx(
+                db,
+                record.mission_id,
+                EventType.MISSION_LOOP_CREATED,
+                {"loop_id": record.loop_id, "profile_id": record.profile.profile_id},
+            )
+        return record
+
+    def get_mission_loop(self, mission_id: str) -> "MissionLoopRecord | None":
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM mission_loops WHERE mission_id = ?",
+                (mission_id,),
+            ).fetchone()
+        return None if row is None else _mission_loop_from_row(row)
+
+    def update_mission_loop(self, record: "MissionLoopRecord") -> "MissionLoopRecord":
+        with self._connect() as db:
+            cursor = db.execute(
+                """
+                UPDATE mission_loops
+                SET profile_json = ?, status = ?, iteration_count = ?,
+                    job_attempt_count = ?, evidence_query_calls = ?, evidence_tokens = ?,
+                    duplicate_action_count = ?, consecutive_no_improvement = ?,
+                    updated_at = ?, completed_at = ?, last_decision = ?,
+                    last_reason = ?, last_job_id = ?, retry_not_before = ?
+                WHERE loop_id = ? AND mission_id = ?
+                """,
+                (
+                    _dump(record.profile.to_json_dict()),
+                    record.status.value,
+                    record.iteration_count,
+                    record.job_attempt_count,
+                    record.evidence_query_calls,
+                    record.evidence_tokens,
+                    record.duplicate_action_count,
+                    record.consecutive_no_improvement,
+                    record.updated_at,
+                    record.completed_at,
+                    None if record.last_decision is None else record.last_decision.value,
+                    record.last_reason,
+                    record.last_job_id,
+                    record.retry_not_before,
+                    record.loop_id,
+                    record.mission_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(f"mission loop not found: {record.loop_id}")
+            self._append_event_in_tx(
+                db,
+                record.mission_id,
+                EventType.MISSION_LOOP_UPDATED,
+                {
+                    "loop_id": record.loop_id,
+                    "status": record.status.value,
+                    "decision": None if record.last_decision is None else record.last_decision.value,
+                },
+            )
+        loaded = self.get_mission_loop(record.mission_id)
+        if loaded is None:
+            raise KeyError(f"mission loop not found: {record.loop_id}")
+        return loaded
 
     def create_job(
         self,
@@ -1265,4 +1415,34 @@ def _action_execution_from_row(row: sqlite3.Row) -> ActionExecutionRecord:
         completed_at=row["completed_at"],
         result=dict(_load(row["result_json"], {})),
         error=_load(row["error_json"], None),
+    )
+
+
+def _mission_loop_from_row(row: sqlite3.Row) -> "MissionLoopRecord":
+    from aedt_agent.agent.orchestrator.loop_contracts import (
+        LoopDecisionType,
+        MissionLoopRecord,
+        MissionLoopStatus,
+    )
+    from aedt_agent.agent.policies import ExecutionProfile
+
+    last_decision = row["last_decision"]
+    return MissionLoopRecord(
+        loop_id=row["loop_id"],
+        mission_id=row["mission_id"],
+        profile=ExecutionProfile.from_json_dict(dict(_load(row["profile_json"], {}))),
+        status=MissionLoopStatus(row["status"]),
+        iteration_count=row["iteration_count"],
+        job_attempt_count=row["job_attempt_count"],
+        evidence_query_calls=row["evidence_query_calls"],
+        evidence_tokens=row["evidence_tokens"],
+        duplicate_action_count=row["duplicate_action_count"],
+        consecutive_no_improvement=row["consecutive_no_improvement"],
+        started_at=row["started_at"],
+        updated_at=row["updated_at"],
+        completed_at=row["completed_at"],
+        last_decision=None if last_decision is None else LoopDecisionType(last_decision),
+        last_reason=row["last_reason"],
+        last_job_id=row["last_job_id"],
+        retry_not_before=row["retry_not_before"],
     )

@@ -62,6 +62,7 @@ class AgentRuntime:
         return self.store.list_events(mission_id)
 
     def execute_next_job(self, mission_id: str, worker_id: str) -> WorkerExecutionResult:
+        self._ensure_mission_ready_for_worker(mission_id)
         job = self.store.next_queued_job(mission_id)
         if job is None:
             raise ValueError(f"no queued job for mission: {mission_id}")
@@ -101,6 +102,16 @@ class AgentRuntime:
             self.store.complete_job_attempt(attempt.attempt_id, JobAttemptStatus.FAILED, result.error.to_json_dict(), retry_decision)
         self.store.release_job_lease(lease.lease_id)
         return result
+
+    def _ensure_mission_ready_for_worker(self, mission_id: str) -> None:
+        mission = self.get_mission(mission_id)
+        if mission.state == MissionState.CREATED:
+            self.store.update_mission_state(mission_id, MissionState.PLANNING)
+            self.store.update_mission_state(mission_id, MissionState.WAITING_WORKER)
+        elif mission.state in {MissionState.PLANNING, MissionState.EVALUATING}:
+            self.store.update_mission_state(mission_id, MissionState.WAITING_WORKER)
+        elif mission.state != MissionState.WAITING_WORKER:
+            raise ValueError(f"mission is not ready for worker execution: {mission.state.value}")
 
     def recover_expired_leases(self, now: datetime | None = None) -> list[str]:
         return self.store.recover_expired_leases(now or datetime.now(UTC))

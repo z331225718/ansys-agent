@@ -8,7 +8,7 @@ class InvalidMissionTransition(ValueError):
 
 
 ALLOWED_TRANSITIONS: dict[MissionState, set[MissionState]] = {
-    MissionState.CREATED: {MissionState.PLANNING, MissionState.CANCELED},
+    MissionState.CREATED: {MissionState.PLANNING, MissionState.WAITING_WORKER, MissionState.CANCELED},
     MissionState.PLANNING: {
         MissionState.WAITING_WORKER,
         MissionState.WAITING_APPROVAL,

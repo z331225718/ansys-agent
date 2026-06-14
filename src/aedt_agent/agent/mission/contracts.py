@@ -54,6 +54,9 @@ class EventType(StrEnum):
     ACTION_UPDATED = "action_updated"
     ACTION_EXECUTION_CREATED = "action_execution_created"
     ACTION_EXECUTION_UPDATED = "action_execution_updated"
+    MISSION_LOOP_CREATED = "mission_loop_created"
+    MISSION_LOOP_UPDATED = "mission_loop_updated"
+    MISSION_FINAL_OUTCOME_SET = "mission_final_outcome_set"
 
 
 class ApprovalDecision(StrEnum):
