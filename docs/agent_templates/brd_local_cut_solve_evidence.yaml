@@ -1,0 +1,68 @@
+id: brd_local_cut_solve_evidence
+version: 1
+description: Score BRD local-cut solve evidence from recorded or exported Touchstone/TDR artifacts.
+nodes:
+  - id: planner
+    role: planner
+    kind: llm
+    output_schema: brd_channel_score_request
+  - id: input_validator
+    role: validator
+    kind: program
+    input_schema: brd_channel_score_request
+    output_schema: validated_brd_channel_score_request
+  - id: channel_score_worker
+    role: worker
+    kind: worker
+    capability: brd.channel.score
+    input_schema: validated_brd_channel_score_request
+    output_schema: brd_channel_score_result
+  - id: channel_scorecard
+    role: scorecard
+    kind: program
+    input_schema: brd_channel_score_result
+    output_schema: scorecard_report
+  - id: approval_gate
+    role: approval_gate
+    kind: human_gate
+    input_schema: scorecard_report
+    output_schema: approval_decision
+edges:
+  - from: planner
+    to: input_validator
+    on: succeeded
+  - from: input_validator
+    to: channel_score_worker
+    on: succeeded
+  - from: channel_score_worker
+    to: channel_scorecard
+    on: succeeded
+  - from: channel_scorecard
+    to: approval_gate
+    on: passed
+handoffs:
+  brd_channel_score_request:
+    required_fields:
+      - touchstone_path
+      - tdr_path
+      - artifact_dir
+  validated_brd_channel_score_request:
+    required_fields:
+      - touchstone_path
+      - tdr_path
+      - artifact_dir
+      - frequency_start_ghz
+      - frequency_stop_ghz
+      - rl_target_db
+      - tdr_target_ohm
+  brd_channel_score_result:
+    required_fields:
+      - status
+      - score
+      - sparameter_evidence
+      - evidence_summary
+      - artifact_refs
+  scorecard_report:
+    required_fields:
+      - status
+      - checks

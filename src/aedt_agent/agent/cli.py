@@ -23,12 +23,19 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--goal", required=True)
     create.add_argument("--criterion", action="append", default=[])
     create.add_argument("--brd-local-cut", action="store_true")
+    create.add_argument("--brd-channel-score", action="store_true")
     create.add_argument("--layout-file")
     create.add_argument("--signal-net", action="append", default=[])
     create.add_argument("--reference-net", action="append", default=[])
     create.add_argument("--bbox")
+    create.add_argument("--touchstone")
+    create.add_argument("--tdr")
     create.add_argument("--artifact-dir")
     create.add_argument("--adapter-mode", choices=["deterministic", "real_build"], default="deterministic")
+    create.add_argument("--frequency-start-ghz", type=float, default=0.0)
+    create.add_argument("--frequency-stop-ghz", type=float, default=67.0)
+    create.add_argument("--rl-target-db", type=float, default=-20.0)
+    create.add_argument("--tdr-target-ohm", type=float, default=100.0)
     create.add_argument("--stackup-xml")
     create.add_argument("--recorded-analysis", type=Path)
     create.add_argument("--aedt-version", default="2026.1")
@@ -125,6 +132,24 @@ def run(argv: Sequence[str] | None = None) -> int:
                     },
                 ),
             )
+        if args.brd_channel_score:
+            from aedt_agent.agent.workers import BRD_CHANNEL_SCORE_CAPABILITY, build_brd_channel_score_job_input
+
+            artifact_dir = Path(args.artifact_dir) if args.artifact_dir else args.db.parent / mission.mission_id
+            runtime.create_job(
+                mission.mission_id,
+                BRD_CHANNEL_SCORE_CAPABILITY,
+                "brd-channel-score:0",
+                build_brd_channel_score_job_input(
+                    touchstone_path=args.touchstone,
+                    tdr_path=args.tdr,
+                    artifact_dir=artifact_dir,
+                    frequency_start_ghz=args.frequency_start_ghz,
+                    frequency_stop_ghz=args.frequency_stop_ghz,
+                    rl_target_db=args.rl_target_db,
+                    tdr_target_ohm=args.tdr_target_ohm,
+                ),
+            )
         _print_json(mission.to_json_dict())
         return 0
 
@@ -155,10 +180,17 @@ def run(argv: Sequence[str] | None = None) -> int:
     if args.group == "mission" and args.mission_command == "run-graph":
         from aedt_agent.agent.graph_runner import run_graph_once
         from aedt_agent.agent.graph_template import load_graph_template
-        from aedt_agent.agent.workers import BRD_LOCAL_CUT_BUILD_CAPABILITY, InMemoryWorkerRegistry, run_brd_local_cut_worker
+        from aedt_agent.agent.workers import (
+            BRD_CHANNEL_SCORE_CAPABILITY,
+            BRD_LOCAL_CUT_BUILD_CAPABILITY,
+            InMemoryWorkerRegistry,
+            run_brd_channel_score_worker,
+            run_brd_local_cut_worker,
+        )
 
         registry = InMemoryWorkerRegistry()
         registry.register(BRD_LOCAL_CUT_BUILD_CAPABILITY, run_brd_local_cut_worker)
+        registry.register(BRD_CHANNEL_SCORE_CAPABILITY, run_brd_channel_score_worker)
         runtime = AgentRuntime(SQLiteMissionStore(args.db), registry=registry)
         template = load_graph_template(args.template)
         report = run_graph_once(runtime, args.mission_id, template, worker_id=args.worker_id)
