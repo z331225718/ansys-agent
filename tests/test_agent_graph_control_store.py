@@ -3,6 +3,8 @@ from __future__ import annotations
 from aedt_agent.agent.mission import (
     ArtifactManifest,
     EvidencePackage,
+    GraphHandoffRecord,
+    GraphHandoffStatus,
     GraphRunRecord,
     NodeRunRecord,
     NodeRunStatus,
@@ -36,6 +38,64 @@ def test_graph_run_survives_store_restart(tmp_path):
     assert loaded.template_id == "brd_local_cut_build"
     assert loaded.status.value == "created"
     assert reopened.list_graph_runs("mission-1") == [loaded]
+
+
+def test_graph_run_snapshot_and_step_count_survive_restart(tmp_path):
+    store = _store_with_mission(tmp_path)
+    graph_run = GraphRunRecord.create(
+        graph_run_id="graph-run-1",
+        mission_id="mission-1",
+        template_id="parallel",
+        template_version=1,
+        plan_version=1,
+        template_snapshot={"id": "parallel", "nodes": []},
+        initial_payload={"value": 3},
+        max_steps=8,
+    )
+    store.create_graph_run(graph_run)
+
+    advanced = store.increment_graph_step("graph-run-1")
+    reopened = SQLiteMissionStore(tmp_path / "mission.db")
+    loaded = reopened.get_graph_run("graph-run-1")
+
+    assert advanced.step_count == 1
+    assert loaded.template_snapshot == {"id": "parallel", "nodes": []}
+    assert loaded.initial_payload == {"value": 3}
+    assert loaded.step_count == 1
+    assert loaded.max_steps == 8
+
+
+def test_graph_handoff_can_be_created_consumed_and_reloaded(tmp_path):
+    store = _store_with_mission(tmp_path)
+    store.create_graph_run(GraphRunRecord.create("graph-run-1", "mission-1", "parallel", 1, 1))
+    handoff = GraphHandoffRecord.create(
+        handoff_id="handoff-1",
+        graph_run_id="graph-run-1",
+        mission_id="mission-1",
+        edge_id="source-worker",
+        source_node_run_id="node-run-1",
+        from_node="source",
+        to_node="worker",
+        outcome="succeeded",
+        payload={"value": 1},
+    )
+
+    store.create_graph_handoff(handoff)
+    consumed = store.consume_graph_handoffs(["handoff-1"], "node-run-2")
+    reopened = SQLiteMissionStore(tmp_path / "mission.db")
+
+    assert consumed[0].status == GraphHandoffStatus.CONSUMED
+    assert reopened.list_graph_handoffs("graph-run-1")[0].consumed_by_node_run_id == "node-run-2"
+
+
+def test_graph_node_job_binding_is_stable(tmp_path):
+    store = _store_with_mission(tmp_path)
+    store.create_graph_run(GraphRunRecord.create("graph-run-1", "mission-1", "parallel", 1, 1))
+    job = store.create_job("mission-1", "fake.worker", "worker-1", {}, 30, 0)
+
+    store.bind_graph_node_job("graph-run-1", "worker", 1, job.job_id)
+
+    assert store.get_graph_node_job("graph-run-1", "worker", 1) == job.job_id
 
 
 def test_node_run_completion_persists_handoff_output(tmp_path):

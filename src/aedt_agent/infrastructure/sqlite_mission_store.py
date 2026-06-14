@@ -25,6 +25,8 @@ from aedt_agent.agent.mission import (
     EventRecord,
     EventType,
     EvidencePackage,
+    GraphHandoffRecord,
+    GraphHandoffStatus,
     GraphRunRecord,
     GraphRunStatus,
     JobAttemptRecord,
@@ -136,7 +138,11 @@ class SQLiteMissionStore:
                     started_at TEXT,
                     completed_at TEXT,
                     current_node_id TEXT,
-                    error_json TEXT
+                    error_json TEXT,
+                    template_snapshot_json TEXT NOT NULL DEFAULT '{}',
+                    initial_payload_json TEXT NOT NULL DEFAULT '{}',
+                    step_count INTEGER NOT NULL DEFAULT 0,
+                    max_steps INTEGER NOT NULL DEFAULT 32
                 );
                 CREATE TABLE IF NOT EXISTS node_runs (
                     node_run_id TEXT PRIMARY KEY,
@@ -250,8 +256,42 @@ class SQLiteMissionStore:
                     last_job_id TEXT,
                     retry_not_before TEXT
                 );
+                CREATE TABLE IF NOT EXISTS graph_handoffs (
+                    handoff_id TEXT PRIMARY KEY,
+                    graph_run_id TEXT NOT NULL REFERENCES graph_runs(graph_run_id),
+                    mission_id TEXT NOT NULL REFERENCES missions(mission_id),
+                    edge_id TEXT NOT NULL,
+                    source_node_run_id TEXT NOT NULL,
+                    from_node TEXT NOT NULL,
+                    to_node TEXT NOT NULL,
+                    outcome TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    consumed_at TEXT,
+                    consumed_by_node_run_id TEXT
+                );
+                CREATE TABLE IF NOT EXISTS graph_node_jobs (
+                    graph_run_id TEXT NOT NULL REFERENCES graph_runs(graph_run_id),
+                    node_id TEXT NOT NULL,
+                    run_index INTEGER NOT NULL,
+                    job_id TEXT NOT NULL REFERENCES jobs(job_id),
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY(graph_run_id, node_id, run_index),
+                    UNIQUE(graph_run_id, job_id)
+                );
                 """
             )
+            self._ensure_column(db, "graph_runs", "template_snapshot_json", "TEXT NOT NULL DEFAULT '{}'")
+            self._ensure_column(db, "graph_runs", "initial_payload_json", "TEXT NOT NULL DEFAULT '{}'")
+            self._ensure_column(db, "graph_runs", "step_count", "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(db, "graph_runs", "max_steps", "INTEGER NOT NULL DEFAULT 32")
+
+    @staticmethod
+    def _ensure_column(db: sqlite3.Connection, table: str, column: str, declaration: str) -> None:
+        columns = {row["name"] for row in db.execute(f"PRAGMA table_info({table})").fetchall()}
+        if column not in columns:
+            db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
 
     def create_mission(self, mission: MissionRecord) -> MissionRecord:
         with self._connect() as db:
@@ -681,8 +721,9 @@ class SQLiteMissionStore:
                 """
                 INSERT INTO graph_runs (
                     graph_run_id, mission_id, template_id, template_version, plan_version,
-                    status, created_at, updated_at, started_at, completed_at, current_node_id, error_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    status, created_at, updated_at, started_at, completed_at, current_node_id,
+                    error_json, template_snapshot_json, initial_payload_json, step_count, max_steps
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.graph_run_id,
@@ -697,6 +738,10 @@ class SQLiteMissionStore:
                     record.completed_at,
                     record.current_node_id,
                     _dump(record.error) if record.error is not None else None,
+                    _dump(record.template_snapshot),
+                    _dump(record.initial_payload),
+                    record.step_count,
+                    record.max_steps,
                 ),
             )
             self._append_event_in_tx(
@@ -756,6 +801,164 @@ class SQLiteMissionStore:
                 {"graph_run_id": graph_run_id, "status": updated.status.value},
             )
         return updated
+
+    def increment_graph_step(self, graph_run_id: str) -> GraphRunRecord:
+        graph_run = self.get_graph_run(graph_run_id)
+        if graph_run is None:
+            raise KeyError(f"graph run not found: {graph_run_id}")
+        updated = graph_run.with_step_increment()
+        with self._connect() as db:
+            db.execute(
+                "UPDATE graph_runs SET step_count = ?, updated_at = ? WHERE graph_run_id = ?",
+                (updated.step_count, updated.updated_at, graph_run_id),
+            )
+            self._append_event_in_tx(
+                db,
+                graph_run.mission_id,
+                EventType.GRAPH_STEP_ADVANCED,
+                {"graph_run_id": graph_run_id, "step_count": updated.step_count},
+            )
+        return updated
+
+    def create_graph_handoff(self, record: GraphHandoffRecord) -> GraphHandoffRecord:
+        with self._connect() as db:
+            db.execute(
+                """
+                INSERT INTO graph_handoffs (
+                    handoff_id, graph_run_id, mission_id, edge_id, source_node_run_id,
+                    from_node, to_node, outcome, payload_json, status, created_at,
+                    consumed_at, consumed_by_node_run_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record.handoff_id,
+                    record.graph_run_id,
+                    record.mission_id,
+                    record.edge_id,
+                    record.source_node_run_id,
+                    record.from_node,
+                    record.to_node,
+                    record.outcome,
+                    _dump(record.payload),
+                    record.status.value,
+                    record.created_at,
+                    record.consumed_at,
+                    record.consumed_by_node_run_id,
+                ),
+            )
+            self._append_event_in_tx(
+                db,
+                record.mission_id,
+                EventType.GRAPH_HANDOFF_CREATED,
+                {
+                    "handoff_id": record.handoff_id,
+                    "graph_run_id": record.graph_run_id,
+                    "edge_id": record.edge_id,
+                },
+            )
+        return record
+
+    def list_graph_handoffs(
+        self,
+        graph_run_id: str,
+        *,
+        status: GraphHandoffStatus | None = None,
+        to_node: str | None = None,
+    ) -> list[GraphHandoffRecord]:
+        clauses = ["graph_run_id = ?"]
+        params: list[object] = [graph_run_id]
+        if status is not None:
+            clauses.append("status = ?")
+            params.append(status.value)
+        if to_node is not None:
+            clauses.append("to_node = ?")
+            params.append(to_node)
+        query = (
+            "SELECT * FROM graph_handoffs WHERE "
+            + " AND ".join(clauses)
+            + " ORDER BY created_at, handoff_id"
+        )
+        with self._connect() as db:
+            rows = db.execute(query, params).fetchall()
+        return [_graph_handoff_from_row(row) for row in rows]
+
+    def consume_graph_handoffs(
+        self,
+        handoff_ids: list[str],
+        node_run_id: str,
+    ) -> list[GraphHandoffRecord]:
+        if not handoff_ids:
+            return []
+        consumed: list[GraphHandoffRecord] = []
+        with self._connect() as db:
+            for handoff_id in handoff_ids:
+                row = db.execute(
+                    "SELECT * FROM graph_handoffs WHERE handoff_id = ?",
+                    (handoff_id,),
+                ).fetchone()
+                if row is None:
+                    raise KeyError(f"graph handoff not found: {handoff_id}")
+                record = _graph_handoff_from_row(row).with_consumption(node_run_id)
+                db.execute(
+                    """
+                    UPDATE graph_handoffs
+                    SET status = ?, consumed_at = ?, consumed_by_node_run_id = ?
+                    WHERE handoff_id = ?
+                    """,
+                    (
+                        record.status.value,
+                        record.consumed_at,
+                        record.consumed_by_node_run_id,
+                        handoff_id,
+                    ),
+                )
+                self._append_event_in_tx(
+                    db,
+                    record.mission_id,
+                    EventType.GRAPH_HANDOFF_CONSUMED,
+                    {"handoff_id": handoff_id, "node_run_id": node_run_id},
+                )
+                consumed.append(record)
+        return consumed
+
+    def bind_graph_node_job(
+        self,
+        graph_run_id: str,
+        node_id: str,
+        run_index: int,
+        job_id: str,
+    ) -> str:
+        graph_run = self.get_graph_run(graph_run_id)
+        if graph_run is None:
+            raise KeyError(f"graph run not found: {graph_run_id}")
+        with self._connect() as db:
+            db.execute(
+                "INSERT INTO graph_node_jobs VALUES (?, ?, ?, ?, ?)",
+                (graph_run_id, node_id, run_index, job_id, utc_now_iso()),
+            )
+            self._append_event_in_tx(
+                db,
+                graph_run.mission_id,
+                EventType.GRAPH_NODE_JOB_BOUND,
+                {
+                    "graph_run_id": graph_run_id,
+                    "node_id": node_id,
+                    "run_index": run_index,
+                    "job_id": job_id,
+                },
+            )
+        return job_id
+
+    def get_graph_node_job(self, graph_run_id: str, node_id: str, run_index: int) -> str | None:
+        with self._connect() as db:
+            row = db.execute(
+                """
+                SELECT job_id FROM graph_node_jobs
+                WHERE graph_run_id = ? AND node_id = ? AND run_index = ?
+                """,
+                (graph_run_id, node_id, run_index),
+            ).fetchone()
+        return None if row is None else str(row["job_id"])
 
     def create_node_run(self, record: NodeRunRecord) -> NodeRunRecord:
         with self._connect() as db:
@@ -1323,6 +1526,28 @@ def _graph_run_from_row(row: sqlite3.Row) -> GraphRunRecord:
         completed_at=row["completed_at"],
         current_node_id=row["current_node_id"],
         error=_load(row["error_json"], None),
+        template_snapshot=dict(_load(row["template_snapshot_json"], {})),
+        initial_payload=dict(_load(row["initial_payload_json"], {})),
+        step_count=row["step_count"],
+        max_steps=row["max_steps"],
+    )
+
+
+def _graph_handoff_from_row(row: sqlite3.Row) -> GraphHandoffRecord:
+    return GraphHandoffRecord(
+        handoff_id=row["handoff_id"],
+        graph_run_id=row["graph_run_id"],
+        mission_id=row["mission_id"],
+        edge_id=row["edge_id"],
+        source_node_run_id=row["source_node_run_id"],
+        from_node=row["from_node"],
+        to_node=row["to_node"],
+        outcome=row["outcome"],
+        payload=dict(_load(row["payload_json"], {})),
+        status=GraphHandoffStatus(row["status"]),
+        created_at=row["created_at"],
+        consumed_at=row["consumed_at"],
+        consumed_by_node_run_id=row["consumed_by_node_run_id"],
     )
 
 

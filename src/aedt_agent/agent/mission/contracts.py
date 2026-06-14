@@ -45,8 +45,12 @@ class EventType(StrEnum):
     APPROVAL_RESOLVED = "approval_resolved"
     GRAPH_RUN_CREATED = "graph_run_created"
     GRAPH_RUN_UPDATED = "graph_run_updated"
+    GRAPH_STEP_ADVANCED = "graph_step_advanced"
     NODE_RUN_CREATED = "node_run_created"
     NODE_RUN_UPDATED = "node_run_updated"
+    GRAPH_HANDOFF_CREATED = "graph_handoff_created"
+    GRAPH_HANDOFF_CONSUMED = "graph_handoff_consumed"
+    GRAPH_NODE_JOB_BOUND = "graph_node_job_bound"
     ARTIFACT_MANIFEST_CREATED = "artifact_manifest_created"
     EVIDENCE_PACKAGE_CREATED = "evidence_package_created"
     JOB_ATTEMPT_CREATED = "job_attempt_created"
@@ -99,6 +103,11 @@ class JobAttemptStatus(StrEnum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELED = "canceled"
+
+
+class GraphHandoffStatus(StrEnum):
+    PENDING = "pending"
+    CONSUMED = "consumed"
 
 
 @dataclass(frozen=True)
@@ -354,6 +363,10 @@ class GraphRunRecord:
     completed_at: str | None = None
     current_node_id: str | None = None
     error: JsonDict | None = None
+    template_snapshot: JsonDict = field(default_factory=dict)
+    initial_payload: JsonDict = field(default_factory=dict)
+    step_count: int = 0
+    max_steps: int = 32
 
     @classmethod
     def create(
@@ -363,7 +376,12 @@ class GraphRunRecord:
         template_id: str,
         template_version: int,
         plan_version: int,
+        template_snapshot: JsonDict | None = None,
+        initial_payload: JsonDict | None = None,
+        max_steps: int = 32,
     ) -> "GraphRunRecord":
+        if max_steps <= 0:
+            raise ValueError("graph max_steps must be positive")
         now = utc_now_iso()
         return cls(
             graph_run_id=graph_run_id,
@@ -374,6 +392,9 @@ class GraphRunRecord:
             status=GraphRunStatus.CREATED,
             created_at=now,
             updated_at=now,
+            template_snapshot=template_snapshot or {},
+            initial_payload=initial_payload or {},
+            max_steps=max_steps,
         )
 
     def with_status(
@@ -400,6 +421,9 @@ class GraphRunRecord:
             error=error,
         )
 
+    def with_step_increment(self) -> "GraphRunRecord":
+        return replace(self, step_count=self.step_count + 1, updated_at=utc_now_iso())
+
     def to_json_dict(self) -> JsonDict:
         return {
             "graph_run_id": self.graph_run_id,
@@ -414,6 +438,81 @@ class GraphRunRecord:
             "completed_at": self.completed_at,
             "current_node_id": self.current_node_id,
             "error": self.error,
+            "template_snapshot": self.template_snapshot,
+            "initial_payload": self.initial_payload,
+            "step_count": self.step_count,
+            "max_steps": self.max_steps,
+        }
+
+
+@dataclass(frozen=True)
+class GraphHandoffRecord:
+    handoff_id: str
+    graph_run_id: str
+    mission_id: str
+    edge_id: str
+    source_node_run_id: str
+    from_node: str
+    to_node: str
+    outcome: str
+    payload: JsonDict
+    status: GraphHandoffStatus
+    created_at: str
+    consumed_at: str | None = None
+    consumed_by_node_run_id: str | None = None
+
+    @classmethod
+    def create(
+        cls,
+        handoff_id: str,
+        graph_run_id: str,
+        mission_id: str,
+        edge_id: str,
+        source_node_run_id: str,
+        from_node: str,
+        to_node: str,
+        outcome: str,
+        payload: JsonDict,
+    ) -> "GraphHandoffRecord":
+        return cls(
+            handoff_id=handoff_id,
+            graph_run_id=graph_run_id,
+            mission_id=mission_id,
+            edge_id=edge_id,
+            source_node_run_id=source_node_run_id,
+            from_node=from_node,
+            to_node=to_node,
+            outcome=outcome,
+            payload=payload,
+            status=GraphHandoffStatus.PENDING,
+            created_at=utc_now_iso(),
+        )
+
+    def with_consumption(self, node_run_id: str) -> "GraphHandoffRecord":
+        if self.status != GraphHandoffStatus.PENDING:
+            raise ValueError(f"graph handoff is not pending: {self.handoff_id}")
+        return replace(
+            self,
+            status=GraphHandoffStatus.CONSUMED,
+            consumed_at=utc_now_iso(),
+            consumed_by_node_run_id=node_run_id,
+        )
+
+    def to_json_dict(self) -> JsonDict:
+        return {
+            "handoff_id": self.handoff_id,
+            "graph_run_id": self.graph_run_id,
+            "mission_id": self.mission_id,
+            "edge_id": self.edge_id,
+            "source_node_run_id": self.source_node_run_id,
+            "from_node": self.from_node,
+            "to_node": self.to_node,
+            "outcome": self.outcome,
+            "payload": self.payload,
+            "status": self.status.value,
+            "created_at": self.created_at,
+            "consumed_at": self.consumed_at,
+            "consumed_by_node_run_id": self.consumed_by_node_run_id,
         }
 
 

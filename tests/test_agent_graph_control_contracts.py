@@ -3,6 +3,8 @@ from __future__ import annotations
 from aedt_agent.agent.mission import (
     ArtifactManifest,
     EvidencePackage,
+    GraphHandoffRecord,
+    GraphHandoffStatus,
     GraphRunRecord,
     GraphRunStatus,
     JobAttemptRecord,
@@ -31,6 +33,48 @@ def test_graph_run_record_is_json_ready():
     assert payload["status"] == "created"
     assert payload["started_at"] is None
     assert payload["completed_at"] is None
+
+
+def test_graph_run_record_captures_snapshot_input_and_step_budget():
+    graph_run = GraphRunRecord.create(
+        graph_run_id="graph-run-1",
+        mission_id="mission-1",
+        template_id="parallel",
+        template_version=2,
+        plan_version=3,
+        template_snapshot={"id": "parallel", "nodes": [{"id": "source"}]},
+        initial_payload={"value": 7},
+        max_steps=20,
+    )
+
+    advanced = graph_run.with_step_increment()
+    payload = advanced.to_json_dict()
+
+    assert payload["template_snapshot"]["id"] == "parallel"
+    assert payload["initial_payload"] == {"value": 7}
+    assert payload["step_count"] == 1
+    assert payload["max_steps"] == 20
+
+
+def test_graph_handoff_record_tracks_consumption():
+    handoff = GraphHandoffRecord.create(
+        handoff_id="handoff-1",
+        graph_run_id="graph-run-1",
+        mission_id="mission-1",
+        edge_id="source-worker",
+        source_node_run_id="node-run-1",
+        from_node="source",
+        to_node="worker",
+        outcome="succeeded",
+        payload={"value": 7},
+    )
+
+    consumed = handoff.with_consumption("node-run-2")
+
+    assert handoff.status == GraphHandoffStatus.PENDING
+    assert consumed.status == GraphHandoffStatus.CONSUMED
+    assert consumed.consumed_by_node_run_id == "node-run-2"
+    assert consumed.to_json_dict()["payload"] == {"value": 7}
 
 
 def test_node_run_record_captures_handoff_and_edge_decision():
