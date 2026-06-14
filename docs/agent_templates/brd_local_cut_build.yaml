@@ -61,10 +61,7 @@ handoffs:
   brd_local_cut_build_result:
     required_fields:
       - status
-      - adapter
-      - layout_file
-      - local_cut_region
-      - layout_solve
+      - evidence_summary
       - artifact_refs
   scorecard_report:
     required_fields:

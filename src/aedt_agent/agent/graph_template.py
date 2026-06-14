@@ -125,7 +125,7 @@ def graph_template_from_mapping(data: object, *, source: str = "graph template")
     _validate_cycles(nodes, edges, raw_edges)
 
     return GraphTemplate(
-        template_id=str(data.get("id") or ""),
+        template_id=str(data.get("id") or data.get("template_id") or ""),
         version=int(data.get("version") or 1),
         description=str(data.get("description") or ""),
         nodes=nodes,

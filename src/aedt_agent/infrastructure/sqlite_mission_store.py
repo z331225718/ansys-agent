@@ -1034,6 +1034,47 @@ class SQLiteMissionStore:
             raise KeyError(f"node run not found: {node_run_id}")
         return _node_run_from_row(row)
 
+    def update_node_run_status(
+        self,
+        node_run_id: str,
+        status: NodeRunStatus,
+        *,
+        output_payload: dict | None = None,
+        edge_decision: str | None = None,
+        error: dict | None = None,
+    ) -> NodeRunRecord:
+        updated = self.get_node_run(node_run_id).with_progress(
+            status,
+            output_payload=output_payload,
+            edge_decision=edge_decision,
+            error=error,
+        )
+        with self._connect() as db:
+            db.execute(
+                """
+                UPDATE node_runs
+                SET status = ?, output_payload_json = ?, updated_at = ?, started_at = ?,
+                    completed_at = NULL, edge_decision = ?, error_json = ?
+                WHERE node_run_id = ?
+                """,
+                (
+                    updated.status.value,
+                    _dump(updated.output_payload),
+                    updated.updated_at,
+                    updated.started_at,
+                    updated.edge_decision,
+                    _dump(updated.error) if updated.error is not None else None,
+                    node_run_id,
+                ),
+            )
+            self._append_event_in_tx(
+                db,
+                updated.mission_id,
+                EventType.NODE_RUN_UPDATED,
+                {"node_run_id": node_run_id, "status": updated.status.value},
+            )
+        return updated
+
     def complete_node_run(
         self,
         node_run_id: str,

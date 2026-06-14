@@ -29,7 +29,7 @@ def _payload(tmp_path: Path) -> dict:
     )
 
 
-def test_run_graph_once_executes_template_worker_and_scores_mission(tmp_path):
+def test_run_graph_once_executes_full_template_and_stops_at_approval(tmp_path):
     runtime = _runtime(tmp_path)
     template = load_graph_template(resolve_template_path("brd_local_cut_build"))
     mission = runtime.create_mission("构建 local cut", [], [])
@@ -37,11 +37,19 @@ def test_run_graph_once_executes_template_worker_and_scores_mission(tmp_path):
 
     report = run_graph_once(runtime, mission.mission_id, template, worker_id="graph")
 
-    assert report["status"] == "passed"
+    assert report["status"] == "waiting_approval"
     assert report["executed_node"]["id"] == "real_build_worker"
     assert report["executed_job"]["job_id"] == job.job_id
     assert report["executed_job"]["status"] == "succeeded"
     assert report["scorecard"]["status"] == "passed"
+    assert [node_run["node_id"] for node_run in report["node_runs"]] == [
+        "planner",
+        "input_validator",
+        "real_build_worker",
+        "model_review_scorecard",
+        "approval_gate",
+    ]
+    assert report["node_runs"][-1]["status"] == "waiting_approval"
 
 
 def test_run_graph_once_rejects_job_outside_template(tmp_path):

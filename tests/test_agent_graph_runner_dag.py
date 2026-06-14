@@ -1,78 +1,396 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
-import pytest
-
-from aedt_agent.agent.graph_runner import run_graph_sequential
-from aedt_agent.agent.graph_template import load_graph_template, resolve_template_path
-from aedt_agent.agent.mission import GraphRunStatus, NodeRunStatus
+from aedt_agent.agent.approvals import ApprovalService
+from aedt_agent.agent.graph_executors import GraphNodeExecutorRegistry
+from aedt_agent.agent.graph_runner import (
+    advance_graph,
+    create_graph_run,
+    graph_status,
+    resume_graph,
+    run_graph,
+)
+from aedt_agent.agent.graph_template import graph_template_from_mapping, load_graph_template
+from aedt_agent.agent.mission import GraphRunStatus, MissionState
 from aedt_agent.agent.orchestrator import AgentRuntime
-from aedt_agent.agent.workers import BRD_LOCAL_CUT_BUILD_CAPABILITY, InMemoryWorkerRegistry, build_brd_local_cut_job_input, run_brd_local_cut_worker
+from aedt_agent.agent.workers import InMemoryWorkerRegistry
 from aedt_agent.infrastructure import SQLiteMissionStore
 
 
-def _runtime(tmp_path: Path) -> AgentRuntime:
+def _runtime(tmp_path: Path, workers: dict[str, object]) -> AgentRuntime:
     registry = InMemoryWorkerRegistry()
-    registry.register(BRD_LOCAL_CUT_BUILD_CAPABILITY, run_brd_local_cut_worker)
+    for capability, worker in workers.items():
+        registry.register(capability, worker)
     return AgentRuntime(SQLiteMissionStore(tmp_path / "mission.db"), registry=registry)
 
 
-def _payload(tmp_path: Path) -> dict:
-    layout_file = tmp_path / "case.brd"
-    layout_file.write_text("brd", encoding="utf-8")
-    return build_brd_local_cut_job_input(
-        layout_file=layout_file,
-        signal_nets=["56G_TX0_P", "56G_TX0_N"],
-        reference_nets=["GND"],
-        local_cut_region={"type": "bbox", "unit": "mil", "x_min": 1, "y_min": 2, "x_max": 3, "y_max": 4},
-        artifact_dir=tmp_path / "artifacts",
+def _template(nodes, edges, handoffs=None):
+    return graph_template_from_mapping(
+        {
+            "id": "test_graph",
+            "version": 1,
+            "nodes": nodes,
+            "edges": edges,
+            "handoffs": handoffs or {},
+        }
     )
 
 
-def test_run_graph_sequential_records_graph_node_and_evidence(tmp_path):
-    runtime = _runtime(tmp_path)
-    template = load_graph_template(resolve_template_path("brd_local_cut_build"))
-    mission = runtime.create_mission("构建 local cut", [], [])
-    job = runtime.create_job(mission.mission_id, BRD_LOCAL_CUT_BUILD_CAPABILITY, "build", _payload(tmp_path))
+def test_graph_runs_serial_planner_validator_worker_to_terminal(tmp_path):
+    runtime = _runtime(
+        tmp_path,
+        {"fake.echo": lambda job, context: {"value": job.input_payload["value"] + 1}},
+    )
+    mission = runtime.create_mission("goal", [], [])
+    template = _template(
+        [
+            {"id": "planner", "role": "planner", "kind": "llm"},
+            {"id": "validator", "role": "validator", "kind": "program"},
+            {"id": "worker", "role": "worker", "kind": "worker", "capability": "fake.echo"},
+        ],
+        [
+            {"id": "plan-valid", "from": "planner", "to": "validator", "on": "succeeded"},
+            {"id": "valid-work", "from": "validator", "to": "worker", "on": "succeeded"},
+        ],
+    )
 
-    report = run_graph_sequential(runtime, mission.mission_id, template, worker_id="graph")
+    report = run_graph(runtime, mission.mission_id, template, initial_payload={"value": 4})
 
-    graph_runs = runtime.store.list_graph_runs(mission.mission_id)
-    node_runs = runtime.store.list_node_runs(graph_runs[0].graph_run_id)
-    evidence = runtime.store.list_evidence_packages(mission.mission_id)
-    assert report["status"] == "passed"
-    assert graph_runs[0].status == GraphRunStatus.SUCCEEDED
-    assert graph_runs[0].template_id == "brd_local_cut_build"
-    assert node_runs[0].status == NodeRunStatus.SUCCEEDED
-    assert node_runs[0].node_id == "real_build_worker"
-    assert node_runs[0].output_payload["evidence_summary"]["adapter"] == "agent_brd_local_cut"
-    assert node_runs[0].artifact_refs
-    assert node_runs[0].evidence_package_id == evidence[0].evidence_package_id
-    assert node_runs[0].edge_decision == "succeeded"
-    assert evidence[0].summary["scorecard"]["status"] == "passed"
-    assert report["executed_job"]["job_id"] == job.job_id
-
-
-def test_run_graph_sequential_rejects_job_outside_template(tmp_path):
-    runtime = _runtime(tmp_path)
-    template = load_graph_template(resolve_template_path("brd_local_cut_build"))
-    mission = runtime.create_mission("未知 job", [], [])
-    runtime.create_job(mission.mission_id, "unknown.capability", "unknown", {})
-
-    with pytest.raises(ValueError, match="not allowed by graph template"):
-        run_graph_sequential(runtime, mission.mission_id, template, worker_id="graph")
+    assert report["status"] == "succeeded"
+    assert [run["node_id"] for run in report["node_runs"]] == ["planner", "validator", "worker"]
+    assert report["node_runs"][-1]["output_payload"]["value"] == 5
+    assert len(report["handoffs"]) == 2
 
 
-def test_run_graph_sequential_records_failed_graph_when_no_queued_job(tmp_path):
-    runtime = _runtime(tmp_path)
-    template = load_graph_template(resolve_template_path("brd_local_cut_build"))
-    mission = runtime.create_mission("空 mission", [], [])
+def test_graph_activates_only_edge_matching_node_outcome(tmp_path):
+    runtime = _runtime(
+        tmp_path,
+        {"fake.branch": lambda job, context: {"edge_outcome": "branch_a", "value": 1}},
+    )
+    mission = runtime.create_mission("goal", [], [])
+    template = _template(
+        [
+            {"id": "worker", "role": "worker", "kind": "worker", "capability": "fake.branch"},
+            {"id": "a", "role": "aggregate", "kind": "program", "handler": "sink"},
+            {"id": "b", "role": "aggregate", "kind": "program", "handler": "sink"},
+        ],
+        [
+            {"id": "to-a", "from": "worker", "to": "a", "on": "branch_a"},
+            {"id": "to-b", "from": "worker", "to": "b", "on": "branch_b"},
+        ],
+    )
+    handlers = GraphNodeExecutorRegistry()
+    handlers.register(
+        "sink",
+        lambda context: {
+            "status": "succeeded",
+            "outcome": "succeeded",
+            "output_payload": {"sink": context.node.node_id},
+        },
+    )
 
-    report = run_graph_sequential(runtime, mission.mission_id, template, worker_id="graph")
+    report = run_graph(
+        runtime,
+        mission.mission_id,
+        template,
+        initial_payload={"value": 1},
+        registry=handlers,
+    )
 
-    graph_runs = runtime.store.list_graph_runs(mission.mission_id)
+    assert report["status"] == "succeeded"
+    assert [run["node_id"] for run in report["node_runs"]] == ["worker", "a"]
+    assert [handoff["edge_id"] for handoff in report["handoffs"]] == ["to-a"]
+
+
+def test_failed_node_without_matching_edge_fails_graph(tmp_path):
+    runtime = _runtime(
+        tmp_path,
+        {"fake.invalid": lambda job, context: (_ for _ in ()).throw(ValueError("bad input"))},
+    )
+    mission = runtime.create_mission("goal", [], [])
+    template = _template(
+        [{"id": "worker", "role": "worker", "kind": "worker", "capability": "fake.invalid"}],
+        [],
+    )
+
+    report = run_graph(runtime, mission.mission_id, template, initial_payload={})
+
     assert report["status"] == "failed"
-    assert report["error"]["message"] == "no queued job"
-    assert graph_runs[0].status == GraphRunStatus.FAILED
-    assert graph_runs[0].error == {"message": "no queued job"}
+    assert report["graph_run"]["error"]["code"] == "unhandled_node_outcome"
+
+
+def test_parallel_workers_run_in_same_wave_and_join_all(tmp_path):
+    barrier = threading.Barrier(2)
+
+    def parallel_worker(job, context):
+        barrier.wait(timeout=3)
+        return {"value": job.capability}
+
+    runtime = _runtime(
+        tmp_path,
+        {"fake.left": parallel_worker, "fake.right": parallel_worker},
+    )
+    mission = runtime.create_mission("goal", [], [])
+    template = _template(
+        [
+            {"id": "source", "role": "planner", "kind": "llm"},
+            {"id": "left", "role": "worker", "kind": "worker", "capability": "fake.left"},
+            {"id": "right", "role": "worker", "kind": "worker", "capability": "fake.right"},
+            {
+                "id": "join",
+                "role": "aggregate",
+                "kind": "program",
+                "handler": "aggregate",
+                "join": "all",
+                "after": ["left", "right"],
+            },
+        ],
+        [
+            {"id": "source-left", "from": "source", "to": "left", "on": "succeeded"},
+            {"id": "source-right", "from": "source", "to": "right", "on": "succeeded"},
+            {"id": "left-join", "from": "left", "to": "join", "on": "succeeded"},
+            {"id": "right-join", "from": "right", "to": "join", "on": "succeeded"},
+        ],
+    )
+    handlers = GraphNodeExecutorRegistry()
+    handlers.register(
+        "aggregate",
+        lambda context: {
+            "status": "succeeded",
+            "outcome": "succeeded",
+            "output_payload": {
+                "sources": sorted(context.input_payload["_handoffs"]),
+            },
+        },
+    )
+
+    report = run_graph(
+        runtime,
+        mission.mission_id,
+        template,
+        initial_payload={"seed": 1},
+        registry=handlers,
+        max_workers=2,
+    )
+
+    assert report["status"] == "succeeded"
+    join_run = [run for run in report["node_runs"] if run["node_id"] == "join"][0]
+    assert join_run["output_payload"]["sources"] == ["left", "right"]
+    assert report["graph_run"]["step_count"] == 3
+
+
+def test_failed_tester_routes_back_to_coder_until_success(tmp_path):
+    tester_calls = 0
+
+    def tester(job, context):
+        nonlocal tester_calls
+        tester_calls += 1
+        return {"edge_outcome": "failed" if tester_calls == 1 else "succeeded"}
+
+    runtime = _runtime(
+        tmp_path,
+        {
+            "fake.coder": lambda job, context: {"revision": job.input_payload.get("revision", 0) + 1},
+            "fake.tester": tester,
+        },
+    )
+    mission = runtime.create_mission("goal", [], [])
+    template = _template(
+        [
+            {"id": "source", "role": "planner", "kind": "llm"},
+            {
+                "id": "coder",
+                "role": "worker",
+                "kind": "worker",
+                "capability": "fake.coder",
+                "max_runs": 2,
+            },
+            {
+                "id": "tester",
+                "role": "worker",
+                "kind": "worker",
+                "capability": "fake.tester",
+                "max_runs": 2,
+            },
+        ],
+        [
+            {
+                "id": "source-coder",
+                "from": "source",
+                "to": "coder",
+                "on": "succeeded",
+            },
+            {
+                "id": "coder-tester",
+                "from": "coder",
+                "to": "tester",
+                "on": "succeeded",
+                "max_traversals": 2,
+            },
+            {
+                "id": "tester-coder",
+                "from": "tester",
+                "to": "coder",
+                "on": "failed",
+                "max_traversals": 1,
+            },
+        ],
+    )
+
+    report = run_graph(runtime, mission.mission_id, template, initial_payload={"revision": 0})
+
+    assert report["status"] == "succeeded"
+    assert [run["node_id"] for run in report["node_runs"]] == [
+        "source",
+        "coder",
+        "tester",
+        "coder",
+        "tester",
+    ]
+
+
+def test_edge_traversal_limit_fails_graph(tmp_path):
+    runtime = _runtime(
+        tmp_path,
+        {
+            "fake.coder": lambda job, context: {"revision": 1},
+            "fake.tester": lambda job, context: {"edge_outcome": "failed"},
+        },
+    )
+    mission = runtime.create_mission("goal", [], [])
+    template = _template(
+        [
+            {"id": "source", "role": "planner", "kind": "llm"},
+            {"id": "coder", "role": "worker", "kind": "worker", "capability": "fake.coder", "max_runs": 3},
+            {"id": "tester", "role": "worker", "kind": "worker", "capability": "fake.tester", "max_runs": 3},
+        ],
+        [
+            {"id": "source-coder", "from": "source", "to": "coder", "on": "succeeded"},
+            {"id": "coder-tester", "from": "coder", "to": "tester", "on": "succeeded", "max_traversals": 3},
+            {"id": "tester-coder", "from": "tester", "to": "coder", "on": "failed", "max_traversals": 1},
+        ],
+    )
+
+    report = run_graph(runtime, mission.mission_id, template, initial_payload={})
+
+    assert report["status"] == "failed"
+    assert report["graph_run"]["error"]["code"] == "edge_traversal_limit"
+
+
+def test_graph_max_steps_fails_before_next_wave(tmp_path):
+    runtime = _runtime(tmp_path, {"fake.worker": lambda job, context: {}})
+    mission = runtime.create_mission("goal", [], [])
+    template = _template(
+        [
+            {"id": "source", "role": "planner", "kind": "llm"},
+            {"id": "worker", "role": "worker", "kind": "worker", "capability": "fake.worker"},
+        ],
+        [{"id": "source-worker", "from": "source", "to": "worker", "on": "succeeded"}],
+    )
+
+    report = run_graph(
+        runtime,
+        mission.mission_id,
+        template,
+        initial_payload={},
+        max_steps=1,
+    )
+
+    assert report["status"] == "failed"
+    assert report["graph_run"]["error"]["code"] == "graph_step_limit"
+
+
+def test_pending_handoff_with_unsatisfied_after_is_deadlock(tmp_path):
+    runtime = _runtime(tmp_path, {})
+    mission = runtime.create_mission("goal", [], [])
+    template = _template(
+        [
+            {"id": "source", "role": "planner", "kind": "llm"},
+            {"id": "blocker", "role": "aggregate", "kind": "program", "handler": "sink"},
+            {
+                "id": "target",
+                "role": "aggregate",
+                "kind": "program",
+                "handler": "sink",
+                "after": ["blocker"],
+            },
+        ],
+        [
+            {"id": "source-target", "from": "source", "to": "target", "on": "succeeded"},
+            {"id": "source-blocker", "from": "source", "to": "blocker", "on": "alternate"},
+        ],
+    )
+    handlers = GraphNodeExecutorRegistry()
+    handlers.register(
+        "sink",
+        lambda context: {
+            "status": "succeeded",
+            "outcome": "succeeded",
+            "output_payload": {},
+        },
+    )
+
+    report = run_graph(
+        runtime,
+        mission.mission_id,
+        template,
+        initial_payload={},
+        registry=handlers,
+    )
+
+    assert report["status"] == "failed"
+    assert report["graph_run"]["error"]["code"] == "graph_deadlock"
+
+
+def test_approval_gate_resumes_same_graph_run_after_restart(tmp_path):
+    runtime = _runtime(tmp_path, {})
+    mission = runtime.create_mission("goal", [], [])
+    template = _template(
+        [
+            {"id": "source", "role": "planner", "kind": "llm"},
+            {"id": "gate", "role": "approval_gate", "kind": "human_gate"},
+        ],
+        [{"id": "source-gate", "from": "source", "to": "gate", "on": "succeeded"}],
+    )
+
+    waiting = run_graph(runtime, mission.mission_id, template, initial_payload={"value": 1})
+    approval = runtime.store.list_approvals(mission.mission_id)[0]
+    ApprovalService(runtime.store).approve(approval.approval_id, "approve")
+
+    restarted = AgentRuntime(SQLiteMissionStore(tmp_path / "mission.db"))
+    completed = resume_graph(restarted, waiting["graph_run"]["graph_run_id"])
+
+    assert waiting["status"] == "waiting_approval"
+    assert completed["status"] == "succeeded"
+    assert completed["graph_run"]["graph_run_id"] == waiting["graph_run"]["graph_run_id"]
+    gate_runs = [run for run in completed["node_runs"] if run["node_id"] == "gate"]
+    assert len(gate_runs) == 1
+    assert gate_runs[0]["status"] == "succeeded"
+
+
+def test_graph_run_uses_persisted_template_snapshot(tmp_path):
+    runtime = _runtime(tmp_path, {"fake.worker": lambda job, context: {"ok": True}})
+    mission = runtime.create_mission("goal", [], [])
+    path = tmp_path / "graph.yaml"
+    path.write_text(
+        """
+id: snapshot
+version: 1
+nodes:
+  - {id: worker, role: worker, kind: worker, capability: fake.worker}
+edges: []
+handoffs: {}
+""".strip(),
+        encoding="utf-8",
+    )
+    template = load_graph_template(path)
+    graph_run = create_graph_run(runtime, mission.mission_id, template, initial_payload={})
+    path.write_text("not: a valid graph", encoding="utf-8")
+
+    advance_graph(runtime, graph_run.graph_run_id)
+    report = graph_status(runtime, graph_run.graph_run_id)
+
+    assert report["status"] == "succeeded"
+    assert report["node_runs"][0]["node_id"] == "worker"

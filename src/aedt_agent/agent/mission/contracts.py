@@ -575,6 +575,23 @@ class NodeRunRecord:
             started_at=now if status == NodeRunStatus.RUNNING and self.started_at is None else self.started_at,
         )
 
+    def with_progress(
+        self,
+        status: NodeRunStatus,
+        *,
+        output_payload: JsonDict | None = None,
+        edge_decision: str | None = None,
+        error: JsonDict | None = None,
+    ) -> "NodeRunRecord":
+        updated = self.with_status(status)
+        return replace(
+            updated,
+            output_payload=self.output_payload if output_payload is None else output_payload,
+            edge_decision=edge_decision,
+            error=error,
+            completed_at=None,
+        )
+
     def with_completion(
         self,
         status: NodeRunStatus,
