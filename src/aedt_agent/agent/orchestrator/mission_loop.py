@@ -44,6 +44,19 @@ class MissionLoopController:
             "jobs": [job.to_json_dict() for job in self.runtime.list_jobs(mission_id)],
         }
 
+    def record_duplicate_action(self, mission_id: str, *, digest: str) -> MissionLoopRecord:
+        loop = self._sync_usage(self.get_or_create_loop(mission_id))
+        counted = replace(loop, duplicate_action_count=loop.duplicate_action_count + 1)
+        decision = LoopDecision(
+            LoopDecisionType.CONTINUE,
+            f"duplicate action recorded: {digest}",
+            self._usage(counted),
+            mission_budget_limits(counted),
+        )
+        return self.store.update_mission_loop(
+            counted.with_decision(decision, status=MissionLoopStatus.ACTIVE)
+        )
+
     def advance(self, mission_id: str, *, worker_id: str = "mission-loop") -> LoopDecision:
         mission = self.runtime.get_mission(mission_id)
         loop = self._sync_usage(self.get_or_create_loop(mission_id))

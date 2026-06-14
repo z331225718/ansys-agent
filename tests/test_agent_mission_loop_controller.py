@@ -159,3 +159,17 @@ def test_controller_resumes_existing_loop_after_store_restart(tmp_path):
 
     assert resumed.loop_id == loop.loop_id
     assert resumed.started_at == loop.started_at
+
+
+def test_recorded_duplicate_actions_stop_mission_at_profile_limit(tmp_path):
+    runtime = _runtime(tmp_path, "fake.ok", lambda job, context: {})
+    mission = runtime.create_mission("goal", [], [])
+    controller = MissionLoopController(runtime)
+
+    controller.record_duplicate_action(mission.mission_id, digest="a" * 64)
+    controller.record_duplicate_action(mission.mission_id, digest="a" * 64)
+    decision = controller.advance(mission.mission_id)
+
+    assert decision.decision == LoopDecisionType.STOPPED_DUPLICATE_ACTION
+    assert runtime.get_mission(mission.mission_id).state == MissionState.FAILED
+    assert runtime.store.get_mission_loop(mission.mission_id).duplicate_action_count == 2
