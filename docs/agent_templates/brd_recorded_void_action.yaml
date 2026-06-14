@@ -1,0 +1,66 @@
+id: brd_recorded_void_action
+version: 1
+description: Execute one approved recorded BRD void adjustment and deterministically accept, review, or roll it back.
+nodes:
+  - id: action_validator
+    role: validator
+    kind: program
+    input_schema: controlled_void_action
+    output_schema: validated_void_action
+  - id: action_approval_gate
+    role: approval_gate
+    kind: human_gate
+    input_schema: validated_void_action
+    output_schema: action_approval_decision
+  - id: recorded_action_worker
+    role: worker
+    kind: worker
+    capability: brd.action.execute_recorded
+    input_schema: approved_void_action
+    output_schema: recorded_action_result
+  - id: final_scorecard
+    role: scorecard
+    kind: program
+    input_schema: recorded_action_result
+    output_schema: scorecard_report
+edges:
+  - from: action_validator
+    to: action_approval_gate
+    on: succeeded
+  - from: action_approval_gate
+    to: recorded_action_worker
+    on: approved
+  - from: recorded_action_worker
+    to: final_scorecard
+    on: succeeded
+handoffs:
+  controlled_void_action:
+    required_fields:
+      - action_id
+      - action_type
+      - target
+      - parameters
+      - constraints
+      - digest
+  validated_void_action:
+    required_fields:
+      - action_id
+      - digest
+      - status
+  approved_void_action:
+    required_fields:
+      - action_id
+      - approval_id
+      - digest
+  recorded_action_result:
+    required_fields:
+      - status
+      - action_id
+      - decision
+      - comparison
+      - evidence_summary
+      - artifact_refs
+  scorecard_report:
+    required_fields:
+      - status
+      - checks

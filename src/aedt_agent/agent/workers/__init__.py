@@ -10,6 +10,11 @@ from aedt_agent.agent.workers.brd_local_cut import (
     build_brd_local_cut_job_input,
     run_brd_local_cut_worker,
 )
+from aedt_agent.agent.workers.brd_recorded_void_action import (
+    BRD_RECORDED_VOID_ACTION_CAPABILITY,
+    build_brd_recorded_void_action_job_input,
+    run_brd_recorded_void_action_worker,
+)
 from aedt_agent.agent.workers.registry import (
     InMemoryWorkerRegistry,
     WorkerContext,
@@ -20,12 +25,15 @@ from aedt_agent.agent.workers.registry import (
 __all__ = [
     "BRD_CHANNEL_SCORE_CAPABILITY",
     "BRD_LOCAL_CUT_BUILD_CAPABILITY",
+    "BRD_RECORDED_VOID_ACTION_CAPABILITY",
     "InMemoryWorkerRegistry",
     "WorkerContext",
     "WorkerExecutionResult",
     "build_brd_channel_score_job_input",
     "build_brd_local_cut_job_input",
+    "build_brd_recorded_void_action_job_input",
     "classify_worker_error",
     "run_brd_channel_score_worker",
     "run_brd_local_cut_worker",
+    "run_brd_recorded_void_action_worker",
 ]

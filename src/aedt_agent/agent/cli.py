@@ -5,6 +5,7 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from aedt_agent.agent.mission import MissionState
 from aedt_agent.agent.orchestrator import AgentRuntime
@@ -24,12 +25,26 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--criterion", action="append", default=[])
     create.add_argument("--brd-local-cut", action="store_true")
     create.add_argument("--brd-channel-score", action="store_true")
+    create.add_argument("--brd-recorded-void-action", action="store_true")
     create.add_argument("--layout-file")
     create.add_argument("--signal-net", action="append", default=[])
     create.add_argument("--reference-net", action="append", default=[])
     create.add_argument("--bbox")
     create.add_argument("--touchstone")
     create.add_argument("--tdr")
+    create.add_argument("--before-touchstone")
+    create.add_argument("--before-tdr")
+    create.add_argument("--after-touchstone")
+    create.add_argument("--after-tdr")
+    create.add_argument("--action-layer")
+    create.add_argument("--action-region")
+    create.add_argument("--action-shape", choices=["circle", "rectangle"], default="circle")
+    create.add_argument("--action-variable")
+    create.add_argument("--old-value-mil", type=float)
+    create.add_argument("--new-value-mil", type=float)
+    create.add_argument("--min-value-mil", type=float, default=0.0)
+    create.add_argument("--max-value-mil", type=float, default=1000.0)
+    create.add_argument("--max-abs-delta-mil", type=float, default=2.0)
     create.add_argument("--artifact-dir")
     create.add_argument("--adapter-mode", choices=["deterministic", "real_build"], default="deterministic")
     create.add_argument("--frequency-start-ghz", type=float, default=0.0)
@@ -80,6 +95,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     evidence = mission_commands.add_parser("evidence")
     evidence.add_argument("--mission-id", required=True)
+
+    actions = mission_commands.add_parser("actions")
+    actions.add_argument("--mission-id", required=True)
+
+    action_status = mission_commands.add_parser("action-status")
+    action_status.add_argument("--action-id", required=True)
+
+    approve_action_parser = mission_commands.add_parser("approve-action")
+    approve_action_parser.add_argument("--approval-id", required=True)
+    approve_action_parser.add_argument("--action-id", required=True)
+    approve_action_parser.add_argument("--action-digest", required=True)
+    approve_action_parser.add_argument("--comment")
 
     resume = mission_commands.add_parser("resume")
     resume.add_argument("--mission-id", required=True)
@@ -150,6 +177,61 @@ def run(argv: Sequence[str] | None = None) -> int:
                     tdr_target_ohm=args.tdr_target_ohm,
                 ),
             )
+        if args.brd_recorded_void_action:
+            from aedt_agent.agent.actions import ActionRecord, request_action_approval, validate_action
+            from aedt_agent.agent.workers import (
+                BRD_RECORDED_VOID_ACTION_CAPABILITY,
+                build_brd_recorded_void_action_job_input,
+            )
+
+            _require_recorded_action_args(args)
+            old_value = float(args.old_value_mil)
+            new_value = float(args.new_value_mil)
+            action = validate_action(
+                ActionRecord.create(
+                    action_id=str(uuid4()),
+                    mission_id=mission.mission_id,
+                    target={
+                        "layer": args.action_layer,
+                        "region_ref": args.action_region,
+                        "shape": args.action_shape,
+                    },
+                    parameters={
+                        "variable": args.action_variable,
+                        "old_value_mil": old_value,
+                        "new_value_mil": new_value,
+                        "delta_mil": new_value - old_value,
+                    },
+                    constraints={
+                        "min_value_mil": args.min_value_mil,
+                        "max_value_mil": args.max_value_mil,
+                        "max_abs_delta_mil": args.max_abs_delta_mil,
+                    },
+                    reason={
+                        "evidence_package_id": "",
+                        "summary": "用户提交的 recorded before/after artifacts 用于验证受控 void 调整。",
+                    },
+                    adapter_mode="recorded",
+                    adapter_input={
+                        "before_touchstone": args.before_touchstone,
+                        "before_tdr": args.before_tdr,
+                        "after_touchstone": args.after_touchstone,
+                        "after_tdr": args.after_tdr,
+                        "frequency_start_ghz": args.frequency_start_ghz,
+                        "frequency_stop_ghz": args.frequency_stop_ghz,
+                        "rl_target_db": args.rl_target_db,
+                        "tdr_target_ohm": args.tdr_target_ohm,
+                    },
+                )
+            )
+            runtime.store.create_action(action)
+            request_action_approval(runtime.store, action.action_id)
+            runtime.create_job(
+                mission.mission_id,
+                BRD_RECORDED_VOID_ACTION_CAPABILITY,
+                f"brd-recorded-void-action:{action.action_id}",
+                build_brd_recorded_void_action_job_input(action_id=action.action_id),
+            )
         _print_json(mission.to_json_dict())
         return 0
 
@@ -161,11 +243,7 @@ def run(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.group == "mission" and args.mission_command == "run":
-        from aedt_agent.agent.workers import BRD_LOCAL_CUT_BUILD_CAPABILITY, InMemoryWorkerRegistry, run_brd_local_cut_worker
-
-        registry = InMemoryWorkerRegistry()
-        registry.register(BRD_LOCAL_CUT_BUILD_CAPABILITY, run_brd_local_cut_worker)
-        runtime = AgentRuntime(SQLiteMissionStore(args.db), registry=registry)
+        runtime = _runtime_with_workers(args.db)
         result = runtime.execute_next_job(args.mission_id, worker_id="cli")
         _print_json(
             {
@@ -180,18 +258,8 @@ def run(argv: Sequence[str] | None = None) -> int:
     if args.group == "mission" and args.mission_command == "run-graph":
         from aedt_agent.agent.graph_runner import run_graph_once
         from aedt_agent.agent.graph_template import load_graph_template
-        from aedt_agent.agent.workers import (
-            BRD_CHANNEL_SCORE_CAPABILITY,
-            BRD_LOCAL_CUT_BUILD_CAPABILITY,
-            InMemoryWorkerRegistry,
-            run_brd_channel_score_worker,
-            run_brd_local_cut_worker,
-        )
 
-        registry = InMemoryWorkerRegistry()
-        registry.register(BRD_LOCAL_CUT_BUILD_CAPABILITY, run_brd_local_cut_worker)
-        registry.register(BRD_CHANNEL_SCORE_CAPABILITY, run_brd_channel_score_worker)
-        runtime = AgentRuntime(SQLiteMissionStore(args.db), registry=registry)
+        runtime = _runtime_with_workers(args.db)
         template = load_graph_template(args.template)
         report = run_graph_once(runtime, args.mission_id, template, worker_id=args.worker_id)
         _print_json(report)
@@ -232,6 +300,35 @@ def run(argv: Sequence[str] | None = None) -> int:
         _print_json({"evidence_packages": [evidence.to_json_dict() for evidence in runtime.store.list_evidence_packages(args.mission_id)]})
         return 0
 
+    if args.group == "mission" and args.mission_command == "actions":
+        _print_json({"actions": [action.to_json_dict() for action in runtime.store.list_actions(args.mission_id)]})
+        return 0
+
+    if args.group == "mission" and args.mission_command == "action-status":
+        action = runtime.store.get_action(args.action_id)
+        _print_json(
+            {
+                "action": action.to_json_dict(),
+                "executions": [
+                    execution.to_json_dict() for execution in runtime.store.list_action_executions(args.action_id)
+                ],
+            }
+        )
+        return 0
+
+    if args.group == "mission" and args.mission_command == "approve-action":
+        from aedt_agent.agent.actions import approve_action
+
+        action = approve_action(
+            runtime.store,
+            args.approval_id,
+            args.action_id,
+            args.action_digest,
+            comment=args.comment,
+        )
+        _print_json(action.to_json_dict())
+        return 0
+
     if args.group == "mission" and args.mission_command == "cancel":
         mission = runtime.store.update_mission_state(args.mission_id, MissionState.CANCELED)
         _print_json(mission.to_json_dict())
@@ -245,6 +342,45 @@ def run(argv: Sequence[str] | None = None) -> int:
         }
     )
     return 2
+
+
+def _runtime_with_workers(db_path: Path) -> AgentRuntime:
+    from aedt_agent.agent.workers import (
+        BRD_CHANNEL_SCORE_CAPABILITY,
+        BRD_LOCAL_CUT_BUILD_CAPABILITY,
+        BRD_RECORDED_VOID_ACTION_CAPABILITY,
+        InMemoryWorkerRegistry,
+        run_brd_channel_score_worker,
+        run_brd_local_cut_worker,
+        run_brd_recorded_void_action_worker,
+    )
+
+    store = SQLiteMissionStore(db_path)
+    registry = InMemoryWorkerRegistry()
+    registry.register(BRD_LOCAL_CUT_BUILD_CAPABILITY, run_brd_local_cut_worker)
+    registry.register(BRD_CHANNEL_SCORE_CAPABILITY, run_brd_channel_score_worker)
+    registry.register(
+        BRD_RECORDED_VOID_ACTION_CAPABILITY,
+        lambda job, context: run_brd_recorded_void_action_worker(job, context, store=store),
+    )
+    return AgentRuntime(store, registry=registry)
+
+
+def _require_recorded_action_args(args) -> None:
+    required = {
+        "before_touchstone": args.before_touchstone,
+        "before_tdr": args.before_tdr,
+        "after_touchstone": args.after_touchstone,
+        "after_tdr": args.after_tdr,
+        "action_layer": args.action_layer,
+        "action_region": args.action_region,
+        "action_variable": args.action_variable,
+        "old_value_mil": args.old_value_mil,
+        "new_value_mil": args.new_value_mil,
+    }
+    missing = [name for name, value in required.items() if value is None or value == ""]
+    if missing:
+        raise ValueError(f"missing recorded action arguments: {', '.join(missing)}")
 
 
 def _recorded_layout_settings_from_analysis(path: Path | None) -> dict[str, Any]:
