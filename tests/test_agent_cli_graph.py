@@ -56,7 +56,7 @@ def test_cli_scorecard_reads_runtime_records(tmp_path):
     assert payload["template_id"] == "brd_local_cut_build"
 
 
-def test_cli_run_graph_executes_next_template_worker_and_scores(tmp_path):
+def test_cli_run_graph_executes_full_template_and_waits_for_review(tmp_path):
     layout_file = tmp_path / "case.brd"
     layout_file.write_text("brd", encoding="utf-8")
     created = _run(
@@ -81,6 +81,12 @@ def test_cli_run_graph_executes_next_template_worker_and_scores(tmp_path):
 
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
-    assert payload["status"] == "passed"
-    assert payload["executed_node"]["id"] == "real_build_worker"
-    assert payload["scorecard"]["status"] == "passed"
+    assert payload["status"] == "waiting_approval"
+    assert [run["node_id"] for run in payload["node_runs"]] == [
+        "planner",
+        "input_validator",
+        "real_build_worker",
+        "model_review_scorecard",
+        "approval_gate",
+    ]
+    assert payload["node_runs"][3]["output_payload"]["status"] == "passed"

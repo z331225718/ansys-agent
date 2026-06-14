@@ -73,6 +73,21 @@ def build_parser() -> argparse.ArgumentParser:
     run_graph.add_argument("--mission-id", required=True)
     run_graph.add_argument("--template", required=True)
     run_graph.add_argument("--worker-id", default="cli-graph")
+    run_graph.add_argument("--max-steps", type=int, default=32)
+    run_graph.add_argument("--max-workers", type=int, default=4)
+
+    advance_graph_parser = mission_commands.add_parser("advance-graph")
+    advance_graph_parser.add_argument("--graph-run-id", required=True)
+    advance_graph_parser.add_argument("--worker-id", default="cli-graph-step")
+    advance_graph_parser.add_argument("--max-workers", type=int, default=4)
+
+    graph_status_parser = mission_commands.add_parser("graph-status")
+    graph_status_parser.add_argument("--graph-run-id", required=True)
+
+    resume_graph_parser = mission_commands.add_parser("resume-graph")
+    resume_graph_parser.add_argument("--graph-run-id", required=True)
+    resume_graph_parser.add_argument("--worker-id", default="cli-graph-resume")
+    resume_graph_parser.add_argument("--max-workers", type=int, default=4)
 
     advance = mission_commands.add_parser("advance")
     advance.add_argument("--mission-id", required=True)
@@ -122,9 +137,9 @@ def build_parser() -> argparse.ArgumentParser:
     resume.add_argument("--profile", default="safe-recorded")
 
     approve = mission_commands.add_parser("approve")
-    approve.add_argument("--mission-id", required=True)
-    approve.add_argument("--approval-id", required=False)
-    approve.add_argument("--option-id", required=False)
+    approve.add_argument("--mission-id", required=False)
+    approve.add_argument("--approval-id", required=True)
+    approve.add_argument("--option-id", required=True)
     approve.add_argument("--comment", required=False)
 
     cancel = mission_commands.add_parser("cancel")
@@ -266,14 +281,53 @@ def run(argv: Sequence[str] | None = None) -> int:
         return 0 if result.status.value == "succeeded" else 2
 
     if args.group == "mission" and args.mission_command == "run-graph":
-        from aedt_agent.agent.graph_runner import run_graph_once
+        from aedt_agent.agent.graph_runner import run_graph
         from aedt_agent.agent.graph_template import load_graph_template
 
         runtime = _runtime_with_workers(args.db)
         template = load_graph_template(args.template)
-        report = run_graph_once(runtime, args.mission_id, template, worker_id=args.worker_id)
+        report = run_graph(
+            runtime,
+            args.mission_id,
+            template,
+            max_steps=args.max_steps,
+            worker_id=args.worker_id,
+            max_workers=args.max_workers,
+        )
         _print_json(report)
-        return 0 if report["status"] == "passed" else 2
+        return _graph_exit_code(report["status"])
+
+    if args.group == "mission" and args.mission_command == "advance-graph":
+        from aedt_agent.agent.graph_runner import advance_graph
+
+        runtime = _runtime_with_workers(args.db)
+        report = advance_graph(
+            runtime,
+            args.graph_run_id,
+            worker_id=args.worker_id,
+            max_workers=args.max_workers,
+        )
+        _print_json(report)
+        return _graph_exit_code(report["status"])
+
+    if args.group == "mission" and args.mission_command == "graph-status":
+        from aedt_agent.agent.graph_runner import graph_status
+
+        _print_json(graph_status(runtime, args.graph_run_id))
+        return 0
+
+    if args.group == "mission" and args.mission_command == "resume-graph":
+        from aedt_agent.agent.graph_runner import resume_graph
+
+        runtime = _runtime_with_workers(args.db)
+        report = resume_graph(
+            runtime,
+            args.graph_run_id,
+            worker_id=args.worker_id,
+            max_workers=args.max_workers,
+        )
+        _print_json(report)
+        return _graph_exit_code(report["status"])
 
     if args.group == "mission" and args.mission_command == "advance":
         from aedt_agent.agent.orchestrator import MissionLoopController
@@ -370,6 +424,17 @@ def run(argv: Sequence[str] | None = None) -> int:
         _print_json(action.to_json_dict())
         return 0
 
+    if args.group == "mission" and args.mission_command == "approve":
+        from aedt_agent.agent.approvals import ApprovalService
+
+        approval = ApprovalService(runtime.store).approve(
+            args.approval_id,
+            selected_option_id=args.option_id,
+            comment=args.comment,
+        )
+        _print_json(approval.to_json_dict())
+        return 0
+
     if args.group == "mission" and args.mission_command == "cancel":
         mission = runtime.store.update_mission_state(args.mission_id, MissionState.CANCELED)
         _print_json(mission.to_json_dict())
@@ -428,6 +493,10 @@ def _loop_exit_code(decision: str) -> int:
     }:
         return 2
     return 0
+
+
+def _graph_exit_code(status: str) -> int:
+    return 2 if status in {"failed", "canceled"} else 0
 
 
 def _require_recorded_action_args(args) -> None:

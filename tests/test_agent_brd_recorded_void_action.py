@@ -108,13 +108,13 @@ def test_cli_recorded_void_action_improvement_is_accepted(tmp_path):
 
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
-    assert payload["executed_node"]["id"] == "recorded_action_worker"
-    assert payload["executed_job"]["output_payload"]["decision"] == "accept"
+    worker_run = [run for run in payload["node_runs"] if run["node_id"] == "recorded_action_worker"][0]
+    assert worker_run["output_payload"]["decision"] == "accept"
     status = _run(tmp_path, "mission", "action-status", "--action-id", action["action_id"])
     status_payload = json.loads(status.stdout)
     assert status_payload["action"]["status"] == "accepted"
     assert status_payload["executions"][0]["result"]["accepted_artifact_refs"]
-    assert "0 0.05" not in str(payload["executed_job"]["output_payload"]["evidence_summary"])
+    assert "0 0.05" not in str(worker_run["output_payload"]["evidence_summary"])
     events = json.loads(_run(tmp_path, "mission", "events", "--mission-id", mission_id).stdout)["events"]
     artifacts = json.loads(_run(tmp_path, "mission", "artifacts", "--mission-id", mission_id).stdout)["artifacts"]
     evidence = json.loads(_run(tmp_path, "mission", "evidence", "--mission-id", mission_id).stdout)["evidence_packages"]
@@ -142,6 +142,7 @@ def test_cli_recorded_void_action_regression_is_rolled_back(tmp_path):
 
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
-    assert payload["executed_job"]["output_payload"]["decision"] == "rollback"
+    worker_run = [run for run in payload["node_runs"] if run["node_id"] == "recorded_action_worker"][0]
+    assert worker_run["output_payload"]["decision"] == "rollback"
     status = json.loads(_run(tmp_path, "mission", "action-status", "--action-id", action["action_id"]).stdout)
     assert status["action"]["status"] == "rolled_back"

@@ -60,7 +60,7 @@ def test_cli_graph_runs_returns_graph_run_records(tmp_path):
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["graph_runs"][0]["graph_run_id"] == graph_run_id
-    assert payload["graph_runs"][0]["status"] == "succeeded"
+    assert payload["graph_runs"][0]["status"] == "waiting_approval"
 
 
 def test_cli_node_runs_returns_node_run_records(tmp_path):
@@ -70,8 +70,9 @@ def test_cli_node_runs_returns_node_run_records(tmp_path):
 
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
-    assert payload["node_runs"][0]["node_id"] == "real_build_worker"
-    assert payload["node_runs"][0]["status"] == "succeeded"
+    assert payload["node_runs"][0]["node_id"] == "planner"
+    assert payload["node_runs"][-1]["node_id"] == "approval_gate"
+    assert payload["node_runs"][-1]["status"] == "waiting_approval"
 
 
 def test_cli_artifacts_returns_artifact_manifests(tmp_path):
