@@ -1,9 +1,21 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime
+from pathlib import Path
 from uuid import uuid4
 
-from aedt_agent.agent.mission import EngineeringConstraint, EventRecord, JobRecord, JobStatus, MissionRecord, MissionState
+from aedt_agent.agent.mission import (
+    ArtifactManifest,
+    EngineeringConstraint,
+    EventRecord,
+    JobAttemptRecord,
+    JobAttemptStatus,
+    JobRecord,
+    JobStatus,
+    MissionRecord,
+    MissionState,
+)
 from aedt_agent.agent.workers import InMemoryWorkerRegistry, WorkerContext, WorkerExecutionResult
 
 
@@ -55,9 +67,21 @@ class AgentRuntime:
             raise ValueError(f"no queued job for mission: {mission_id}")
         lease = self.store.acquire_job_lease(job.job_id, worker_id, self.default_lease_seconds)
         leased_job = self.store.get_job(job.job_id)
+        attempt_number = len(self.store.list_job_attempts(job.job_id)) + 1
+        attempt = self.store.create_job_attempt(
+            JobAttemptRecord.create(
+                attempt_id=str(uuid4()),
+                mission_id=mission_id,
+                job_id=job.job_id,
+                attempt_number=attempt_number,
+                worker_id=worker_id,
+            )
+        )
         result = self.registry.execute(leased_job, WorkerContext(worker_id))
         if result.status == JobStatus.SUCCEEDED:
             self.store.complete_job(job.job_id, result.output_payload, result.artifact_refs)
+            self.store.complete_job_attempt(attempt.attempt_id, JobAttemptStatus.SUCCEEDED, retry_decision="none")
+            self._register_artifact_manifests(mission_id, job.job_id, result.artifact_refs)
             self.store.create_checkpoint(mission_id, job.job_id, result.artifact_refs, {"output": result.output_payload})
             approval_required = result.output_payload.get("approval_required")
             if isinstance(approval_required, dict):
@@ -73,8 +97,48 @@ class AgentRuntime:
         else:
             assert result.error is not None
             self.store.fail_job(job.job_id, result.error)
+            retry_decision = "retry_available" if result.error.retryable and attempt_number <= leased_job.retry_limit else "no_retry"
+            self.store.complete_job_attempt(attempt.attempt_id, JobAttemptStatus.FAILED, result.error.to_json_dict(), retry_decision)
         self.store.release_job_lease(lease.lease_id)
         return result
 
     def recover_expired_leases(self, now: datetime | None = None) -> list[str]:
         return self.store.recover_expired_leases(now or datetime.now(UTC))
+
+    def _register_artifact_manifests(self, mission_id: str, job_id: str, artifact_refs: list[str]) -> None:
+        for artifact_ref in artifact_refs:
+            path = Path(artifact_ref)
+            if path.exists() and path.is_file():
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                size_bytes = path.stat().st_size
+                metadata = {"exists": True}
+            else:
+                digest = ""
+                size_bytes = 0
+                metadata = {"exists": False}
+            self.store.create_artifact_manifest(
+                ArtifactManifest.create(
+                    artifact_id=str(uuid4()),
+                    mission_id=mission_id,
+                    producer_kind="job",
+                    producer_id=job_id,
+                    path=artifact_ref,
+                    kind=_artifact_kind(path),
+                    sha256=digest,
+                    size_bytes=size_bytes,
+                    metadata=metadata,
+                )
+            )
+
+
+def _artifact_kind(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix == ".aedt":
+        return "aedt_project"
+    if suffix in {".s1p", ".s2p", ".s3p", ".s4p", ".snp", ".ts"}:
+        return "touchstone"
+    if suffix == ".csv":
+        return "csv"
+    if suffix == ".json":
+        return "json"
+    return "artifact"
