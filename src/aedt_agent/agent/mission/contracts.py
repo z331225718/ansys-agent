@@ -42,6 +42,14 @@ class EventType(StrEnum):
     CHECKPOINT_CREATED = "checkpoint_created"
     APPROVAL_REQUESTED = "approval_requested"
     APPROVAL_RESOLVED = "approval_resolved"
+    GRAPH_RUN_CREATED = "graph_run_created"
+    GRAPH_RUN_UPDATED = "graph_run_updated"
+    NODE_RUN_CREATED = "node_run_created"
+    NODE_RUN_UPDATED = "node_run_updated"
+    ARTIFACT_MANIFEST_CREATED = "artifact_manifest_created"
+    EVIDENCE_PACKAGE_CREATED = "evidence_package_created"
+    JOB_ATTEMPT_CREATED = "job_attempt_created"
+    JOB_ATTEMPT_UPDATED = "job_attempt_updated"
 
 
 class ApprovalDecision(StrEnum):
