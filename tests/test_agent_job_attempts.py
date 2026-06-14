@@ -47,6 +47,48 @@ def test_failed_worker_execution_creates_failed_attempt_with_retry_decision(tmp_
     assert attempts[0].error is not None
     assert attempts[0].error["error_class"] == "license_unavailable"
     assert attempts[0].retry_decision == "retry_available"
+    assert runtime.get_job(job.job_id).status == JobStatus.QUEUED
+
+
+def test_retryable_job_reuses_job_and_succeeds_on_second_attempt(tmp_path):
+    calls = 0
+
+    def flaky_worker(job, context):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("license unavailable")
+        return {"value": 42}
+
+    registry = InMemoryWorkerRegistry()
+    registry.register("fake.flaky", flaky_worker)
+    runtime = AgentRuntime(SQLiteMissionStore(tmp_path / "mission.db"), registry=registry)
+    mission = runtime.create_mission("goal", [], [])
+    job = runtime.create_job(mission.mission_id, "fake.flaky", "step-1", {}, retry_limit=1)
+
+    first = runtime.execute_next_job(mission.mission_id, worker_id="worker-1")
+    second = runtime.execute_next_job(mission.mission_id, worker_id="worker-2")
+
+    attempts = runtime.store.list_job_attempts(job.job_id)
+    assert first.status == JobStatus.FAILED
+    assert second.status == JobStatus.SUCCEEDED
+    assert runtime.get_job(job.job_id).status == JobStatus.SUCCEEDED
+    assert [attempt.attempt_number for attempt in attempts] == [1, 2]
+    assert attempts[0].retry_decision == "retry_available"
+    assert attempts[1].retry_decision == "none"
+
+
+def test_retry_limit_zero_keeps_failed_job_terminal(tmp_path):
+    registry = InMemoryWorkerRegistry()
+    registry.register("fake.fail", lambda job, context: (_ for _ in ()).throw(RuntimeError("license unavailable")))
+    runtime = AgentRuntime(SQLiteMissionStore(tmp_path / "mission.db"), registry=registry)
+    mission = runtime.create_mission("goal", [], [])
+    job = runtime.create_job(mission.mission_id, "fake.fail", "step-1", {}, retry_limit=0)
+
+    runtime.execute_next_job(mission.mission_id, worker_id="worker-1")
+
+    assert runtime.get_job(job.job_id).status == JobStatus.FAILED
+    assert runtime.store.list_job_attempts(job.job_id)[0].retry_decision == "no_retry"
 
 
 def test_worker_artifact_refs_become_artifact_manifests(tmp_path):

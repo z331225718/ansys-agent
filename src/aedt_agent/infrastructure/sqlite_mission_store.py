@@ -523,6 +523,24 @@ class SQLiteMissionStore:
             self._append_event_in_tx(db, job.mission_id, EventType.JOB_FAILED, {"job_id": job_id, "error": error.to_json_dict()})
         return self.get_job(job_id)
 
+    def requeue_failed_job(self, job_id: str) -> JobRecord:
+        job = self.get_job(job_id)
+        if job.status != JobStatus.FAILED:
+            raise ValueError(f"only failed jobs can be requeued: {job.status.value}")
+        now = utc_now_iso()
+        with self._connect() as db:
+            db.execute(
+                "UPDATE jobs SET status = ?, updated_at = ?, error_json = NULL WHERE job_id = ?",
+                (JobStatus.QUEUED.value, now, job_id),
+            )
+            self._append_event_in_tx(
+                db,
+                job.mission_id,
+                EventType.JOB_REQUEUED,
+                {"job_id": job_id},
+            )
+        return self.get_job(job_id)
+
     def acquire_job_lease(
         self,
         job_id: str,

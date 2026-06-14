@@ -39,6 +39,7 @@ class EventType(StrEnum):
     JOB_LEASED = "job_leased"
     JOB_SUCCEEDED = "job_succeeded"
     JOB_FAILED = "job_failed"
+    JOB_REQUEUED = "job_requeued"
     CHECKPOINT_CREATED = "checkpoint_created"
     APPROVAL_REQUESTED = "approval_requested"
     APPROVAL_RESOLVED = "approval_resolved"

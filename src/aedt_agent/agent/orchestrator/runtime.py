@@ -78,29 +78,39 @@ class AgentRuntime:
                 worker_id=worker_id,
             )
         )
-        result = self.registry.execute(leased_job, WorkerContext(worker_id))
-        if result.status == JobStatus.SUCCEEDED:
-            self.store.complete_job(job.job_id, result.output_payload, result.artifact_refs)
-            self.store.complete_job_attempt(attempt.attempt_id, JobAttemptStatus.SUCCEEDED, retry_decision="none")
-            self._register_artifact_manifests(mission_id, job.job_id, result.artifact_refs)
-            self.store.create_checkpoint(mission_id, job.job_id, result.artifact_refs, {"output": result.output_payload})
-            approval_required = result.output_payload.get("approval_required")
-            if isinstance(approval_required, dict):
-                from aedt_agent.agent.approvals import ApprovalService
+        try:
+            result = self.registry.execute(leased_job, WorkerContext(worker_id))
+            if result.status == JobStatus.SUCCEEDED:
+                self.store.complete_job(job.job_id, result.output_payload, result.artifact_refs)
+                self.store.complete_job_attempt(attempt.attempt_id, JobAttemptStatus.SUCCEEDED, retry_decision="none")
+                self._register_artifact_manifests(mission_id, job.job_id, result.artifact_refs)
+                self.store.create_checkpoint(mission_id, job.job_id, result.artifact_refs, {"output": result.output_payload})
+                approval_required = result.output_payload.get("approval_required")
+                if isinstance(approval_required, dict):
+                    from aedt_agent.agent.approvals import ApprovalService
 
-                ApprovalService(self.store).request_approval(
-                    mission_id,
-                    str(approval_required.get("reason") or "approval_required"),
-                    list(approval_required.get("options") or []),
-                )
+                    ApprovalService(self.store).request_approval(
+                        mission_id,
+                        str(approval_required.get("reason") or "approval_required"),
+                        list(approval_required.get("options") or []),
+                    )
+                else:
+                    self.store.update_mission_state(mission_id, MissionState.EVALUATING)
             else:
-                self.store.update_mission_state(mission_id, MissionState.EVALUATING)
-        else:
-            assert result.error is not None
-            self.store.fail_job(job.job_id, result.error)
-            retry_decision = "retry_available" if result.error.retryable and attempt_number <= leased_job.retry_limit else "no_retry"
-            self.store.complete_job_attempt(attempt.attempt_id, JobAttemptStatus.FAILED, result.error.to_json_dict(), retry_decision)
-        self.store.release_job_lease(lease.lease_id)
+                assert result.error is not None
+                self.store.fail_job(job.job_id, result.error)
+                retry_available = result.error.retryable and attempt_number <= leased_job.retry_limit
+                retry_decision = "retry_available" if retry_available else "no_retry"
+                self.store.complete_job_attempt(
+                    attempt.attempt_id,
+                    JobAttemptStatus.FAILED,
+                    result.error.to_json_dict(),
+                    retry_decision,
+                )
+                if retry_available:
+                    self.store.requeue_failed_job(job.job_id)
+        finally:
+            self.store.release_job_lease(lease.lease_id)
         return result
 
     def _ensure_mission_ready_for_worker(self, mission_id: str) -> None:
