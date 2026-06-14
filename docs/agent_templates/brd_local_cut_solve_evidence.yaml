@@ -66,3 +66,7 @@ handoffs:
     required_fields:
       - status
       - checks
+  approval_decision:
+    required_fields:
+      - approval_id
+      - decision

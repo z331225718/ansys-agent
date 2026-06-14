@@ -60,6 +60,12 @@ handoffs:
       - comparison
       - evidence_summary
       - artifact_refs
+  action_approval_decision:
+    required_fields:
+      - approval_id
+      - action_id
+      - digest
+      - decision
   scorecard_report:
     required_fields:
       - status

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +21,10 @@ class GraphNode:
     capability: str = ""
     input_schema: str = ""
     output_schema: str = ""
+    join: str = "any"
+    after: list[str] = field(default_factory=list)
+    max_runs: int = 1
+    handler: str = ""
 
     def to_json_dict(self) -> dict[str, Any]:
         return {
@@ -30,20 +34,32 @@ class GraphNode:
             "capability": self.capability,
             "input_schema": self.input_schema,
             "output_schema": self.output_schema,
+            "join": self.join,
+            "after": list(self.after),
+            "max_runs": self.max_runs,
+            "handler": self.handler,
         }
 
 
 @dataclass(frozen=True)
 class GraphEdge:
+    edge_id: str
     from_node: str
     to_node: str
     on: str
-    after: str = ""
+    after: list[str] = field(default_factory=list)
+    max_traversals: int = 1
 
     def to_json_dict(self) -> dict[str, Any]:
-        payload = {"from": self.from_node, "to": self.to_node, "on": self.on}
+        payload = {
+            "id": self.edge_id,
+            "from": self.from_node,
+            "to": self.to_node,
+            "on": self.on,
+            "max_traversals": self.max_traversals,
+        }
         if self.after:
-            payload["after"] = self.after
+            payload["after"] = list(self.after)
         return payload
 
 
@@ -87,16 +103,26 @@ def resolve_template_path(template: str | Path) -> Path:
 def load_graph_template(path: str | Path) -> GraphTemplate:
     template_path = resolve_template_path(path)
     data = yaml.safe_load(template_path.read_text(encoding="utf-8"))
+    return graph_template_from_mapping(data, source=str(template_path))
+
+
+def graph_template_from_mapping(data: object, *, source: str = "graph template") -> GraphTemplate:
     if not isinstance(data, dict):
-        raise GraphTemplateError(f"{template_path} must contain a YAML mapping")
+        raise GraphTemplateError(f"{source} must contain a YAML mapping")
 
     nodes = [_node_from_mapping(item) for item in _list(data, "nodes")]
     node_ids = {node.node_id for node in nodes}
     if len(node_ids) != len(nodes):
         raise GraphTemplateError("graph template contains duplicate node ids")
 
-    edges = [_edge_from_mapping(item, node_ids) for item in _list(data, "edges")]
+    raw_edges = _list(data, "edges")
+    edges = [_edge_from_mapping(item, node_ids, index) for index, item in enumerate(raw_edges)]
+    edge_ids = {edge.edge_id for edge in edges}
+    if len(edge_ids) != len(edges):
+        raise GraphTemplateError("graph template contains duplicate edge ids")
     handoffs = _handoffs_from_mapping(data.get("handoffs", {}))
+    _validate_nodes(nodes, node_ids, handoffs)
+    _validate_cycles(nodes, edges, raw_edges)
 
     return GraphTemplate(
         template_id=str(data.get("id") or ""),
@@ -114,6 +140,8 @@ def _node_from_mapping(value: object) -> GraphNode:
     node_id = str(value.get("id") or "")
     if not node_id:
         raise GraphTemplateError("graph node id is required")
+    after = _string_list(value.get("after"), field_name=f"node {node_id} after")
+    max_runs = _positive_int(value.get("max_runs", 1), field_name=f"node {node_id} max_runs")
     return GraphNode(
         node_id=node_id,
         role=str(value.get("role") or ""),
@@ -121,10 +149,14 @@ def _node_from_mapping(value: object) -> GraphNode:
         capability=str(value.get("capability") or ""),
         input_schema=str(value.get("input_schema") or ""),
         output_schema=str(value.get("output_schema") or ""),
+        join=str(value.get("join") or "any"),
+        after=after,
+        max_runs=max_runs,
+        handler=str(value.get("handler") or ""),
     )
 
 
-def _edge_from_mapping(value: object, node_ids: set[str]) -> GraphEdge:
+def _edge_from_mapping(value: object, node_ids: set[str], index: int) -> GraphEdge:
     if not isinstance(value, dict):
         raise GraphTemplateError("graph edge must be a mapping")
     from_node = str(value.get("from") or "")
@@ -133,7 +165,19 @@ def _edge_from_mapping(value: object, node_ids: set[str]) -> GraphEdge:
         raise GraphTemplateError(f"graph edge references unknown node: {from_node}")
     if to_node not in node_ids:
         raise GraphTemplateError(f"graph edge references unknown node: {to_node}")
-    return GraphEdge(from_node=from_node, to_node=to_node, on=str(value.get("on") or ""), after=str(value.get("after") or ""))
+    outcome = str(value.get("on", value.get(True)) or "")
+    edge_id = str(value.get("id") or f"{index}:{from_node}:{to_node}:{outcome}")
+    return GraphEdge(
+        edge_id=edge_id,
+        from_node=from_node,
+        to_node=to_node,
+        on=outcome,
+        after=_string_list(value.get("after"), field_name=f"edge {edge_id} after"),
+        max_traversals=_positive_int(
+            value.get("max_traversals", 1),
+            field_name=f"edge {edge_id} max_traversals",
+        ),
+    )
 
 
 def _handoffs_from_mapping(value: object) -> dict[str, HandoffSchema]:
@@ -157,3 +201,85 @@ def _list(data: dict[str, Any], key: str) -> list[object]:
     if not isinstance(value, list):
         raise GraphTemplateError(f"graph template {key} must be a list")
     return value
+
+
+def _string_list(value: object, *, field_name: str) -> list[str]:
+    if value in (None, ""):
+        return []
+    if isinstance(value, str):
+        return [value]
+    if not isinstance(value, list):
+        raise GraphTemplateError(f"{field_name} must be a string or list")
+    return [str(item) for item in value]
+
+
+def _positive_int(value: object, *, field_name: str) -> int:
+    if isinstance(value, bool):
+        raise GraphTemplateError(f"{field_name} must be a positive integer")
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise GraphTemplateError(f"{field_name} must be a positive integer") from exc
+    if parsed <= 0:
+        raise GraphTemplateError(f"{field_name} must be a positive integer")
+    return parsed
+
+
+def _validate_nodes(
+    nodes: list[GraphNode],
+    node_ids: set[str],
+    handoffs: dict[str, HandoffSchema],
+) -> None:
+    builtin_roles = {"planner", "validator", "scorecard", "approval_gate"}
+    supported_kinds = {"llm", "program", "worker", "human_gate"}
+    for node in nodes:
+        if node.kind not in supported_kinds:
+            raise GraphTemplateError(f"graph node has unsupported kind: {node.node_id} ({node.kind})")
+        if node.join not in {"any", "all"}:
+            raise GraphTemplateError(f"graph node has unsupported join: {node.node_id} ({node.join})")
+        for dependency in node.after:
+            if dependency not in node_ids:
+                raise GraphTemplateError(
+                    f"graph node after references unknown node: {node.node_id} -> {dependency}"
+                )
+        if node.kind == "worker" and not node.capability:
+            raise GraphTemplateError(f"worker node capability is required: {node.node_id}")
+        if node.kind in {"program", "llm"} and node.role not in builtin_roles and not node.handler:
+            raise GraphTemplateError(f"graph node handler is required: {node.node_id}")
+        for schema_id in (node.input_schema, node.output_schema):
+            if schema_id and schema_id not in handoffs:
+                raise GraphTemplateError(
+                    f"graph node references unknown handoff schema: {node.node_id} ({schema_id})"
+                )
+
+
+def _validate_cycles(
+    nodes: list[GraphNode],
+    edges: list[GraphEdge],
+    raw_edges: list[object],
+) -> None:
+    adjacency: dict[str, list[tuple[str, int]]] = {node.node_id: [] for node in nodes}
+    for index, edge in enumerate(edges):
+        adjacency[edge.from_node].append((edge.to_node, index))
+    visited: set[str] = set()
+    active: set[str] = set()
+
+    def visit(node_id: str) -> None:
+        visited.add(node_id)
+        active.add(node_id)
+        for target, edge_index in adjacency[node_id]:
+            if target not in visited:
+                visit(target)
+            elif target in active:
+                raw_edge = raw_edges[edge_index]
+                explicit_limit = isinstance(raw_edge, dict) and "max_traversals" in raw_edge
+                if not explicit_limit:
+                    edge = edges[edge_index]
+                    raise GraphTemplateError(
+                        f"graph cycle edge requires explicit max_traversals: {edge.edge_id}"
+                    )
+        active.remove(node_id)
+
+    for node in nodes:
+        if node.node_id not in visited:
+            visit(node.node_id)
