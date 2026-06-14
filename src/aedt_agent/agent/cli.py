@@ -47,6 +47,11 @@ def build_parser() -> argparse.ArgumentParser:
     run = mission_commands.add_parser("run")
     run.add_argument("--mission-id", required=True)
 
+    run_graph = mission_commands.add_parser("run-graph")
+    run_graph.add_argument("--mission-id", required=True)
+    run_graph.add_argument("--template", required=True)
+    run_graph.add_argument("--worker-id", default="cli-graph")
+
     status = mission_commands.add_parser("status")
     status.add_argument("--mission-id", required=True)
 
@@ -131,6 +136,19 @@ def run(argv: Sequence[str] | None = None) -> int:
             }
         )
         return 0 if result.status.value == "succeeded" else 2
+
+    if args.group == "mission" and args.mission_command == "run-graph":
+        from aedt_agent.agent.graph_runner import run_graph_once
+        from aedt_agent.agent.graph_template import load_graph_template
+        from aedt_agent.agent.workers import BRD_LOCAL_CUT_BUILD_CAPABILITY, InMemoryWorkerRegistry, run_brd_local_cut_worker
+
+        registry = InMemoryWorkerRegistry()
+        registry.register(BRD_LOCAL_CUT_BUILD_CAPABILITY, run_brd_local_cut_worker)
+        runtime = AgentRuntime(SQLiteMissionStore(args.db), registry=registry)
+        template = load_graph_template(args.template)
+        report = run_graph_once(runtime, args.mission_id, template, worker_id=args.worker_id)
+        _print_json(report)
+        return 0 if report["status"] == "passed" else 2
 
     if args.group == "mission" and args.mission_command == "status":
         mission = runtime.get_mission(args.mission_id)
