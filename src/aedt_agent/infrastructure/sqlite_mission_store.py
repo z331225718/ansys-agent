@@ -6,6 +6,13 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
+from aedt_agent.agent.actions import (
+    ActionDecision,
+    ActionExecutionRecord,
+    ActionExecutionStatus,
+    ActionRecord,
+    ActionStatus,
+)
 from aedt_agent.agent.mission import (
     ApprovalDecision,
     ApprovalRequest,
@@ -184,6 +191,40 @@ class SQLiteMissionStore:
                     error_json TEXT,
                     retry_decision TEXT,
                     UNIQUE(job_id, attempt_number)
+                );
+                CREATE TABLE IF NOT EXISTS action_records (
+                    action_id TEXT PRIMARY KEY,
+                    mission_id TEXT NOT NULL REFERENCES missions(mission_id),
+                    action_type TEXT NOT NULL,
+                    version INTEGER NOT NULL,
+                    status TEXT NOT NULL,
+                    target_json TEXT NOT NULL,
+                    parameters_json TEXT NOT NULL,
+                    constraints_json TEXT NOT NULL,
+                    reason_json TEXT NOT NULL,
+                    adapter_mode TEXT NOT NULL,
+                    adapter_input_json TEXT NOT NULL,
+                    digest TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    approval_id TEXT,
+                    comparison_json TEXT,
+                    decision TEXT,
+                    error_json TEXT
+                );
+                CREATE TABLE IF NOT EXISTS action_executions (
+                    execution_id TEXT PRIMARY KEY,
+                    action_id TEXT NOT NULL REFERENCES action_records(action_id),
+                    mission_id TEXT NOT NULL REFERENCES missions(mission_id),
+                    adapter_mode TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    before_artifact_refs_json TEXT NOT NULL,
+                    after_artifact_refs_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    completed_at TEXT,
+                    result_json TEXT NOT NULL,
+                    error_json TEXT
                 );
                 """
             )
@@ -813,6 +854,178 @@ class SQLiteMissionStore:
             ).fetchall()
         return [_job_attempt_from_row(row) for row in rows]
 
+    def create_action(self, record: ActionRecord) -> ActionRecord:
+        with self._connect() as db:
+            db.execute(
+                """
+                INSERT INTO action_records (
+                    action_id, mission_id, action_type, version, status, target_json,
+                    parameters_json, constraints_json, reason_json, adapter_mode,
+                    adapter_input_json, digest, created_at, updated_at, approval_id,
+                    comparison_json, decision, error_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record.action_id,
+                    record.mission_id,
+                    record.action_type,
+                    record.version,
+                    record.status.value,
+                    _dump(record.target),
+                    _dump(record.parameters),
+                    _dump(record.constraints),
+                    _dump(record.reason),
+                    record.adapter_mode,
+                    _dump(record.adapter_input),
+                    record.digest,
+                    record.created_at,
+                    record.updated_at,
+                    record.approval_id,
+                    _dump(record.comparison) if record.comparison is not None else None,
+                    None if record.decision is None else record.decision.value,
+                    _dump(record.error) if record.error is not None else None,
+                ),
+            )
+            self._append_event_in_tx(
+                db,
+                record.mission_id,
+                EventType.ACTION_CREATED,
+                {"action_id": record.action_id, "action_type": record.action_type, "digest": record.digest},
+            )
+        return record
+
+    def get_action(self, action_id: str) -> ActionRecord:
+        with self._connect() as db:
+            row = db.execute("SELECT * FROM action_records WHERE action_id = ?", (action_id,)).fetchone()
+        if row is None:
+            raise KeyError(f"action not found: {action_id}")
+        return _action_from_row(row)
+
+    def list_actions(self, mission_id: str) -> list[ActionRecord]:
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT * FROM action_records WHERE mission_id = ? ORDER BY created_at, action_id",
+                (mission_id,),
+            ).fetchall()
+        return [_action_from_row(row) for row in rows]
+
+    def update_action(self, record: ActionRecord) -> ActionRecord:
+        with self._connect() as db:
+            cursor = db.execute(
+                """
+                UPDATE action_records
+                SET status = ?, updated_at = ?, approval_id = ?, comparison_json = ?,
+                    decision = ?, error_json = ?
+                WHERE action_id = ?
+                """,
+                (
+                    record.status.value,
+                    record.updated_at,
+                    record.approval_id,
+                    _dump(record.comparison) if record.comparison is not None else None,
+                    None if record.decision is None else record.decision.value,
+                    _dump(record.error) if record.error is not None else None,
+                    record.action_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(f"action not found: {record.action_id}")
+            self._append_event_in_tx(
+                db,
+                record.mission_id,
+                EventType.ACTION_UPDATED,
+                {
+                    "action_id": record.action_id,
+                    "status": record.status.value,
+                    "decision": None if record.decision is None else record.decision.value,
+                },
+            )
+        return self.get_action(record.action_id)
+
+    def create_action_execution(self, record: ActionExecutionRecord) -> ActionExecutionRecord:
+        with self._connect() as db:
+            db.execute(
+                """
+                INSERT INTO action_executions (
+                    execution_id, action_id, mission_id, adapter_mode, status,
+                    before_artifact_refs_json, after_artifact_refs_json, created_at,
+                    updated_at, completed_at, result_json, error_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record.execution_id,
+                    record.action_id,
+                    record.mission_id,
+                    record.adapter_mode,
+                    record.status.value,
+                    _dump(record.before_artifact_refs),
+                    _dump(record.after_artifact_refs),
+                    record.created_at,
+                    record.updated_at,
+                    record.completed_at,
+                    _dump(record.result),
+                    _dump(record.error) if record.error is not None else None,
+                ),
+            )
+            self._append_event_in_tx(
+                db,
+                record.mission_id,
+                EventType.ACTION_EXECUTION_CREATED,
+                {"execution_id": record.execution_id, "action_id": record.action_id, "adapter_mode": record.adapter_mode},
+            )
+        return record
+
+    def get_action_execution(self, execution_id: str) -> ActionExecutionRecord:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM action_executions WHERE execution_id = ?",
+                (execution_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"action execution not found: {execution_id}")
+        return _action_execution_from_row(row)
+
+    def complete_action_execution(
+        self,
+        execution_id: str,
+        status: ActionExecutionStatus,
+        *,
+        result: dict | None = None,
+        error: dict | None = None,
+    ) -> ActionExecutionRecord:
+        updated = self.get_action_execution(execution_id).with_completion(status, result=result, error=error)
+        with self._connect() as db:
+            db.execute(
+                """
+                UPDATE action_executions
+                SET status = ?, updated_at = ?, completed_at = ?, result_json = ?, error_json = ?
+                WHERE execution_id = ?
+                """,
+                (
+                    updated.status.value,
+                    updated.updated_at,
+                    updated.completed_at,
+                    _dump(updated.result),
+                    _dump(updated.error) if updated.error is not None else None,
+                    execution_id,
+                ),
+            )
+            self._append_event_in_tx(
+                db,
+                updated.mission_id,
+                EventType.ACTION_EXECUTION_UPDATED,
+                {"execution_id": execution_id, "action_id": updated.action_id, "status": updated.status.value},
+            )
+        return updated
+
+    def list_action_executions(self, action_id: str) -> list[ActionExecutionRecord]:
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT * FROM action_executions WHERE action_id = ? ORDER BY created_at, execution_id",
+                (action_id,),
+            ).fetchall()
+        return [_action_execution_from_row(row) for row in rows]
+
     def list_events(self, mission_id: str) -> list[EventRecord]:
         with self._connect() as db:
             rows = db.execute("SELECT * FROM events WHERE mission_id = ? ORDER BY sequence", (mission_id,)).fetchall()
@@ -1000,4 +1213,45 @@ def _job_attempt_from_row(row: sqlite3.Row) -> JobAttemptRecord:
         completed_at=row["completed_at"],
         error=_load(row["error_json"], None),
         retry_decision=row["retry_decision"],
+    )
+
+
+def _action_from_row(row: sqlite3.Row) -> ActionRecord:
+    decision = row["decision"]
+    return ActionRecord(
+        action_id=row["action_id"],
+        mission_id=row["mission_id"],
+        action_type=row["action_type"],
+        version=row["version"],
+        status=ActionStatus(row["status"]),
+        target=dict(_load(row["target_json"], {})),
+        parameters=dict(_load(row["parameters_json"], {})),
+        constraints=dict(_load(row["constraints_json"], {})),
+        reason=dict(_load(row["reason_json"], {})),
+        adapter_mode=row["adapter_mode"],
+        adapter_input=dict(_load(row["adapter_input_json"], {})),
+        digest=row["digest"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+        approval_id=row["approval_id"],
+        comparison=_load(row["comparison_json"], None),
+        decision=None if decision is None else ActionDecision(decision),
+        error=_load(row["error_json"], None),
+    )
+
+
+def _action_execution_from_row(row: sqlite3.Row) -> ActionExecutionRecord:
+    return ActionExecutionRecord(
+        execution_id=row["execution_id"],
+        action_id=row["action_id"],
+        mission_id=row["mission_id"],
+        adapter_mode=row["adapter_mode"],
+        status=ActionExecutionStatus(row["status"]),
+        before_artifact_refs=list(_load(row["before_artifact_refs_json"], [])),
+        after_artifact_refs=list(_load(row["after_artifact_refs_json"], [])),
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+        completed_at=row["completed_at"],
+        result=dict(_load(row["result_json"], {})),
+        error=_load(row["error_json"], None),
     )

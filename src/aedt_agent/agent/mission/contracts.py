@@ -50,6 +50,10 @@ class EventType(StrEnum):
     EVIDENCE_PACKAGE_CREATED = "evidence_package_created"
     JOB_ATTEMPT_CREATED = "job_attempt_created"
     JOB_ATTEMPT_UPDATED = "job_attempt_updated"
+    ACTION_CREATED = "action_created"
+    ACTION_UPDATED = "action_updated"
+    ACTION_EXECUTION_CREATED = "action_execution_created"
+    ACTION_EXECUTION_UPDATED = "action_execution_updated"
 
 
 class ApprovalDecision(StrEnum):
