@@ -1,0 +1,97 @@
+id: brd_multi_channel_demo
+version: 1
+description: Multi-channel BRD local-cut with fan-out scoring and conditional approval.
+
+nodes:
+  - id: planner
+    role: planner
+    kind: llm
+    fan_out: true
+    max_runs: 1
+  - id: build_worker
+    role: worker
+    kind: worker
+    capability: brd.local_cut.build
+    input_schema: plan_output
+    output_schema: build_result
+    max_runs: 1
+    on_failure: fail
+  - id: score_ch1
+    role: worker
+    kind: worker
+    capability: brd.channel.score
+    input_schema: build_result
+    output_schema: channel_score
+    max_runs: 1
+  - id: score_ch2
+    role: worker
+    kind: worker
+    capability: brd.channel.score
+    input_schema: build_result
+    output_schema: channel_score
+    max_runs: 1
+  - id: aggregate_scorecard
+    role: aggregate
+    kind: program
+    handler: aggregate_scorecard_handler
+    input_schema: channel_score
+    output_schema: scorecard_report
+    join: all
+    max_runs: 1
+  - id: final_approval
+    role: approval_gate
+    kind: human_gate
+    input_schema: scorecard_report
+    output_schema: final_approval
+    max_runs: 1
+
+edges:
+  - id: plan-to-build
+    from: planner
+    to: build_worker
+    on: fan_out
+    max_traversals: 1
+  - id: build-to-score-ch1
+    from: build_worker
+    to: score_ch1
+    on: fan_out
+    max_traversals: 1
+  - id: build-to-score-ch2
+    from: build_worker
+    to: score_ch2
+    on: fan_out
+    max_traversals: 1
+  - id: score-ch1-to-aggregate
+    from: score_ch1
+    to: aggregate_scorecard
+    on: succeeded
+    max_traversals: 1
+  - id: score-ch2-to-aggregate
+    from: score_ch2
+    to: aggregate_scorecard
+    on: succeeded
+    max_traversals: 1
+  - id: aggregate-to-approval
+    from: aggregate_scorecard
+    to: final_approval
+    on: passed
+    if: "overall_score >= 0.8"
+    max_traversals: 1
+  - id: aggregate-to-fail
+    from: aggregate_scorecard
+    to: final_approval
+    on: failed
+    if: "overall_score < 0.8"
+    max_traversals: 1
+
+handoffs:
+  plan_output:
+    required_fields: [plan, target_spec]
+  build_result:
+    required_fields: [status, project_path, artifact_refs]
+  channel_score:
+    required_fields: [status, score, channel_id, evidence_summary]
+  scorecard_report:
+    required_fields: [status, checks, overall_score]
+  final_approval:
+    required_fields: [approval_id, decision]

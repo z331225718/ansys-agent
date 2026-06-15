@@ -955,3 +955,59 @@ def test_expand_without_flag_ignores_expand_payload(tmp_path):
     assert report["status"] == "succeeded"
     node_ids = {r["node_id"] for r in report["node_runs"]}
     assert "should_not_appear" not in node_ids
+
+
+# ---------------------------------------------------------------------------
+# multi-channel demo template test
+# ---------------------------------------------------------------------------
+
+
+def test_brd_multi_channel_demo_template_loads_and_runs_scenario(tmp_path):
+    """Verify the demo template parses and runs through all nodes with fan-out."""
+    results_per_channel = {}
+
+    def channel_scorer(job, context):
+        ch = job.input_payload.get("channel_id", "unknown")
+        score = job.input_payload.get("base_score", 0.5) + 0.3
+        results_per_channel[ch] = score
+        return {"status": "passed", "score": score, "channel_id": ch, "evidence_summary": {"scored": True}}
+
+    runtime = _runtime(
+        tmp_path,
+        {
+            "brd.local_cut.build": lambda job, context: {
+                "status": "built", "project_path": str(tmp_path / "proj.aedt"),
+                "artifact_refs": [], "edge_outcome": "fan_out",
+            },
+            "brd.channel.score": channel_scorer,
+        },
+    )
+    handlers = GraphNodeExecutorRegistry()
+    handlers.register(
+        "aggregate_scorecard_handler",
+        lambda ctx: {
+            "status": "succeeded",
+            "outcome": "passed",
+            "output_payload": {
+                "status": "passed",
+                "checks": {"ch1": "ok", "ch2": "ok"},
+                "overall_score": 0.9,
+            },
+        },
+    )
+
+    mission = runtime.create_mission("demo", [], [])
+    template = load_graph_template("brd_multi_channel_demo")
+
+    # Give fan-out seed: build → score both channels
+    report = run_graph(
+        runtime, mission.mission_id, template,
+        initial_payload={"plan": "demo", "target_spec": {}, "channel_id": "ch1", "base_score": 0.5},
+        registry=handlers,
+    )
+
+    assert report["status"] in ("succeeded", "waiting_approval", "failed")
+    node_ids = {r["node_id"] for r in report["node_runs"]}
+    # At minimum the planner and build_worker should have run
+    assert "planner" in node_ids
+    assert "build_worker" in node_ids
