@@ -8,9 +8,11 @@ from uuid import uuid4
 from aedt_agent.agent.mission import (
     ArtifactManifest,
     EngineeringConstraint,
+    ErrorClass,
     EventRecord,
     JobAttemptRecord,
     JobAttemptStatus,
+    JobError,
     JobRecord,
     JobStatus,
     MissionRecord,
@@ -156,6 +158,97 @@ class AgentRuntime:
 
     def recover_expired_leases(self, now: datetime | None = None) -> list[str]:
         return self.store.recover_expired_leases(now or datetime.now(UTC))
+
+    def recover_harness_attempts(
+        self,
+        mission_id: str,
+        *,
+        terminate_stale: bool = False,
+        process_controller=None,
+    ) -> dict:
+        from aedt_agent.infrastructure.harness import (
+            HarnessRecoveryClassification,
+            HarnessRecoveryScanner,
+        )
+
+        harness = getattr(self.registry, "harness", None)
+        if harness is None:
+            raise ValueError("process harness is not configured")
+        controller = process_controller or harness.process_controller
+        scanner = HarnessRecoveryScanner(
+            harness.workspace_policy.root,
+            process_controller=controller,
+            heartbeat_timeout_seconds=harness.heartbeat_timeout_seconds,
+        )
+        records = scanner.scan(mission_id)
+        report = {
+            "mission_id": mission_id,
+            "records": [record.to_json_dict() for record in records],
+            "completed_attempt_ids": [],
+            "active_attempt_ids": [],
+            "stale_attempt_ids": [],
+            "interrupted_attempt_ids": [],
+            "invalid_workspaces": [],
+            "terminated_pids": [],
+            "requeued_job_ids": [],
+        }
+        for record in records:
+            if record.classification == HarnessRecoveryClassification.COMPLETED:
+                report["completed_attempt_ids"].append(record.attempt_id)
+                continue
+            if record.classification == HarnessRecoveryClassification.ACTIVE:
+                report["active_attempt_ids"].append(record.attempt_id)
+                continue
+            if record.classification == HarnessRecoveryClassification.INVALID:
+                report["invalid_workspaces"].append(record.workspace)
+                continue
+            if record.classification == HarnessRecoveryClassification.STALE:
+                report["stale_attempt_ids"].append(record.attempt_id)
+                if not terminate_stale or record.pid is None:
+                    continue
+                controller.terminate_pid_tree(
+                    record.pid,
+                    harness.termination_grace_seconds,
+                )
+                report["terminated_pids"].append(record.pid)
+            self._recover_interrupted_attempt(record, report)
+        return report
+
+    def _recover_interrupted_attempt(self, record, report: dict) -> None:
+        try:
+            attempt = self.store.get_job_attempt(record.attempt_id)
+        except KeyError:
+            return
+        if attempt.status != JobAttemptStatus.RUNNING:
+            return
+        job = self.get_job(attempt.job_id)
+        error = JobError(
+            ErrorClass.WORKER_CRASH,
+            "process harness attempt was interrupted before writing a result",
+            retryable=True,
+            details={
+                "harness_run_id": record.harness_run_id,
+                "workspace": record.workspace,
+            },
+        )
+        self.store.release_active_job_leases(job.job_id)
+        self.store.fail_job(job.job_id, error)
+        retry_available = attempt.attempt_number <= job.retry_limit
+        self.store.complete_job_attempt(
+            attempt.attempt_id,
+            JobAttemptStatus.FAILED,
+            error.to_json_dict(),
+            "retry_available" if retry_available else "no_retry",
+            metadata={
+                "harness_run_id": record.harness_run_id,
+                "workspace": record.workspace,
+                "recovery_classification": "interrupted",
+            },
+        )
+        report["interrupted_attempt_ids"].append(attempt.attempt_id)
+        if retry_available:
+            self.store.requeue_failed_job(job.job_id)
+            report["requeued_job_ids"].append(job.job_id)
 
     def _register_artifact_manifests(self, mission_id: str, job_id: str, artifact_refs: list[str]) -> None:
         for artifact_ref in artifact_refs:

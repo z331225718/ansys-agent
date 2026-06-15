@@ -136,6 +136,10 @@ def build_parser() -> argparse.ArgumentParser:
     resume.add_argument("--worker-id", default="cli-resume")
     resume.add_argument("--profile", default="safe-recorded")
 
+    recover_harness = mission_commands.add_parser("recover-harness")
+    recover_harness.add_argument("--mission-id", required=True)
+    recover_harness.add_argument("--terminate-stale", action="store_true")
+
     approve = mission_commands.add_parser("approve")
     approve.add_argument("--mission-id", required=False)
     approve.add_argument("--approval-id", required=True)
@@ -360,6 +364,15 @@ def run(argv: Sequence[str] | None = None) -> int:
         _print_json(payload)
         return _loop_exit_code(decision.decision.value)
 
+    if args.group == "mission" and args.mission_command == "recover-harness":
+        runtime = _runtime_with_harness(args.db)
+        report = runtime.recover_harness_attempts(
+            args.mission_id,
+            terminate_stale=args.terminate_stale,
+        )
+        _print_json(report)
+        return 0
+
     if args.group == "mission" and args.mission_command == "status":
         mission = runtime.get_mission(args.mission_id)
         payload: dict[str, Any] = mission.to_json_dict()
@@ -470,6 +483,26 @@ def _runtime_with_workers(db_path: Path) -> AgentRuntime:
         lambda job, context: run_brd_recorded_void_action_worker(job, context, store=store),
     )
     return AgentRuntime(store, registry=registry)
+
+
+def _runtime_with_harness(db_path: Path) -> AgentRuntime:
+    from aedt_agent.agent.workers import InMemoryWorkerRegistry
+    from aedt_agent.infrastructure.harness import (
+        HarnessWorkspacePolicy,
+        LocalProcessHarness,
+        ResourceGate,
+    )
+
+    store = SQLiteMissionStore(db_path)
+    harness = LocalProcessHarness(
+        HarnessWorkspacePolicy(db_path.parent / "harness"),
+        resource_gate=ResourceGate(
+            max_concurrent_cpu=4,
+            max_concurrent_aedt=1,
+            max_concurrent_license_jobs=1,
+        ),
+    )
+    return AgentRuntime(store, registry=InMemoryWorkerRegistry(harness=harness))
 
 
 def _load_execution_profile(value: str):

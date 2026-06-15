@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
+import aedt_agent.agent.graph_runner as graph_runner_module
 from aedt_agent.agent.approvals import ApprovalService
 from aedt_agent.agent.graph_executors import GraphNodeExecutorRegistry
 from aedt_agent.agent.graph_runner import (
@@ -424,3 +425,33 @@ def test_graph_with_persisted_running_node_does_not_report_success(tmp_path):
     assert report["graph_run"]["current_node_id"] == "planner"
     assert len(report["node_runs"]) == 1
     assert runtime.get_mission(mission.mission_id).state != MissionState.COMPLETED
+
+
+def test_run_until_blocked_returns_when_running_graph_makes_no_progress(monkeypatch):
+    calls = 0
+    report = {
+        "status": "running",
+        "graph_run": {"step_count": 1, "current_node_id": "worker"},
+        "node_runs": [{"node_run_id": "nr1", "status": "running"}],
+        "handoffs": [],
+    }
+
+    def fake_advance(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls > 2:
+            raise AssertionError("run loop did not stop after detecting no progress")
+        return report
+
+    monkeypatch.setattr(graph_runner_module, "advance_graph", fake_advance)
+
+    result = graph_runner_module._run_until_blocked(
+        object(),
+        "graph-1",
+        worker_id="worker",
+        max_workers=1,
+        registry=None,
+    )
+
+    assert result == report
+    assert calls == 2

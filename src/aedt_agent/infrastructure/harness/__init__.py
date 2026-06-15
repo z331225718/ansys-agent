@@ -23,12 +23,20 @@ from aedt_agent.infrastructure.harness.local_process import (
     LocalProcessHarness,
     ProcessTreeController,
 )
+from aedt_agent.infrastructure.harness.recovery import (
+    HarnessRecoveryClassification,
+    HarnessRecoveryRecord,
+    HarnessRecoveryScanner,
+)
 
 __all__ = [
     "HARNESS_PROTOCOL_VERSION",
     "HarnessError",
     "HarnessProtocolError",
     "HarnessRequest",
+    "HarnessRecoveryClassification",
+    "HarnessRecoveryRecord",
+    "HarnessRecoveryScanner",
     "HarnessResult",
     "HarnessStatus",
     "HarnessWorkspace",

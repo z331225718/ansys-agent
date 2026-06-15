@@ -637,6 +637,22 @@ class SQLiteMissionStore:
             raise KeyError(f"lease not found: {lease_id}")
         return _lease_from_row(row)
 
+    def list_active_job_leases(self, job_id: str) -> list[WorkerLease]:
+        with self._connect() as db:
+            rows = db.execute(
+                """
+                SELECT * FROM worker_leases
+                WHERE job_id = ? AND released_at IS NULL
+                ORDER BY acquired_at, lease_id
+                """,
+                (job_id,),
+            ).fetchall()
+        return [_lease_from_row(row) for row in rows]
+
+    def release_active_job_leases(self, job_id: str) -> list[WorkerLease]:
+        leases = self.list_active_job_leases(job_id)
+        return [self.release_job_lease(lease.lease_id) for lease in leases]
+
     def recover_expired_leases(self, now: datetime) -> list[str]:
         with self._connect() as db:
             rows = db.execute(

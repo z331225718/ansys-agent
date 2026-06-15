@@ -299,6 +299,25 @@ class ProcessTreeController:
             process.kill()
             process.wait(timeout=1)
 
+    def terminate_pid_tree(self, pid: int, grace_seconds: float) -> None:
+        if not self.is_alive(pid):
+            return
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                check=False,
+                capture_output=True,
+                text=True,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            return
+        os.killpg(pid, signal.SIGTERM)
+        deadline = time.monotonic() + grace_seconds
+        while self.is_alive(pid) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        if self.is_alive(pid):
+            os.killpg(pid, signal.SIGKILL)
+
     def is_alive(self, pid: int) -> bool:
         try:
             os.kill(pid, 0)

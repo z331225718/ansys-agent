@@ -96,6 +96,17 @@ def advance_graph(
         if run.status in {NodeRunStatus.CREATED, NodeRunStatus.RUNNING}
     ]
     if active_runs:
+        recovered = _resume_requeued_worker_wave(
+            runtime,
+            graph_run,
+            template,
+            active_runs,
+            worker_id=worker_id,
+            max_workers=max_workers,
+            registry=registry,
+        )
+        if recovered is not None:
+            return recovered
         return _report_active_graph(runtime, graph_run, active_runs)
 
     if graph_run.step_count >= graph_run.max_steps:
@@ -134,11 +145,28 @@ def advance_graph(
         max_workers=max_workers,
         registry=registry,
     )
+    return _apply_wave_results(
+        runtime,
+        graph_run,
+        template,
+        ready,
+        created,
+        results,
+    )
 
+
+def _apply_wave_results(
+    runtime,
+    graph_run: GraphRunRecord,
+    template: GraphTemplate,
+    ready: list[ReadyNode],
+    node_runs: list[NodeRunRecord],
+    results: list[GraphNodeExecutionResult],
+) -> dict[str, Any]:
     unmatched_failure: tuple[NodeRunRecord, GraphNodeExecutionResult] | None = None
     waiting_for_approval = False
     edge_error: dict[str, Any] | None = None
-    for item, node_run, result in zip(ready, created, results, strict=True):
+    for item, node_run, result in zip(ready, node_runs, results, strict=True):
         if result.status == NodeRunStatus.WAITING_APPROVAL:
             runtime.store.update_node_run_status(
                 node_run.node_run_id,
@@ -180,7 +208,7 @@ def advance_graph(
         if edge_error is not None:
             break
 
-    graph_run = runtime.store.increment_graph_step(graph_run_id)
+    graph_run = runtime.store.increment_graph_step(graph_run.graph_run_id)
     if edge_error is not None:
         return _fail_graph(
             runtime,
@@ -199,22 +227,91 @@ def advance_graph(
         )
     if waiting_for_approval:
         runtime.store.update_graph_run_status(
-            graph_run_id,
+            graph_run.graph_run_id,
             GraphRunStatus.WAITING_APPROVAL,
             current_node_id=next(
                 node_run.node_id
-                for node_run, result in zip(created, results, strict=True)
+                for node_run, result in zip(node_runs, results, strict=True)
                 if result.status == NodeRunStatus.WAITING_APPROVAL
             ),
         )
-        return graph_status(runtime, graph_run_id)
+        return graph_status(runtime, graph_run.graph_run_id)
 
-    refreshed_runs = runtime.store.list_node_runs(graph_run_id)
+    refreshed_runs = runtime.store.list_node_runs(graph_run.graph_run_id)
     refreshed_pending = runtime.store.list_graph_handoffs(
-        graph_run_id,
+        graph_run.graph_run_id,
         status=GraphHandoffStatus.PENDING,
     )
     return _settle_graph(runtime, graph_run, template, refreshed_runs, refreshed_pending)
+
+
+def _resume_requeued_worker_wave(
+    runtime,
+    graph_run: GraphRunRecord,
+    template: GraphTemplate,
+    active_runs: list[NodeRunRecord],
+    *,
+    worker_id: str,
+    max_workers: int,
+    registry: GraphNodeExecutorRegistry | None,
+) -> dict[str, Any] | None:
+    all_runs = runtime.store.list_node_runs(graph_run.graph_run_id)
+    pending = runtime.store.list_graph_handoffs(
+        graph_run.graph_run_id,
+        status=GraphHandoffStatus.PENDING,
+    )
+    ready: list[ReadyNode] = []
+    resumed_runs: list[NodeRunRecord] = []
+    for node_run in active_runs:
+        if node_run.status != NodeRunStatus.RUNNING or node_run.node_kind != "worker":
+            continue
+        run_index = len(
+            [
+                run
+                for run in all_runs
+                if run.node_id == node_run.node_id and run.sequence <= node_run.sequence
+            ]
+        )
+        bound_job_id = runtime.store.get_graph_node_job(
+            graph_run.graph_run_id,
+            node_run.node_id,
+            run_index,
+        )
+        if bound_job_id is None or runtime.get_job(bound_job_id).status != JobStatus.QUEUED:
+            continue
+        node_handoffs = [
+            handoff for handoff in pending if handoff.to_node == node_run.node_id
+        ]
+        ready.append(
+            ReadyNode(
+                node=template.node(node_run.node_id),
+                input_payload=dict(node_run.input_payload),
+                handoff_ids=[handoff.handoff_id for handoff in node_handoffs],
+                run_index=run_index,
+            )
+        )
+        resumed_runs.append(node_run)
+    if not ready:
+        return None
+    _prepare_mission_for_workers(runtime, graph_run.mission_id)
+    results = _execute_wave(
+        runtime,
+        graph_run,
+        template,
+        ready,
+        resumed_runs,
+        worker_id=worker_id,
+        max_workers=max_workers,
+        registry=registry,
+    )
+    return _apply_wave_results(
+        runtime,
+        graph_run,
+        template,
+        ready,
+        resumed_runs,
+        results,
+    )
 
 
 def run_graph(
@@ -337,6 +434,7 @@ def _run_until_blocked(
     max_workers: int,
     registry: GraphNodeExecutorRegistry | None,
 ) -> dict[str, Any]:
+    previous_signature = None
     while True:
         report = advance_graph(
             runtime,
@@ -352,6 +450,26 @@ def _run_until_blocked(
             GraphRunStatus.WAITING_APPROVAL.value,
         }:
             return report
+        signature = (
+            report["status"],
+            report.get("graph_run", {}).get("step_count"),
+            report.get("graph_run", {}).get("current_node_id"),
+            tuple(
+                (run.get("node_run_id"), run.get("status"), run.get("edge_decision"))
+                for run in report.get("node_runs", [])
+            ),
+            tuple(
+                (handoff.get("handoff_id"), handoff.get("status"))
+                for handoff in report.get("handoffs", [])
+            ),
+            tuple(
+                (job.get("job_id"), job.get("status"))
+                for job in report.get("jobs", [])
+            ),
+        )
+        if signature == previous_signature:
+            return report
+        previous_signature = signature
 
 
 def _create_wave_node_runs(
