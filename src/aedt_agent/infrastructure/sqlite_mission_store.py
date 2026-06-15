@@ -1013,6 +1013,13 @@ class SQLiteMissionStore:
             ).fetchone()
         return None if row is None else str(row["job_id"])
 
+    def unbind_graph_node_job(self, graph_run_id: str, node_id: str, run_index: int) -> None:
+        with self._connect() as db:
+            db.execute(
+                "DELETE FROM graph_node_jobs WHERE graph_run_id = ? AND node_id = ? AND run_index = ?",
+                (graph_run_id, node_id, run_index),
+            )
+
     def list_graph_bound_job_ids(self, graph_run_id: str) -> list[str]:
         with self._connect() as db:
             rows = db.execute(

@@ -25,6 +25,12 @@ class GraphNode:
     after: list[str] = field(default_factory=list)
     max_runs: int = 1
     handler: str = ""
+    on_failure: str = "fail"
+    retry_max_attempts: int = 1
+    retry_backoff: str = "constant"
+    retry_delay_seconds: float = 0.0
+    fan_out: bool = False
+    expand: bool = False
 
     def to_json_dict(self) -> dict[str, Any]:
         return {
@@ -38,6 +44,12 @@ class GraphNode:
             "after": list(self.after),
             "max_runs": self.max_runs,
             "handler": self.handler,
+            "on_failure": self.on_failure,
+            "retry_max_attempts": self.retry_max_attempts,
+            "retry_backoff": self.retry_backoff,
+            "retry_delay_seconds": self.retry_delay_seconds,
+            "fan_out": self.fan_out,
+            "expand": self.expand,
         }
 
 
@@ -142,6 +154,12 @@ def _node_from_mapping(value: object) -> GraphNode:
         raise GraphTemplateError("graph node id is required")
     after = _string_list(value.get("after"), field_name=f"node {node_id} after")
     max_runs = _positive_int(value.get("max_runs", 1), field_name=f"node {node_id} max_runs")
+    on_failure = _on_failure(value.get("on_failure"), node_id)
+    retry_max_attempts = _positive_int(value.get("retry_max_attempts", 1), field_name=f"node {node_id} retry_max_attempts")
+    retry_backoff = _backoff(value.get("retry_backoff"), node_id)
+    retry_delay_seconds = _non_negative_float(value.get("retry_delay_seconds", 0.0), field_name=f"node {node_id} retry_delay_seconds")
+    fan_out = bool(value.get("fan_out", False))
+    expand = bool(value.get("expand", False))
     return GraphNode(
         node_id=node_id,
         role=str(value.get("role") or ""),
@@ -153,6 +171,12 @@ def _node_from_mapping(value: object) -> GraphNode:
         after=after,
         max_runs=max_runs,
         handler=str(value.get("handler") or ""),
+        on_failure=on_failure,
+        retry_max_attempts=retry_max_attempts,
+        retry_backoff=retry_backoff,
+        retry_delay_seconds=retry_delay_seconds,
+        fan_out=fan_out,
+        expand=expand,
     )
 
 
@@ -225,6 +249,47 @@ def _positive_int(value: object, *, field_name: str) -> int:
     return parsed
 
 
+def _non_negative_float(value: object, *, field_name: str) -> float:
+    if isinstance(value, bool):
+        raise GraphTemplateError(f"{field_name} must be a number")
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as exc:
+        raise GraphTemplateError(f"{field_name} must be a number") from exc
+    if parsed < 0:
+        raise GraphTemplateError(f"{field_name} must be non-negative")
+    return parsed
+
+
+def _on_failure(value: object, node_id: str) -> str:
+    if value in (None, ""):
+        return "fail"
+    raw = str(value).strip()
+    valid = {"fail", "skip", "retry"}
+    if raw in valid:
+        return raw
+    if raw.startswith("fallback:"):
+        fallback_target = raw[len("fallback:"):].strip()
+        if not fallback_target:
+            raise GraphTemplateError(f"node {node_id} on_failure fallback target is empty")
+        return raw
+    raise GraphTemplateError(
+        f"node {node_id} on_failure must be fail|skip|retry|fallback:<node_id>, got: {raw}"
+    )
+
+
+def _backoff(value: object, node_id: str) -> str:
+    if value in (None, ""):
+        return "constant"
+    raw = str(value).strip()
+    valid = {"constant", "linear", "exponential"}
+    if raw not in valid:
+        raise GraphTemplateError(
+            f"node {node_id} retry_backoff must be constant|linear|exponential, got: {raw}"
+        )
+    return raw
+
+
 def _validate_nodes(
     nodes: list[GraphNode],
     node_ids: set[str],
@@ -246,6 +311,20 @@ def _validate_nodes(
             raise GraphTemplateError(f"worker node capability is required: {node.node_id}")
         if node.kind in {"program", "llm"} and node.role not in builtin_roles and not node.handler:
             raise GraphTemplateError(f"graph node handler is required: {node.node_id}")
+        if node.on_failure.startswith("fallback:"):
+            fallback_target = node.on_failure[len("fallback:"):]
+            if fallback_target not in node_ids:
+                raise GraphTemplateError(
+                    f"graph node on_failure fallback references unknown node: {node.node_id} -> {fallback_target}"
+                )
+        if node.retry_max_attempts > 1 and node.on_failure != "retry":
+            raise GraphTemplateError(
+                f"graph node retry_max_attempts requires on_failure=retry: {node.node_id}"
+            )
+        if node.fan_out and node.expand:
+            raise GraphTemplateError(
+                f"graph node cannot have both fan_out and expand: {node.node_id}"
+            )
         for schema_id in (node.input_schema, node.output_schema):
             if schema_id and schema_id not in handoffs:
                 raise GraphTemplateError(

@@ -152,6 +152,8 @@ def advance_graph(
         ready,
         created,
         results,
+        worker_id=worker_id,
+        registry=registry,
     )
 
 
@@ -162,69 +164,37 @@ def _apply_wave_results(
     ready: list[ReadyNode],
     node_runs: list[NodeRunRecord],
     results: list[GraphNodeExecutionResult],
+    *,
+    worker_id: str = "graph",
+    registry: GraphNodeExecutorRegistry | None = None,
 ) -> dict[str, Any]:
-    unmatched_failure: tuple[NodeRunRecord, GraphNodeExecutionResult] | None = None
     waiting_for_approval = False
-    edge_error: dict[str, Any] | None = None
+    retry_counts: dict[str, int] = {}
+
     for item, node_run, result in zip(ready, node_runs, results, strict=True):
-        if result.status == NodeRunStatus.WAITING_APPROVAL:
-            runtime.store.update_node_run_status(
-                node_run.node_run_id,
-                NodeRunStatus.WAITING_APPROVAL,
-                output_payload=result.output_payload,
-                edge_decision=result.outcome,
-                error=result.error,
-            )
-            waiting_for_approval = True
-        else:
-            runtime.store.complete_node_run(
-                node_run.node_run_id,
-                result.status,
-                output_payload=result.output_payload,
-                artifact_refs=result.artifact_refs,
-                evidence_package_id=result.evidence_package_id,
-                edge_decision=result.outcome,
-                error=result.error,
-            )
-            matching_edges = [
-                edge
-                for edge in template.edges
-                if edge.from_node == item.node.node_id and edge.on == result.outcome
-            ]
-            if result.outcome in {"failed", "rejected", "canceled"} and not matching_edges:
-                unmatched_failure = (node_run, result)
-            for edge in matching_edges:
-                error = _create_edge_handoff(
-                    runtime,
-                    graph_run,
-                    edge,
-                    node_run,
-                    result.output_payload,
-                )
-                if error is not None:
-                    edge_error = error
-                    break
+        outcome, fail_graph, edge_error = _process_wave_result(
+            runtime, graph_run, template, item, node_run, result,
+            retry_counts, worker_id=worker_id, registry=registry,
+        )
         runtime.store.consume_graph_handoffs(item.handoff_ids, node_run.node_run_id)
         if edge_error is not None:
-            break
+            return _fail_graph(
+                runtime, graph_run,
+                edge_error["code"],
+                edge_error["message"],
+            )
+        if fail_graph:
+            return _fail_graph(
+                runtime, graph_run,
+                "unhandled_node_outcome",
+                f"node {node_run.node_id} emitted failed without a matching edge",
+                details={"node_run_id": node_run.node_run_id, "error": result.error},
+            )
+        if outcome == "waiting_approval":
+            waiting_for_approval = True
 
     graph_run = runtime.store.increment_graph_step(graph_run.graph_run_id)
-    if edge_error is not None:
-        return _fail_graph(
-            runtime,
-            graph_run,
-            edge_error["code"],
-            edge_error["message"],
-        )
-    if unmatched_failure is not None:
-        node_run, result = unmatched_failure
-        return _fail_graph(
-            runtime,
-            graph_run,
-            "unhandled_node_outcome",
-            f"node {node_run.node_id} emitted {result.outcome} without a matching edge",
-            details={"node_run_id": node_run.node_run_id, "error": result.error},
-        )
+
     if waiting_for_approval:
         runtime.store.update_graph_run_status(
             graph_run.graph_run_id,
@@ -243,6 +213,207 @@ def _apply_wave_results(
         status=GraphHandoffStatus.PENDING,
     )
     return _settle_graph(runtime, graph_run, template, refreshed_runs, refreshed_pending)
+
+
+def _process_wave_result(
+    runtime,
+    graph_run: GraphRunRecord,
+    template: GraphTemplate,
+    item: ReadyNode,
+    node_run: NodeRunRecord,
+    result: GraphNodeExecutionResult,
+    retry_counts: dict[str, int],
+    *,
+    worker_id: str = "graph",
+    registry: GraphNodeExecutorRegistry | None = None,
+) -> tuple[str | None, bool, dict[str, str] | None]:
+    """Process a single wave result. Returns (outcome, fail_graph, edge_error)."""
+    if result.status == NodeRunStatus.WAITING_APPROVAL:
+        runtime.store.update_node_run_status(
+            node_run.node_run_id,
+            NodeRunStatus.WAITING_APPROVAL,
+            output_payload=result.output_payload,
+            edge_decision=result.outcome,
+            error=result.error,
+        )
+        return ("waiting_approval", False, None)
+
+    if result.status == NodeRunStatus.FAILED:
+        outcome, fail_graph, edge_error = _handle_failed_node(
+            runtime, graph_run, template, item, node_run, result,
+            retry_counts, worker_id=worker_id, registry=registry,
+        )
+        return (outcome, fail_graph, edge_error)
+
+    edge_error = _complete_and_route(
+        runtime, graph_run, template, item, node_run, result,
+    )
+    return (None, False, edge_error)
+
+
+def _handle_failed_node(
+    runtime,
+    graph_run: GraphRunRecord,
+    template: GraphTemplate,
+    item: ReadyNode,
+    node_run: NodeRunRecord,
+    result: GraphNodeExecutionResult,
+    retry_counts: dict[str, int],
+    *,
+    worker_id: str = "graph",
+    registry: GraphNodeExecutorRegistry | None = None,
+) -> tuple[str | None, bool, dict[str, str] | None]:
+    """Handle a failed node based on its on_failure strategy.
+
+    Returns (outcome, fail_graph, edge_error).
+    """
+    on_failure = item.node.on_failure
+
+    if on_failure == "skip":
+        runtime.store.complete_node_run(
+            node_run.node_run_id,
+            NodeRunStatus.SKIPPED,
+            output_payload=result.output_payload,
+            artifact_refs=result.artifact_refs,
+            edge_decision="skipped",
+            error=result.error,
+        )
+        ee = _create_matching_edges(runtime, graph_run, template, item.node, node_run, result.output_payload, "skipped")
+        return (None, False, ee)
+
+    if on_failure == "retry":
+        key = node_run.node_run_id
+        current = retry_counts.get(key, 0) + 1
+        retry_counts[key] = current
+        if current < item.node.retry_max_attempts:
+            delay = _retry_delay(item.node.retry_backoff, item.node.retry_delay_seconds, current - 1)
+            if delay > 0:
+                import time
+                time.sleep(delay)
+            if item.node.kind == "worker":
+                runtime.store.unbind_graph_node_job(
+                    graph_run.graph_run_id, item.node.node_id, item.run_index,
+                )
+                fresh_job = runtime.create_job(
+                    graph_run.mission_id,
+                    item.node.capability,
+                    f"graph:{graph_run.graph_run_id}:{item.node.node_id}:{item.run_index}:retry{current}",
+                    {k: v for k, v in item.input_payload.items() if k != "_handoffs"},
+                )
+                runtime.store.bind_graph_node_job(
+                    graph_run.graph_run_id,
+                    item.node.node_id,
+                    item.run_index,
+                    fresh_job.job_id,
+                )
+                runtime.execute_job(fresh_job.job_id, worker_id)
+                new_result = _graph_result_from_persisted_job(
+                    runtime.get_job(fresh_job.job_id)
+                )
+            else:
+                runtime.store.unbind_graph_node_job(
+                    graph_run.graph_run_id, item.node.node_id, item.run_index,
+                )
+                new_result = execute_graph_node(
+                    _execution_context(runtime, graph_run, template, item, node_run, worker_id),
+                    registry=registry,
+                )
+            if new_result.status != NodeRunStatus.FAILED:
+                ee = _complete_and_route(runtime, graph_run, template, item, node_run, new_result)
+                return (None, False, ee)
+            return _handle_failed_node(
+                runtime, graph_run, template, item, node_run, new_result,
+                retry_counts, worker_id=worker_id, registry=registry,
+            )
+        # Retries exhausted
+        runtime.store.complete_node_run(
+            node_run.node_run_id,
+            NodeRunStatus.FAILED,
+            output_payload=result.output_payload,
+            artifact_refs=result.artifact_refs,
+            edge_decision="failed",
+            error=result.error,
+        )
+        matching = [e for e in template.edges if e.from_node == item.node.node_id and e.on == "failed"]
+        if matching:
+            ee = _create_matching_edges(runtime, graph_run, template, item.node, node_run, result.output_payload, "failed")
+            return (None, False, ee)
+        return (None, True, None)
+
+    if on_failure.startswith("fallback:"):
+        runtime.store.complete_node_run(
+            node_run.node_run_id,
+            NodeRunStatus.FAILED,
+            output_payload=result.output_payload,
+            artifact_refs=result.artifact_refs,
+            edge_decision="failed",
+            error=result.error,
+        )
+        ee = _create_matching_edges(runtime, graph_run, template, item.node, node_run, result.output_payload, "failed")
+        return (None, False, ee)
+
+    # "fail" (default)
+    outcome = result.outcome if result.outcome in {"failed", "canceled", "rejected"} else "failed"
+    runtime.store.complete_node_run(
+        node_run.node_run_id,
+        NodeRunStatus.FAILED,
+        output_payload=result.output_payload,
+        artifact_refs=result.artifact_refs,
+        edge_decision=outcome,
+        error=result.error,
+    )
+    matching = [e for e in template.edges if e.from_node == item.node.node_id and e.on == outcome]
+    if matching:
+        ee = _create_matching_edges(runtime, graph_run, template, item.node, node_run, result.output_payload, outcome)
+        return (None, False, ee)
+    return (None, True, None)
+def _complete_and_route(
+    runtime,
+    graph_run: GraphRunRecord,
+    template: GraphTemplate,
+    item: ReadyNode,
+    node_run: NodeRunRecord,
+    result: GraphNodeExecutionResult,
+) -> dict[str, str] | None:
+    """Complete a succeeded node and create edge handoffs. Returns error dict on limit violation."""
+    runtime.store.complete_node_run(
+        node_run.node_run_id,
+        result.status,
+        output_payload=result.output_payload,
+        artifact_refs=result.artifact_refs,
+        evidence_package_id=result.evidence_package_id,
+        edge_decision=result.outcome,
+        error=result.error,
+    )
+    return _create_matching_edges(runtime, graph_run, template, item.node, node_run, result.output_payload, result.outcome)
+
+
+def _create_matching_edges(
+    runtime,
+    graph_run: GraphRunRecord,
+    template: GraphTemplate,
+    node: "GraphNode",
+    node_run: NodeRunRecord,
+    output_payload: dict[str, Any],
+    outcome: str,
+) -> dict[str, str] | None:
+    """Create handoffs for all edges matching the outcome. Returns error dict on limit violation."""
+    for edge in template.edges:
+        if edge.from_node != node.node_id or edge.on != outcome:
+            continue
+        error = _create_edge_handoff(runtime, graph_run, edge, node_run, output_payload)
+        if error is not None:
+            return error
+    return None
+
+
+def _retry_delay(backoff: str, base_delay: float, attempt: int) -> float:
+    if backoff == "exponential":
+        return base_delay * (2 ** (attempt - 1))
+    elif backoff == "linear":
+        return base_delay * attempt
+    else:  # constant
+        return base_delay
 
 
 def _resume_requeued_worker_wave(
@@ -325,6 +496,8 @@ def _resume_requeued_worker_wave(
         ready,
         resumed_runs,
         results,
+        worker_id=worker_id,
+        registry=registry,
     )
 
 

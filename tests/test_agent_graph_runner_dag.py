@@ -492,3 +492,167 @@ def test_canceled_worker_job_fails_graph_instead_of_following_success_path(tmp_p
     assert report["status"] == "failed"
     assert report["graph_run"]["error"]["code"] == "unhandled_node_outcome"
     assert report["node_runs"][0]["edge_decision"] == "canceled"
+
+
+# ---------------------------------------------------------------------------
+# on_failure strategy tests
+# ---------------------------------------------------------------------------
+
+
+def test_on_failure_skip_creates_skipped_edge_and_continues(tmp_path):
+    runtime = _runtime(
+        tmp_path,
+        {"fake.bad": lambda job, context: (_ for _ in ()).throw(ValueError("boom"))},
+    )
+    handlers = GraphNodeExecutorRegistry()
+    handlers.register("sink", lambda ctx: {"status": "succeeded", "outcome": "succeeded", "output_payload": {"ok": True}})
+
+    mission = runtime.create_mission("goal", [], [])
+    template = _template(
+        [
+            {"id": "bad", "role": "worker", "kind": "worker", "capability": "fake.bad", "on_failure": "skip"},
+            {"id": "next", "role": "aggregate", "kind": "program", "handler": "sink"},
+        ],
+        [
+            {"id": "bad-next", "from": "bad", "to": "next", "on": "skipped"},
+        ],
+    )
+
+    report = run_graph(runtime, mission.mission_id, template, initial_payload={}, registry=handlers)
+
+    assert report["status"] == "succeeded"
+    bad_run = next(r for r in report["node_runs"] if r["node_id"] == "bad")
+    assert bad_run["status"] == "skipped"
+    assert bad_run["error"] is not None
+    next_run = next(r for r in report["node_runs"] if r["node_id"] == "next")
+    assert next_run["status"] == "succeeded"
+
+
+def test_on_failure_fail_stops_graph(tmp_path):
+    runtime = _runtime(
+        tmp_path,
+        {"fake.bad": lambda job, context: (_ for _ in ()).throw(ValueError("boom"))},
+    )
+    handlers = GraphNodeExecutorRegistry()
+    handlers.register("sink", lambda ctx: {"status": "succeeded", "outcome": "succeeded", "output_payload": {}})
+
+    mission = runtime.create_mission("goal", [], [])
+    template = _template(
+        [
+            {"id": "bad", "role": "worker", "kind": "worker", "capability": "fake.bad"},
+            {"id": "next", "role": "aggregate", "kind": "program", "handler": "sink"},
+        ],
+        [
+            {"id": "bad-next", "from": "bad", "to": "next", "on": "succeeded"},
+        ],
+    )
+
+    report = run_graph(runtime, mission.mission_id, template, initial_payload={}, registry=handlers)
+
+    assert report["status"] == "failed"
+    assert report["graph_run"]["error"]["code"] == "unhandled_node_outcome"
+
+
+def test_on_failure_retry_succeeds_after_retry(tmp_path):
+    attempts = []
+
+    def flaky_worker(job, context):
+        attempts.append(1)
+        if len(attempts) < 3:
+            raise ValueError("transient error")
+        return {"value": "ok"}
+
+    runtime = _runtime(tmp_path, {"fake.flaky": flaky_worker})
+    handlers = GraphNodeExecutorRegistry()
+    handlers.register("sink", lambda ctx: {"status": "succeeded", "outcome": "succeeded", "output_payload": {}})
+
+    mission = runtime.create_mission("goal", [], [])
+    template = _template(
+        [
+            {
+                "id": "flaky",
+                "role": "worker",
+                "kind": "worker",
+                "capability": "fake.flaky",
+                "on_failure": "retry",
+                "retry_max_attempts": 3,
+                "retry_backoff": "constant",
+                "retry_delay_seconds": 0.0,
+            },
+            {"id": "next", "role": "aggregate", "kind": "program", "handler": "sink"},
+        ],
+        [
+            {"id": "flaky-next", "from": "flaky", "to": "next", "on": "succeeded"},
+        ],
+    )
+
+    report = run_graph(runtime, mission.mission_id, template, initial_payload={}, registry=handlers)
+
+    assert report["status"] == "succeeded"
+    assert len(attempts) == 3
+
+
+def test_on_failure_retry_exhausted_fails_graph(tmp_path):
+    attempts = []
+
+    def always_fail(job, context):
+        attempts.append(1)
+        raise ValueError("persistent error")
+
+    runtime = _runtime(tmp_path, {"fake.bad": always_fail})
+    handlers = GraphNodeExecutorRegistry()
+    handlers.register("sink", lambda ctx: {"status": "succeeded", "outcome": "succeeded", "output_payload": {}})
+
+    mission = runtime.create_mission("goal", [], [])
+    template = _template(
+        [
+            {
+                "id": "bad",
+                "role": "worker",
+                "kind": "worker",
+                "capability": "fake.bad",
+                "on_failure": "retry",
+                "retry_max_attempts": 2,
+                "retry_delay_seconds": 0.0,
+            },
+            {"id": "next", "role": "aggregate", "kind": "program", "handler": "sink"},
+        ],
+        [
+            {"id": "bad-next", "from": "bad", "to": "next", "on": "succeeded"},
+        ],
+    )
+
+    report = run_graph(runtime, mission.mission_id, template, initial_payload={}, registry=handlers)
+
+    assert report["status"] == "failed"
+    assert len(attempts) == 2
+
+
+def test_on_failure_fallback_routes_to_alternate_node(tmp_path):
+    runtime = _runtime(
+        tmp_path,
+        {"fake.bad": lambda job, context: (_ for _ in ()).throw(ValueError("boom"))},
+    )
+    handlers = GraphNodeExecutorRegistry()
+    handlers.register("recovery", lambda ctx: {"status": "succeeded", "outcome": "succeeded", "output_payload": {"recovered": True}})
+    handlers.register("sink", lambda ctx: {"status": "succeeded", "outcome": "succeeded", "output_payload": {}})
+
+    mission = runtime.create_mission("goal", [], [])
+    template = _template(
+        [
+            {"id": "bad", "role": "worker", "kind": "worker", "capability": "fake.bad", "on_failure": "fallback:recovery"},
+            {"id": "recovery", "role": "aggregate", "kind": "program", "handler": "recovery"},
+            {"id": "next", "role": "aggregate", "kind": "program", "handler": "sink"},
+        ],
+        [
+            {"id": "bad-next", "from": "bad", "to": "next", "on": "succeeded"},
+            {"id": "bad-recovery", "from": "bad", "to": "recovery", "on": "failed"},
+        ],
+    )
+
+    report = run_graph(runtime, mission.mission_id, template, initial_payload={}, registry=handlers)
+
+    assert report["status"] == "succeeded"
+    recovery_run = next(r for r in report["node_runs"] if r["node_id"] == "recovery")
+    assert recovery_run["status"] == "succeeded"
+    assert recovery_run["output_payload"]["recovered"] is True
