@@ -31,9 +31,14 @@ class GraphNode:
     retry_delay_seconds: float = 0.0
     fan_out: bool = False
     expand: bool = False
+    # ── Agent v2 ──
+    system_prompt: str = ""
+    model: str = ""
+    profile: str = "standard"
+    constraints: dict[str, Any] = field(default_factory=dict)
 
     def to_json_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "id": self.node_id,
             "role": self.role,
             "kind": self.kind,
@@ -51,6 +56,15 @@ class GraphNode:
             "fan_out": self.fan_out,
             "expand": self.expand,
         }
+        if self.system_prompt:
+            result["system_prompt"] = self.system_prompt
+        if self.model:
+            result["model"] = self.model
+        if self.profile != "standard":
+            result["profile"] = self.profile
+        if self.constraints:
+            result["constraints"] = dict(self.constraints)
+        return result
 
 
 @dataclass(frozen=True)
@@ -87,6 +101,11 @@ class GraphTemplate:
     edges: list[GraphEdge]
     handoffs: dict[str, HandoffSchema]
     max_rounds: int = 0  # 0 = unlimited
+    # ── Agent v2 layers ──
+    prompts: dict[str, str] = field(default_factory=dict)
+    profiles: dict[str, dict[str, Any]] = field(default_factory=dict)
+    environment: dict[str, Any] = field(default_factory=dict)
+    security: dict[str, Any] = field(default_factory=dict)
 
     def node(self, node_id: str) -> GraphNode:
         for node in self.nodes:
@@ -95,15 +114,25 @@ class GraphTemplate:
         raise KeyError(f"graph template node not found: {node_id}")
 
     def to_json_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "template_id": self.template_id,
             "version": self.version,
             "description": self.description,
             "nodes": [node.to_json_dict() for node in self.nodes],
             "edges": [edge.to_json_dict() for edge in self.edges],
             "handoffs": {key: schema.to_json_dict() for key, schema in self.handoffs.items()},
-            "max_rounds": self.max_rounds,
         }
+        if self.max_rounds:
+            result["max_rounds"] = self.max_rounds
+        if self.prompts:
+            result["prompts"] = dict(self.prompts)
+        if self.profiles:
+            result["profiles"] = {k: dict(v) for k, v in self.profiles.items()}
+        if self.environment:
+            result["environment"] = dict(self.environment)
+        if self.security:
+            result["security"] = dict(self.security)
+        return result
 
 
 def resolve_template_path(template: str | Path) -> Path:
@@ -149,6 +178,10 @@ def graph_template_from_mapping(data: object, *, source: str = "graph template")
         edges=edges,
         handoffs=handoffs,
         max_rounds=int(data.get("max_rounds") or 0),
+        prompts=_string_dict(data.get("prompts")),
+        profiles=_profiles_from_mapping(data.get("profiles")),
+        environment=_dict_or_empty(data.get("environment")),
+        security=_dict_or_empty(data.get("security")),
     )
 
 
@@ -166,6 +199,10 @@ def _node_from_mapping(value: object) -> GraphNode:
     retry_delay_seconds = _non_negative_float(value.get("retry_delay_seconds", 0.0), field_name=f"node {node_id} retry_delay_seconds")
     fan_out = bool(value.get("fan_out", False))
     expand = bool(value.get("expand", False))
+    system_prompt = str(value.get("system_prompt") or "")
+    model = str(value.get("model") or "")
+    profile = str(value.get("profile") or "standard")
+    constraints = dict(value.get("constraints") or {}) if isinstance(value.get("constraints"), dict) else {}
     return GraphNode(
         node_id=node_id,
         role=str(value.get("role") or ""),
@@ -183,6 +220,10 @@ def _node_from_mapping(value: object) -> GraphNode:
         retry_delay_seconds=retry_delay_seconds,
         fan_out=fan_out,
         expand=expand,
+        system_prompt=system_prompt,
+        model=model,
+        profile=profile,
+        constraints=constraints,
     )
 
 
@@ -297,13 +338,35 @@ def _backoff(value: object, node_id: str) -> str:
     return raw
 
 
+def _dict_or_empty(value: object) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _string_dict(value: object) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    return {str(k): str(v) for k, v in value.items()}
+
+
+def _profiles_from_mapping(value: object) -> dict[str, dict[str, Any]]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, dict[str, Any]] = {}
+    for k, v in value.items():
+        if isinstance(v, dict):
+            result[str(k)] = dict(v)
+    return result
+
+
 def _validate_nodes(
     nodes: list[GraphNode],
     node_ids: set[str],
     handoffs: dict[str, HandoffSchema],
 ) -> None:
     builtin_roles = {"planner", "validator", "scorecard", "approval_gate"}
-    supported_kinds = {"llm", "program", "worker", "human_gate"}
+    supported_kinds = {"llm", "program", "worker", "human_gate", "agent"}
     for node in nodes:
         if node.kind not in supported_kinds:
             raise GraphTemplateError(f"graph node has unsupported kind: {node.node_id} ({node.kind})")
@@ -318,6 +381,8 @@ def _validate_nodes(
             raise GraphTemplateError(f"worker node capability is required: {node.node_id}")
         if node.kind in {"program", "llm"} and node.role not in builtin_roles and not node.handler:
             raise GraphTemplateError(f"graph node handler is required: {node.node_id}")
+        if node.kind == "agent" and not node.system_prompt:
+            raise GraphTemplateError(f"agent node system_prompt is required: {node.node_id}")
         if node.on_failure.startswith("fallback:"):
             fallback_target = node.on_failure[len("fallback:"):]
             if fallback_target not in node_ids:

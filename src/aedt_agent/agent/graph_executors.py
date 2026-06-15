@@ -70,6 +70,8 @@ def execute_graph_node(
             if registry is None:
                 raise KeyError(f"graph handler not found: {context.node.handler}")
             result = registry.execute(context.node.handler, context)
+        elif context.node.kind == "agent":
+            result = execute_agent_node(context)
         elif context.node.kind == "worker":
             result = _execute_worker(context)
         elif context.node.role == "planner":
@@ -93,6 +95,133 @@ def execute_graph_node(
             str(exc),
             details={"error_type": type(exc).__name__},
         )
+
+
+def execute_agent_node(context: GraphNodeExecutionContext) -> GraphNodeExecutionResult:
+    """Execute a kind=agent node by calling an LLM with the node's system_prompt.
+
+    Resolves prompt text from template.prompts (if system_prompt is a key)
+    or uses the system_prompt value directly as inline prompt text.
+    """
+    import json as _json
+
+    # 1. Resolve prompt
+    prompt_text = _resolve_prompt(context)
+    if not prompt_text:
+        return GraphNodeExecutionResult(
+            NodeRunStatus.FAILED, "failed", {},
+            error={"error_class": "agent_no_prompt", "message": "agent node has no system_prompt"},
+        )
+
+    # 2. Resolve constraints (merge profile defaults + node overrides)
+    constraints = _resolve_agent_constraints(context)
+
+    # 3. Build user message
+    user_msg = _json.dumps({
+        "handoff": context.input_payload,
+        "output_schema": context.node.output_schema,
+        "constraints": constraints,
+    }, ensure_ascii=False, indent=2)
+
+    # 4. Call LLM
+    try:
+        from aedt_agent.agent.llm import LlmConfig, llm_complete
+
+        config = LlmConfig.from_env()
+        if not config.api_key:
+            raise RuntimeError("LLM not configured")
+        model = constraints.get("model") or config.model
+        temperature = float(constraints.get("temperature", 0.2))
+        raw = llm_complete(
+            prompt_text, user_msg,
+            config=LlmConfig(
+                model=model,
+                api_key=config.api_key,
+                base_url=config.base_url,
+                temperature=temperature,
+                max_tokens=int(constraints.get("max_tokens", 2048)),
+            ),
+        )
+    except (ImportError, RuntimeError) as e:
+        return GraphNodeExecutionResult(
+            NodeRunStatus.FAILED, "failed", {},
+            error={"error_class": "agent_llm_unavailable", "message": str(e)},
+        )
+    except Exception as e:
+        return GraphNodeExecutionResult(
+            NodeRunStatus.FAILED, "failed", {},
+            error={"error_class": "agent_llm_error", "message": str(e)},
+        )
+
+    # 5. Parse JSON from LLM output
+    try:
+        output = _json.loads(raw)
+    except _json.JSONDecodeError:
+        # Try to extract from markdown code fence
+        output = _extract_json_from_markdown(raw)
+    if not isinstance(output, dict):
+        return GraphNodeExecutionResult(
+            NodeRunStatus.FAILED, "failed", {},
+            error={"error_class": "agent_output_not_json", "message": "agent output is not valid JSON"},
+        )
+
+    # 6. Validate handoff schema
+    if context.node.output_schema:
+        try:
+            schema = context.template.handoffs[context.node.output_schema]
+            validate_handoff(schema, output)
+        except HandoffValidationError as e:
+            return GraphNodeExecutionResult(
+                NodeRunStatus.FAILED, "failed", output,
+                error={"error_class": "agent_handoff_invalid", "message": str(e)},
+            )
+
+    return GraphNodeExecutionResult(NodeRunStatus.SUCCEEDED, "succeeded", output, [])
+
+
+def _resolve_prompt(context: GraphNodeExecutionContext) -> str:
+    """Resolve the system_prompt for an agent node."""
+    prompt_key = context.node.system_prompt
+    if not prompt_key:
+        return ""
+    # If prompt_key matches a key in template.prompts, use that
+    if prompt_key in context.template.prompts:
+        return context.template.prompts[prompt_key]
+    # Otherwise use as inline prompt text
+    return prompt_key
+
+
+def _resolve_agent_constraints(context: GraphNodeExecutionContext) -> dict[str, Any]:
+    """Merge profile defaults with node-level constraint overrides."""
+    profile_name = context.node.profile or "standard"
+    profile = context.template.profiles.get(profile_name, {})
+    merged = dict(profile)
+    if context.node.constraints:
+        merged.update(context.node.constraints)
+    if context.node.model:
+        merged["model"] = context.node.model
+    return merged
+
+
+def _extract_json_from_markdown(text: str) -> dict[str, Any]:
+    """Extract JSON from markdown code fences."""
+    import json as _json
+    import re as _re
+    # Try ```json ... ``` first
+    match = _re.search(r'```(?:json)?\s*\n(.*?)\n```', text, _re.DOTALL)
+    if match:
+        try:
+            return _json.loads(match.group(1))
+        except _json.JSONDecodeError:
+            pass
+    # Try first { ... } block
+    match = _re.search(r'\{.*\}', text, _re.DOTALL)
+    if match:
+        try:
+            return _json.loads(match.group(0))
+        except _json.JSONDecodeError:
+            pass
+    return {}
 
 
 def _execute_planner(context: GraphNodeExecutionContext) -> GraphNodeExecutionResult:
