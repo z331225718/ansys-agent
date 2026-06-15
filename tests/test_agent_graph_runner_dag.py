@@ -656,3 +656,103 @@ def test_on_failure_fallback_routes_to_alternate_node(tmp_path):
     recovery_run = next(r for r in report["node_runs"] if r["node_id"] == "recovery")
     assert recovery_run["status"] == "succeeded"
     assert recovery_run["output_payload"]["recovered"] is True
+
+
+# ---------------------------------------------------------------------------
+# fan-out tests
+# ---------------------------------------------------------------------------
+
+
+def test_fan_out_edge_outcome_activates_all_outgoing_edges(tmp_path):
+    runtime = _runtime(
+        tmp_path,
+        {"fake.fan": lambda job, context: {"edge_outcome": "fan_out", "value": 42}},
+    )
+    handlers = GraphNodeExecutorRegistry()
+    handlers.register("sink", lambda ctx: {"status": "succeeded", "outcome": "succeeded", "output_payload": {"node": ctx.node.node_id}})
+
+    mission = runtime.create_mission("goal", [], [])
+    template = _template(
+        [
+            {"id": "source", "role": "worker", "kind": "worker", "capability": "fake.fan"},
+            {"id": "branch_a", "role": "aggregate", "kind": "program", "handler": "sink"},
+            {"id": "branch_b", "role": "aggregate", "kind": "program", "handler": "sink"},
+            {"id": "branch_c", "role": "aggregate", "kind": "program", "handler": "sink"},
+        ],
+        [
+            {"id": "s-a", "from": "source", "to": "branch_a", "on": "fan_out"},
+            {"id": "s-b", "from": "source", "to": "branch_b", "on": "fan_out"},
+            {"id": "s-c", "from": "source", "to": "branch_c", "on": "fan_out"},
+        ],
+    )
+
+    report = run_graph(runtime, mission.mission_id, template, initial_payload={}, registry=handlers)
+
+    assert report["status"] == "succeeded"
+    node_ids = {r["node_id"] for r in report["node_runs"]}
+    assert node_ids == {"source", "branch_a", "branch_b", "branch_c"}
+
+
+def test_fan_out_node_flag_activates_all_outgoing_edges(tmp_path):
+    runtime = _runtime(
+        tmp_path,
+        {"fake.source": lambda job, context: {"value": 1}},
+    )
+    handlers = GraphNodeExecutorRegistry()
+    handlers.register("sink", lambda ctx: {"status": "succeeded", "outcome": "succeeded", "output_payload": {}})
+
+    mission = runtime.create_mission("goal", [], [])
+    template = _template(
+        [
+            {"id": "source", "role": "worker", "kind": "worker", "capability": "fake.source", "fan_out": True},
+            {"id": "left", "role": "aggregate", "kind": "program", "handler": "sink"},
+            {"id": "right", "role": "aggregate", "kind": "program", "handler": "sink"},
+        ],
+        [
+            {"id": "s-l", "from": "source", "to": "left", "on": "succeeded"},
+            {"id": "s-r", "from": "source", "to": "right", "on": "failed"},
+        ],
+    )
+
+    report = run_graph(runtime, mission.mission_id, template, initial_payload={}, registry=handlers)
+
+    assert report["status"] == "succeeded"
+    node_ids = {r["node_id"] for r in report["node_runs"]}
+    assert node_ids == {"source", "left", "right"}
+
+
+def test_fan_out_with_join_all_converges(tmp_path):
+    results = []
+
+    def collector(job, context):
+        results.append(job.input_payload.get("value"))
+        total = sum(results)
+        return {"total": total, "edge_outcome": "succeeded" if total >= 3 else "pending"}
+
+    runtime = _runtime(
+        tmp_path,
+        {"fake.worker": collector},
+    )
+    handlers = GraphNodeExecutorRegistry()
+    handlers.register("final", lambda ctx: {"status": "succeeded", "outcome": "succeeded", "output_payload": {"done": True}})
+
+    mission = runtime.create_mission("goal", [], [])
+    template = _template(
+        [
+            {"id": "source", "role": "planner", "kind": "llm", "fan_out": True},
+            {"id": "w1", "role": "worker", "kind": "worker", "capability": "fake.worker"},
+            {"id": "w2", "role": "worker", "kind": "worker", "capability": "fake.worker"},
+            {"id": "final", "role": "aggregate", "kind": "program", "handler": "final", "join": "all"},
+        ],
+        [
+            {"id": "s-w1", "from": "source", "to": "w1", "on": "succeeded"},
+            {"id": "s-w2", "from": "source", "to": "w2", "on": "succeeded"},
+            {"id": "w1-f", "from": "w1", "to": "final", "on": "succeeded"},
+            {"id": "w2-f", "from": "w2", "to": "final", "on": "succeeded"},
+        ],
+    )
+
+    report = run_graph(runtime, mission.mission_id, template, initial_payload={"value": 1}, registry=handlers)
+
+    assert report["status"] == "succeeded"
+    assert len(results) == 2

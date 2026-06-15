@@ -398,8 +398,11 @@ def _create_matching_edges(
     outcome: str,
 ) -> dict[str, str] | None:
     """Create handoffs for all edges matching the outcome. Returns error dict on limit violation."""
+    is_fan_out = outcome == "fan_out" or node.fan_out
     for edge in template.edges:
-        if edge.from_node != node.node_id or edge.on != outcome:
+        if edge.from_node != node.node_id:
+            continue
+        if not is_fan_out and edge.on != outcome:
             continue
         error = _create_edge_handoff(runtime, graph_run, edge, node_run, output_payload)
         if error is not None:
