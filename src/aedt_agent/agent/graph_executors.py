@@ -103,7 +103,64 @@ def _execute_planner(context: GraphNodeExecutionContext) -> GraphNodeExecutionRe
     if context.node.output_schema == "brd_local_cut_request":
         _plan_brd_local_cut_request(output)
 
+    # LLM-powered planning: call the model if kind is llm and input exists
+    if context.node.kind == "llm":
+        output = _llm_plan(context, output)
+
     return GraphNodeExecutionResult(NodeRunStatus.SUCCEEDED, "succeeded", output, [])
+
+
+def _llm_plan(context: GraphNodeExecutionContext, output: dict[str, Any]) -> dict[str, Any]:
+    """Use LLM to generate/refine the plan from the user's goal."""
+    import json as _json
+
+    try:
+        from aedt_agent.agent.llm import LlmConfig, llm_complete_json
+    except ImportError:
+        return output
+
+    config = LlmConfig.from_env()
+    if not config.api_key:
+        return output  # No LLM configured — deterministic fallback
+
+    goal = context.input_payload.get("_goal", context.input_payload.get("goal", ""))
+    if not goal:
+        goal = str(context.input_payload.get("plan_summary", "optimize BRD channel"))
+
+    user_msg = _json.dumps(context.input_payload, ensure_ascii=False, indent=2)
+
+    system = (
+        "You are an Ansys AEDT electromagnetic simulation agent. "
+        "Your job is to analyze the user's engineering request and produce a "
+        "structured plan for BRD/MCM channel optimization.\n\n"
+        "Output a JSON object with these fields:\n"
+        '- plan_summary: one-sentence summary of what will be done\n'
+        '- signal_nets: list of signal net names (from user input)\n'
+        '- reference_nets: list of reference/GND nets\n'
+        '- target_metrics: list of {type, target_db, freq_ghz} objects\n'
+        '- suggested_actions: list of candidate optimization actions with '
+        '{action_type, reason, priority} (1=highest, 3=lowest)\n'
+        '- port_recommendation: {count, style, notes}\n'
+        '- risks: list of potential issues to watch for\n\n'
+        "Be specific. Use the actual net names, frequencies, and geometry "
+        "from the user's input. Do NOT invent unrelated actions."
+    )
+
+    try:
+        plan = llm_complete_json(system, user_msg, config=config)
+    except Exception:
+        return output  # LLM call failed → deterministic fallback
+
+    # Merge LLM plan into output, preserving user-supplied fields
+    for key in ("plan_summary", "suggested_actions", "port_recommendation", "risks"):
+        if key in plan:
+            output[key] = plan[key]
+    if "target_metrics" in plan and plan["target_metrics"]:
+        output.setdefault("target_metrics", []).extend(plan["target_metrics"])
+
+    output["planning_source"] = "llm"
+    output["llm_model"] = config.model
+    return output
 
 
 def _plan_brd_local_cut_request(payload: dict[str, Any]) -> None:

@@ -54,26 +54,78 @@ def run_action_propose_worker(job: JobRecord, context: WorkerContext) -> dict[st
     current = job.input_payload.get("current_score") or {}
     targets = job.input_payload.get("target_metrics") or []
 
-    # Generate candidate actions based on current score vs targets
-    candidates = []
     rl_db = float(current.get("rl_worst_db", -100))
     tdr_dev = float(current.get("tdr_peak_deviation_ohm", 0))
 
-    if rl_db > -20:  # RL too high → try void adjustment
+    # Try LLM reasoning first
+    try:
+        from aedt_agent.agent.llm import LlmConfig, llm_complete_json
+    except ImportError:
+        pass  # Fall through to deterministic
+    else:
+        import json as _json
+        config = LlmConfig.from_env()
+        if config.api_key:
+            try:
+                system = (
+                    "You are an RF/microwave engineering agent. Given the current "
+                    "channel performance metrics and target specs, propose 1-3 "
+                    "concrete physical adjustments that are most likely to improve "
+                    "the results.\n\n"
+                    "Output JSON: {candidates: [{action_type, label, description, "
+                    "parameters: {param_name: {type, description}}, reason, "
+                    "expected_effect, priority (1=highest)}]}\n\n"
+                    "Action types must be one of: void.adjust_layer, "
+                    "void.adjust_clearance, trace.widen, trace.narrow, "
+                    "stackup.adjust_thickness, port.relocate.\n"
+                    "Base your proposals on physics: RL too high → impedance mismatch "
+                    "→ adjust void or trace width. TDR deviation → discontinuity "
+                    "→ adjust clearance or check stackup transitions."
+                )
+                user_msg = _json.dumps({
+                    "current_rl_db": rl_db,
+                    "current_tdr_deviation_ohm": tdr_dev,
+                    "target_metrics": targets,
+                    "candidate_action_types": [a["action_type"] for a in CANDIDATE_ACTIONS],
+                })
+                result = llm_complete_json(system, user_msg, config=config)
+                if "candidates" in result and result["candidates"]:
+                    return {
+                        "status": "proposed",
+                        "candidates": result["candidates"],
+                        "current_score": current,
+                        "target_metrics": targets,
+                        "proposal_source": "llm",
+                        "llm_model": config.model,
+                        "evidence_summary": {
+                            "candidate_count": len(result["candidates"]),
+                            "current_rl_db": rl_db,
+                            "current_tdr_dev_ohm": tdr_dev,
+                            "decision_rule": "llm_reasoning",
+                        },
+                    }
+            except Exception:
+                pass  # LLM call failed → deterministic fallback
+
+    # Deterministic fallback: hardcoded thresholds
+    candidates = []
+    if rl_db > -20:
         candidates.append(dict(CANDIDATE_ACTIONS[0]))
-    if tdr_dev > 5:  # TDR deviation too high → try clearance
+    if tdr_dev > 5:
         candidates.append(dict(CANDIDATE_ACTIONS[1]))
     if not candidates:
-        candidates.append(dict(CANDIDATE_ACTIONS[2]))  # fallback: widen trace
+        candidates.append(dict(CANDIDATE_ACTIONS[2]))
 
     return {
         "status": "proposed",
         "candidates": candidates,
         "current_score": current,
         "target_metrics": targets,
+        "proposal_source": "deterministic",
         "evidence_summary": {
             "candidate_count": len(candidates),
             "current_rl_db": rl_db,
             "current_tdr_dev_ohm": tdr_dev,
+            "decision_rule": "hardcoded_thresholds (no LLM configured)",
         },
     }

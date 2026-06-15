@@ -78,6 +78,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
 <aside class="sidebar">
   <h1>⚡ ansys-agent</h1>
   <div class="muted">Agent-First 电磁仿真工作台</div>
+  <div id="llmStatus" class="muted" style="font-size:11px;color:var(--yellow)">LLM: checking...</div>
   <div style="display:grid;gap:6px">
     <button onclick="refreshMissions()">🔄 刷新 Missions</button>
     <button class="secondary" onclick="showCreate()">＋ 新建 Mission</button>
@@ -254,6 +255,15 @@ function toggleAutoRefresh(){
 }
 refreshMissions();
 toggleAutoRefresh();
+(async function checkLlm(){
+  try{
+    const data=await api('/api/llm-status');
+    document.getElementById('llmStatus').textContent='LLM: '+data.model+(data.configured?'':' (not configured)');
+    document.getElementById('llmStatus').style.color=data.configured?'var(--green)':'var(--yellow)';
+  }catch(e){
+    document.getElementById('llmStatus').textContent='LLM: unknown';
+  }
+})();
 </script>
 </body>
 </html>"""
@@ -308,6 +318,7 @@ def dispatch_agent_request(
                 mission.mission_id,
                 template,
                 initial_payload={
+                    "_goal": goal,
                     "layout_file": str(req.get("layout_file", "")),
                     "signal_nets": signal_nets if isinstance(signal_nets, list) else [],
                     "reference_nets": ["GND"],
@@ -392,6 +403,15 @@ def dispatch_agent_request(
                     {"id": f.stem, "path": str(f)}
                     for f in yaml_files
                 ]
+            })
+
+        if method == "GET" and route == "/api/llm-status":
+            from aedt_agent.agent.llm import LlmConfig
+            config = LlmConfig.from_env()
+            return _json({
+                "model": config.model,
+                "configured": bool(config.api_key),
+                "base_url": config.base_url or "https://api.openai.com/v1",
             })
 
         return _json({"error": "not_found", "path": route}, status=404)
