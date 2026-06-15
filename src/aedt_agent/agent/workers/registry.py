@@ -66,10 +66,12 @@ class InMemoryWorkerRegistry:
         *,
         harness: LocalProcessHarness | None = None,
         heartbeat_interval_seconds: int = 5,
+        default_allowed_env: tuple[str, ...] = (),
     ) -> None:
         self._registrations: dict[str, WorkerRegistration] = {}
         self.harness = harness
         self.heartbeat_interval_seconds = heartbeat_interval_seconds
+        self.default_allowed_env = tuple(default_allowed_env)
 
     def register(self, capability: str, worker: WorkerFn) -> None:
         self._register(
@@ -86,7 +88,7 @@ class InMemoryWorkerRegistry:
         entrypoint: str,
         *,
         resource_class: str = "cpu",
-        allowed_env: tuple[str, ...] = (),
+        allowed_env: tuple[str, ...] | None = None,
     ) -> None:
         self._register(
             WorkerRegistration(
@@ -94,7 +96,11 @@ class InMemoryWorkerRegistry:
                 execution_mode="local_process",
                 entrypoint=entrypoint,
                 resource_class=resource_class,
-                allowed_env=tuple(allowed_env),
+                allowed_env=(
+                    self.default_allowed_env
+                    if allowed_env is None
+                    else tuple(allowed_env)
+                ),
             )
         )
 
@@ -112,6 +118,7 @@ class InMemoryWorkerRegistry:
         context: WorkerContext,
         *,
         attempt_id: str | None = None,
+        cancel_requested=None,
     ) -> WorkerExecutionResult:
         registration = self._registrations.get(job.capability)
         if registration is None:
@@ -127,7 +134,13 @@ class InMemoryWorkerRegistry:
                 ),
             )
         if registration.execution_mode == "local_process":
-            return self._execute_process(registration, job, context, attempt_id)
+            return self._execute_process(
+                registration,
+                job,
+                context,
+                attempt_id,
+                cancel_requested,
+            )
         assert registration.handler is not None
         try:
             output = dict(registration.handler(job, context))
@@ -156,6 +169,7 @@ class InMemoryWorkerRegistry:
         job: JobRecord,
         context: WorkerContext,
         attempt_id: str | None,
+        cancel_requested,
     ) -> WorkerExecutionResult:
         if self.harness is None:
             return _configuration_failure(
@@ -190,6 +204,7 @@ class InMemoryWorkerRegistry:
             request,
             allowed_env=registration.allowed_env,
             resource_class=registration.resource_class,
+            cancel_requested=cancel_requested,
         )
         metadata = {
             **result.metadata,

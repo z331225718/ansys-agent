@@ -10,6 +10,7 @@ from aedt_agent.agent.mission import (
     JobAttemptRecord,
     JobAttemptStatus,
     JobStatus,
+    MissionState,
     NodeRunRecord,
     NodeRunStatus,
 )
@@ -300,3 +301,137 @@ def test_recovered_graph_worker_retries_same_node_run(tmp_path, monkeypatch):
     assert report["node_runs"][0]["node_run_id"] == node_run.node_run_id
     assert report["node_runs"][0]["output_payload"]["value"] == 3
     assert [attempt.attempt_number for attempt in store.list_job_attempts(job.job_id)] == [1, 2]
+
+
+def test_recovery_adopts_completed_child_result_without_rerunning_worker(tmp_path, monkeypatch):
+    monkeypatch.setenv("PYTHONPATH", str(Path.cwd()))
+    store = SQLiteMissionStore(tmp_path / "mission.db")
+    harness = LocalProcessHarness(HarnessWorkspacePolicy(tmp_path / "harness"))
+    registry = InMemoryWorkerRegistry(harness=harness, heartbeat_interval_seconds=1)
+    registry.register_process(
+        "fake.echo",
+        "tests.fixtures.process_workers:echo_worker",
+        allowed_env=("PYTHONPATH",),
+    )
+    runtime = AgentRuntime(store, registry=registry)
+    mission = runtime.create_mission("goal", [], [])
+    job = runtime.create_job(
+        mission.mission_id,
+        "fake.echo",
+        "echo:completed",
+        {"value": 2},
+        retry_limit=1,
+    )
+    template = graph_template_from_mapping(
+        {
+            "id": "recover-completed-worker",
+            "version": 1,
+            "nodes": [
+                {
+                    "id": "worker",
+                    "role": "worker",
+                    "kind": "worker",
+                    "capability": "fake.echo",
+                }
+            ],
+            "edges": [],
+            "handoffs": {},
+        }
+    )
+    graph_run = create_graph_run(runtime, mission.mission_id, template, initial_payload={"value": 2})
+    node_run = store.create_node_run(
+        NodeRunRecord.create(
+            node_run_id="node-run-completed",
+            graph_run_id=graph_run.graph_run_id,
+            mission_id=mission.mission_id,
+            node_id="worker",
+            node_role="worker",
+            node_kind="worker",
+            sequence=1,
+            input_payload={"value": 2},
+        )
+    )
+    store.update_node_run_status(node_run.node_run_id, NodeRunStatus.RUNNING)
+    store.bind_graph_node_job(graph_run.graph_run_id, "worker", 1, job.job_id)
+    store.acquire_job_lease(job.job_id, "worker-1", lease_seconds=60)
+    attempt = store.create_job_attempt(
+        JobAttemptRecord.create(
+            "attempt-completed",
+            mission.mission_id,
+            job.job_id,
+            1,
+            "worker-1",
+        )
+    )
+    completed_result = HarnessResult.create(
+        harness_run_id="run-1",
+        job_id=job.job_id,
+        status=HarnessStatus.SUCCEEDED,
+        output_payload={"value": 3},
+        exit_code=0,
+    )
+    _write_attempt(
+        tmp_path / "harness",
+        mission_id=mission.mission_id,
+        job_id=job.job_id,
+        attempt_id=attempt.attempt_id,
+        result=completed_result,
+    )
+
+    recovery = runtime.recover_harness_attempts(
+        mission.mission_id,
+        process_controller=FakeProcessController(set()),
+    )
+    report = resume_graph(runtime, graph_run.graph_run_id)
+
+    assert recovery["adopted_completed_attempt_ids"] == [attempt.attempt_id]
+    assert store.get_job(job.job_id).status == JobStatus.SUCCEEDED
+    assert store.get_job_attempt(attempt.attempt_id).status == JobAttemptStatus.SUCCEEDED
+    assert report["status"] == "succeeded"
+    assert len(report["node_runs"]) == 1
+    assert report["node_runs"][0]["node_run_id"] == node_run.node_run_id
+    assert report["node_runs"][0]["output_payload"]["value"] == 3
+    assert [item.attempt_number for item in store.list_job_attempts(job.job_id)] == [1]
+
+
+def test_recovery_keeps_canceled_mission_terminal_when_child_result_completed(tmp_path):
+    store = SQLiteMissionStore(tmp_path / "mission.db")
+    harness = LocalProcessHarness(HarnessWorkspacePolicy(tmp_path / "harness"))
+    runtime = AgentRuntime(store, registry=InMemoryWorkerRegistry(harness=harness))
+    mission = runtime.create_mission("goal", [], [])
+    job = runtime.create_job(mission.mission_id, "fake.echo", "echo:canceled", {})
+    store.acquire_job_lease(job.job_id, "worker-1", lease_seconds=60)
+    attempt = store.create_job_attempt(
+        JobAttemptRecord.create(
+            "attempt-canceled-completed",
+            mission.mission_id,
+            job.job_id,
+            1,
+            "worker-1",
+        )
+    )
+    completed_result = HarnessResult.create(
+        harness_run_id="run-1",
+        job_id=job.job_id,
+        status=HarnessStatus.SUCCEEDED,
+        output_payload={"value": 3},
+        exit_code=0,
+    )
+    _write_attempt(
+        tmp_path / "harness",
+        mission_id=mission.mission_id,
+        job_id=job.job_id,
+        attempt_id=attempt.attempt_id,
+        result=completed_result,
+    )
+    store.update_mission_state(mission.mission_id, MissionState.CANCELED)
+
+    report = runtime.recover_harness_attempts(
+        mission.mission_id,
+        process_controller=FakeProcessController(set()),
+    )
+
+    assert report["adopted_completed_attempt_ids"] == [attempt.attempt_id]
+    assert store.get_mission(mission.mission_id).state == MissionState.CANCELED
+    assert store.get_job(job.job_id).status == JobStatus.CANCELED
+    assert store.get_job_attempt(attempt.attempt_id).status == JobAttemptStatus.CANCELED

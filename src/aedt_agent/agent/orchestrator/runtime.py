@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -92,7 +93,29 @@ class AgentRuntime:
                 leased_job,
                 WorkerContext(worker_id),
                 attempt_id=attempt.attempt_id,
+                cancel_requested=lambda: (
+                    self.get_mission(mission_id).state == MissionState.CANCELED
+                ),
             )
+            if (
+                result.status == JobStatus.SUCCEEDED
+                and self.get_mission(mission_id).state == MissionState.CANCELED
+            ):
+                result = WorkerExecutionResult(
+                    job_id=result.job_id,
+                    status=JobStatus.CANCELED,
+                    output_payload={},
+                    artifact_refs=result.artifact_refs,
+                    error=JobError(
+                        ErrorClass.CANCELED,
+                        "mission was canceled before worker result was committed",
+                        retryable=False,
+                    ),
+                    metadata={
+                        **result.metadata,
+                        "termination_reason": "mission_canceled_before_commit",
+                    },
+                )
             self._register_artifact_manifests(
                 mission_id,
                 job.job_id,
@@ -185,6 +208,7 @@ class AgentRuntime:
             "mission_id": mission_id,
             "records": [record.to_json_dict() for record in records],
             "completed_attempt_ids": [],
+            "adopted_completed_attempt_ids": [],
             "active_attempt_ids": [],
             "stale_attempt_ids": [],
             "interrupted_attempt_ids": [],
@@ -195,6 +219,7 @@ class AgentRuntime:
         for record in records:
             if record.classification == HarnessRecoveryClassification.COMPLETED:
                 report["completed_attempt_ids"].append(record.attempt_id)
+                self._recover_completed_attempt(record, report)
                 continue
             if record.classification == HarnessRecoveryClassification.ACTIVE:
                 report["active_attempt_ids"].append(record.attempt_id)
@@ -213,6 +238,121 @@ class AgentRuntime:
                 report["terminated_pids"].append(record.pid)
             self._recover_interrupted_attempt(record, report)
         return report
+
+    def _recover_completed_attempt(self, record, report: dict) -> None:
+        from aedt_agent.infrastructure.harness import HarnessResult, HarnessStatus
+
+        try:
+            attempt = self.store.get_job_attempt(record.attempt_id)
+        except KeyError:
+            return
+        if attempt.status != JobAttemptStatus.RUNNING:
+            return
+        job = self.get_job(attempt.job_id)
+        workspace = Path(record.workspace)
+        result = HarnessResult.from_json_dict(
+            json.loads((workspace / "result.json").read_text(encoding="utf-8"))
+        )
+        result.assert_identity(record.harness_run_id, job.job_id)
+        protocol_artifacts = [
+            str(path)
+            for path in (
+                workspace / "request.json",
+                workspace / "result.json",
+                workspace / "stdout.log",
+                workspace / "stderr.log",
+            )
+            if path.exists()
+        ]
+        artifact_refs = list(dict.fromkeys([*result.artifact_refs, *protocol_artifacts]))
+        metadata = {
+            **result.metadata,
+            "execution_mode": "local_process",
+            "harness_run_id": result.harness_run_id,
+            "harness_status": result.status.value,
+            "workspace": record.workspace,
+            "exit_code": result.exit_code,
+            "termination_reason": result.termination_reason,
+            "recovery_classification": "completed",
+        }
+        self.store.release_active_job_leases(job.job_id)
+        mission_canceled = (
+            self.get_mission(job.mission_id).state == MissionState.CANCELED
+        )
+        if result.status == HarnessStatus.SUCCEEDED and not mission_canceled:
+            self._ensure_mission_ready_for_worker(job.mission_id)
+            self.store.complete_job(job.job_id, result.output_payload, artifact_refs)
+            self.store.complete_job_attempt(
+                attempt.attempt_id,
+                JobAttemptStatus.SUCCEEDED,
+                retry_decision="none",
+                metadata=metadata,
+            )
+            self._register_artifact_manifests(job.mission_id, job.job_id, artifact_refs)
+            self.store.create_checkpoint(
+                job.mission_id,
+                job.job_id,
+                artifact_refs,
+                {"output": result.output_payload},
+            )
+            approval_required = result.output_payload.get("approval_required")
+            if isinstance(approval_required, dict):
+                from aedt_agent.agent.approvals import ApprovalService
+
+                ApprovalService(self.store).request_approval(
+                    job.mission_id,
+                    str(approval_required.get("reason") or "approval_required"),
+                    list(approval_required.get("options") or []),
+                )
+            else:
+                self.store.update_mission_state(job.mission_id, MissionState.EVALUATING)
+        else:
+            harness_error = result.error
+            if mission_canceled:
+                error = JobError(
+                    ErrorClass.CANCELED,
+                    "mission was canceled before recovered worker result was committed",
+                    retryable=False,
+                )
+                metadata["termination_reason"] = "mission_canceled_before_commit"
+            else:
+                error = JobError(
+                    _harness_error_class(
+                        harness_error.error_class if harness_error else "worker_crash"
+                    ),
+                    (
+                        harness_error.message
+                        if harness_error
+                        else f"harness failed: {result.status.value}"
+                    ),
+                    harness_error.retryable if harness_error else True,
+                    {} if harness_error is None else dict(harness_error.details),
+                )
+            if result.status == HarnessStatus.CANCELED or mission_canceled:
+                self.store.cancel_job(job.job_id, error)
+                self.store.complete_job_attempt(
+                    attempt.attempt_id,
+                    JobAttemptStatus.CANCELED,
+                    error.to_json_dict(),
+                    "canceled",
+                    metadata=metadata,
+                )
+            else:
+                self.store.fail_job(job.job_id, error)
+                retry_available = (
+                    error.retryable and attempt.attempt_number <= job.retry_limit
+                )
+                self.store.complete_job_attempt(
+                    attempt.attempt_id,
+                    JobAttemptStatus.FAILED,
+                    error.to_json_dict(),
+                    "retry_available" if retry_available else "no_retry",
+                    metadata=metadata,
+                )
+                if retry_available:
+                    self.store.requeue_failed_job(job.job_id)
+                    report["requeued_job_ids"].append(job.job_id)
+        report["adopted_completed_attempt_ids"].append(attempt.attempt_id)
 
     def _recover_interrupted_attempt(self, record, report: dict) -> None:
         try:
@@ -287,3 +427,10 @@ def _artifact_kind(path: Path) -> str:
     if suffix == ".json":
         return "json"
     return "artifact"
+
+
+def _harness_error_class(value: str) -> ErrorClass:
+    try:
+        return ErrorClass(value)
+    except ValueError:
+        return ErrorClass.UNKNOWN

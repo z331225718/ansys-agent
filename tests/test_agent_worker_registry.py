@@ -12,6 +12,8 @@ from aedt_agent.agent.workers import (
     classify_worker_error,
 )
 from aedt_agent.infrastructure.harness import (
+    HarnessResult,
+    HarnessStatus,
     HarnessWorkspacePolicy,
     LocalProcessHarness,
     ResourceGate,
@@ -94,6 +96,52 @@ def test_registry_routes_local_process_registration_to_harness(tmp_path, monkeyp
     assert result.output_payload == {"value": 4}
     assert result.metadata["harness_run_id"]
     assert result.metadata["workspace"]
+
+
+def test_registry_uses_default_allowed_environment_for_process_worker():
+    class RecordingHarness:
+        def __init__(self):
+            self.allowed_env = None
+            self.workspace_policy = type(
+                "WorkspacePolicy",
+                (),
+                {
+                    "create_attempt": staticmethod(
+                        lambda mission_id, job_id, attempt_id: type(
+                            "Workspace",
+                            (),
+                            {"root": Path("workspace")},
+                        )()
+                    )
+                },
+            )()
+
+        def execute(self, request, *, allowed_env, resource_class, cancel_requested):
+            self.allowed_env = tuple(allowed_env)
+            return HarnessResult.create(
+                harness_run_id=request.harness_run_id,
+                job_id=request.job_id,
+                status=HarnessStatus.SUCCEEDED,
+            )
+
+    harness = RecordingHarness()
+    registry = InMemoryWorkerRegistry(
+        harness=harness,
+        default_allowed_env=("PYTHONPATH", "AWP_ROOT261"),
+    )
+    registry.register_process(
+        "fake.echo",
+        "tests.fixtures.process_workers:echo_worker",
+    )
+
+    result = registry.execute(
+        _job(),
+        WorkerContext(worker_id="worker-1"),
+        attempt_id="attempt-default-env",
+    )
+
+    assert result.status == JobStatus.SUCCEEDED
+    assert harness.allowed_env == ("PYTHONPATH", "AWP_ROOT261")
 
 
 @pytest.mark.parametrize(

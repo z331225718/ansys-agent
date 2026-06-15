@@ -191,7 +191,7 @@ def _apply_wave_results(
                 for edge in template.edges
                 if edge.from_node == item.node.node_id and edge.on == result.outcome
             ]
-            if result.outcome in {"failed", "rejected"} and not matching_edges:
+            if result.outcome in {"failed", "rejected", "canceled"} and not matching_edges:
                 unmatched_failure = (node_run, result)
             for edge in matching_edges:
                 error = _create_edge_handoff(
@@ -262,6 +262,7 @@ def _resume_requeued_worker_wave(
     )
     ready: list[ReadyNode] = []
     resumed_runs: list[NodeRunRecord] = []
+    results: list[GraphNodeExecutionResult] = []
     for node_run in active_runs:
         if node_run.status != NodeRunStatus.RUNNING or node_run.node_kind != "worker":
             continue
@@ -277,33 +278,46 @@ def _resume_requeued_worker_wave(
             node_run.node_id,
             run_index,
         )
-        if bound_job_id is None or runtime.get_job(bound_job_id).status != JobStatus.QUEUED:
+        if bound_job_id is None:
+            continue
+        job = runtime.get_job(bound_job_id)
+        if job.status not in {
+            JobStatus.QUEUED,
+            JobStatus.SUCCEEDED,
+            JobStatus.FAILED,
+            JobStatus.CANCELED,
+        }:
             continue
         node_handoffs = [
             handoff for handoff in pending if handoff.to_node == node_run.node_id
         ]
-        ready.append(
-            ReadyNode(
-                node=template.node(node_run.node_id),
-                input_payload=dict(node_run.input_payload),
-                handoff_ids=[handoff.handoff_id for handoff in node_handoffs],
-                run_index=run_index,
-            )
+        ready_node = ReadyNode(
+            node=template.node(node_run.node_id),
+            input_payload=dict(node_run.input_payload),
+            handoff_ids=[handoff.handoff_id for handoff in node_handoffs],
+            run_index=run_index,
         )
+        ready.append(ready_node)
         resumed_runs.append(node_run)
+        if job.status == JobStatus.QUEUED:
+            _prepare_mission_for_workers(runtime, graph_run.mission_id)
+            results.append(
+                execute_graph_node(
+                    _execution_context(
+                        runtime,
+                        graph_run,
+                        template,
+                        ready_node,
+                        node_run,
+                        f"{worker_id}:{node_run.node_id}:{run_index}",
+                    ),
+                    registry=registry,
+                )
+            )
+        else:
+            results.append(_graph_result_from_persisted_job(job))
     if not ready:
         return None
-    _prepare_mission_for_workers(runtime, graph_run.mission_id)
-    results = _execute_wave(
-        runtime,
-        graph_run,
-        template,
-        ready,
-        resumed_runs,
-        worker_id=worker_id,
-        max_workers=max_workers,
-        registry=registry,
-    )
     return _apply_wave_results(
         runtime,
         graph_run,
@@ -311,6 +325,32 @@ def _resume_requeued_worker_wave(
         ready,
         resumed_runs,
         results,
+    )
+
+
+def _graph_result_from_persisted_job(job) -> GraphNodeExecutionResult:
+    if job.status == JobStatus.SUCCEEDED:
+        output = dict(job.output_payload)
+        output["artifact_refs"] = list(job.artifact_refs)
+        explicit_outcome = output.pop("edge_outcome", None)
+        if explicit_outcome:
+            outcome = str(explicit_outcome)
+        elif isinstance(output.get("approval_required"), dict):
+            outcome = "approval_required"
+        else:
+            outcome = "succeeded"
+        return GraphNodeExecutionResult(
+            NodeRunStatus.SUCCEEDED,
+            outcome,
+            output,
+            list(job.artifact_refs),
+        )
+    return GraphNodeExecutionResult(
+        NodeRunStatus.FAILED,
+        "canceled" if job.status == JobStatus.CANCELED else "failed",
+        {},
+        list(job.artifact_refs),
+        error=None if job.error is None else job.error.to_json_dict(),
     )
 
 
@@ -619,7 +659,7 @@ def _resume_waiting_gates(
             for edge in template.edges
             if edge.from_node == node.node_id and edge.on == result.outcome
         ]
-        if result.outcome in {"failed", "rejected"} and not matching_edges:
+        if result.outcome in {"failed", "rejected", "canceled"} and not matching_edges:
             return _fail_graph(
                 runtime,
                 graph_run,

@@ -17,6 +17,8 @@ from aedt_agent.agent.graph_template import graph_template_from_mapping, load_gr
 from aedt_agent.agent.mission import GraphRunStatus, MissionState, NodeRunRecord, NodeRunStatus
 from aedt_agent.agent.orchestrator import AgentRuntime
 from aedt_agent.agent.workers import InMemoryWorkerRegistry
+from aedt_agent.agent.workers import WorkerExecutionResult
+from aedt_agent.agent.mission import ErrorClass, JobError, JobStatus
 from aedt_agent.infrastructure import SQLiteMissionStore
 
 
@@ -455,3 +457,38 @@ def test_run_until_blocked_returns_when_running_graph_makes_no_progress(monkeypa
 
     assert result == report
     assert calls == 2
+
+
+def test_canceled_worker_job_fails_graph_instead_of_following_success_path(tmp_path):
+    class CancelingRegistry:
+        def execute(self, job, context, *, attempt_id=None, cancel_requested=None):
+            return WorkerExecutionResult(
+                job.job_id,
+                JobStatus.CANCELED,
+                {},
+                [],
+                JobError(ErrorClass.CANCELED, "mission canceled", False),
+            )
+
+    runtime = AgentRuntime(
+        SQLiteMissionStore(tmp_path / "mission.db"),
+        registry=CancelingRegistry(),
+    )
+    mission = runtime.create_mission("goal", [], [])
+    template = _template(
+        [
+            {
+                "id": "worker",
+                "role": "worker",
+                "kind": "worker",
+                "capability": "fake.cancel",
+            }
+        ],
+        [],
+    )
+
+    report = run_graph(runtime, mission.mission_id, template, initial_payload={})
+
+    assert report["status"] == "failed"
+    assert report["graph_run"]["error"]["code"] == "unhandled_node_outcome"
+    assert report["node_runs"][0]["edge_decision"] == "canceled"

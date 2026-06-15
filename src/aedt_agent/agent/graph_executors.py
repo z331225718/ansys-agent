@@ -140,12 +140,12 @@ def _execute_worker(context: GraphNodeExecutionContext) -> GraphNodeExecutionRes
             job.job_id,
         )
     result = runtime.execute_job(bound_job_id, context.worker_id)
-    if result.status == JobStatus.FAILED:
+    if result.status in {JobStatus.FAILED, JobStatus.CANCELED}:
         return GraphNodeExecutionResult(
             NodeRunStatus.FAILED,
-            "failed",
+            "canceled" if result.status == JobStatus.CANCELED else "failed",
             {},
-            [],
+            list(result.artifact_refs),
             error=None if result.error is None else result.error.to_json_dict(),
         )
     output = dict(result.output_payload)

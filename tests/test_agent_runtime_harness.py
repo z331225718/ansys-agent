@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import threading
+import time
 from pathlib import Path
 
-from aedt_agent.agent.mission import ErrorClass, JobStatus
+from aedt_agent.agent.mission import ErrorClass, JobStatus, MissionState
 from aedt_agent.agent.orchestrator import AgentRuntime
-from aedt_agent.agent.workers import InMemoryWorkerRegistry
+from aedt_agent.agent.workers import InMemoryWorkerRegistry, WorkerExecutionResult
 from aedt_agent.infrastructure import SQLiteMissionStore
 from aedt_agent.infrastructure.harness import (
     HarnessWorkspacePolicy,
@@ -76,3 +78,68 @@ def test_runtime_requeues_retryable_harness_timeout(tmp_path, monkeypatch):
     assert runtime.get_job(job.job_id).status == JobStatus.QUEUED
     assert attempt.retry_decision == "retry_available"
     assert attempt.metadata["termination_reason"] == "wall_timeout"
+
+
+def test_runtime_cancels_running_harness_when_mission_is_canceled(tmp_path, monkeypatch):
+    runtime, registry = _runtime(tmp_path, monkeypatch)
+    registry.register_process(
+        "fake.slow",
+        "tests.fixtures.process_workers:sleep_worker",
+        allowed_env=("PYTHONPATH",),
+    )
+    mission = runtime.create_mission("goal", [], [])
+    job = runtime.create_job(
+        mission.mission_id,
+        "fake.slow",
+        "slow:cancel",
+        {"sleep_seconds": 60},
+        timeout_seconds=10,
+        retry_limit=1,
+    )
+    result_holder = {}
+
+    thread = threading.Thread(
+        target=lambda: result_holder.setdefault(
+            "result",
+            runtime.execute_job(job.job_id, "worker-1"),
+        )
+    )
+    thread.start()
+    deadline = time.monotonic() + 3
+    while not list((tmp_path / "harness").rglob("heartbeat.json")):
+        if time.monotonic() >= deadline:
+            raise AssertionError("harness heartbeat did not appear")
+        time.sleep(0.05)
+    runtime.store.update_mission_state(mission.mission_id, MissionState.CANCELED)
+    thread.join(timeout=5)
+
+    assert not thread.is_alive()
+    result = result_holder["result"]
+    assert result.status == JobStatus.CANCELED
+    assert runtime.get_job(job.job_id).status == JobStatus.CANCELED
+    assert runtime.store.list_job_attempts(job.job_id)[0].status.value == "canceled"
+
+
+def test_runtime_cancellation_wins_when_worker_finishes_at_commit_boundary(tmp_path):
+    store = SQLiteMissionStore(tmp_path / "mission.db")
+
+    class CancelAtCommitRegistry:
+        def execute(self, job, context, *, attempt_id=None, cancel_requested=None):
+            store.update_mission_state(job.mission_id, MissionState.CANCELED)
+            return WorkerExecutionResult(
+                job.job_id,
+                JobStatus.SUCCEEDED,
+                {"value": 3},
+                [],
+                None,
+            )
+
+    runtime = AgentRuntime(store, registry=CancelAtCommitRegistry())
+    mission = runtime.create_mission("goal", [], [])
+    job = runtime.create_job(mission.mission_id, "fake.echo", "echo:cancel-race", {})
+
+    result = runtime.execute_job(job.job_id, "worker-1")
+
+    assert result.status == JobStatus.CANCELED
+    assert store.get_job(job.job_id).status == JobStatus.CANCELED
+    assert store.list_job_attempts(job.job_id)[0].status.value == "canceled"

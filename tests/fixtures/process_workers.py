@@ -75,3 +75,13 @@ def spawn_child_worker(job, context):
     Path(job.input_payload["pid_path"]).write_text(str(child.pid), encoding="utf-8")
     time.sleep(60)
     return {"child_pid": child.pid}
+
+
+def evidence_worker(job, context):
+    artifact = Path("artifacts/evidence.json")
+    artifact.write_text('{"passed": true}', encoding="utf-8")
+    return {
+        "status": "succeeded",
+        "evidence_summary": {"source": "process_harness", "passed": True},
+        "artifact_refs": [str(artifact.resolve())],
+    }

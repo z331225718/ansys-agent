@@ -16,6 +16,11 @@ def test_safe_recorded_profile_is_bounded_and_disables_real_aedt():
     assert profile.max_concurrent_license_jobs == 1
     assert profile.allow_real_aedt is False
     assert profile.execution_mode == "recorded"
+    assert profile.harness_root == "harness"
+    assert profile.heartbeat_interval_seconds == 5
+    assert profile.heartbeat_timeout_seconds == 30
+    assert profile.termination_grace_seconds == 2
+    assert "PYTHONPATH" in profile.allowed_env
 
 
 def test_execution_profile_round_trips_through_json_dict():
@@ -35,6 +40,9 @@ def test_execution_profile_round_trips_through_json_dict():
         ("max_wall_seconds", 0),
         ("max_concurrent_aedt", 0),
         ("max_concurrent_license_jobs", 0),
+        ("heartbeat_interval_seconds", 0),
+        ("heartbeat_timeout_seconds", 0),
+        ("termination_grace_seconds", 0),
         ("retry_backoff_seconds", [0, -1]),
     ],
 )
@@ -51,4 +59,22 @@ def test_execution_profile_rejects_unknown_fields():
     payload["surprise"] = True
 
     with pytest.raises(ExecutionProfileError, match="unknown profile fields"):
+        ExecutionProfile.from_json_dict(payload)
+
+
+def test_execution_profile_rejects_heartbeat_timeout_not_greater_than_interval():
+    payload = ExecutionProfile.safe_recorded().to_json_dict()
+    payload["heartbeat_interval_seconds"] = 10
+    payload["heartbeat_timeout_seconds"] = 10
+
+    with pytest.raises(ExecutionProfileError, match="heartbeat_timeout_seconds"):
+        ExecutionProfile.from_json_dict(payload)
+
+
+@pytest.mark.parametrize("name", ["BAD-NAME", "A=B", "", " has_space"])
+def test_execution_profile_rejects_invalid_allowed_env_names(name):
+    payload = ExecutionProfile.safe_recorded().to_json_dict()
+    payload["allowed_env"] = [name]
+
+    with pytest.raises(ExecutionProfileError, match="allowed_env"):
         ExecutionProfile.from_json_dict(payload)

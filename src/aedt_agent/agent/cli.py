@@ -336,8 +336,9 @@ def run(argv: Sequence[str] | None = None) -> int:
     if args.group == "mission" and args.mission_command == "advance":
         from aedt_agent.agent.orchestrator import MissionLoopController
 
-        runtime = _runtime_with_workers(args.db)
-        controller = MissionLoopController(runtime, profile=_load_execution_profile(args.profile))
+        profile = _load_execution_profile(args.profile)
+        runtime = _runtime_with_workers(args.db, profile)
+        controller = MissionLoopController(runtime, profile=profile)
         decision = controller.advance(args.mission_id, worker_id=args.worker_id)
         payload = controller.status(args.mission_id)
         payload["decision"] = decision.to_json_dict()
@@ -354,9 +355,10 @@ def run(argv: Sequence[str] | None = None) -> int:
     if args.group == "mission" and args.mission_command == "resume":
         from aedt_agent.agent.orchestrator import MissionLoopController
 
-        runtime = _runtime_with_workers(args.db)
+        profile = _load_execution_profile(args.profile)
+        runtime = _runtime_with_workers(args.db, profile)
         recovered = runtime.recover_expired_leases()
-        controller = MissionLoopController(runtime, profile=_load_execution_profile(args.profile))
+        controller = MissionLoopController(runtime, profile=profile)
         decision = controller.advance(args.mission_id, worker_id=args.worker_id)
         payload = controller.status(args.mission_id)
         payload["decision"] = decision.to_json_dict()
@@ -463,7 +465,7 @@ def run(argv: Sequence[str] | None = None) -> int:
     return 2
 
 
-def _runtime_with_workers(db_path: Path) -> AgentRuntime:
+def _runtime_with_workers(db_path: Path, profile=None) -> AgentRuntime:
     from aedt_agent.agent.workers import (
         BRD_CHANNEL_SCORE_CAPABILITY,
         BRD_LOCAL_CUT_BUILD_CAPABILITY,
@@ -473,9 +475,33 @@ def _runtime_with_workers(db_path: Path) -> AgentRuntime:
         run_brd_local_cut_worker,
         run_brd_recorded_void_action_worker,
     )
+    from aedt_agent.agent.policies import ExecutionProfile
+    from aedt_agent.infrastructure.harness import (
+        HarnessWorkspacePolicy,
+        LocalProcessHarness,
+        ResourceGate,
+    )
 
+    profile = profile or ExecutionProfile.safe_recorded()
     store = SQLiteMissionStore(db_path)
-    registry = InMemoryWorkerRegistry()
+    harness_root = Path(profile.harness_root)
+    if not harness_root.is_absolute():
+        harness_root = db_path.parent / harness_root
+    harness = LocalProcessHarness(
+        HarnessWorkspacePolicy(harness_root),
+        resource_gate=ResourceGate(
+            max_concurrent_cpu=4,
+            max_concurrent_aedt=profile.max_concurrent_aedt,
+            max_concurrent_license_jobs=profile.max_concurrent_license_jobs,
+        ),
+        heartbeat_timeout_seconds=profile.heartbeat_timeout_seconds,
+        termination_grace_seconds=profile.termination_grace_seconds,
+    )
+    registry = InMemoryWorkerRegistry(
+        harness=harness,
+        heartbeat_interval_seconds=profile.heartbeat_interval_seconds,
+        default_allowed_env=tuple(profile.allowed_env),
+    )
     registry.register(BRD_LOCAL_CUT_BUILD_CAPABILITY, run_brd_local_cut_worker)
     registry.register(BRD_CHANNEL_SCORE_CAPABILITY, run_brd_channel_score_worker)
     registry.register(
@@ -486,23 +512,7 @@ def _runtime_with_workers(db_path: Path) -> AgentRuntime:
 
 
 def _runtime_with_harness(db_path: Path) -> AgentRuntime:
-    from aedt_agent.agent.workers import InMemoryWorkerRegistry
-    from aedt_agent.infrastructure.harness import (
-        HarnessWorkspacePolicy,
-        LocalProcessHarness,
-        ResourceGate,
-    )
-
-    store = SQLiteMissionStore(db_path)
-    harness = LocalProcessHarness(
-        HarnessWorkspacePolicy(db_path.parent / "harness"),
-        resource_gate=ResourceGate(
-            max_concurrent_cpu=4,
-            max_concurrent_aedt=1,
-            max_concurrent_license_jobs=1,
-        ),
-    )
-    return AgentRuntime(store, registry=InMemoryWorkerRegistry(harness=harness))
+    return _runtime_with_workers(db_path)
 
 
 def _load_execution_profile(value: str):
