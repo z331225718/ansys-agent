@@ -51,6 +51,10 @@ def score_mission(runtime, mission_id: str, *, template_id: str = "") -> dict[st
         checks.extend(
             _model_review_checks(runtime, mission_id, jobs)
         )
+    elif template_id == "brd_channel_optimize":
+        checks.extend(
+            _agent_audit_checks(runtime, mission_id, jobs)
+        )
 
     status = "passed" if all(check["passed"] for check in checks) else "failed"
     return {
@@ -426,3 +430,41 @@ def _summary_port_count(build_job) -> int:
         signal_nets = summary.get("signal_nets", [])
         count = len(signal_nets) * 2
     return int(count)
+
+
+def _agent_audit_checks(
+    runtime,
+    mission_id: str,
+    jobs,
+) -> list[dict[str, Any]]:
+    """Audit agent node outputs for LLM model, token estimates, and planning source."""
+    agent_jobs = [
+        job for job in jobs
+        if job.capability and "agent" not in job.capability
+        and job.status == JobStatus.SUCCEEDED
+    ]
+    # Agent nodes leave evidence in output_payload
+    agent_outputs = [
+        job.output_payload for job in jobs
+        if job.output_payload.get("planning_source") == "llm"
+        or job.output_payload.get("proposal_source") == "llm"
+    ]
+
+    return [
+        _check(
+            "agent_llm_powered",
+            bool(agent_outputs),
+            {"agent_output_count": len(agent_outputs)},
+        ),
+        _check(
+            "agent_model_recorded",
+            all("llm_model" in out for out in agent_outputs) if agent_outputs else True,
+            {"models": [out.get("llm_model") for out in agent_outputs]},
+        ),
+        _check(
+            "agent_decision_rule_auditable",
+            all("decision_rule" in out.get("evidence_summary", {}) for out in agent_outputs)
+            if agent_outputs else True,
+            {"rules": [out.get("evidence_summary", {}).get("decision_rule") for out in agent_outputs]},
+        ),
+    ]
