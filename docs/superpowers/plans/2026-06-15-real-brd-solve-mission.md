@@ -962,7 +962,7 @@ git commit -m "feat: expose real brd solve process worker"
 - Create: `tests/test_agent_artifact_query.py`
 - Create: `tests/test_agent_artifact_query_service.py`
 
-- [ ] **Step 1：写 S 参数/TDR bounded query 失败测试**
+- [x] **Step 1：写 S 参数/TDR bounded query 失败测试**
 
 ```python
 def test_query_sparameter_artifact_limits_points_and_returns_digest(tmp_path):
@@ -1002,13 +1002,13 @@ def test_query_tdr_artifact_preserves_peak_and_limits_points(tmp_path):
 
 另覆盖 `max_points > 128`、空窗口、缺失 artifact、无效 CSV。
 
-- [ ] **Step 2：确认红灯**
+- [x] **Step 2：确认红灯**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q tests/test_agent_artifact_query.py
 ```
 
-- [ ] **Step 3：实现纯函数 query**
+- [x] **Step 3：实现纯函数 query**
 
 S 参数复用 `parse_touchstone()` 和 `query_sparameter_window()`，补 artifact digest。
 
@@ -1058,7 +1058,7 @@ def query_tdr_artifact(
 
 点选择保留首尾、全局高/低、最大偏差，并对剩余窗口等宽分桶取高/低值。
 
-- [ ] **Step 4：写 Query Service 失败测试**
+- [x] **Step 4：写 Query Service 失败测试**
 
 ```python
 def test_query_service_rejects_unregistered_artifact(tmp_path):
@@ -1093,7 +1093,7 @@ def test_query_service_records_bounded_query_event(tmp_path):
     assert "points" not in event.payload
 ```
 
-- [ ] **Step 5：实现 Query Service 和 Event**
+- [x] **Step 5：实现 Query Service 和 Event**
 
 `EventType` 增加：
 
@@ -1121,7 +1121,7 @@ def append_event(
         )
 ```
 
-- [ ] **Step 6：测试并提交**
+- [x] **Step 6：测试并提交**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q tests/test_agent_artifact_query.py tests/test_agent_artifact_query_service.py tests/test_agent_spectral_evidence.py

@@ -1525,6 +1525,20 @@ class SQLiteMissionStore:
             rows = db.execute("SELECT * FROM events WHERE mission_id = ? ORDER BY sequence", (mission_id,)).fetchall()
         return [_event_from_row(row) for row in rows]
 
+    def append_event(
+        self,
+        mission_id: str,
+        event_type: EventType,
+        payload: dict,
+    ) -> EventRecord:
+        with self._connect() as db:
+            return self._append_event_in_tx(
+                db,
+                mission_id,
+                event_type,
+                payload,
+            )
+
     def _append_event_in_tx(self, db: sqlite3.Connection, mission_id: str, event_type: EventType, payload: dict) -> EventRecord:
         row = db.execute("SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence FROM events WHERE mission_id = ?", (mission_id,)).fetchone()
         sequence = int(row["next_sequence"])

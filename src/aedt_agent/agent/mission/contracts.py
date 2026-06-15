@@ -53,6 +53,7 @@ class EventType(StrEnum):
     GRAPH_HANDOFF_CONSUMED = "graph_handoff_consumed"
     GRAPH_NODE_JOB_BOUND = "graph_node_job_bound"
     ARTIFACT_MANIFEST_CREATED = "artifact_manifest_created"
+    ARTIFACT_QUERY_COMPLETED = "artifact_query_completed"
     EVIDENCE_PACKAGE_CREATED = "evidence_package_created"
     JOB_ATTEMPT_CREATED = "job_attempt_created"
     JOB_ATTEMPT_UPDATED = "job_attempt_updated"
