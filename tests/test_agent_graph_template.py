@@ -106,6 +106,21 @@ def test_builtin_graph_templates_use_explicit_stable_edges(template_id, expected
     assert all(node.max_runs == 1 for node in template.nodes)
 
 
+def test_all_yaml_templates_load_without_error():
+    import os
+    from pathlib import Path
+
+    templates_dir = (
+        Path(__file__).resolve().parents[1] / "docs" / "agent_templates"
+    )
+    yaml_files = sorted(templates_dir.glob("*.yaml"))
+    assert yaml_files, "no YAML templates found"
+
+    for path in yaml_files:
+        template = load_graph_template(path)
+        assert template.template_id, f"empty template_id in {path.name}"
+
+
 def test_graph_template_rejects_edges_to_unknown_nodes(tmp_path):
     path = tmp_path / "bad.yaml"
     path.write_text(

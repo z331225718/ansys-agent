@@ -1,6 +1,6 @@
 id: brd_iterative_optimize
 version: 1
-description: Iterative BRD optimization loop: propose action → approve → execute → compare → repeat.
+description: "Iterative BRD optimization loop: propose → approve → execute → compare → repeat"
 max_rounds: 5
 nodes:
   - id: planner

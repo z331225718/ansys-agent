@@ -332,6 +332,10 @@ def _validate_nodes(
             raise GraphTemplateError(
                 f"graph node cannot have both fan_out and expand: {node.node_id}"
             )
+        if node.fan_out and node.on_failure in {"skip", "retry", "fallback"}:
+            raise GraphTemplateError(
+                f"graph node fan_out is incompatible with on_failure={node.on_failure}: {node.node_id}"
+            )
         for schema_id in (node.input_schema, node.output_schema):
             if schema_id and schema_id not in handoffs:
                 raise GraphTemplateError(

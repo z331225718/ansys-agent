@@ -883,6 +883,15 @@ def test_conditional_edge_and_combination(tmp_path):
     assert "rejected" not in node_ids
 
 
+def test_edge_condition_unknown_operator_is_fail_closed(tmp_path):
+    """Unknown condition operators should fail-closed (return False), not pass through."""
+    from aedt_agent.agent.graph_runner import _evaluate_edge_condition
+
+    assert _evaluate_edge_condition("score ~= 0.8", {"score": 1.0}) is False
+    assert _evaluate_edge_condition("garbage", {"score": 1.0}) is False
+    assert _evaluate_edge_condition("score > 0.5", {"score": 1.0}) is True  # known ops still work
+
+
 # ---------------------------------------------------------------------------
 # dynamic node expand tests
 # ---------------------------------------------------------------------------

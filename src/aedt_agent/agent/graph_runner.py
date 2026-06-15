@@ -489,7 +489,7 @@ def _evaluate_edge_condition(condition: str, payload: dict[str, Any]) -> bool:
     # Handle comparison operators
     match = re.match(r'(\w[\w.]*)\s*(>=|<=|!=|==|>|<)\s*(.+)', condition)
     if not match:
-        return True  # unknown conditions pass through
+        return False  # unknown conditions fail-closed
 
     field_path = match.group(1)
     op = match.group(2)
@@ -1235,7 +1235,12 @@ def _print_visualization(runtime, graph_run_id: str, report: dict[str, Any]) -> 
         f"Step {report.get('graph_run', {}).get('step_count', '?')}  "
         f"({report['status']})"
     )
-    sys.stdout.write("\033[2J\033[H")
+    # Platform-aware clear screen
+    import os as _os
+    if _os.name == "nt":
+        _os.system("cls")
+    else:
+        sys.stdout.write("\033[2J\033[H")
     sys.stdout.write(render_graph_live(snapshot, node_runs, handoffs, title=title))
     sys.stdout.write("\n")
     sys.stdout.flush()
