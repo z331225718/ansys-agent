@@ -8,6 +8,12 @@ from aedt_agent.infrastructure.harness.contracts import (
     HarnessResult,
     HarnessStatus,
 )
+from aedt_agent.infrastructure.harness.workspace import (
+    HarnessWorkspace,
+    HarnessWorkspaceError,
+    HarnessWorkspacePolicy,
+    build_child_environment,
+)
 
 __all__ = [
     "HARNESS_PROTOCOL_VERSION",
@@ -16,4 +22,8 @@ __all__ = [
     "HarnessRequest",
     "HarnessResult",
     "HarnessStatus",
+    "HarnessWorkspace",
+    "HarnessWorkspaceError",
+    "HarnessWorkspacePolicy",
+    "build_child_environment",
 ]
