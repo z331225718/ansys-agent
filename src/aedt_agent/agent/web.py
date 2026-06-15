@@ -123,7 +123,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
             <div class="field"><label>Artifact Dir</label><input id="newArtifactDir" placeholder="auto"></div>
           </div>
           <div style="display:flex;gap:8px">
-            <button onclick="createMission()">Create & Run</button>
+            <button onclick="createMission()">Create Mission</button>
             <button class="secondary" onclick="document.getElementById('createPanel').style.display='none'">Cancel</button>
           </div>
         </div>
@@ -202,7 +202,11 @@ async function refreshGraph(){
 }
 
 async function stepGraph(){
-  if(!activeGraphRun)return;
+  if(!activeGraphRun){
+    // First step: create graph run
+    const data=await api('/api/missions/'+activeMission+'/create-graph-run',{method:'POST',body:JSON.stringify({template_id:document.getElementById('newTemplate').value||'brd_local_cut_build'})});
+    activeGraphRun=data.graph_run_id;
+  }
   const data=await api('/api/graph-runs/'+activeGraphRun+'/advance',{method:'POST'});
   await refreshGraph();
 }
@@ -286,19 +290,20 @@ def dispatch_agent_request(
             return _json({"missions": missions})
 
         if method == "POST" and route == "/api/missions":
+            from aedt_agent.agent.graph_runner import create_graph_run
+
             req = _json_body(body)
             goal = str(req.get("goal", "Untitled"))
             template_id = str(req.get("template_id", "brd_local_cut_build"))
             mission = runtime.create_mission(goal, [], [])
 
-            # Run graph with template
             try:
                 template = load_graph_template(resolve_template_path(template_id))
             except FileNotFoundError:
                 template = load_graph_template(resolve_template_path("brd_local_cut_build"))
 
             signal_nets = req.get("signal_nets", [])
-            report = run_graph(
+            graph_run = create_graph_run(
                 runtime,
                 mission.mission_id,
                 template,
@@ -312,7 +317,11 @@ def dispatch_agent_request(
                     "adapter_mode": "deterministic",
                 },
             )
-            return _json({"mission_id": mission.mission_id, "status": report["status"]}, status=201)
+            return _json({
+                "mission_id": mission.mission_id,
+                "graph_run_id": graph_run.graph_run_id,
+                "status": graph_run.status.value,
+            }, status=201)
 
         if method == "GET" and route.startswith("/api/missions/"):
             mission_id = route.rsplit("/", 1)[-1]
@@ -336,6 +345,19 @@ def dispatch_agent_request(
             return _json({"approvals": [a.to_json_dict() for a in approvals]})
 
         # --- Graph runs ---
+        if method == "POST" and route.endswith("/create-graph-run"):
+            from aedt_agent.agent.graph_runner import create_graph_run
+
+            mission_id = route.rsplit("/", 2)[0].rsplit("/", 1)[-1]
+            req = _json_body(body)
+            template_id = str(req.get("template_id", "brd_local_cut_build"))
+            try:
+                template = load_graph_template(resolve_template_path(template_id))
+            except FileNotFoundError:
+                template = load_graph_template(resolve_template_path("brd_local_cut_build"))
+            graph_run = create_graph_run(runtime, mission_id, template)
+            return _json({"graph_run_id": graph_run.graph_run_id, "status": graph_run.status.value}, status=201)
+
         if method == "GET" and "/mermaid" in route:
             graph_run_id = route.rsplit("/", 2)[0].rsplit("/", 1)[-1]
             status = graph_status(runtime, graph_run_id)
