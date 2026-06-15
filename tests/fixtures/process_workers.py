@@ -18,6 +18,25 @@ def artifact_worker(job, context):
     return {"value": 1, "artifact_refs": [str(artifact)]}
 
 
+def workspace_worker(job, context):
+    artifact = Path(context.artifacts_dir) / "workspace.json"
+    artifact.write_text(
+        json.dumps(
+            {
+                "workspace": context.workspace,
+                "artifacts_dir": context.artifacts_dir,
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    return {
+        "workspace": context.workspace,
+        "artifacts_dir": context.artifacts_dir,
+        "artifact_refs": [str(artifact)],
+    }
+
+
 def logging_worker(job, context):
     print("worker stdout", flush=True)
     print("worker stderr", file=sys.stderr, flush=True)

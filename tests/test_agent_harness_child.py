@@ -24,6 +24,7 @@ def _request(tmp_path: Path, entrypoint: str, input_payload: dict | None = None)
 
 
 def _write_request(tmp_path: Path, request: HarnessRequest) -> Path:
+    (tmp_path / "artifacts").mkdir(exist_ok=True)
     request_path = tmp_path / "request.json"
     request_path.write_text(
         json.dumps(request.to_json_dict(), ensure_ascii=False),
@@ -64,6 +65,24 @@ def test_child_main_normalizes_worker_artifact_refs(tmp_path):
     result = _read_result(tmp_path)
     assert result.output_payload == {"value": 1}
     assert result.artifact_refs == [str(artifact)]
+
+
+def test_child_main_injects_verified_workspace_into_worker_context(tmp_path):
+    request = _request(
+        tmp_path,
+        "tests.fixtures.process_workers:workspace_worker",
+    )
+
+    child_main.run(_write_request(tmp_path, request))
+
+    result = _read_result(tmp_path)
+    assert result.output_payload["workspace"] == str(tmp_path.resolve())
+    assert result.output_payload["artifacts_dir"] == str(
+        (tmp_path / "artifacts").resolve()
+    )
+    assert result.artifact_refs == [
+        str((tmp_path / "artifacts/workspace.json").resolve())
+    ]
 
 
 def test_child_main_writes_structured_failure_for_worker_exception(tmp_path):

@@ -43,6 +43,21 @@ def test_worker_registry_executes_registered_worker():
     assert result.error is None
 
 
+def test_in_process_worker_context_has_no_workspace():
+    seen = {}
+
+    def worker(job, context):
+        seen["workspace"] = context.workspace
+        seen["artifacts_dir"] = context.artifacts_dir
+        return {}
+
+    registry = InMemoryWorkerRegistry()
+    registry.register("fake.echo", worker)
+    registry.execute(_job(), WorkerContext("worker-1"))
+
+    assert seen == {"workspace": None, "artifacts_dir": None}
+
+
 def test_worker_registry_rejects_unknown_capability():
     registry = InMemoryWorkerRegistry()
 

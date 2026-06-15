@@ -54,7 +54,19 @@ def run(request_path: Path | str) -> int:
             request.timeout_seconds,
             0,
         )
-        output = worker(job, WorkerContext(request.worker_id))
+        artifacts_dir = (workspace / "artifacts").resolve()
+        if not artifacts_dir.is_dir():
+            raise HarnessProtocolError(
+                f"harness artifacts directory does not exist: {artifacts_dir}"
+            )
+        output = worker(
+            job,
+            WorkerContext(
+                request.worker_id,
+                workspace=str(workspace),
+                artifacts_dir=str(artifacts_dir),
+            ),
+        )
         if not isinstance(output, dict):
             raise TypeError("worker entrypoint must return a dict")
         normalized = dict(output)

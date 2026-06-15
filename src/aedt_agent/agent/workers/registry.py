@@ -25,6 +25,8 @@ WorkerFn = Callable[[JobRecord, "WorkerContext"], dict[str, Any]]
 @dataclass(frozen=True)
 class WorkerContext:
     worker_id: str
+    workspace: str | None = None
+    artifacts_dir: str | None = None
 
 
 @dataclass(frozen=True)
