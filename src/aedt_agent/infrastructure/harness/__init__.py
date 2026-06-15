@@ -14,6 +14,11 @@ from aedt_agent.infrastructure.harness.workspace import (
     HarnessWorkspacePolicy,
     build_child_environment,
 )
+from aedt_agent.infrastructure.harness.resources import (
+    ResourceAcquireTimeout,
+    ResourceGate,
+    ResourceLease,
+)
 
 __all__ = [
     "HARNESS_PROTOCOL_VERSION",
@@ -25,5 +30,8 @@ __all__ = [
     "HarnessWorkspace",
     "HarnessWorkspaceError",
     "HarnessWorkspacePolicy",
+    "ResourceAcquireTimeout",
+    "ResourceGate",
+    "ResourceLease",
     "build_child_environment",
 ]
