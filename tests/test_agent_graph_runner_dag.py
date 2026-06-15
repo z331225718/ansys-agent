@@ -1011,3 +1011,180 @@ def test_brd_multi_channel_demo_template_loads_and_runs_scenario(tmp_path):
     # At minimum the planner and build_worker should have run
     assert "planner" in node_ids
     assert "build_worker" in node_ids
+
+
+# ---------------------------------------------------------------------------
+# planner: BRD local-cut request generation
+# ---------------------------------------------------------------------------
+
+
+def test_planner_generates_brd_local_cut_request_from_minimal_input(tmp_path):
+    runtime = _runtime(tmp_path, {})
+    mission = runtime.create_mission("goal", [], [])
+    template = _template(
+        [
+            {"id": "planner", "role": "planner", "kind": "llm", "output_schema": "brd_local_cut_request"},
+        ],
+        [],
+        handoffs={"brd_local_cut_request": {"required_fields": [
+            "layout_file", "signal_nets", "reference_nets", "local_cut_region",
+        ]}},
+    )
+
+    report = run_graph(runtime, mission.mission_id, template, initial_payload={
+        "layout_file": str(tmp_path / "board.brd"),
+        "signal_nets": ["CLK0"],
+        "local_cut_region": {"x1": 0, "y1": 0, "x2": 10, "y2": 10},
+    })
+
+    assert report["status"] == "succeeded"
+    planner_output = report["node_runs"][0]["output_payload"]
+    assert planner_output["reference_nets"] == ["GND"]
+    assert planner_output["adapter_mode"] == "real_build"
+    assert "artifact_dir" in planner_output
+    assert "plan_summary" in planner_output
+    assert "CLK0" in planner_output["plan_summary"]
+
+
+def test_planner_preserves_user_overrides(tmp_path):
+    runtime = _runtime(tmp_path, {})
+    mission = runtime.create_mission("goal", [], [])
+    template = _template(
+        [
+            {"id": "planner", "role": "planner", "kind": "llm", "output_schema": "brd_local_cut_request"},
+        ],
+        [],
+        handoffs={"brd_local_cut_request": {"required_fields": [
+            "layout_file", "signal_nets", "reference_nets", "local_cut_region",
+        ]}},
+    )
+
+    report = run_graph(runtime, mission.mission_id, template, initial_payload={
+        "layout_file": str(tmp_path / "board.brd"),
+        "signal_nets": ["NET1", "NET2"],
+        "reference_nets": ["AGND"],
+        "local_cut_region": {"x1": 5, "y1": 5, "x2": 15, "y2": 15},
+        "adapter_mode": "deterministic",
+        "artifact_dir": str(tmp_path / "custom"),
+    })
+
+    planner_output = report["node_runs"][0]["output_payload"]
+    assert planner_output["signal_nets"] == ["NET1", "NET2"]
+    assert planner_output["reference_nets"] == ["AGND"]
+    assert planner_output["adapter_mode"] == "deterministic"
+    assert planner_output["artifact_dir"] == str(tmp_path / "custom")
+
+
+def test_planner_adds_artifact_dir_when_missing(tmp_path):
+    runtime = _runtime(tmp_path, {})
+    mission = runtime.create_mission("goal", [], [])
+    template = _template(
+        [
+            {"id": "planner", "role": "planner", "kind": "llm", "output_schema": "brd_local_cut_request"},
+        ],
+        [],
+        handoffs={"brd_local_cut_request": {"required_fields": [
+            "layout_file", "signal_nets", "reference_nets", "local_cut_region",
+        ]}},
+    )
+
+    report = run_graph(runtime, mission.mission_id, template, initial_payload={
+        "layout_file": str(tmp_path / "board.brd"),
+        "signal_nets": ["CLK0"],
+        "local_cut_region": {"x1": 0, "y1": 0, "x2": 10, "y2": 10},
+    })
+
+    planner_output = report["node_runs"][0]["output_payload"]
+    assert "artifact_dir" in planner_output
+    assert planner_output["artifact_dir"] != ""
+
+
+# ---------------------------------------------------------------------------
+# validator: BRD request semantic validation
+# ---------------------------------------------------------------------------
+
+
+def test_validator_accepts_valid_brd_request(tmp_path):
+    runtime = _runtime(tmp_path, {})
+    mission = runtime.create_mission("goal", [], [])
+    layout = tmp_path / "board.brd"
+    layout.write_text("fake")
+    template = _template(
+        [
+            {"id": "planner", "role": "planner", "kind": "llm", "output_schema": "brd_local_cut_request"},
+            {"id": "validator", "role": "validator", "kind": "program",
+             "input_schema": "brd_local_cut_request", "output_schema": "validated_brd_local_cut_request"},
+        ],
+        [{"id": "p-v", "from": "planner", "to": "validator", "on": "succeeded"}],
+        handoffs={
+            "brd_local_cut_request": {"required_fields": ["layout_file", "signal_nets", "reference_nets", "local_cut_region"]},
+            "validated_brd_local_cut_request": {"required_fields": ["layout_file", "signal_nets", "reference_nets", "local_cut_region"]},
+        },
+    )
+
+    report = run_graph(runtime, mission.mission_id, template, initial_payload={
+        "layout_file": str(layout),
+        "signal_nets": ["CLK0", "CLK1"],
+        "reference_nets": ["GND"],
+        "local_cut_region": {"x1": 0, "y1": 0, "x2": 10, "y2": 10},
+        "uniform_line_port_hint": {"count": 2},
+    })
+
+    assert report["status"] == "succeeded"
+    assert report["node_runs"][1]["edge_decision"] == "succeeded"
+
+
+def test_validator_flags_missing_layout_file(tmp_path):
+    runtime = _runtime(tmp_path, {})
+    mission = runtime.create_mission("goal", [], [])
+    template = _template(
+        [
+            {"id": "planner", "role": "planner", "kind": "llm", "output_schema": "brd_local_cut_request"},
+            {"id": "validator", "role": "validator", "kind": "program",
+             "input_schema": "brd_local_cut_request", "output_schema": "validated_brd_local_cut_request"},
+        ],
+        [{"id": "p-v", "from": "planner", "to": "validator", "on": "succeeded"}],
+        handoffs={
+            "brd_local_cut_request": {"required_fields": ["layout_file", "signal_nets", "reference_nets", "local_cut_region"]},
+            "validated_brd_local_cut_request": {"required_fields": ["layout_file", "signal_nets", "reference_nets", "local_cut_region"]},
+        },
+    )
+
+    report = run_graph(runtime, mission.mission_id, template, initial_payload={
+        "layout_file": str(tmp_path / "nonexistent.brd"),
+        "signal_nets": ["CLK0"],
+        "reference_nets": ["GND"],
+        "local_cut_region": {"x1": 0, "y1": 0, "x2": 10, "y2": 10},
+    })
+
+    assert report["status"] == "succeeded"
+    # Validator emits approval_required due to missing file
+    assert report["node_runs"][1]["edge_decision"] == "approval_required"
+
+
+def test_validator_flags_empty_signal_nets(tmp_path):
+    runtime = _runtime(tmp_path, {})
+    mission = runtime.create_mission("goal", [], [])
+    layout = tmp_path / "board.brd"
+    layout.write_text("fake")
+    template = _template(
+        [
+            {"id": "planner", "role": "planner", "kind": "llm", "output_schema": "brd_local_cut_request"},
+            {"id": "validator", "role": "validator", "kind": "program",
+             "input_schema": "brd_local_cut_request", "output_schema": "validated_brd_local_cut_request"},
+        ],
+        [{"id": "p-v", "from": "planner", "to": "validator", "on": "succeeded"}],
+        handoffs={
+            "brd_local_cut_request": {"required_fields": ["layout_file", "signal_nets", "reference_nets", "local_cut_region"]},
+            "validated_brd_local_cut_request": {"required_fields": ["layout_file", "signal_nets", "reference_nets", "local_cut_region"]},
+        },
+    )
+
+    report = run_graph(runtime, mission.mission_id, template, initial_payload={
+        "layout_file": str(layout),
+        "signal_nets": [],
+        "reference_nets": ["GND"],
+        "local_cut_region": {"x1": 0, "y1": 0, "x2": 10, "y2": 10},
+    })
+
+    assert report["node_runs"][1]["edge_decision"] == "approval_required"

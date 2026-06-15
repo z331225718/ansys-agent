@@ -24,6 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--goal", required=True)
     create.add_argument("--criterion", action="append", default=[])
     create.add_argument("--brd-local-cut", action="store_true")
+    create.add_argument("--brd-local-cut-model-review", action="store_true")
     create.add_argument("--brd-channel-score", action="store_true")
     create.add_argument("--brd-real-solve", action="store_true")
     create.add_argument("--brd-recorded-void-action", action="store_true")
@@ -214,6 +215,26 @@ def run(argv: Sequence[str] | None = None) -> int:
                     },
                 ),
             )
+        if args.brd_local_cut_model_review:
+            from aedt_agent.agent.graph_runner import run_graph
+            from aedt_agent.agent.graph_template import load_graph_template
+
+            artifact_dir = Path(args.artifact_dir) if args.artifact_dir else args.db.parent / mission.mission_id
+            template = load_graph_template("brd_local_cut_build")
+            report = run_graph(
+                runtime, mission.mission_id, template,
+                initial_payload={
+                    "layout_file": str(args.layout_file),
+                    "signal_nets": list(args.signal_net),
+                    "reference_nets": list(args.reference_net) or ["GND"],
+                    "local_cut_region": _parse_bbox(args.bbox),
+                    "artifact_dir": str(artifact_dir),
+                    "target_metrics": criteria,
+                    "adapter_mode": args.adapter_mode,
+                },
+            )
+            _print_json(report)
+            return 0 if report["status"] == "succeeded" else 1
         if args.brd_channel_score:
             from aedt_agent.agent.workers import BRD_CHANNEL_SCORE_CAPABILITY, build_brd_channel_score_job_input
 

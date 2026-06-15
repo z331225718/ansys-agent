@@ -1,5 +1,5 @@
 id: brd_local_cut_build
-version: 1
+version: 2
 description: Build a BRD local-cut model, stop at model review, and audit artifacts before solve.
 nodes:
   - id: planner
@@ -20,6 +20,7 @@ nodes:
     input_schema: validated_brd_local_cut_request
     output_schema: brd_local_cut_build_result
     max_runs: 1
+    on_failure: fail
   - id: model_review_scorecard
     role: scorecard
     kind: program
@@ -44,8 +45,8 @@ edges:
     to: real_build_worker
     on: succeeded
     max_traversals: 1
-  - id: build-to-approval
-    from: real_build_worker
+  - id: validator-to-approval
+    from: input_validator
     to: approval_gate
     on: approval_required
     max_traversals: 1
@@ -54,10 +55,20 @@ edges:
     to: model_review_scorecard
     on: succeeded
     max_traversals: 1
+  - id: build-to-approval
+    from: real_build_worker
+    to: approval_gate
+    on: approval_required
+    max_traversals: 1
   - id: scorecard-to-approval
     from: model_review_scorecard
     to: approval_gate
     on: passed
+    max_traversals: 1
+  - id: scorecard-failed-to-approval
+    from: model_review_scorecard
+    to: approval_gate
+    on: failed
     max_traversals: 1
 handoffs:
   brd_local_cut_request:

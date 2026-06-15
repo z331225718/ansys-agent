@@ -64,9 +64,11 @@ def test_real_solve_graph_template_has_approval_before_solve():
             [
                 "planner-to-validator",
                 "validator-to-build",
-                "build-to-approval",
+                "validator-to-approval",
                 "build-to-scorecard",
+                "build-to-approval",
                 "scorecard-to-approval",
+                "scorecard-failed-to-approval",
             ],
         ),
         (

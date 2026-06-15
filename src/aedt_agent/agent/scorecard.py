@@ -47,6 +47,10 @@ def score_mission(runtime, mission_id: str, *, template_id: str = "") -> dict[st
         checks.extend(
             _real_solve_checks(runtime, mission_id, jobs)
         )
+    elif template_id == "brd_local_cut_build":
+        checks.extend(
+            _model_review_checks(runtime, mission_id, jobs)
+        )
 
     status = "passed" if all(check["passed"] for check in checks) else "failed"
     return {
@@ -306,3 +310,117 @@ def _sha256(path: Path) -> str:
         ):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _model_review_checks(
+    runtime,
+    mission_id: str,
+    jobs,
+) -> list[dict[str, Any]]:
+    """Model-review checks for BRD local-cut build missions."""
+    build_jobs = [
+        job for job in jobs
+        if job.capability == "brd.local_cut.build"
+        and job.status == JobStatus.SUCCEEDED
+    ]
+    build_job = build_jobs[-1] if build_jobs else None
+
+    return [
+        _check(
+            "build_job_succeeded",
+            build_job is not None,
+            {"build_job_count": len(build_jobs)},
+        ),
+        _check(
+            "build_has_artifacts",
+            bool(build_job and build_job.artifact_refs),
+            {"artifact_count": len(build_job.artifact_refs) if build_job else 0},
+        ),
+        _check(
+            "build_summary_written",
+            _has_build_summary_file(build_job),
+            {"summary_path": _build_summary_path(build_job)},
+        ),
+        _check(
+            "workflow_run_written",
+            _has_workflow_run_file(build_job),
+            {"workflow_path": _workflow_run_path(build_job)},
+        ),
+        _check(
+            "project_path_registered",
+            _has_project_path(build_job),
+            {"project_path": _project_path(build_job)},
+        ),
+        _check(
+            "port_count_valid",
+            _port_count_in_summary(build_job),
+            {"port_count": _summary_port_count(build_job)},
+        ),
+    ]
+
+
+def _has_build_summary_file(build_job) -> bool:
+    if build_job is None:
+        return False
+    path = Path(str(build_job.output_payload.get("summary_path") or ""))
+    return path.is_file()
+
+
+def _build_summary_path(build_job) -> str:
+    if build_job is None:
+        return ""
+    return str(build_job.output_payload.get("summary_path", ""))
+
+
+def _has_workflow_run_file(build_job) -> bool:
+    if build_job is None:
+        return False
+    path = Path(str(build_job.output_payload.get("workflow_run_path") or ""))
+    return path.is_file()
+
+
+def _workflow_run_path(build_job) -> str:
+    if build_job is None:
+        return ""
+    return str(build_job.output_payload.get("workflow_run_path", ""))
+
+
+def _has_project_path(build_job) -> bool:
+    if build_job is None:
+        return False
+    payload = build_job.output_payload
+    summary = payload.get("evidence_summary") or payload
+    # Real build: project_path, deterministic: aedt_project
+    pp = summary.get("project_path") or summary.get("aedt_project", "")
+    return bool(pp)
+
+
+def _project_path(build_job) -> str:
+    if build_job is None:
+        return ""
+    payload = build_job.output_payload
+    summary = payload.get("evidence_summary") or payload
+    return str(summary.get("project_path") or summary.get("aedt_project", ""))
+
+
+def _port_count_in_summary(build_job) -> bool:
+    if build_job is None:
+        return False
+    summary = build_job.output_payload.get("evidence_summary") or build_job.output_payload
+    # port_count may be explicit or derived from signal_nets
+    count = summary.get("port_count")
+    if count is None:
+        signal_nets = summary.get("signal_nets", [])
+        count = len(signal_nets) * 2  # differential pairs = 2 ports per net
+    return isinstance(count, (int, float)) and count >= 2
+
+
+def _summary_port_count(build_job) -> int:
+    if build_job is None:
+        return 0
+    summary = build_job.output_payload.get("evidence_summary") or build_job.output_payload
+    count = summary.get("port_count")
+    if count is None:
+        signal_nets = summary.get("signal_nets", [])
+        count = len(signal_nets) * 2
+    return int(count)

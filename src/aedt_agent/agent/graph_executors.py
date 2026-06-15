@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
 
@@ -97,13 +98,107 @@ def execute_graph_node(
 def _execute_planner(context: GraphNodeExecutionContext) -> GraphNodeExecutionResult:
     output = dict(context.input_payload)
     output["planning_source"] = "graph_initial_payload"
+
+    # BRD local-cut request planning: fill defaults and add plan summary
+    if context.node.output_schema == "brd_local_cut_request":
+        _plan_brd_local_cut_request(output)
+
     return GraphNodeExecutionResult(NodeRunStatus.SUCCEEDED, "succeeded", output, [])
+
+
+def _plan_brd_local_cut_request(payload: dict[str, Any]) -> None:
+    """Fill in defaults and add plan summary for a BRD local-cut build request."""
+    payload.setdefault("reference_nets", ["GND"])
+    payload.setdefault("adapter_mode", "real_build")
+    payload.setdefault("target_metrics", [])
+    payload.setdefault("uniform_line_port_hint", {"count": 2, "style": "uniform_line"})
+    # Override empty port hints
+    if not payload.get("uniform_line_port_hint"):
+        payload["uniform_line_port_hint"] = {"count": 2, "style": "uniform_line"}
+    payload.setdefault("port_candidates", {"status": "unresolved", "recommended_endpoints": []})
+    if not payload.get("port_candidates"):
+        payload["port_candidates"] = {"status": "unresolved", "recommended_endpoints": []}
+    payload.setdefault("solve_enabled", False)
+
+    # Derive artifact_dir if not present
+    if "artifact_dir" not in payload:
+        mission_id = payload.get("mission_id", "")
+        layout = payload.get("layout_file", "unknown")
+        import os
+        base = os.path.dirname(str(layout)) if layout else "."
+        payload["artifact_dir"] = str(Path(base) / f"brd_build_{mission_id[:8] if mission_id else 'adhoc'}")
+
+    # Build plan summary
+    signal_nets = payload.get("signal_nets", [])
+    region = payload.get("local_cut_region", {})
+    payload["plan_summary"] = (
+        f"BRD local-cut build: {', '.join(signal_nets) if signal_nets else 'no nets'} "
+        f"in region {region.get('x1', '?')},{region.get('y1', '?')}-{region.get('x2', '?')},{region.get('y2', '?')}"
+        f" (mode={payload['adapter_mode']})"
+    )
 
 
 def _execute_validator(context: GraphNodeExecutionContext) -> GraphNodeExecutionResult:
     _validate_input(context)
     output = dict(context.input_payload)
+
+    # BRD local-cut request validation: semantic checks + approval signal
+    if context.node.input_schema == "brd_local_cut_request":
+        outcome, warnings = _validate_brd_local_cut_request(output)
+        output.setdefault("validation_warnings", []).extend(warnings)
+        if outcome == "approval_required":
+            output["approval_required"] = True
+            output["approval_reason"] = "; ".join(warnings)
+            output["approval_options"] = [
+                {"id": "approve", "label": "Proceed with auto-detected ports"},
+                {"id": "reject", "label": "Specify ports manually"},
+            ]
+            return GraphNodeExecutionResult(
+                NodeRunStatus.SUCCEEDED, "approval_required", output, [],
+            )
+
     return GraphNodeExecutionResult(NodeRunStatus.SUCCEEDED, "succeeded", output, [])
+
+
+def _validate_brd_local_cut_request(payload: dict[str, Any]) -> tuple[str, list[str]]:
+    """Validate a BRD local-cut request semantically.
+
+    Returns (outcome, warnings). outcome is "succeeded" or "approval_required".
+    """
+    warnings: list[str] = []
+
+    layout_file = payload.get("layout_file", "")
+    if layout_file and not Path(str(layout_file)).exists():
+        warnings.append(f"layout_file not found: {layout_file}")
+
+    signal_nets = payload.get("signal_nets", [])
+    if not signal_nets:
+        warnings.append("signal_nets is empty")
+
+    region = payload.get("local_cut_region")
+    if isinstance(region, dict):
+        # Support both x1/y1/x2/y2 and x_min/y_min/x_max/y_max notation
+        x1 = region.get("x1", region.get("x_min"))
+        y1 = region.get("y1", region.get("y_min"))
+        x2 = region.get("x2", region.get("x_max"))
+        y2 = region.get("y2", region.get("y_max"))
+        if x1 is None or y1 is None or x2 is None or y2 is None:
+            warnings.append("local_cut_region missing coordinates")
+        elif float(x1) >= float(x2) or float(y1) >= float(y2):
+            warnings.append("local_cut_region has non-positive area")
+
+    port_hint = payload.get("uniform_line_port_hint", {})
+    if isinstance(port_hint, dict) and port_hint.get("count", 0) < 2:
+        warnings.append("port count is less than 2, signal path may be incomplete")
+
+    target_metrics = payload.get("target_metrics", [])
+    for metric in target_metrics if isinstance(target_metrics, list) else []:
+        if isinstance(metric, dict):
+            if metric.get("type") == "rl" and float(metric.get("target_db", 0)) >= 0:
+                warnings.append(f"RL target must be negative: {metric['target_db']}")
+
+    outcome = "approval_required" if warnings else "succeeded"
+    return outcome, warnings
 
 
 def _execute_worker(context: GraphNodeExecutionContext) -> GraphNodeExecutionResult:
