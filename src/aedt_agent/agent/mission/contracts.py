@@ -40,6 +40,7 @@ class EventType(StrEnum):
     JOB_SUCCEEDED = "job_succeeded"
     JOB_FAILED = "job_failed"
     JOB_REQUEUED = "job_requeued"
+    JOB_CANCELED = "job_canceled"
     CHECKPOINT_CREATED = "checkpoint_created"
     APPROVAL_REQUESTED = "approval_requested"
     APPROVAL_RESOLVED = "approval_resolved"
@@ -75,6 +76,7 @@ class ErrorClass(StrEnum):
     LICENSE_UNAVAILABLE = "license_unavailable"
     WORKER_CRASH = "worker_crash"
     TIMEOUT = "timeout"
+    CANCELED = "canceled"
     INVALID_MODEL = "invalid_model"
     BUDGET_EXHAUSTED = "budget_exhausted"
     UNKNOWN = "unknown"
@@ -758,6 +760,7 @@ class JobAttemptRecord:
     completed_at: str | None = None
     error: JsonDict | None = None
     retry_decision: str | None = None
+    metadata: JsonDict = field(default_factory=dict)
 
     @classmethod
     def create(
@@ -767,6 +770,7 @@ class JobAttemptRecord:
         job_id: str,
         attempt_number: int,
         worker_id: str,
+        metadata: JsonDict | None = None,
     ) -> "JobAttemptRecord":
         now = utc_now_iso()
         return cls(
@@ -778,6 +782,7 @@ class JobAttemptRecord:
             status=JobAttemptStatus.RUNNING,
             started_at=now,
             updated_at=now,
+            metadata=dict(metadata or {}),
         )
 
     def with_completion(
@@ -785,6 +790,7 @@ class JobAttemptRecord:
         status: JobAttemptStatus,
         error: JsonDict | None = None,
         retry_decision: str | None = None,
+        metadata: JsonDict | None = None,
     ) -> "JobAttemptRecord":
         now = utc_now_iso()
         return replace(
@@ -794,6 +800,7 @@ class JobAttemptRecord:
             updated_at=now,
             error=error,
             retry_decision=retry_decision,
+            metadata={**self.metadata, **(metadata or {})},
         )
 
     def to_json_dict(self) -> JsonDict:
@@ -809,4 +816,5 @@ class JobAttemptRecord:
             "completed_at": self.completed_at,
             "error": self.error,
             "retry_decision": self.retry_decision,
+            "metadata": self.metadata,
         }

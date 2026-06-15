@@ -86,11 +86,24 @@ class AgentRuntime:
             )
         )
         try:
-            result = self.registry.execute(leased_job, WorkerContext(worker_id))
+            result = self.registry.execute(
+                leased_job,
+                WorkerContext(worker_id),
+                attempt_id=attempt.attempt_id,
+            )
+            self._register_artifact_manifests(
+                mission_id,
+                job.job_id,
+                result.artifact_refs,
+            )
             if result.status == JobStatus.SUCCEEDED:
                 self.store.complete_job(job.job_id, result.output_payload, result.artifact_refs)
-                self.store.complete_job_attempt(attempt.attempt_id, JobAttemptStatus.SUCCEEDED, retry_decision="none")
-                self._register_artifact_manifests(mission_id, job.job_id, result.artifact_refs)
+                self.store.complete_job_attempt(
+                    attempt.attempt_id,
+                    JobAttemptStatus.SUCCEEDED,
+                    retry_decision="none",
+                    metadata=result.metadata,
+                )
                 self.store.create_checkpoint(mission_id, job.job_id, result.artifact_refs, {"output": result.output_payload})
                 approval_required = result.output_payload.get("approval_required")
                 if isinstance(approval_required, dict):
@@ -103,6 +116,16 @@ class AgentRuntime:
                     )
                 else:
                     self.store.update_mission_state(mission_id, MissionState.EVALUATING)
+            elif result.status == JobStatus.CANCELED:
+                assert result.error is not None
+                self.store.cancel_job(job.job_id, result.error)
+                self.store.complete_job_attempt(
+                    attempt.attempt_id,
+                    JobAttemptStatus.CANCELED,
+                    result.error.to_json_dict(),
+                    "canceled",
+                    metadata=result.metadata,
+                )
             else:
                 assert result.error is not None
                 self.store.fail_job(job.job_id, result.error)
@@ -113,6 +136,7 @@ class AgentRuntime:
                     JobAttemptStatus.FAILED,
                     result.error.to_json_dict(),
                     retry_decision,
+                    metadata=result.metadata,
                 )
                 if retry_available:
                     self.store.requeue_failed_job(job.job_id)

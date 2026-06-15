@@ -19,6 +19,7 @@ from aedt_agent.agent.workers.registry import (
     InMemoryWorkerRegistry,
     WorkerContext,
     WorkerExecutionResult,
+    WorkerRegistration,
     classify_worker_error,
 )
 
@@ -29,6 +30,7 @@ __all__ = [
     "InMemoryWorkerRegistry",
     "WorkerContext",
     "WorkerExecutionResult",
+    "WorkerRegistration",
     "build_brd_channel_score_job_input",
     "build_brd_local_cut_job_input",
     "build_brd_recorded_void_action_job_input",

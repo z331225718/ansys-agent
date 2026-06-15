@@ -2,10 +2,33 @@ from __future__ import annotations
 
 import hashlib
 
-from aedt_agent.agent.mission import JobStatus
+from aedt_agent.agent.mission import JobAttemptRecord, JobStatus
 from aedt_agent.agent.orchestrator.runtime import AgentRuntime
 from aedt_agent.agent.workers import InMemoryWorkerRegistry
 from aedt_agent.infrastructure.sqlite_mission_store import SQLiteMissionStore
+
+
+def test_job_attempt_persists_harness_metadata(tmp_path):
+    store = SQLiteMissionStore(tmp_path / "mission.db")
+    runtime = AgentRuntime(store)
+    mission = runtime.create_mission("goal", [], [])
+    job = runtime.create_job(mission.mission_id, "fake.echo", "step-1", {})
+    attempt = JobAttemptRecord.create(
+        attempt_id="attempt-1",
+        mission_id=mission.mission_id,
+        job_id=job.job_id,
+        attempt_number=1,
+        worker_id="worker-1",
+        metadata={"harness_run_id": "h1", "workspace": "C:/runs/a1"},
+    )
+
+    store.create_job_attempt(attempt)
+
+    loaded = store.get_job_attempt(attempt.attempt_id)
+    assert loaded.metadata == {
+        "harness_run_id": "h1",
+        "workspace": "C:/runs/a1",
+    }
 
 
 def test_successful_worker_execution_creates_succeeded_attempt(tmp_path):

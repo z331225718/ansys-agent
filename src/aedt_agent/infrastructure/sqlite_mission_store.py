@@ -201,6 +201,7 @@ class SQLiteMissionStore:
                     completed_at TEXT,
                     error_json TEXT,
                     retry_decision TEXT,
+                    metadata_json TEXT NOT NULL DEFAULT '{}',
                     UNIQUE(job_id, attempt_number)
                 );
                 CREATE TABLE IF NOT EXISTS action_records (
@@ -286,6 +287,7 @@ class SQLiteMissionStore:
             self._ensure_column(db, "graph_runs", "initial_payload_json", "TEXT NOT NULL DEFAULT '{}'")
             self._ensure_column(db, "graph_runs", "step_count", "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(db, "graph_runs", "max_steps", "INTEGER NOT NULL DEFAULT 32")
+            self._ensure_column(db, "job_attempts", "metadata_json", "TEXT NOT NULL DEFAULT '{}'")
 
     @staticmethod
     def _ensure_column(db: sqlite3.Connection, table: str, column: str, declaration: str) -> None:
@@ -561,6 +563,22 @@ class SQLiteMissionStore:
                 (JobStatus.FAILED.value, now, _dump(error.to_json_dict()), job_id),
             )
             self._append_event_in_tx(db, job.mission_id, EventType.JOB_FAILED, {"job_id": job_id, "error": error.to_json_dict()})
+        return self.get_job(job_id)
+
+    def cancel_job(self, job_id: str, error: JobError) -> JobRecord:
+        job = self.get_job(job_id)
+        now = utc_now_iso()
+        with self._connect() as db:
+            db.execute(
+                "UPDATE jobs SET status = ?, updated_at = ?, error_json = ? WHERE job_id = ?",
+                (JobStatus.CANCELED.value, now, _dump(error.to_json_dict()), job_id),
+            )
+            self._append_event_in_tx(
+                db,
+                job.mission_id,
+                EventType.JOB_CANCELED,
+                {"job_id": job_id, "error": error.to_json_dict()},
+            )
         return self.get_job(job_id)
 
     def requeue_failed_job(self, job_id: str) -> JobRecord:
@@ -1222,8 +1240,9 @@ class SQLiteMissionStore:
                 """
                 INSERT INTO job_attempts (
                     attempt_id, mission_id, job_id, attempt_number, worker_id, status,
-                    started_at, updated_at, completed_at, error_json, retry_decision
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    started_at, updated_at, completed_at, error_json, retry_decision,
+                    metadata_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.attempt_id,
@@ -1237,6 +1256,7 @@ class SQLiteMissionStore:
                     record.completed_at,
                     _dump(record.error) if record.error is not None else None,
                     record.retry_decision,
+                    _dump(record.metadata),
                 ),
             )
             self._append_event_in_tx(
@@ -1253,13 +1273,20 @@ class SQLiteMissionStore:
         status: JobAttemptStatus,
         error: dict | None = None,
         retry_decision: str | None = None,
+        metadata: dict | None = None,
     ) -> JobAttemptRecord:
-        attempt = self.get_job_attempt(attempt_id).with_completion(status, error=error, retry_decision=retry_decision)
+        attempt = self.get_job_attempt(attempt_id).with_completion(
+            status,
+            error=error,
+            retry_decision=retry_decision,
+            metadata=metadata,
+        )
         with self._connect() as db:
             db.execute(
                 """
                 UPDATE job_attempts
-                SET status = ?, updated_at = ?, completed_at = ?, error_json = ?, retry_decision = ?
+                SET status = ?, updated_at = ?, completed_at = ?, error_json = ?,
+                    retry_decision = ?, metadata_json = ?
                 WHERE attempt_id = ?
                 """,
                 (
@@ -1268,6 +1295,7 @@ class SQLiteMissionStore:
                     attempt.completed_at,
                     _dump(attempt.error) if attempt.error is not None else None,
                     attempt.retry_decision,
+                    _dump(attempt.metadata),
                     attempt_id,
                 ),
             )
@@ -1685,6 +1713,7 @@ def _job_attempt_from_row(row: sqlite3.Row) -> JobAttemptRecord:
         completed_at=row["completed_at"],
         error=_load(row["error_json"], None),
         retry_decision=row["retry_decision"],
+        metadata=dict(_load(row["metadata_json"], {})),
     )
 
 

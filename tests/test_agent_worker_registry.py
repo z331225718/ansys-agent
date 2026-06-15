@@ -1,9 +1,21 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from aedt_agent.agent.mission import ErrorClass, JobRecord, JobStatus
-from aedt_agent.agent.workers import InMemoryWorkerRegistry, WorkerContext, classify_worker_error
+from aedt_agent.agent.workers import (
+    InMemoryWorkerRegistry,
+    WorkerContext,
+    WorkerRegistration,
+    classify_worker_error,
+)
+from aedt_agent.infrastructure.harness import (
+    HarnessWorkspacePolicy,
+    LocalProcessHarness,
+    ResourceGate,
+)
 
 
 def _job(capability: str = "fake.echo") -> JobRecord:
@@ -52,3 +64,47 @@ def test_duplicate_registration_is_rejected():
 
     with pytest.raises(ValueError):
         registry.register("fake.echo", lambda job, context: {})
+
+
+def test_registry_routes_local_process_registration_to_harness(tmp_path, monkeypatch):
+    monkeypatch.setenv("PYTHONPATH", str(Path.cwd()))
+    harness = LocalProcessHarness(
+        HarnessWorkspacePolicy(tmp_path / "runs"),
+        resource_gate=ResourceGate(
+            max_concurrent_cpu=1,
+            max_concurrent_aedt=1,
+            max_concurrent_license_jobs=1,
+        ),
+    )
+    registry = InMemoryWorkerRegistry(harness=harness, heartbeat_interval_seconds=1)
+    registry.register_process(
+        "fake.echo",
+        "tests.fixtures.process_workers:echo_worker",
+        resource_class="cpu",
+        allowed_env=("PYTHONPATH",),
+    )
+
+    result = registry.execute(
+        _job(),
+        WorkerContext(worker_id="worker-1"),
+        attempt_id="attempt-1",
+    )
+
+    assert result.status == JobStatus.SUCCEEDED
+    assert result.output_payload == {"value": 4}
+    assert result.metadata["harness_run_id"]
+    assert result.metadata["workspace"]
+
+
+@pytest.mark.parametrize(
+    "registration",
+    [
+        WorkerRegistration("fake", "in_process"),
+        WorkerRegistration("fake", "local_process"),
+        WorkerRegistration("fake", "unknown", handler=lambda job, context: {}),
+        WorkerRegistration("fake", "in_process", handler=lambda job, context: {}, resource_class="gpu"),
+    ],
+)
+def test_worker_registration_rejects_incomplete_or_unsafe_modes(registration):
+    with pytest.raises(ValueError):
+        registration.validate()
