@@ -225,6 +225,81 @@ def test_human_gate_resumes_same_node_after_approval(tmp_path):
     assert len(runtime.store.list_approvals(mission.mission_id)) == 1
 
 
+def test_human_gate_uses_requested_reason_and_passes_validated_input(
+    tmp_path,
+):
+    runtime, mission, graph_run = _runtime(tmp_path)
+    node = GraphNode("gate", "approval_gate", "human_gate")
+    template = _template(node)
+    payload = {
+        "project_path": "approved.aedt",
+        "setup_name": "Setup1",
+        "approval_reason": "approve_real_brd_solve",
+        "approval_options": [
+            {"id": "approve", "label": "批准真实求解"},
+            {"id": "reject", "label": "拒绝真实求解"},
+        ],
+    }
+
+    waiting = execute_graph_node(
+        _context(runtime, graph_run, node, template, payload)
+    )
+
+    approval = runtime.store.get_approval(
+        waiting.output_payload["approval_id"]
+    )
+    assert approval.reason == "approve_real_brd_solve"
+    assert approval.options == payload["approval_options"]
+    ApprovalService(runtime.store).approve(
+        approval.approval_id,
+        "approve",
+    )
+    resumed = execute_graph_node(
+        _context(
+            runtime,
+            graph_run,
+            node,
+            template,
+            {
+                **payload,
+                "approval_id": approval.approval_id,
+            },
+            status=NodeRunStatus.WAITING_APPROVAL,
+        )
+    )
+
+    assert resumed.output_payload["project_path"] == "approved.aedt"
+    assert resumed.output_payload["setup_name"] == "Setup1"
+    assert "approval_reason" not in resumed.output_payload
+    assert "approval_options" not in resumed.output_payload
+
+
+def test_human_gate_preserves_action_digest_compatibility(tmp_path):
+    runtime, mission, graph_run = _runtime(tmp_path)
+    node = GraphNode("gate", "approval_gate", "human_gate")
+    template = _template(node)
+    payload = {
+        "action_id": "action-1",
+        "digest": "digest-1",
+        "approval_reason": "approve_action",
+        "approval_options": [
+            {
+                "id": "approve",
+                "label": "Approve",
+                "action_id": "action-1",
+                "action_digest": "digest-1",
+            }
+        ],
+    }
+
+    result = execute_graph_node(
+        _context(runtime, graph_run, node, template, payload)
+    )
+
+    assert result.output_payload["action_id"] == "action-1"
+    assert result.output_payload["digest"] == "digest-1"
+
+
 def test_custom_program_handler_is_dispatched_by_registry(tmp_path):
     runtime, _, graph_run = _runtime(tmp_path)
     node = GraphNode("custom", "aggregate", "program", handler="aggregate")

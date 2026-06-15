@@ -1,0 +1,113 @@
+id: brd_real_solve_evidence
+version: 1
+description: Approve, solve, export, score, and audit one BRD local-cut AEDT project.
+nodes:
+  - id: model_validator
+    role: validator
+    kind: program
+    input_schema: real_solve_request
+    output_schema: validated_real_solve_request
+    max_runs: 1
+  - id: model_approval_gate
+    role: approval_gate
+    kind: human_gate
+    input_schema: validated_real_solve_request
+    output_schema: model_approval
+    max_runs: 1
+  - id: real_solve_worker
+    role: worker
+    kind: worker
+    capability: brd.local_cut.solve
+    input_schema: model_approval
+    output_schema: real_solve_result
+    max_runs: 1
+  - id: channel_score_worker
+    role: worker
+    kind: worker
+    capability: brd.channel.score
+    input_schema: real_solve_result
+    output_schema: channel_score_result
+    max_runs: 1
+  - id: real_solve_scorecard
+    role: scorecard
+    kind: program
+    input_schema: channel_score_result
+    output_schema: real_solve_scorecard
+    max_runs: 1
+edges:
+  - id: validate-to-approval
+    from: model_validator
+    to: model_approval_gate
+    on: succeeded
+    max_traversals: 1
+  - id: approval-to-solve
+    from: model_approval_gate
+    to: real_solve_worker
+    on: approved
+    max_traversals: 1
+  - id: solve-to-score
+    from: real_solve_worker
+    to: channel_score_worker
+    on: succeeded
+    max_traversals: 1
+  - id: score-to-scorecard
+    from: channel_score_worker
+    to: real_solve_scorecard
+    on: succeeded
+    max_traversals: 1
+handoffs:
+  real_solve_request:
+    required_fields:
+      - project_path
+      - setup_name
+      - sweep_name
+      - solution_name
+      - tdr_expression
+      - expected_port_count
+  validated_real_solve_request:
+    required_fields:
+      - project_path
+      - setup_name
+      - sweep_name
+      - solution_name
+      - tdr_expression
+      - expected_port_count
+      - approval_reason
+      - approval_options
+  model_approval:
+    required_fields:
+      - approval_id
+      - decision
+      - project_path
+      - setup_name
+      - sweep_name
+      - solution_name
+      - tdr_expression
+      - expected_port_count
+      - frequency_start_ghz
+      - frequency_stop_ghz
+      - rl_target_db
+      - tdr_target_ohm
+  real_solve_result:
+    required_fields:
+      - status
+      - touchstone_path
+      - tdr_path
+      - solve_manifest
+      - artifact_dir
+      - frequency_start_ghz
+      - frequency_stop_ghz
+      - rl_target_db
+      - tdr_target_ohm
+      - solve_summary
+      - artifact_refs
+  channel_score_result:
+    required_fields:
+      - status
+      - score
+      - evidence_summary
+      - artifact_refs
+  real_solve_scorecard:
+    required_fields:
+      - status
+      - checks

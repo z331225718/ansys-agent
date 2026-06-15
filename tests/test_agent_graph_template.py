@@ -36,6 +36,26 @@ def test_load_brd_local_cut_graph_template_from_yaml():
     ]
 
 
+def test_real_solve_graph_template_has_approval_before_solve():
+    template = load_graph_template("brd_real_solve_evidence")
+
+    assert [node.node_id for node in template.nodes] == [
+        "model_validator",
+        "model_approval_gate",
+        "real_solve_worker",
+        "channel_score_worker",
+        "real_solve_scorecard",
+    ]
+    assert (
+        template.node("real_solve_worker").capability
+        == "brd.local_cut.solve"
+    )
+    assert (
+        template.node("channel_score_worker").capability
+        == "brd.channel.score"
+    )
+
+
 @pytest.mark.parametrize(
     ("template_id", "expected_edge_ids"),
     [
@@ -64,6 +84,15 @@ def test_load_brd_local_cut_graph_template_from_yaml():
                 "validator-to-approval",
                 "approval-to-action-worker",
                 "action-worker-to-scorecard",
+            ],
+        ),
+        (
+            "brd_real_solve_evidence",
+            [
+                "validate-to-approval",
+                "approval-to-solve",
+                "solve-to-score",
+                "score-to-scorecard",
             ],
         ),
     ],

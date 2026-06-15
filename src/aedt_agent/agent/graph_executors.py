@@ -150,6 +150,23 @@ def _execute_worker(context: GraphNodeExecutionContext) -> GraphNodeExecutionRes
         )
     output = dict(result.output_payload)
     output["artifact_refs"] = list(result.artifact_refs)
+    evidence_package_id = None
+    evidence_summary = output.get("evidence_summary")
+    if isinstance(evidence_summary, dict):
+        evidence = store.create_evidence_package(
+            EvidencePackage.create(
+                evidence_package_id=str(uuid4()),
+                mission_id=context.graph_run.mission_id,
+                producer_kind="node",
+                producer_id=context.node_run.node_run_id,
+                summary=dict(evidence_summary),
+                artifact_refs=list(result.artifact_refs),
+                token_budget={
+                    "raw_trace_policy": "artifact_only",
+                },
+            )
+        )
+        evidence_package_id = evidence.evidence_package_id
     explicit_outcome = output.pop("edge_outcome", None)
     if explicit_outcome:
         outcome = str(explicit_outcome)
@@ -162,6 +179,7 @@ def _execute_worker(context: GraphNodeExecutionContext) -> GraphNodeExecutionRes
         outcome,
         output,
         list(result.artifact_refs),
+        evidence_package_id=evidence_package_id,
     )
 
 
@@ -217,13 +235,24 @@ def _execute_approval_gate(context: GraphNodeExecutionContext) -> GraphNodeExecu
         if pending:
             approval = pending[-1]
         else:
-            approval = ApprovalService(context.runtime.store).request_approval(
-                context.graph_run.mission_id,
-                f"graph_gate:{context.graph_run.graph_run_id}:{context.node.node_id}:{context.run_index}",
-                [
+            reason = str(
+                context.input_payload.get("approval_reason")
+                or (
+                    f"graph_gate:{context.graph_run.graph_run_id}:"
+                    f"{context.node.node_id}:{context.run_index}"
+                )
+            )
+            options = list(
+                context.input_payload.get("approval_options")
+                or [
                     {"id": "approve", "label": "Approve"},
                     {"id": "reject", "label": "Reject"},
-                ],
+                ]
+            )
+            approval = ApprovalService(context.runtime.store).request_approval(
+                context.graph_run.mission_id,
+                reason,
+                options,
             )
     output = _approval_output(context.input_payload, approval)
     if approval.decision == ApprovalDecision.PENDING:
@@ -246,12 +275,17 @@ def _execute_approval_gate(context: GraphNodeExecutionContext) -> GraphNodeExecu
 
 def _approval_output(input_payload: dict[str, Any], approval) -> dict[str, Any]:
     output = {
-        "approval_id": approval.approval_id,
-        "decision": approval.decision.value,
+        key: value
+        for key, value in input_payload.items()
+        if key
+        not in {
+            "_handoffs",
+            "approval_reason",
+            "approval_options",
+        }
     }
-    for key in ("action_id", "digest"):
-        if key in input_payload:
-            output[key] = input_payload[key]
+    output["approval_id"] = approval.approval_id
+    output["decision"] = approval.decision.value
     for option in approval.options:
         if not isinstance(option, dict):
             continue

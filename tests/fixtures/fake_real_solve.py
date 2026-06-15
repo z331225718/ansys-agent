@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -27,7 +28,18 @@ def run_fake_real_solve_worker(job, context):
         encoding="utf-8",
     )
     manifest.write_text(
-        json.dumps({"status": "succeeded"}),
+        json.dumps(
+            {
+                "version": 1,
+                "outputs": {
+                    "solved_project": _artifact_record(
+                        solved_project
+                    ),
+                    "touchstone": _artifact_record(touchstone),
+                    "tdr": _artifact_record(tdr),
+                },
+            }
+        ),
         encoding="utf-8",
     )
     refs = [
@@ -66,4 +78,12 @@ def run_fake_real_solve_worker(job, context):
             "artifact_refs": refs,
         },
         "artifact_refs": refs,
+    }
+
+
+def _artifact_record(path: Path) -> dict:
+    return {
+        "path": str(path),
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "size_bytes": path.stat().st_size,
     }

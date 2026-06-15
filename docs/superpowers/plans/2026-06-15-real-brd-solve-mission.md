@@ -1469,7 +1469,7 @@ git commit -m "feat: configure and invoke real brd solve missions"
 - Modify: `tests/test_agent_graph_template.py`
 - Modify: `tests/test_agent_scorecard.py`
 
-- [ ] **Step 1：写模板失败测试**
+- [x] **Step 1：写模板失败测试**
 
 ```python
 def test_real_solve_graph_template_has_approval_before_solve():
@@ -1486,7 +1486,7 @@ def test_real_solve_graph_template_has_approval_before_solve():
     assert template.node("channel_score_worker").capability == "brd.channel.score"
 ```
 
-- [ ] **Step 2：写 Graph 端到端失败测试**
+- [x] **Step 2：写 Graph 端到端失败测试**
 
 测试使用：
 
@@ -1556,13 +1556,13 @@ def test_real_solve_graph_resumes_same_run_and_scores_exported_artifacts(
     assert len(runtime.store.list_evidence_packages(mission.mission_id)) >= 2
 ```
 
-- [ ] **Step 3：确认红灯**
+- [x] **Step 3：确认红灯**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q tests/test_agent_brd_real_solve_graph.py tests/test_agent_graph_template.py
 ```
 
-- [ ] **Step 4：创建 YAML**
+- [x] **Step 4：创建 YAML**
 
 ```yaml
 id: brd_real_solve_evidence
@@ -1676,7 +1676,7 @@ handoffs:
       - checks
 ```
 
-- [ ] **Step 5：补 Graph 数据适配**
+- [x] **Step 5：补 Graph 数据适配**
 
 Job input builder 必须加入：
 
@@ -1737,7 +1737,7 @@ def _approval_output(input_payload: dict[str, Any], approval) -> dict[str, Any]:
 
 real solve Worker 输出其受控 `artifact_dir` 和 score 参数，Graph 自动创建的 `brd.channel.score` Job 直接使用这些字段。评分 evidence 写入 solve attempt 的 `artifacts/`，该目录已经由 Harness 校验并持久保留，不接受用户输入的输出目录。
 
-- [ ] **Step 6：扩展真实 solve scorecard**
+- [x] **Step 6：扩展真实 solve scorecard**
 
 `score_mission()` 在 `template_id == "brd_real_solve_evidence"` 时增加：
 
@@ -1756,7 +1756,7 @@ checks.extend(
 
 manifest 检查重新计算 SHA-256，不信任 manifest 自报。
 
-- [ ] **Step 7：测试并提交**
+- [x] **Step 7：测试并提交**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q tests/test_agent_brd_real_solve_graph.py tests/test_agent_graph_template.py tests/test_agent_graph_executors.py tests/test_agent_scorecard.py
