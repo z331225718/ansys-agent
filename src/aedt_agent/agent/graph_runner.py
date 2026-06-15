@@ -70,6 +70,7 @@ def advance_graph(
     worker_id: str = "graph",
     max_workers: int = 4,
     registry: GraphNodeExecutorRegistry | None = None,
+    visualize: bool = False,
 ) -> dict[str, Any]:
     graph_run = _require_graph_run(runtime, graph_run_id)
     if graph_run.status in {
@@ -666,6 +667,7 @@ def run_graph(
     worker_id: str = "graph",
     max_workers: int = 4,
     registry: GraphNodeExecutorRegistry | None = None,
+    visualize: bool = False,
 ) -> dict[str, Any]:
     graph_run = create_graph_run(
         runtime,
@@ -680,6 +682,7 @@ def run_graph(
         worker_id=worker_id,
         max_workers=max_workers,
         registry=registry,
+        visualize=visualize,
     )
 
 
@@ -690,6 +693,7 @@ def resume_graph(
     worker_id: str = "graph-resume",
     max_workers: int = 4,
     registry: GraphNodeExecutorRegistry | None = None,
+    visualize: bool = False,
 ) -> dict[str, Any]:
     graph_run = _require_graph_run(runtime, graph_run_id)
     if graph_run.status == GraphRunStatus.WAITING_APPROVAL:
@@ -700,6 +704,7 @@ def resume_graph(
         worker_id=worker_id,
         max_workers=max_workers,
         registry=registry,
+        visualize=visualize,
     )
 
 
@@ -775,6 +780,7 @@ def _run_until_blocked(
     worker_id: str,
     max_workers: int,
     registry: GraphNodeExecutorRegistry | None,
+    visualize: bool = False,
 ) -> dict[str, Any]:
     previous_signature = None
     while True:
@@ -785,6 +791,8 @@ def _run_until_blocked(
             max_workers=max_workers,
             registry=registry,
         )
+        if visualize:
+            _print_visualization(runtime, graph_run_id, report)
         if report["status"] in {
             GraphRunStatus.SUCCEEDED.value,
             GraphRunStatus.FAILED.value,
@@ -1213,3 +1221,21 @@ def _complete_graph_with_rounds_exhausted(
     )
     _complete_mission(runtime, graph_run.mission_id)
     return graph_status(runtime, graph_run.graph_run_id)
+
+
+def _print_visualization(runtime, graph_run_id: str, report: dict[str, Any]) -> None:
+    """Print a live ASCII visualization of the graph state."""
+    import sys
+    from aedt_agent.agent.graph_visualizer import render_graph_live
+
+    snapshot = report.get("graph_run", {}).get("template_snapshot", {})
+    node_runs = report.get("node_runs", [])
+    handoffs = report.get("handoffs", [])
+    title = (
+        f"Step {report.get('graph_run', {}).get('step_count', '?')}  "
+        f"({report['status']})"
+    )
+    sys.stdout.write("\033[2J\033[H")
+    sys.stdout.write(render_graph_live(snapshot, node_runs, handoffs, title=title))
+    sys.stdout.write("\n")
+    sys.stdout.flush()

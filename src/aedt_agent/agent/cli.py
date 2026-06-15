@@ -83,14 +83,20 @@ def build_parser() -> argparse.ArgumentParser:
     run_graph.add_argument("--worker-id", default="cli-graph")
     run_graph.add_argument("--max-steps", type=int, default=32)
     run_graph.add_argument("--max-workers", type=int, default=4)
+    run_graph.add_argument("--visualize", action="store_true")
 
     advance_graph_parser = mission_commands.add_parser("advance-graph")
     advance_graph_parser.add_argument("--graph-run-id", required=True)
     advance_graph_parser.add_argument("--worker-id", default="cli-graph-step")
     advance_graph_parser.add_argument("--max-workers", type=int, default=4)
+    advance_graph_parser.add_argument("--visualize", action="store_true")
 
     graph_status_parser = mission_commands.add_parser("graph-status")
     graph_status_parser.add_argument("--graph-run-id", required=True)
+
+    graph_visualize_parser = mission_commands.add_parser("graph-visualize")
+    graph_visualize_parser.add_argument("--graph-run-id", required=True)
+    graph_visualize_parser.add_argument("--format", choices=["ascii", "mermaid"], default="ascii")
 
     resume_graph_parser = mission_commands.add_parser("resume-graph")
     resume_graph_parser.add_argument("--graph-run-id", required=True)
@@ -389,6 +395,7 @@ def run(argv: Sequence[str] | None = None) -> int:
             args.graph_run_id,
             worker_id=args.worker_id,
             max_workers=args.max_workers,
+            visualize=args.visualize,
         )
         _print_json(report)
         return _graph_exit_code(report["status"])
@@ -397,6 +404,22 @@ def run(argv: Sequence[str] | None = None) -> int:
         from aedt_agent.agent.graph_runner import graph_status
 
         _print_json(graph_status(runtime, args.graph_run_id))
+        return 0
+
+    if args.group == "mission" and args.mission_command == "graph-visualize":
+        from aedt_agent.agent.graph_runner import graph_status
+        from aedt_agent.agent.graph_visualizer import render_graph_live, render_graph_mermaid
+
+        status = graph_status(runtime, args.graph_run_id)
+        snapshot = status.get("graph_run", {}).get("template_snapshot", {})
+        node_runs = status.get("node_runs", [])
+        handoffs = status.get("handoffs", [])
+        title = f"Graph: {status['graph_run']['graph_run_id'][:12]}…  ({status['status']})"
+
+        if args.format == "mermaid":
+            print(render_graph_mermaid(snapshot, node_runs, handoffs))
+        else:
+            print(render_graph_live(snapshot, node_runs, handoffs, title=title))
         return 0
 
     if args.group == "mission" and args.mission_command == "resume-graph":
