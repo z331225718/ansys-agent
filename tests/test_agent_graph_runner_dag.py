@@ -13,7 +13,7 @@ from aedt_agent.agent.graph_runner import (
     run_graph,
 )
 from aedt_agent.agent.graph_template import graph_template_from_mapping, load_graph_template
-from aedt_agent.agent.mission import GraphRunStatus, MissionState
+from aedt_agent.agent.mission import GraphRunStatus, MissionState, NodeRunRecord, NodeRunStatus
 from aedt_agent.agent.orchestrator import AgentRuntime
 from aedt_agent.agent.workers import InMemoryWorkerRegistry
 from aedt_agent.infrastructure import SQLiteMissionStore
@@ -394,3 +394,33 @@ handoffs: {}
 
     assert report["status"] == "succeeded"
     assert report["node_runs"][0]["node_id"] == "worker"
+
+
+def test_graph_with_persisted_running_node_does_not_report_success(tmp_path):
+    runtime = _runtime(tmp_path, {})
+    mission = runtime.create_mission("goal", [], [])
+    template = _template(
+        [{"id": "planner", "role": "planner", "kind": "llm"}],
+        [],
+    )
+    graph_run = create_graph_run(runtime, mission.mission_id, template, initial_payload={})
+    node_run = runtime.store.create_node_run(
+        NodeRunRecord.create(
+            node_run_id="interrupted-node",
+            graph_run_id=graph_run.graph_run_id,
+            mission_id=mission.mission_id,
+            node_id="planner",
+            node_role="planner",
+            node_kind="llm",
+            sequence=1,
+            input_payload={},
+        )
+    )
+    runtime.store.update_node_run_status(node_run.node_run_id, NodeRunStatus.RUNNING)
+
+    report = advance_graph(runtime, graph_run.graph_run_id)
+
+    assert report["status"] == "running"
+    assert report["graph_run"]["current_node_id"] == "planner"
+    assert len(report["node_runs"]) == 1
+    assert runtime.get_mission(mission.mission_id).state != MissionState.COMPLETED

@@ -90,6 +90,14 @@ def advance_graph(
     if waiting_runs:
         return _resume_waiting_gates(runtime, graph_run, template, waiting_runs, worker_id, registry)
 
+    active_runs = [
+        run
+        for run in runtime.store.list_node_runs(graph_run_id)
+        if run.status in {NodeRunStatus.CREATED, NodeRunStatus.RUNNING}
+    ]
+    if active_runs:
+        return _report_active_graph(runtime, graph_run, active_runs)
+
     if graph_run.step_count >= graph_run.max_steps:
         return _fail_graph(
             runtime,
@@ -562,6 +570,13 @@ def _settle_graph(runtime, graph_run, template, node_runs, pending) -> dict[str,
             current_node_id=waiting[0].node_id,
         )
         return graph_status(runtime, graph_run.graph_run_id)
+    active = [
+        run
+        for run in node_runs
+        if run.status in {NodeRunStatus.CREATED, NodeRunStatus.RUNNING}
+    ]
+    if active:
+        return _report_active_graph(runtime, graph_run, active)
     ready = ready_nodes(
         template,
         node_runs,
@@ -587,6 +602,15 @@ def _settle_graph(runtime, graph_run, template, node_runs, pending) -> dict[str,
         )
     runtime.store.update_graph_run_status(graph_run.graph_run_id, GraphRunStatus.SUCCEEDED)
     _complete_mission(runtime, graph_run.mission_id)
+    return graph_status(runtime, graph_run.graph_run_id)
+
+
+def _report_active_graph(runtime, graph_run, active_runs) -> dict[str, Any]:
+    runtime.store.update_graph_run_status(
+        graph_run.graph_run_id,
+        GraphRunStatus.RUNNING,
+        current_node_id=",".join(sorted({run.node_id for run in active_runs})),
+    )
     return graph_status(runtime, graph_run.graph_run_id)
 
 
