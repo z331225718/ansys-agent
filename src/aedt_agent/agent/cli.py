@@ -98,6 +98,11 @@ def build_parser() -> argparse.ArgumentParser:
     graph_visualize_parser.add_argument("--graph-run-id", required=True)
     graph_visualize_parser.add_argument("--format", choices=["ascii", "mermaid"], default="ascii")
 
+    web_parser = mission_commands.add_parser("web")
+    web_parser.add_argument("--host", default="127.0.0.1")
+    web_parser.add_argument("--port", type=int, default=8766)
+    web_parser.add_argument("--db", type=Path, default=Path(".aedt-agent/missions.db"))
+
     resume_graph_parser = mission_commands.add_parser("resume-graph")
     resume_graph_parser.add_argument("--graph-run-id", required=True)
     resume_graph_parser.add_argument("--worker-id", default="cli-graph-resume")
@@ -604,6 +609,11 @@ def run(argv: Sequence[str] | None = None) -> int:
     if args.group == "mission" and args.mission_command == "cancel":
         mission = runtime.store.update_mission_state(args.mission_id, MissionState.CANCELED)
         _print_json(mission.to_json_dict())
+        return 0
+
+    if args.group == "mission" and args.mission_command == "web":
+        from aedt_agent.agent.web import run_agent_window
+        run_agent_window(host=args.host, port=args.port, db_path=args.db)
         return 0
 
     _print_json(

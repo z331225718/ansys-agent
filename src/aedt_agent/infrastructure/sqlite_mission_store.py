@@ -330,6 +330,14 @@ class SQLiteMissionStore:
             row = db.execute("SELECT * FROM missions WHERE mission_id = ?", (mission_id,)).fetchone()
         return None if row is None else _mission_from_row(row)
 
+    def list_missions(self, limit: int = 50) -> list[MissionRecord]:
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT * FROM missions ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [_mission_from_row(row) for row in rows]
+
     def update_mission_state(self, mission_id: str, state: MissionState) -> MissionRecord:
         from aedt_agent.agent.orchestrator.state_machine import assert_transition
 
