@@ -15,6 +15,8 @@ def test_safe_recorded_profile_is_bounded_and_disables_real_aedt():
     assert profile.max_concurrent_aedt == 1
     assert profile.max_concurrent_license_jobs == 1
     assert profile.allow_real_aedt is False
+    assert profile.aedt_version == "2026.1"
+    assert profile.aedt_non_graphical is True
     assert profile.execution_mode == "recorded"
     assert profile.harness_root == "harness"
     assert profile.heartbeat_interval_seconds == 5
@@ -59,6 +61,28 @@ def test_execution_profile_rejects_unknown_fields():
     payload["surprise"] = True
 
     with pytest.raises(ExecutionProfileError, match="unknown profile fields"):
+        ExecutionProfile.from_json_dict(payload)
+
+
+def test_execution_profile_rejects_empty_aedt_version():
+    payload = ExecutionProfile.safe_recorded().to_json_dict()
+    payload["aedt_version"] = ""
+
+    with pytest.raises(
+        ExecutionProfileError,
+        match="aedt_version",
+    ):
+        ExecutionProfile.from_json_dict(payload)
+
+
+def test_execution_profile_rejects_non_boolean_aedt_mode():
+    payload = ExecutionProfile.safe_recorded().to_json_dict()
+    payload["aedt_non_graphical"] = "yes"
+
+    with pytest.raises(
+        ExecutionProfileError,
+        match="aedt_non_graphical",
+    ):
         ExecutionProfile.from_json_dict(payload)
 
 

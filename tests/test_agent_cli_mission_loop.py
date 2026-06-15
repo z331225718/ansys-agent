@@ -41,6 +41,25 @@ def _create_local_cut_mission(tmp_path: Path, *, adapter_mode: str = "determinis
     return json.loads(created.stdout)["mission_id"]
 
 
+def _create_real_solve_mission(tmp_path: Path) -> str:
+    project = tmp_path / "approved.aedt"
+    project.write_text("approved project", encoding="utf-8")
+    created = _run(
+        tmp_path,
+        "mission",
+        "create",
+        "--goal",
+        "求解 approved local cut",
+        "--brd-real-solve",
+        "--project",
+        str(project),
+        "--tdr-expression",
+        "TDRZt(P1,P1)",
+    )
+    assert created.returncode == 0, created.stderr
+    return json.loads(created.stdout)["mission_id"]
+
+
 def test_cli_advance_completes_one_job_mission(tmp_path):
     mission_id = _create_local_cut_mission(tmp_path)
 
@@ -88,3 +107,27 @@ def test_cli_safe_profile_blocks_real_build_before_worker_execution(tmp_path):
     assert payload["decision"]["decision"] == "failed"
     assert payload["mission"]["final_outcome"]["code"] == "real_aedt_disabled"
     assert payload["jobs"][0]["status"] == "queued"
+
+
+def test_cli_safe_profile_blocks_real_solve_before_process_launch(
+    tmp_path,
+):
+    mission_id = _create_real_solve_mission(tmp_path)
+
+    result = _run(
+        tmp_path,
+        "mission",
+        "advance",
+        "--mission-id",
+        mission_id,
+        "--profile",
+        "safe-recorded",
+    )
+
+    payload = json.loads(result.stdout)
+    assert result.returncode == 2
+    assert payload["mission"]["final_outcome"]["code"] == (
+        "real_aedt_disabled"
+    )
+    assert payload["jobs"][0]["status"] == "queued"
+    assert not (tmp_path / "harness").exists()

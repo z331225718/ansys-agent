@@ -24,6 +24,8 @@ class ExecutionProfile:
     max_concurrent_aedt: int
     max_concurrent_license_jobs: int
     allow_real_aedt: bool
+    aedt_version: str
+    aedt_non_graphical: bool
     execution_mode: str
     harness_root: str
     heartbeat_interval_seconds: int
@@ -59,6 +61,10 @@ class ExecutionProfile:
             raise ExecutionProfileError(f"execution_mode is unsupported: {self.execution_mode}")
         if not isinstance(self.allow_real_aedt, bool):
             raise ExecutionProfileError("allow_real_aedt must be boolean")
+        if not isinstance(self.aedt_version, str) or not self.aedt_version.strip():
+            raise ExecutionProfileError("aedt_version is required")
+        if not isinstance(self.aedt_non_graphical, bool):
+            raise ExecutionProfileError("aedt_non_graphical must be boolean")
         if not self.retry_backoff_seconds:
             raise ExecutionProfileError("retry_backoff_seconds must not be empty")
         if any(
@@ -92,6 +98,8 @@ class ExecutionProfile:
             max_concurrent_aedt=1,
             max_concurrent_license_jobs=1,
             allow_real_aedt=False,
+            aedt_version="2026.1",
+            aedt_non_graphical=True,
             execution_mode="recorded",
             harness_root="harness",
             heartbeat_interval_seconds=5,

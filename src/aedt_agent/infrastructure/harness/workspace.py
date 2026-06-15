@@ -46,7 +46,6 @@ class HarnessWorkspace:
 class HarnessWorkspacePolicy:
     def __init__(self, root: Path | str):
         self.root = Path(root).expanduser().resolve()
-        self.root.mkdir(parents=True, exist_ok=True)
 
     def create_attempt(
         self,

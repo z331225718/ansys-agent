@@ -25,6 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--criterion", action="append", default=[])
     create.add_argument("--brd-local-cut", action="store_true")
     create.add_argument("--brd-channel-score", action="store_true")
+    create.add_argument("--brd-real-solve", action="store_true")
     create.add_argument("--brd-recorded-void-action", action="store_true")
     create.add_argument("--layout-file")
     create.add_argument("--signal-net", action="append", default=[])
@@ -32,6 +33,12 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--bbox")
     create.add_argument("--touchstone")
     create.add_argument("--tdr")
+    create.add_argument("--project")
+    create.add_argument("--setup", default="Setup1")
+    create.add_argument("--sweep", default="Sweep1")
+    create.add_argument("--tdr-expression")
+    create.add_argument("--expected-port-count", type=int, default=2)
+    create.add_argument("--solve-timeout-seconds", type=int, default=7200)
     create.add_argument("--before-touchstone")
     create.add_argument("--before-tdr")
     create.add_argument("--after-touchstone")
@@ -115,6 +122,25 @@ def build_parser() -> argparse.ArgumentParser:
 
     artifacts = mission_commands.add_parser("artifacts")
     artifacts.add_argument("--mission-id", required=True)
+
+    artifact_query = mission_commands.add_parser("artifact-query")
+    artifact_query.add_argument("--mission-id", required=True)
+    artifact_query.add_argument("--artifact-ref", required=True)
+    artifact_window = artifact_query.add_mutually_exclusive_group(
+        required=True
+    )
+    artifact_window.add_argument(
+        "--frequency",
+        nargs=2,
+        type=float,
+    )
+    artifact_window.add_argument(
+        "--time-ps",
+        nargs=2,
+        type=float,
+    )
+    artifact_query.add_argument("--max-points", type=int, default=64)
+    artifact_query.add_argument("--target", type=float)
 
     evidence = mission_commands.add_parser("evidence")
     evidence.add_argument("--mission-id", required=True)
@@ -205,6 +231,38 @@ def run(argv: Sequence[str] | None = None) -> int:
                     rl_target_db=args.rl_target_db,
                     tdr_target_ohm=args.tdr_target_ohm,
                 ),
+            )
+        if args.brd_real_solve:
+            from aedt_agent.agent.workers import (
+                BRD_REAL_SOLVE_CAPABILITY,
+                build_brd_real_solve_job_input,
+            )
+
+            _require_real_solve_args(args)
+            runtime.create_job(
+                mission.mission_id,
+                BRD_REAL_SOLVE_CAPABILITY,
+                (
+                    f"brd-real-solve:{Path(args.project).resolve()}:"
+                    f"{args.setup}:{args.sweep}"
+                ),
+                build_brd_real_solve_job_input(
+                    project_path=args.project,
+                    setup_name=args.setup,
+                    sweep_name=args.sweep,
+                    tdr_expression=args.tdr_expression,
+                    expected_port_count=args.expected_port_count,
+                    frequency_start_ghz=args.frequency_start_ghz,
+                    frequency_stop_ghz=args.frequency_stop_ghz,
+                    rl_target_db=args.rl_target_db,
+                    tdr_target_ohm=args.tdr_target_ohm,
+                    aedt={
+                        "version": args.aedt_version,
+                        "non_graphical": args.non_graphical,
+                    },
+                ),
+                timeout_seconds=args.solve_timeout_seconds,
+                retry_limit=1,
             )
         if args.brd_recorded_void_action:
             from aedt_agent.agent.actions import ActionRecord, request_action_approval, validate_action
@@ -406,6 +464,35 @@ def run(argv: Sequence[str] | None = None) -> int:
         _print_json({"artifacts": [artifact.to_json_dict() for artifact in runtime.store.list_artifact_manifests(args.mission_id)]})
         return 0
 
+    if args.group == "mission" and args.mission_command == "artifact-query":
+        from aedt_agent.agent.evaluation import ArtifactQueryService
+
+        service = ArtifactQueryService(runtime.store)
+        if args.frequency is not None:
+            result = service.query_sparameter(
+                args.mission_id,
+                args.artifact_ref,
+                args.frequency[0],
+                args.frequency[1],
+                max_points=args.max_points,
+                rl_target_db=(
+                    -20.0 if args.target is None else args.target
+                ),
+            )
+        else:
+            result = service.query_tdr(
+                args.mission_id,
+                args.artifact_ref,
+                args.time_ps[0],
+                args.time_ps[1],
+                max_points=args.max_points,
+                target_ohm=(
+                    100.0 if args.target is None else args.target
+                ),
+            )
+        _print_json(result)
+        return 0
+
     if args.group == "mission" and args.mission_command == "evidence":
         _print_json({"evidence_packages": [evidence.to_json_dict() for evidence in runtime.store.list_evidence_packages(args.mission_id)]})
         return 0
@@ -470,6 +557,7 @@ def _runtime_with_workers(db_path: Path, profile=None) -> AgentRuntime:
         BRD_CHANNEL_SCORE_CAPABILITY,
         BRD_LOCAL_CUT_BUILD_CAPABILITY,
         BRD_RECORDED_VOID_ACTION_CAPABILITY,
+        BRD_REAL_SOLVE_CAPABILITY,
         InMemoryWorkerRegistry,
         run_brd_channel_score_worker,
         run_brd_local_cut_worker,
@@ -501,12 +589,28 @@ def _runtime_with_workers(db_path: Path, profile=None) -> AgentRuntime:
         harness=harness,
         heartbeat_interval_seconds=profile.heartbeat_interval_seconds,
         default_allowed_env=tuple(profile.allowed_env),
+        allow_real_aedt=profile.allow_real_aedt,
     )
     registry.register(BRD_LOCAL_CUT_BUILD_CAPABILITY, run_brd_local_cut_worker)
     registry.register(BRD_CHANNEL_SCORE_CAPABILITY, run_brd_channel_score_worker)
     registry.register(
         BRD_RECORDED_VOID_ACTION_CAPABILITY,
         lambda job, context: run_brd_recorded_void_action_worker(job, context, store=store),
+    )
+    registry.register_process(
+        BRD_REAL_SOLVE_CAPABILITY,
+        (
+            "aedt_agent.agent.workers.brd_real_solve:"
+            "run_brd_real_solve_worker"
+        ),
+        resource_classes=("license", "aedt"),
+        requires_real_aedt=True,
+        input_overrides={
+            "aedt": {
+                "version": profile.aedt_version,
+                "non_graphical": profile.aedt_non_graphical,
+            }
+        },
     )
     return AgentRuntime(store, registry=registry)
 
@@ -557,6 +661,29 @@ def _require_recorded_action_args(args) -> None:
     missing = [name for name, value in required.items() if value is None or value == ""]
     if missing:
         raise ValueError(f"missing recorded action arguments: {', '.join(missing)}")
+
+
+def _require_real_solve_args(args) -> None:
+    required = {
+        "project": args.project,
+        "tdr_expression": args.tdr_expression,
+    }
+    missing = [
+        name
+        for name, value in required.items()
+        if value is None or value == ""
+    ]
+    if missing:
+        raise ValueError(
+            f"missing real solve arguments: {', '.join(missing)}"
+        )
+    project = Path(args.project)
+    if project.suffix.casefold() != ".aedt" or not project.is_file():
+        raise ValueError(
+            f"project must be an existing .aedt file: {project}"
+        )
+    if args.solve_timeout_seconds <= 0:
+        raise ValueError("solve_timeout_seconds must be positive")
 
 
 def _recorded_layout_settings_from_analysis(path: Path | None) -> dict[str, Any]:

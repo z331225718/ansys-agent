@@ -62,6 +62,8 @@ class WorkerRegistration:
     entrypoint: str = ""
     resource_classes: tuple[str, ...] = ("cpu",)
     allowed_env: tuple[str, ...] = ()
+    requires_real_aedt: bool = False
+    input_overrides: dict[str, Any] = field(default_factory=dict)
 
     def validate(self) -> "WorkerRegistration":
         if not self.capability.strip():
@@ -83,6 +85,10 @@ class WorkerRegistration:
             raise ValueError("in_process worker requires handler")
         if self.execution_mode == "local_process" and not self.entrypoint.strip():
             raise ValueError("local_process worker requires entrypoint")
+        if not isinstance(self.requires_real_aedt, bool):
+            raise ValueError("requires_real_aedt must be boolean")
+        if not isinstance(self.input_overrides, dict):
+            raise ValueError("input_overrides must be a dictionary")
         return self
 
 
@@ -93,11 +99,13 @@ class InMemoryWorkerRegistry:
         harness: LocalProcessHarness | None = None,
         heartbeat_interval_seconds: int = 5,
         default_allowed_env: tuple[str, ...] = (),
+        allow_real_aedt: bool = False,
     ) -> None:
         self._registrations: dict[str, WorkerRegistration] = {}
         self.harness = harness
         self.heartbeat_interval_seconds = heartbeat_interval_seconds
         self.default_allowed_env = tuple(default_allowed_env)
+        self.allow_real_aedt = bool(allow_real_aedt)
 
     def register(self, capability: str, worker: WorkerFn) -> None:
         self._register(
@@ -116,6 +124,8 @@ class InMemoryWorkerRegistry:
         resource_classes: tuple[str, ...] | list[str] | None = None,
         resource_class: str | None = None,
         allowed_env: tuple[str, ...] | None = None,
+        requires_real_aedt: bool = False,
+        input_overrides: dict[str, Any] | None = None,
     ) -> None:
         if resource_classes is not None and resource_class is not None:
             raise ValueError(
@@ -137,6 +147,8 @@ class InMemoryWorkerRegistry:
                     if allowed_env is None
                     else tuple(allowed_env)
                 ),
+                requires_real_aedt=requires_real_aedt,
+                input_overrides=dict(input_overrides or {}),
             )
         )
 
@@ -207,6 +219,26 @@ class InMemoryWorkerRegistry:
         attempt_id: str | None,
         cancel_requested,
     ) -> WorkerExecutionResult:
+        if registration.requires_real_aedt and not self.allow_real_aedt:
+            return WorkerExecutionResult(
+                job.job_id,
+                JobStatus.FAILED,
+                {},
+                [],
+                JobError(
+                    ErrorClass.INVALID_INPUT,
+                    (
+                        "real AEDT execution is disabled by "
+                        "the execution profile"
+                    ),
+                    False,
+                    {"code": "real_aedt_disabled"},
+                ),
+                {
+                    "execution_mode": "local_process",
+                    "process_started": False,
+                },
+            )
         if self.harness is None:
             return _configuration_failure(
                 job.job_id,
@@ -233,7 +265,10 @@ class InMemoryWorkerRegistry:
             entrypoint=registration.entrypoint,
             timeout_seconds=job.timeout_seconds,
             heartbeat_interval_seconds=self.heartbeat_interval_seconds,
-            input_payload=dict(job.input_payload),
+            input_payload=_deep_merge(
+                dict(job.input_payload),
+                registration.input_overrides,
+            ),
             workspace=str(workspace.root),
         )
         result = self.harness.execute(
@@ -312,6 +347,22 @@ def _configuration_failure(job_id: str, message: str) -> WorkerExecutionResult:
         [],
         JobError(ErrorClass.INVALID_INPUT, message, False),
     )
+
+
+def _deep_merge(
+    base: dict[str, Any],
+    overrides: dict[str, Any],
+) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in overrides.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(
+                dict(merged[key]),
+                value,
+            )
+        else:
+            merged[key] = value
+    return merged
 
 
 def _error_class(value: str) -> ErrorClass:

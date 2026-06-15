@@ -1140,7 +1140,7 @@ git commit -m "feat: query bounded solve artifacts"
 - Create: `tests/test_agent_cli_artifact_query.py`
 - Modify: `tests/test_agent_worker_registry.py`
 
-- [ ] **Step 1：写 Profile 失败测试**
+- [x] **Step 1：写 Profile 失败测试**
 
 新增字段：
 
@@ -1170,7 +1170,7 @@ def test_execution_profile_rejects_empty_aedt_version():
 
 `aedt_version` 和 `aedt_non_graphical` 是执行时权威值。Job payload 中的 `aedt` 只用于任务草稿和审批可见性；`advance/resume/run-graph` 加载的 profile 必须在创建 `HarnessRequest` 时覆盖这两个字段。
 
-- [ ] **Step 2：写 Mission create 失败测试**
+- [x] **Step 2：写 Mission create 失败测试**
 
 ```python
 def test_cli_creates_real_solve_job_without_output_directory(tmp_path):
@@ -1213,7 +1213,7 @@ def test_cli_creates_real_solve_job_without_output_directory(tmp_path):
     assert "artifact_dir" not in job["input_payload"]
 ```
 
-- [ ] **Step 3：写 safe profile 阻止执行测试**
+- [x] **Step 3：写 safe profile 阻止执行测试**
 
 ```python
 def test_cli_safe_profile_blocks_real_solve_before_process_launch(tmp_path):
@@ -1263,7 +1263,7 @@ def test_registry_blocks_real_aedt_process_before_harness_execution():
     assert harness.calls == []
 ```
 
-- [ ] **Step 4：写 profile 覆盖 Harness 输入测试**
+- [x] **Step 4：写 profile 覆盖 Harness 输入测试**
 
 ```python
 def test_process_registration_overrides_aedt_environment_from_profile():
@@ -1305,7 +1305,7 @@ def test_process_registration_overrides_aedt_environment_from_profile():
     }
 ```
 
-- [ ] **Step 5：实现 CLI 与 Registry policy**
+- [x] **Step 5：实现 CLI 与 Registry policy**
 
 parser 增加：
 
@@ -1434,7 +1434,7 @@ return (
 )
 ```
 
-- [ ] **Step 6：实现 artifact-query CLI**
+- [x] **Step 6：实现 artifact-query CLI**
 
 parser：
 
@@ -1451,7 +1451,7 @@ artifact_query.add_argument("--target", type=float)
 
 handler 使用 `ArtifactQueryService`。S 参数默认 target `-20.0`，TDR 默认 target `100.0`。
 
-- [ ] **Step 7：测试并提交**
+- [x] **Step 7：测试并提交**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q tests/test_agent_execution_profile.py tests/test_agent_cli_brd_mission.py tests/test_agent_cli_artifact_query.py tests/test_agent_cli_mission_loop.py tests/test_agent_worker_registry.py

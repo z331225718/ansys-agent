@@ -20,13 +20,16 @@ from aedt_agent.infrastructure.harness import (
 )
 
 
-def _job(capability: str = "fake.echo") -> JobRecord:
+def _job(
+    capability: str = "fake.echo",
+    input_payload: dict | None = None,
+) -> JobRecord:
     return JobRecord.create(
         job_id="job-1",
         mission_id="mission-1",
         capability=capability,
         idempotency_key="k1",
-        input_payload={"value": 3},
+        input_payload=input_payload or {"value": 3},
         timeout_seconds=30,
         retry_limit=1,
     )
@@ -178,6 +181,112 @@ def test_process_registration_accepts_composite_resources():
     )
 
     assert registration.validate().resource_classes == ("license", "aedt")
+
+
+class RecordingHarness:
+    def __init__(self):
+        self.calls = []
+        self.workspace_policy = type(
+            "WorkspacePolicy",
+            (),
+            {
+                "create_attempt": staticmethod(
+                    lambda mission_id, job_id, attempt_id: type(
+                        "Workspace",
+                        (),
+                        {"root": Path("workspace")},
+                    )()
+                )
+            },
+        )()
+
+    def execute(
+        self,
+        request,
+        *,
+        allowed_env,
+        resource_classes,
+        cancel_requested,
+    ):
+        self.calls.append(
+            {
+                "request": request,
+                "allowed_env": tuple(allowed_env),
+                "resource_classes": tuple(resource_classes),
+            }
+        )
+        return HarnessResult.create(
+            harness_run_id=request.harness_run_id,
+            job_id=request.job_id,
+            status=HarnessStatus.SUCCEEDED,
+        )
+
+
+def test_registry_blocks_real_aedt_before_harness_execution():
+    harness = RecordingHarness()
+    registry = InMemoryWorkerRegistry(
+        harness=harness,
+        allow_real_aedt=False,
+    )
+    registry.register_process(
+        "brd.local_cut.solve",
+        "tests.fixtures.fake_real_solve:"
+        "run_fake_real_solve_worker",
+        resource_classes=("license", "aedt"),
+        requires_real_aedt=True,
+    )
+
+    result = registry.execute(
+        _job("brd.local_cut.solve"),
+        WorkerContext("worker-1"),
+        attempt_id="attempt-1",
+    )
+
+    assert result.status == JobStatus.FAILED
+    assert result.error is not None
+    assert result.error.error_class == ErrorClass.INVALID_INPUT
+    assert result.error.details["code"] == "real_aedt_disabled"
+    assert harness.calls == []
+
+
+def test_process_registration_overrides_aedt_environment_from_profile():
+    harness = RecordingHarness()
+    registry = InMemoryWorkerRegistry(
+        harness=harness,
+        allow_real_aedt=True,
+    )
+    registry.register_process(
+        "brd.local_cut.solve",
+        "tests.fixtures.fake_real_solve:"
+        "run_fake_real_solve_worker",
+        resource_classes=("license", "aedt"),
+        requires_real_aedt=True,
+        input_overrides={
+            "aedt": {
+                "version": "2025.2",
+                "non_graphical": True,
+            }
+        },
+    )
+
+    registry.execute(
+        _job(
+            "brd.local_cut.solve",
+            input_payload={
+                "aedt": {
+                    "version": "2026.1",
+                    "non_graphical": False,
+                }
+            },
+        ),
+        WorkerContext("worker-1"),
+        attempt_id="attempt-1",
+    )
+
+    assert harness.calls[0]["request"].input_payload["aedt"] == {
+        "version": "2025.2",
+        "non_graphical": True,
+    }
 
 
 @pytest.mark.parametrize(

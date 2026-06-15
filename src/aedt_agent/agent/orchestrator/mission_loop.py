@@ -267,7 +267,11 @@ class MissionLoopController:
     @staticmethod
     def _requires_real_aedt(job) -> bool:
         adapter_mode = str(job.input_payload.get("adapter_mode", "")).lower()
-        return adapter_mode in {"real_build", "real_aedt"} or ".real" in job.capability
+        return (
+            adapter_mode in {"real_build", "real_aedt"}
+            or job.capability == "brd.local_cut.solve"
+            or ".real" in job.capability
+        )
 
     def _move_to_waiting_worker(self, mission_id: str) -> None:
         mission = self.runtime.get_mission(mission_id)

@@ -111,3 +111,46 @@ def test_cli_create_brd_real_build_payload_with_recorded_analysis(tmp_path):
         "ansysem_root": "",
         "awp_root": "",
     }
+
+
+def test_cli_creates_real_solve_job_without_output_directory(tmp_path):
+    project = tmp_path / "approved.aedt"
+    project.write_text("approved project", encoding="utf-8")
+
+    created = _run(
+        tmp_path,
+        "mission",
+        "create",
+        "--goal",
+        "求解 approved local cut",
+        "--brd-real-solve",
+        "--project",
+        str(project),
+        "--setup",
+        "Setup1",
+        "--sweep",
+        "Sweep1",
+        "--tdr-expression",
+        "TDRZt(P1,P1)",
+        "--expected-port-count",
+        "2",
+    )
+
+    assert created.returncode == 0, created.stderr
+    mission_id = json.loads(created.stdout)["mission_id"]
+    status = json.loads(
+        _run(
+            tmp_path,
+            "mission",
+            "status",
+            "--mission-id",
+            mission_id,
+        ).stdout
+    )
+    job = status["jobs"][0]
+    assert job["capability"] == "brd.local_cut.solve"
+    assert job["timeout_seconds"] == 7200
+    assert "artifact_dir" not in job["input_payload"]
+    assert job["input_payload"]["approval_reason"] == (
+        "approve_real_brd_solve"
+    )
