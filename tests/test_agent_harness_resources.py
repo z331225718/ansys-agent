@@ -49,6 +49,41 @@ def test_license_and_aedt_resource_limits_are_independent():
             pass
 
 
+def test_resource_gate_acquires_multiple_resources_in_stable_order():
+    gate = ResourceGate(
+        max_concurrent_cpu=1,
+        max_concurrent_aedt=1,
+        max_concurrent_license_jobs=1,
+    )
+
+    with gate.acquire_many(
+        ("aedt", "license", "aedt"),
+        timeout_seconds=1,
+    ) as lease:
+        assert lease.resource_classes == ("license", "aedt")
+        assert set(lease.waited_seconds) == {"license", "aedt"}
+
+
+def test_resource_gate_releases_partial_acquisition_on_timeout():
+    gate = ResourceGate(
+        max_concurrent_cpu=1,
+        max_concurrent_aedt=1,
+        max_concurrent_license_jobs=1,
+    )
+    held = gate.acquire("aedt", timeout_seconds=1)
+    try:
+        with pytest.raises(ResourceAcquireTimeout, match="aedt"):
+            gate.acquire_many(
+                ("license", "aedt"),
+                timeout_seconds=0.01,
+            )
+    finally:
+        held.release()
+
+    with gate.acquire("license", timeout_seconds=1):
+        pass
+
+
 def test_resource_gate_times_out_when_slot_is_occupied():
     gate = ResourceGate(max_concurrent_cpu=1, max_concurrent_aedt=1, max_concurrent_license_jobs=1)
 

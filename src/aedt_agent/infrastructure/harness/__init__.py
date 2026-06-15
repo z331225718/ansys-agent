@@ -15,6 +15,7 @@ from aedt_agent.infrastructure.harness.workspace import (
     build_child_environment,
 )
 from aedt_agent.infrastructure.harness.resources import (
+    CompositeResourceLease,
     ResourceAcquireTimeout,
     ResourceGate,
     ResourceLease,
@@ -44,6 +45,7 @@ __all__ = [
     "HarnessWorkspacePolicy",
     "LocalProcessHarness",
     "ProcessTreeController",
+    "CompositeResourceLease",
     "ResourceAcquireTimeout",
     "ResourceGate",
     "ResourceLease",

@@ -131,7 +131,14 @@ def test_registry_uses_default_allowed_environment_for_process_worker():
                 },
             )()
 
-        def execute(self, request, *, allowed_env, resource_class, cancel_requested):
+        def execute(
+            self,
+            request,
+            *,
+            allowed_env,
+            resource_classes,
+            cancel_requested,
+        ):
             self.allowed_env = tuple(allowed_env)
             return HarnessResult.create(
                 harness_run_id=request.harness_run_id,
@@ -159,13 +166,32 @@ def test_registry_uses_default_allowed_environment_for_process_worker():
     assert harness.allowed_env == ("PYTHONPATH", "AWP_ROOT261")
 
 
+def test_process_registration_accepts_composite_resources():
+    registration = WorkerRegistration(
+        capability="brd.local_cut.solve",
+        execution_mode="local_process",
+        entrypoint=(
+            "aedt_agent.agent.workers.brd_real_solve:"
+            "run_brd_real_solve_worker"
+        ),
+        resource_classes=("license", "aedt"),
+    )
+
+    assert registration.validate().resource_classes == ("license", "aedt")
+
+
 @pytest.mark.parametrize(
     "registration",
     [
         WorkerRegistration("fake", "in_process"),
         WorkerRegistration("fake", "local_process"),
         WorkerRegistration("fake", "unknown", handler=lambda job, context: {}),
-        WorkerRegistration("fake", "in_process", handler=lambda job, context: {}, resource_class="gpu"),
+        WorkerRegistration(
+            "fake",
+            "in_process",
+            handler=lambda job, context: {},
+            resource_classes=("gpu",),
+        ),
     ],
 )
 def test_worker_registration_rejects_incomplete_or_unsafe_modes(registration):

@@ -45,7 +45,7 @@ class WorkerRegistration:
     execution_mode: str
     handler: WorkerFn | None = None
     entrypoint: str = ""
-    resource_class: str = "cpu"
+    resource_classes: tuple[str, ...] = ("cpu",)
     allowed_env: tuple[str, ...] = ()
 
     def validate(self) -> "WorkerRegistration":
@@ -53,8 +53,17 @@ class WorkerRegistration:
             raise ValueError("worker capability is required")
         if self.execution_mode not in {"in_process", "local_process"}:
             raise ValueError(f"unsupported worker execution_mode: {self.execution_mode}")
-        if self.resource_class not in {"cpu", "aedt", "license"}:
-            raise ValueError(f"unsupported worker resource_class: {self.resource_class}")
+        if not self.resource_classes:
+            raise ValueError("worker resource_classes must not be empty")
+        unsupported = [
+            resource_class
+            for resource_class in self.resource_classes
+            if resource_class not in {"cpu", "aedt", "license"}
+        ]
+        if unsupported:
+            raise ValueError(
+                f"unsupported worker resource_class: {unsupported[0]}"
+            )
         if self.execution_mode == "in_process" and self.handler is None:
             raise ValueError("in_process worker requires handler")
         if self.execution_mode == "local_process" and not self.entrypoint.strip():
@@ -89,15 +98,25 @@ class InMemoryWorkerRegistry:
         capability: str,
         entrypoint: str,
         *,
-        resource_class: str = "cpu",
+        resource_classes: tuple[str, ...] | list[str] | None = None,
+        resource_class: str | None = None,
         allowed_env: tuple[str, ...] | None = None,
     ) -> None:
+        if resource_classes is not None and resource_class is not None:
+            raise ValueError(
+                "provide resource_classes or resource_class, not both"
+            )
+        selected_resources = (
+            (resource_class,)
+            if resource_class is not None
+            else tuple(resource_classes or ("cpu",))
+        )
         self._register(
             WorkerRegistration(
                 capability=capability,
                 execution_mode="local_process",
                 entrypoint=entrypoint,
-                resource_class=resource_class,
+                resource_classes=selected_resources,
                 allowed_env=(
                     self.default_allowed_env
                     if allowed_env is None
@@ -205,7 +224,7 @@ class InMemoryWorkerRegistry:
         result = self.harness.execute(
             request,
             allowed_env=registration.allowed_env,
-            resource_class=registration.resource_class,
+            resource_classes=registration.resource_classes,
             cancel_requested=cancel_requested,
         )
         metadata = {

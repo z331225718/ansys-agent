@@ -5,6 +5,9 @@ import time
 from dataclasses import dataclass
 
 
+RESOURCE_ORDER = {"license": 0, "aedt": 1, "cpu": 2}
+
+
 class ResourceAcquireTimeout(TimeoutError):
     def __init__(self, resource_class: str, timeout_seconds: float):
         super().__init__(
@@ -32,6 +35,32 @@ class ResourceLease:
             return
         self._released = True
         self._semaphore.release()
+
+
+@dataclass
+class CompositeResourceLease:
+    leases: tuple[ResourceLease, ...]
+
+    @property
+    def resource_classes(self) -> tuple[str, ...]:
+        return tuple(lease.resource_class for lease in self.leases)
+
+    @property
+    def waited_seconds(self) -> dict[str, float]:
+        return {
+            lease.resource_class: lease.waited_seconds
+            for lease in self.leases
+        }
+
+    def __enter__(self) -> "CompositeResourceLease":
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        self.release()
+
+    def release(self) -> None:
+        for lease in reversed(self.leases):
+            lease.release()
 
 
 class ResourceGate:
@@ -67,3 +96,36 @@ class ResourceGate:
         if not acquired:
             raise ResourceAcquireTimeout(resource_class, timeout_seconds)
         return ResourceLease(resource_class, waited, semaphore)
+
+    def acquire_many(
+        self,
+        resource_classes: tuple[str, ...] | list[str],
+        timeout_seconds: float,
+    ) -> CompositeResourceLease:
+        if timeout_seconds < 0:
+            raise ValueError("resource timeout_seconds must be non-negative")
+        normalized = tuple(
+            sorted(
+                set(resource_classes),
+                key=lambda name: RESOURCE_ORDER.get(name, 99),
+            )
+        )
+        if not normalized:
+            raise ValueError("resource_classes must not be empty")
+        unknown = [
+            name for name in normalized
+            if name not in RESOURCE_ORDER
+        ]
+        if unknown:
+            raise ValueError(f"unsupported resource class: {unknown[0]}")
+        deadline = time.monotonic() + timeout_seconds
+        acquired: list[ResourceLease] = []
+        try:
+            for name in normalized:
+                remaining = max(0.0, deadline - time.monotonic())
+                acquired.append(self.acquire(name, remaining))
+        except Exception:
+            for lease in reversed(acquired):
+                lease.release()
+            raise
+        return CompositeResourceLease(tuple(acquired))

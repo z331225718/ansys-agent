@@ -27,6 +27,7 @@ def _execute(
     input_payload: dict | None = None,
     timeout_seconds: int = 10,
     cancel_requested=None,
+    resource_classes: tuple[str, ...] | None = None,
 ):
     policy = HarnessWorkspacePolicy(tmp_path / "runs")
     workspace = policy.create_attempt("mission-1", "job-1", "attempt-1")
@@ -51,12 +52,15 @@ def _execute(
             max_concurrent_license_jobs=1,
         ),
     )
-    return harness.execute(
-        request,
-        allowed_env=(),
-        resource_class="cpu",
-        cancel_requested=cancel_requested,
-    )
+    options = {
+        "allowed_env": (),
+        "cancel_requested": cancel_requested,
+    }
+    if resource_classes is None:
+        options["resource_class"] = "cpu"
+    else:
+        options["resource_classes"] = resource_classes
+    return harness.execute(request, **options)
 
 
 def test_local_process_harness_captures_logs_and_result(tmp_path):
@@ -80,8 +84,24 @@ def test_local_process_harness_registers_protocol_files_as_artifacts(tmp_path):
 
     artifact_names = {Path(path).name for path in result.artifact_refs}
     assert {"request.json", "result.json", "stdout.log", "stderr.log"} <= artifact_names
-    assert result.metadata["resource_class"] == "cpu"
-    assert result.metadata["resource_wait_seconds"] >= 0
+    assert result.metadata["resource_classes"] == ["cpu"]
+    assert result.metadata["resource_wait_seconds"]["cpu"] >= 0
+
+
+def test_local_process_records_composite_resource_metadata(tmp_path):
+    result = _execute(
+        tmp_path,
+        "tests.fixtures.process_workers:echo_worker",
+        input_payload={"value": 2},
+        resource_classes=("license", "aedt"),
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert result.metadata["resource_classes"] == ["license", "aedt"]
+    assert set(result.metadata["resource_wait_seconds"]) == {
+        "license",
+        "aedt",
+    }
 
 
 def test_local_process_harness_preserves_structured_worker_failure(tmp_path):

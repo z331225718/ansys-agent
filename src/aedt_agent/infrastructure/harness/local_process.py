@@ -51,9 +51,19 @@ class LocalProcessHarness:
         request: HarnessRequest,
         *,
         allowed_env: tuple[str, ...] | list[str] = (),
-        resource_class: str = "cpu",
+        resource_classes: tuple[str, ...] | list[str] | None = None,
+        resource_class: str | None = None,
         cancel_requested=None,
     ) -> HarnessResult:
+        if resource_classes is not None and resource_class is not None:
+            raise ValueError(
+                "provide resource_classes or resource_class, not both"
+            )
+        selected_resources = (
+            (resource_class,)
+            if resource_class is not None
+            else tuple(resource_classes or ("cpu",))
+        )
         execution_started = time.monotonic()
         workspace = self._workspace_for_request(request)
         workspace.request_path.write_text(
@@ -63,8 +73,8 @@ class LocalProcessHarness:
         )
         started_at = _utc_now()
         try:
-            lease = self.resource_gate.acquire(
-                resource_class,
+            lease = self.resource_gate.acquire_many(
+                selected_resources,
                 timeout_seconds=request.timeout_seconds,
             )
         except ResourceAcquireTimeout as exc:
@@ -76,7 +86,9 @@ class LocalProcessHarness:
                 message=str(exc),
                 retryable=True,
                 termination_reason="resource_timeout",
-                metadata={"resource_class": resource_class},
+                metadata={
+                    "resource_classes": list(selected_resources),
+                },
             )
 
         with lease:
@@ -136,7 +148,7 @@ class LocalProcessHarness:
             "heartbeat_path": str(workspace.heartbeat_path),
             "stdout_path": str(workspace.stdout_path),
             "stderr_path": str(workspace.stderr_path),
-            "resource_class": resource_class,
+            "resource_classes": list(lease.resource_classes),
             "resource_wait_seconds": lease.waited_seconds,
             "pid": process.pid,
         }
