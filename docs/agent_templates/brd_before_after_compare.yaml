@@ -1,0 +1,109 @@
+id: brd_before_after_compare
+version: 1
+description: Score two channel Touchstone/TDR pairs and compare before vs after.
+nodes:
+  - id: planner
+    role: planner
+    kind: llm
+    max_runs: 1
+  - id: score_before
+    role: worker
+    kind: worker
+    capability: brd.channel.score
+    input_schema: channel_score_request
+    output_schema: channel_score_result
+    max_runs: 1
+  - id: score_after
+    role: worker
+    kind: worker
+    capability: brd.channel.score
+    input_schema: channel_score_request
+    output_schema: channel_score_result
+    max_runs: 1
+  - id: compare_evidence
+    role: worker
+    kind: worker
+    capability: brd.evidence.compare
+    input_schema: evidence_compare_request
+    output_schema: evidence_compare_result
+    join: all
+    max_runs: 1
+  - id: scorecard
+    role: scorecard
+    kind: program
+    input_schema: evidence_compare_result
+    output_schema: scorecard_report
+    max_runs: 1
+  - id: approval_gate
+    role: approval_gate
+    kind: human_gate
+    input_schema: scorecard_report
+    output_schema: approval_decision
+    max_runs: 1
+edges:
+  - id: plan-to-score-before
+    from: planner
+    to: score_before
+    on: fan_out
+    max_traversals: 1
+  - id: plan-to-score-after
+    from: planner
+    to: score_after
+    on: fan_out
+    max_traversals: 1
+  - id: score-before-to-compare
+    from: score_before
+    to: compare_evidence
+    on: succeeded
+    max_traversals: 1
+  - id: score-after-to-compare
+    from: score_after
+    to: compare_evidence
+    on: succeeded
+    max_traversals: 1
+  - id: compare-to-scorecard
+    from: compare_evidence
+    to: scorecard
+    on: succeeded
+    max_traversals: 1
+  - id: scorecard-to-approval
+    from: scorecard
+    to: approval_gate
+    on: passed
+    max_traversals: 1
+  - id: scorecard-failed-to-approval
+    from: scorecard
+    to: approval_gate
+    on: failed
+    max_traversals: 1
+handoffs:
+  channel_score_request:
+    required_fields:
+      - touchstone_path
+      - tdr_path
+      - artifact_dir
+  channel_score_result:
+    required_fields:
+      - status
+      - score
+      - evidence_summary
+      - artifact_refs
+  evidence_compare_request:
+    required_fields:
+      - before_score_path
+      - after_score_path
+      - artifact_dir
+  evidence_compare_result:
+    required_fields:
+      - status
+      - comparison
+      - evidence_summary
+      - artifact_refs
+  scorecard_report:
+    required_fields:
+      - status
+      - checks
+  approval_decision:
+    required_fields:
+      - approval_id
+      - decision

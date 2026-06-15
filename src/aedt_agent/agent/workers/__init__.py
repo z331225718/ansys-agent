@@ -5,6 +5,11 @@ from aedt_agent.agent.workers.brd_channel_score import (
     build_brd_channel_score_job_input,
     run_brd_channel_score_worker,
 )
+from aedt_agent.agent.workers.brd_evidence_compare import (
+    BRD_EVIDENCE_COMPARE_CAPABILITY,
+    build_evidence_compare_job_input,
+    run_evidence_compare_worker,
+)
 from aedt_agent.agent.workers.brd_local_cut import (
     BRD_LOCAL_CUT_BUILD_CAPABILITY,
     build_brd_local_cut_job_input,
@@ -31,6 +36,7 @@ from aedt_agent.agent.workers.registry import (
 
 __all__ = [
     "BRD_CHANNEL_SCORE_CAPABILITY",
+    "BRD_EVIDENCE_COMPARE_CAPABILITY",
     "BRD_LOCAL_CUT_BUILD_CAPABILITY",
     "BRD_RECORDED_VOID_ACTION_CAPABILITY",
     "BRD_REAL_SOLVE_CAPABILITY",
