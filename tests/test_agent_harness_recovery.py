@@ -4,8 +4,17 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from aedt_agent.agent.graph_runner import create_graph_run, resume_graph
-from aedt_agent.agent.graph_template import graph_template_from_mapping
+from aedt_agent.agent.approvals import ApprovalService
+from aedt_agent.agent.graph_runner import (
+    advance_graph,
+    create_graph_run,
+    resume_graph,
+    run_graph,
+)
+from aedt_agent.agent.graph_template import (
+    graph_template_from_mapping,
+    load_graph_template,
+)
 from aedt_agent.agent.mission import (
     JobAttemptRecord,
     JobAttemptStatus,
@@ -15,7 +24,14 @@ from aedt_agent.agent.mission import (
     NodeRunStatus,
 )
 from aedt_agent.agent.orchestrator import AgentRuntime
-from aedt_agent.agent.workers import InMemoryWorkerRegistry
+from aedt_agent.agent.workers import (
+    BRD_CHANNEL_SCORE_CAPABILITY,
+    BRD_REAL_SOLVE_CAPABILITY,
+    InMemoryWorkerRegistry,
+    WorkerContext,
+    build_brd_real_solve_job_input,
+    run_brd_channel_score_worker,
+)
 from aedt_agent.infrastructure import SQLiteMissionStore
 from aedt_agent.infrastructure.harness import (
     HARNESS_PROTOCOL_VERSION,
@@ -28,6 +44,9 @@ from aedt_agent.infrastructure.harness import (
 from aedt_agent.infrastructure.harness.recovery import (
     HarnessRecoveryClassification,
     HarnessRecoveryScanner,
+)
+from tests.fixtures.fake_real_solve import (
+    run_fake_real_solve_worker,
 )
 
 
@@ -53,6 +72,11 @@ def _write_attempt(
     pid: int = 999999,
     heartbeat_age_seconds: int = 120,
     result: HarnessResult | None = None,
+    capability: str = "fake.echo",
+    entrypoint: str = (
+        "tests.fixtures.process_workers:echo_worker"
+    ),
+    input_payload: dict | None = None,
 ) -> Path:
     policy = HarnessWorkspacePolicy(root)
     workspace = policy.create_attempt(mission_id, job_id, attempt_id)
@@ -62,11 +86,11 @@ def _write_attempt(
         job_id=job_id,
         attempt_id=attempt_id,
         worker_id="worker-1",
-        capability="fake.echo",
-        entrypoint="tests.fixtures.process_workers:echo_worker",
+        capability=capability,
+        entrypoint=entrypoint,
         timeout_seconds=30,
         heartbeat_interval_seconds=1,
-        input_payload={"value": 1},
+        input_payload=input_payload or {"value": 1},
         workspace=str(workspace.root),
     )
     workspace.request_path.write_text(
@@ -221,6 +245,75 @@ def test_runtime_does_not_terminate_stale_attempt_without_explicit_flag(tmp_path
 
     assert report["stale_attempt_ids"] == ["attempt-1"]
     assert controller.terminated_pids == []
+
+
+def test_runtime_terminates_stale_attempt_and_registers_protocol_artifacts(
+    tmp_path,
+):
+    store = SQLiteMissionStore(tmp_path / "mission.db")
+    harness = LocalProcessHarness(
+        HarnessWorkspacePolicy(tmp_path / "harness")
+    )
+    runtime = AgentRuntime(
+        store,
+        registry=InMemoryWorkerRegistry(harness=harness),
+    )
+    mission = runtime.create_mission("goal", [], [])
+    job = runtime.create_job(
+        mission.mission_id,
+        BRD_REAL_SOLVE_CAPABILITY,
+        "real-solve:stale",
+        {},
+        retry_limit=0,
+    )
+    store.acquire_job_lease(
+        job.job_id,
+        "worker-1",
+        lease_seconds=60,
+    )
+    attempt = store.create_job_attempt(
+        JobAttemptRecord.create(
+            "attempt-stale",
+            mission.mission_id,
+            job.job_id,
+            1,
+            "worker-1",
+        )
+    )
+    workspace = _write_attempt(
+        tmp_path / "harness",
+        mission_id=mission.mission_id,
+        job_id=job.job_id,
+        attempt_id=attempt.attempt_id,
+        pid=123,
+        capability=BRD_REAL_SOLVE_CAPABILITY,
+        entrypoint=(
+            "tests.fixtures.process_workers:"
+            "spawn_child_worker"
+        ),
+        input_payload={
+            "pid_path": str(tmp_path / "stale-child.pid")
+        },
+    )
+    (workspace / "stdout.log").write_text("", encoding="utf-8")
+    (workspace / "stderr.log").write_text("", encoding="utf-8")
+    controller = FakeProcessController({123})
+
+    report = runtime.recover_harness_attempts(
+        mission.mission_id,
+        terminate_stale=True,
+        process_controller=controller,
+    )
+
+    assert report["terminated_pids"] == [123]
+    assert controller.is_alive(123) is False
+    manifests = store.list_artifact_manifests(mission.mission_id)
+    assert {
+        "request.json",
+        "result.json",
+        "stdout.log",
+        "stderr.log",
+    } <= {Path(item.path).name for item in manifests}
 
 
 def test_recovered_graph_worker_retries_same_node_run(tmp_path, monkeypatch):
@@ -392,6 +485,179 @@ def test_recovery_adopts_completed_child_result_without_rerunning_worker(tmp_pat
     assert report["node_runs"][0]["node_run_id"] == node_run.node_run_id
     assert report["node_runs"][0]["output_payload"]["value"] == 3
     assert [item.attempt_number for item in store.list_job_attempts(job.job_id)] == [1]
+
+
+def test_recovery_adopts_completed_real_solve_without_second_execution(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("PYTHONPATH", str(Path.cwd()))
+    store = SQLiteMissionStore(tmp_path / "mission.db")
+    harness = LocalProcessHarness(
+        HarnessWorkspacePolicy(tmp_path / "harness")
+    )
+    registry = InMemoryWorkerRegistry(
+        harness=harness,
+        heartbeat_interval_seconds=1,
+        allow_real_aedt=True,
+    )
+    registry.register_process(
+        BRD_REAL_SOLVE_CAPABILITY,
+        (
+            "tests.fixtures.fake_real_solve:"
+            "run_fake_real_solve_worker"
+        ),
+        resource_classes=("license", "aedt"),
+        allowed_env=("PYTHONPATH",),
+        requires_real_aedt=True,
+    )
+    registry.register(
+        BRD_CHANNEL_SCORE_CAPABILITY,
+        run_brd_channel_score_worker,
+    )
+    runtime = AgentRuntime(store, registry=registry)
+    mission = runtime.create_mission("real solve recovery", [], [])
+    project = tmp_path / "approved.aedt"
+    project.write_text("approved project", encoding="utf-8")
+    payload = build_brd_real_solve_job_input(
+        project_path=project,
+        setup_name="Setup1",
+        sweep_name="Sweep1",
+        tdr_expression="TDRZt(P1,P1)",
+        expected_port_count=2,
+        aedt={"version": "2026.1", "non_graphical": True},
+    )
+    job = runtime.create_job(
+        mission.mission_id,
+        BRD_REAL_SOLVE_CAPABILITY,
+        "real-solve:recovery",
+        payload,
+        timeout_seconds=30,
+        retry_limit=0,
+    )
+    template = load_graph_template("brd_real_solve_evidence")
+    waiting = run_graph(
+        runtime,
+        mission.mission_id,
+        template,
+        initial_payload=payload,
+    )
+    approval_run = next(
+        run
+        for run in waiting["node_runs"]
+        if run["node_id"] == "model_approval_gate"
+    )
+    ApprovalService(store).approve(
+        approval_run["output_payload"]["approval_id"],
+        "approve",
+    )
+    ready = advance_graph(
+        runtime,
+        waiting["graph_run"]["graph_run_id"],
+    )
+    assert ready["graph_run"]["current_node_id"] == (
+        "real_solve_worker"
+    )
+    handoff = next(
+        item
+        for item in store.list_graph_handoffs(
+            waiting["graph_run"]["graph_run_id"]
+        )
+        if item.to_node == "real_solve_worker"
+        and item.status.value == "pending"
+    )
+    node_run = store.create_node_run(
+        NodeRunRecord.create(
+            "node-run-real-solve-recovery",
+            waiting["graph_run"]["graph_run_id"],
+            mission.mission_id,
+            "real_solve_worker",
+            "worker",
+            "worker",
+            3,
+            dict(handoff.payload),
+        )
+    )
+    store.update_node_run_status(
+        node_run.node_run_id,
+        NodeRunStatus.RUNNING,
+    )
+    store.bind_graph_node_job(
+        waiting["graph_run"]["graph_run_id"],
+        "real_solve_worker",
+        1,
+        job.job_id,
+    )
+    store.acquire_job_lease(
+        job.job_id,
+        "worker-1",
+        lease_seconds=60,
+    )
+    attempt = store.create_job_attempt(
+        JobAttemptRecord.create(
+            "attempt-real-solve-completed",
+            mission.mission_id,
+            job.job_id,
+            1,
+            "worker-1",
+        )
+    )
+    workspace = _write_attempt(
+        tmp_path / "harness",
+        mission_id=mission.mission_id,
+        job_id=job.job_id,
+        attempt_id=attempt.attempt_id,
+        capability=BRD_REAL_SOLVE_CAPABILITY,
+        entrypoint=(
+            "tests.fixtures.fake_real_solve:"
+            "run_fake_real_solve_worker"
+        ),
+        input_payload=payload,
+    )
+    (workspace / "stdout.log").write_text("", encoding="utf-8")
+    (workspace / "stderr.log").write_text("", encoding="utf-8")
+    output = run_fake_real_solve_worker(
+        job,
+        WorkerContext(
+            "worker-1",
+            workspace=str(workspace),
+            artifacts_dir=str(workspace / "artifacts"),
+        ),
+    )
+    artifact_refs = output.pop("artifact_refs")
+    completed_result = HarnessResult.create(
+        harness_run_id="run-1",
+        job_id=job.job_id,
+        status=HarnessStatus.SUCCEEDED,
+        output_payload=output,
+        artifact_refs=artifact_refs,
+        exit_code=0,
+    )
+    (workspace / "result.json").write_text(
+        json.dumps(completed_result.to_json_dict()),
+        encoding="utf-8",
+    )
+
+    recovery = runtime.recover_harness_attempts(
+        mission.mission_id,
+        process_controller=FakeProcessController(set()),
+    )
+    report = resume_graph(
+        runtime,
+        waiting["graph_run"]["graph_run_id"],
+    )
+
+    assert recovery["adopted_completed_attempt_ids"] == [
+        attempt.attempt_id
+    ]
+    assert report["status"] == "succeeded"
+    assert len(store.list_job_attempts(job.job_id)) == 1
+    recovered_run = next(
+        run
+        for run in report["node_runs"]
+        if run["node_id"] == "real_solve_worker"
+    )
+    assert recovered_run["node_run_id"] == node_run.node_run_id
 
 
 def test_recovery_keeps_canceled_mission_terminal_when_child_result_completed(tmp_path):

@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import threading
+import time
 from pathlib import Path
 
 from aedt_agent.agent.approvals import ApprovalService
 from aedt_agent.agent.graph_runner import resume_graph, run_graph
-from aedt_agent.agent.graph_template import load_graph_template
+from aedt_agent.agent.graph_template import (
+    graph_template_from_mapping,
+    load_graph_template,
+)
+from aedt_agent.agent.mission import JobStatus, MissionState
 from aedt_agent.agent.orchestrator import AgentRuntime
 from aedt_agent.agent.scorecard import score_mission
 from aedt_agent.agent.workers import (
@@ -18,6 +24,7 @@ from aedt_agent.infrastructure import SQLiteMissionStore
 from aedt_agent.infrastructure.harness import (
     HarnessWorkspacePolicy,
     LocalProcessHarness,
+    ProcessTreeController,
     ResourceGate,
 )
 
@@ -71,6 +78,34 @@ def _initial_payload(tmp_path: Path) -> dict:
         rl_target_db=-20.0,
         tdr_target_ohm=100.0,
         aedt={"version": "2026.1", "non_graphical": True},
+    )
+
+
+def _single_real_solve_template():
+    return graph_template_from_mapping(
+        {
+            "id": "real_solve_process_control",
+            "version": 1,
+            "nodes": [
+                {
+                    "id": "real_solve_worker",
+                    "role": "worker",
+                    "kind": "worker",
+                    "capability": BRD_REAL_SOLVE_CAPABILITY,
+                    "input_schema": "solve_input",
+                    "output_schema": "solve_output",
+                }
+            ],
+            "edges": [],
+            "handoffs": {
+                "solve_input": {
+                    "required_fields": ["pid_path"],
+                },
+                "solve_output": {
+                    "required_fields": ["child_pid"],
+                },
+            },
+        }
     )
 
 
@@ -170,3 +205,148 @@ def test_real_solve_graph_resumes_same_run_and_scores_artifacts(
         tampered_checks["solve_manifest_verified"]["passed"]
         is False
     )
+
+
+def test_real_solve_timeout_stops_process_tree_and_fails_graph(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("PYTHONPATH", str(Path.cwd()))
+    store = SQLiteMissionStore(tmp_path / "mission.db")
+    harness = LocalProcessHarness(
+        HarnessWorkspacePolicy(tmp_path / "harness"),
+        termination_grace_seconds=1,
+    )
+    registry = InMemoryWorkerRegistry(
+        harness=harness,
+        heartbeat_interval_seconds=1,
+        allow_real_aedt=True,
+    )
+    registry.register_process(
+        BRD_REAL_SOLVE_CAPABILITY,
+        "tests.fixtures.process_workers:spawn_child_worker",
+        resource_classes=("license", "aedt"),
+        allowed_env=("PYTHONPATH",),
+        requires_real_aedt=True,
+    )
+    runtime = AgentRuntime(store, registry=registry)
+    mission = runtime.create_mission("timeout real solve", [], [])
+    marker = tmp_path / "real-solve-child.pid"
+    job = runtime.create_job(
+        mission.mission_id,
+        BRD_REAL_SOLVE_CAPABILITY,
+        "real-solve:timeout",
+        {"pid_path": str(marker)},
+        timeout_seconds=1,
+        retry_limit=0,
+    )
+    template = _single_real_solve_template()
+
+    report = run_graph(
+        runtime,
+        mission.mission_id,
+        template,
+        initial_payload={"pid_path": str(marker)},
+    )
+
+    assert report["status"] == "failed"
+    assert runtime.get_job(job.job_id).status == JobStatus.FAILED
+    attempt = store.list_job_attempts(job.job_id)[0]
+    assert attempt.status.value == "failed"
+    assert attempt.metadata["termination_reason"] == "wall_timeout"
+    node_run = report["node_runs"][0]
+    assert node_run["edge_decision"] == "failed"
+    assert marker.is_file()
+    child_pid = int(marker.read_text(encoding="utf-8"))
+    controller = ProcessTreeController()
+    deadline = time.monotonic() + 3
+    while controller.is_alive(child_pid) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert controller.is_alive(child_pid) is False
+    manifests = store.list_artifact_manifests(mission.mission_id)
+    assert {
+        "request.json",
+        "result.json",
+        "stdout.log",
+        "stderr.log",
+    } <= {Path(item.path).name for item in manifests}
+
+
+def test_canceling_real_solve_mission_stops_process_tree(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("PYTHONPATH", str(Path.cwd()))
+    store = SQLiteMissionStore(tmp_path / "mission.db")
+    harness = LocalProcessHarness(
+        HarnessWorkspacePolicy(tmp_path / "harness"),
+        termination_grace_seconds=1,
+    )
+    registry = InMemoryWorkerRegistry(
+        harness=harness,
+        heartbeat_interval_seconds=1,
+        allow_real_aedt=True,
+    )
+    registry.register_process(
+        BRD_REAL_SOLVE_CAPABILITY,
+        "tests.fixtures.process_workers:spawn_child_worker",
+        resource_classes=("license", "aedt"),
+        allowed_env=("PYTHONPATH",),
+        requires_real_aedt=True,
+    )
+    runtime = AgentRuntime(store, registry=registry)
+    mission = runtime.create_mission("cancel real solve", [], [])
+    marker = tmp_path / "canceled-real-solve-child.pid"
+    job = runtime.create_job(
+        mission.mission_id,
+        BRD_REAL_SOLVE_CAPABILITY,
+        "real-solve:cancel",
+        {"pid_path": str(marker)},
+        timeout_seconds=10,
+        retry_limit=0,
+    )
+    result_holder = {}
+    thread = threading.Thread(
+        target=lambda: result_holder.setdefault(
+            "report",
+            run_graph(
+                runtime,
+                mission.mission_id,
+                _single_real_solve_template(),
+                initial_payload={"pid_path": str(marker)},
+            ),
+        )
+    )
+
+    thread.start()
+    deadline = time.monotonic() + 5
+    while not marker.is_file() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert marker.is_file()
+    store.update_mission_state(
+        mission.mission_id,
+        MissionState.CANCELED,
+    )
+    thread.join(timeout=5)
+
+    assert thread.is_alive() is False
+    report = result_holder["report"]
+    assert report["status"] == "failed"
+    assert runtime.get_mission(mission.mission_id).state == (
+        MissionState.CANCELED
+    )
+    assert runtime.get_job(job.job_id).status == JobStatus.CANCELED
+    assert report["node_runs"][0]["edge_decision"] == "canceled"
+    child_pid = int(marker.read_text(encoding="utf-8"))
+    controller = ProcessTreeController()
+    deadline = time.monotonic() + 3
+    while controller.is_alive(child_pid) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert controller.is_alive(child_pid) is False
+    manifests = store.list_artifact_manifests(mission.mission_id)
+    assert {
+        "request.json",
+        "result.json",
+        "stdout.log",
+        "stderr.log",
+    } <= {Path(item.path).name for item in manifests}

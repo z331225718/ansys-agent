@@ -252,7 +252,7 @@ class LocalProcessHarness:
             for path in workspace.protocol_artifacts()
             if Path(path).exists()
         ]
-        return HarnessResult.create(
+        result = HarnessResult.create(
             harness_run_id=request.harness_run_id,
             job_id=request.job_id,
             status=status
@@ -272,6 +272,13 @@ class LocalProcessHarness:
             exit_code=exit_code,
             termination_reason=termination_reason,
             metadata=dict(metadata or {}),
+        )
+        _atomic_write_json(workspace.result_path, result.to_json_dict())
+        return replace(
+            result,
+            artifact_refs=_unique(
+                [*result.artifact_refs, str(workspace.result_path)]
+            ),
         )
 
 
@@ -340,6 +347,16 @@ class ProcessTreeController:
 
 def _unique(values: list[str]) -> list[str]:
     return list(dict.fromkeys(values))
+
+
+def _atomic_write_json(path: Path, payload: dict) -> None:
+    temporary_path = path.with_suffix(f"{path.suffix}.tmp")
+    temporary_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+        + "\n",
+        encoding="utf-8",
+    )
+    os.replace(temporary_path, path)
 
 
 def _utc_now() -> str:

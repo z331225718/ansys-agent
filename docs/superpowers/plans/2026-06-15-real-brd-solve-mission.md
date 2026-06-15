@@ -1772,7 +1772,7 @@ git commit -m "feat: orchestrate approved brd solve evidence graph"
 - Modify: `tests/test_agent_brd_real_solve_graph.py`
 - Create: `docs/real-brd-solve-smoke.md`
 
-- [ ] **Step 1：写 completed-result 恢复测试**
+- [x] **Step 1：写 completed-result 恢复测试**
 
 ```python
 def test_recovery_adopts_completed_real_solve_without_second_execution(
@@ -1795,7 +1795,7 @@ def test_recovery_adopts_completed_real_solve_without_second_execution(
 
 fixture 写入 solve Worker 合同的 `result.json`、Touchstone/TDR/manifest artifacts，并绑定 active NodeRun。
 
-- [ ] **Step 2：写 timeout/cancel 进程清理集成测试**
+- [x] **Step 2：写 timeout/cancel 进程清理集成测试**
 
 fake solve entrypoint 启动一个子进程并等待。分别：
 
@@ -1810,7 +1810,7 @@ fake solve entrypoint 启动一个子进程并等待。分别：
 - PID 不存活；
 - stdout/stderr/request/result artifacts 仍注册。
 
-- [ ] **Step 3：创建真实 smoke**
+- [x] **Step 3：创建真实 smoke**
 
 ```python
 RUN_REAL = os.getenv("ANSYS_AGENT_RUN_REAL_AEDT") == "1"
@@ -1851,7 +1851,7 @@ def test_real_aedt_solve_exports_touchstone_and_tdr(tmp_path):
     assert Path(result.solve_manifest_path).exists()
 ```
 
-- [ ] **Step 4：写真实 smoke 文档**
+- [x] **Step 4：写真实 smoke 文档**
 
 `docs/real-brd-solve-smoke.md` 记录：
 
@@ -1867,7 +1867,7 @@ $env:ANSYS_AGENT_REAL_AEDT_PORT_COUNT = "2"
 
 并说明该工程必须是 local-cut、已审批副本，不得指向生产原件。
 
-- [ ] **Step 5：跑 Agent 全量**
+- [x] **Step 5：跑 Agent 全量**
 
 ```powershell
 $files = Get-ChildItem tests\test_agent_*.py | ForEach-Object { $_.FullName }
@@ -1876,7 +1876,7 @@ $files = Get-ChildItem tests\test_agent_*.py | ForEach-Object { $_.FullName }
 
 Expected: 全部通过；真实 smoke 在未设置环境变量时 skip。
 
-- [ ] **Step 6：静态和架构审计**
+- [x] **Step 6：静态和架构审计**
 
 ```powershell
 .\.venv\Scripts\python.exe -m compileall -q src\aedt_agent\agent src\aedt_agent\infrastructure
@@ -1892,7 +1892,7 @@ Expected:
 - solve/evidence summary 只出现 `artifact_only` 标记，不出现 raw arrays；
 - 无 whitespace error。
 
-- [ ] **Step 7：跑全仓测试**
+- [x] **Step 7：跑全仓测试**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
@@ -1907,7 +1907,7 @@ Expected: 本阶段新增测试通过；现有 9 个已登记失败不扩大：
 - 1 个 Stage C1 Windows JSON fixture；
 - 1 个 Stage C demo script 缺失 fixture。
 
-- [ ] **Step 8：提交**
+- [x] **Step 8：提交**
 
 ```powershell
 git add tests/test_agent_brd_real_solve_smoke.py tests/test_agent_harness_recovery.py tests/test_agent_brd_real_solve_graph.py docs/real-brd-solve-smoke.md
@@ -1916,16 +1916,16 @@ git commit -m "test: verify recoverable real brd solve mission"
 
 ## 完成定义
 
-- [ ] `brd.local_cut.solve` 只能作为 local-process Worker 运行。
-- [ ] WorkerContext 的 artifact 目录来自受控 Harness workspace。
-- [ ] solve 同时获取 `license` 与 `aedt` 资源，部分获取失败会释放。
-- [ ] adapter 对 checkpoint 副本执行 `analyze_setup()`。
-- [ ] Touchstone 和 TDR 由 AEDT 导出并经过解析验证。
-- [ ] solved project、Touchstone、TDR、manifest、stdout/stderr 都注册为 artifact。
-- [ ] raw S 参数和 TDR 不进入 Mission/Evidence summary。
-- [ ] artifact query 每次最多返回 128 点，并记录 query Event。
-- [ ] approval 后恢复同一 GraphRun，再执行 solve/score/scorecard。
-- [ ] safe profile 在进程启动前阻止真实 AEDT。
-- [ ] completed Harness result 恢复时不重复 solve。
-- [ ] 真实 smoke 默认 skip，显式启用时可验证 AEDT 2026.1。
-- [ ] Agent 测试全绿，全仓失败集合不扩大。
+- [x] `brd.local_cut.solve` 只能作为 local-process Worker 运行。
+- [x] WorkerContext 的 artifact 目录来自受控 Harness workspace。
+- [x] solve 同时获取 `license` 与 `aedt` 资源，部分获取失败会释放。
+- [x] adapter 对 checkpoint 副本执行 `analyze_setup()`。
+- [x] Touchstone 和 TDR 由 AEDT 导出并经过解析验证。
+- [x] solved project、Touchstone、TDR、manifest、stdout/stderr 都注册为 artifact。
+- [x] raw S 参数和 TDR 不进入 Mission/Evidence summary。
+- [x] artifact query 每次最多返回 128 点，并记录 query Event。
+- [x] approval 后恢复同一 GraphRun，再执行 solve/score/scorecard。
+- [x] safe profile 在进程启动前阻止真实 AEDT。
+- [x] completed Harness result 恢复时不重复 solve。
+- [x] 真实 smoke 默认 skip，显式启用时可验证 AEDT 2026.1。
+- [x] Agent 测试全绿，全仓失败集合不扩大。

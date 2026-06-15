@@ -494,7 +494,27 @@ def run(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.group == "mission" and args.mission_command == "evidence":
-        _print_json({"evidence_packages": [evidence.to_json_dict() for evidence in runtime.store.list_evidence_packages(args.mission_id)]})
+        evidence_packages = runtime.store.list_evidence_packages(
+            args.mission_id
+        )
+        evidence_packages.sort(
+            key=lambda evidence: (
+                0
+                if isinstance(
+                    evidence.summary.get("scorecard"),
+                    dict,
+                )
+                else 1
+            )
+        )
+        _print_json(
+            {
+                "evidence_packages": [
+                    evidence.to_json_dict()
+                    for evidence in evidence_packages
+                ]
+            }
+        )
         return 0
 
     if args.group == "mission" and args.mission_command == "actions":

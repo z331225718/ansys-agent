@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -355,6 +356,12 @@ class AgentRuntime:
         report["adopted_completed_attempt_ids"].append(attempt.attempt_id)
 
     def _recover_interrupted_attempt(self, record, report: dict) -> None:
+        from aedt_agent.infrastructure.harness import (
+            HarnessError,
+            HarnessResult,
+            HarnessStatus,
+        )
+
         try:
             attempt = self.store.get_job_attempt(record.attempt_id)
         except KeyError:
@@ -370,6 +377,41 @@ class AgentRuntime:
                 "harness_run_id": record.harness_run_id,
                 "workspace": record.workspace,
             },
+        )
+        workspace = Path(record.workspace)
+        protocol_artifacts = [
+            str(path)
+            for path in (
+                workspace / "request.json",
+                workspace / "stdout.log",
+                workspace / "stderr.log",
+            )
+            if path.exists()
+        ]
+        result = HarnessResult.create(
+            harness_run_id=record.harness_run_id,
+            job_id=job.job_id,
+            status=HarnessStatus.INTERRUPTED,
+            artifact_refs=protocol_artifacts,
+            error=HarnessError(
+                error_class=ErrorClass.WORKER_CRASH.value,
+                message=error.message,
+                retryable=True,
+                details=dict(error.details),
+            ),
+            termination_reason="recovered_interrupted",
+            metadata={
+                "workspace": record.workspace,
+                "recovery_classification": "interrupted",
+            },
+        )
+        result_path = workspace / "result.json"
+        _atomic_write_json(result_path, result.to_json_dict())
+        protocol_artifacts.append(str(result_path))
+        self._register_artifact_manifests(
+            job.mission_id,
+            job.job_id,
+            protocol_artifacts,
         )
         self.store.release_active_job_leases(job.job_id)
         self.store.fail_job(job.job_id, error)
@@ -414,6 +456,16 @@ class AgentRuntime:
                     metadata=metadata,
                 )
             )
+
+
+def _atomic_write_json(path: Path, payload: dict) -> None:
+    temporary_path = path.with_suffix(f"{path.suffix}.tmp")
+    temporary_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+        + "\n",
+        encoding="utf-8",
+    )
+    os.replace(temporary_path, path)
 
 
 def _artifact_kind(path: Path) -> str:

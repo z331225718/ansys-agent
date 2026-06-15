@@ -165,6 +165,10 @@ def test_local_process_timeout_terminates_worker(tmp_path):
     assert result.error is not None
     assert result.error.error_class == "timeout"
     assert result.termination_reason == "wall_timeout"
+    assert Path(result.metadata["result_path"]).is_file()
+    assert "result.json" in {
+        Path(path).name for path in result.artifact_refs
+    }
 
 
 def test_cancel_terminates_spawned_child_process_tree(tmp_path):
