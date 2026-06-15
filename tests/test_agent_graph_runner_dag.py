@@ -756,3 +756,202 @@ def test_fan_out_with_join_all_converges(tmp_path):
 
     assert report["status"] == "succeeded"
     assert len(results) == 2
+
+
+# ---------------------------------------------------------------------------
+# conditional edge tests
+# ---------------------------------------------------------------------------
+
+
+def test_conditional_edge_true_activates(tmp_path):
+    runtime = _runtime(
+        tmp_path,
+        {"fake.worker": lambda job, context: {"score": 0.9}},
+    )
+    handlers = GraphNodeExecutorRegistry()
+    handlers.register("passed", lambda ctx: {"status": "succeeded", "outcome": "succeeded", "output_payload": {"label": "pass"}})
+    handlers.register("failed", lambda ctx: {"status": "succeeded", "outcome": "succeeded", "output_payload": {"label": "fail"}})
+
+    mission = runtime.create_mission("goal", [], [])
+    template = _template(
+        [
+            {"id": "worker", "role": "worker", "kind": "worker", "capability": "fake.worker"},
+            {"id": "pass_branch", "role": "aggregate", "kind": "program", "handler": "passed"},
+            {"id": "fail_branch", "role": "aggregate", "kind": "program", "handler": "failed"},
+        ],
+        [
+            {"id": "w-p", "from": "worker", "to": "pass_branch", "on": "succeeded", "if": "score >= 0.8"},
+            {"id": "w-f", "from": "worker", "to": "fail_branch", "on": "succeeded", "if": "score < 0.8"},
+        ],
+    )
+
+    report = run_graph(runtime, mission.mission_id, template, initial_payload={}, registry=handlers)
+
+    assert report["status"] == "succeeded"
+    node_ids = {r["node_id"] for r in report["node_runs"]}
+    assert "pass_branch" in node_ids
+    assert "fail_branch" not in node_ids
+
+
+def test_conditional_edge_false_skips(tmp_path):
+    runtime = _runtime(
+        tmp_path,
+        {"fake.worker": lambda job, context: {"score": 0.5}},
+    )
+    handlers = GraphNodeExecutorRegistry()
+    handlers.register("passed", lambda ctx: {"status": "succeeded", "outcome": "succeeded", "output_payload": {}})
+    handlers.register("failed", lambda ctx: {"status": "succeeded", "outcome": "succeeded", "output_payload": {}})
+
+    mission = runtime.create_mission("goal", [], [])
+    template = _template(
+        [
+            {"id": "worker", "role": "worker", "kind": "worker", "capability": "fake.worker"},
+            {"id": "pass_branch", "role": "aggregate", "kind": "program", "handler": "passed"},
+            {"id": "fail_branch", "role": "aggregate", "kind": "program", "handler": "failed"},
+        ],
+        [
+            {"id": "w-p", "from": "worker", "to": "pass_branch", "on": "succeeded", "if": "score >= 0.8"},
+            {"id": "w-f", "from": "worker", "to": "fail_branch", "on": "succeeded", "if": "score < 0.8"},
+        ],
+    )
+
+    report = run_graph(runtime, mission.mission_id, template, initial_payload={}, registry=handlers)
+
+    assert report["status"] == "succeeded"
+    node_ids = {r["node_id"] for r in report["node_runs"]}
+    assert "pass_branch" not in node_ids
+    assert "fail_branch" in node_ids
+
+
+def test_conditional_edge_with_has_operator(tmp_path):
+    runtime = _runtime(
+        tmp_path,
+        {"fake.worker": lambda job, context: {"value": 1, "extra": "present"}},
+    )
+    handlers = GraphNodeExecutorRegistry()
+    handlers.register("with_extra", lambda ctx: {"status": "succeeded", "outcome": "succeeded", "output_payload": {}})
+    handlers.register("without", lambda ctx: {"status": "succeeded", "outcome": "succeeded", "output_payload": {}})
+
+    mission = runtime.create_mission("goal", [], [])
+    template = _template(
+        [
+            {"id": "worker", "role": "worker", "kind": "worker", "capability": "fake.worker"},
+            {"id": "with_extra", "role": "aggregate", "kind": "program", "handler": "with_extra"},
+            {"id": "without", "role": "aggregate", "kind": "program", "handler": "without"},
+        ],
+        [
+            {"id": "w-yes", "from": "worker", "to": "with_extra", "on": "succeeded", "if": "has(extra)"},
+            {"id": "w-no", "from": "worker", "to": "without", "on": "succeeded", "if": "has(missing)"},
+        ],
+    )
+
+    report = run_graph(runtime, mission.mission_id, template, initial_payload={}, registry=handlers)
+
+    assert report["status"] == "succeeded"
+    node_ids = {r["node_id"] for r in report["node_runs"]}
+    assert "with_extra" in node_ids
+    assert "without" not in node_ids
+
+
+def test_conditional_edge_and_combination(tmp_path):
+    runtime = _runtime(
+        tmp_path,
+        {"fake.worker": lambda job, context: {"score": 0.9, "rl_margin": 5}},
+    )
+    handlers = GraphNodeExecutorRegistry()
+    handlers.register("approved", lambda ctx: {"status": "succeeded", "outcome": "succeeded", "output_payload": {}})
+    handlers.register("rejected", lambda ctx: {"status": "succeeded", "outcome": "succeeded", "output_payload": {}})
+
+    mission = runtime.create_mission("goal", [], [])
+    template = _template(
+        [
+            {"id": "worker", "role": "worker", "kind": "worker", "capability": "fake.worker"},
+            {"id": "approved", "role": "aggregate", "kind": "program", "handler": "approved"},
+            {"id": "rejected", "role": "aggregate", "kind": "program", "handler": "rejected"},
+        ],
+        [
+            {"id": "w-a", "from": "worker", "to": "approved", "on": "succeeded", "if": "score >= 0.8 and rl_margin > 3"},
+            {"id": "w-r", "from": "worker", "to": "rejected", "on": "succeeded", "if": "score < 0.8"},
+        ],
+    )
+
+    report = run_graph(runtime, mission.mission_id, template, initial_payload={}, registry=handlers)
+
+    assert report["status"] == "succeeded"
+    node_ids = {r["node_id"] for r in report["node_runs"]}
+    assert "approved" in node_ids
+    assert "rejected" not in node_ids
+
+
+# ---------------------------------------------------------------------------
+# dynamic node expand tests
+# ---------------------------------------------------------------------------
+
+
+def test_expand_node_creates_dynamic_downstream(tmp_path):
+    runtime = _runtime(
+        tmp_path,
+        {"fake.dynamic": lambda job, context: {"value": 1}},
+    )
+    handlers = GraphNodeExecutorRegistry()
+    handlers.register("dynamic_sink", lambda ctx: {"status": "succeeded", "outcome": "succeeded", "output_payload": {"from": ctx.node.node_id}})
+
+    mission = runtime.create_mission("goal", [], [])
+    template = _template(
+        [
+            {"id": "planner", "role": "planner", "kind": "llm", "expand": True},
+        ],
+        [],
+        handoffs={},
+    )
+
+    graph_run = create_graph_run(
+        runtime, mission.mission_id, template,
+        initial_payload={
+            "expand_nodes": [
+                {"id": "dynamic_worker", "role": "worker", "kind": "worker", "capability": "fake.dynamic"},
+                {"id": "dynamic_sink", "role": "aggregate", "kind": "program", "handler": "dynamic_sink"},
+            ],
+            "expand_edges": [
+                {"id": "dw-ds", "from": "dynamic_worker", "to": "dynamic_sink", "on": "succeeded"},
+            ],
+        },
+    )
+
+    report = run_graph(runtime, mission.mission_id, template, initial_payload={
+        "expand_nodes": [
+            {"id": "dynamic_worker", "role": "worker", "kind": "worker", "capability": "fake.dynamic"},
+            {"id": "dynamic_sink", "role": "aggregate", "kind": "program", "handler": "dynamic_sink"},
+        ],
+        "expand_edges": [
+            {"id": "p-dw", "from": "planner", "to": "dynamic_worker", "on": "succeeded"},
+            {"id": "dw-ds", "from": "dynamic_worker", "to": "dynamic_sink", "on": "succeeded"},
+        ],
+    }, registry=handlers)
+
+    assert report["status"] == "succeeded"
+    node_ids = {r["node_id"] for r in report["node_runs"]}
+    assert "dynamic_worker" in node_ids
+    assert "dynamic_sink" in node_ids
+
+
+def test_expand_without_flag_ignores_expand_payload(tmp_path):
+    runtime = _runtime(tmp_path, {})
+    handlers = GraphNodeExecutorRegistry()
+
+    mission = runtime.create_mission("goal", [], [])
+    template = _template(
+        [
+            {"id": "planner", "role": "planner", "kind": "llm"},
+        ],
+        [],
+    )
+
+    report = run_graph(runtime, mission.mission_id, template, initial_payload={
+        "expand_nodes": [{"id": "should_not_appear", "role": "worker", "kind": "worker", "capability": "x"}],
+        "expand_edges": [],
+    }, registry=handlers)
+
+    assert report["status"] == "succeeded"
+    node_ids = {r["node_id"] for r in report["node_runs"]}
+    assert "should_not_appear" not in node_ids

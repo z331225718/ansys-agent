@@ -61,6 +61,7 @@ class GraphEdge:
     on: str
     after: list[str] = field(default_factory=list)
     max_traversals: int = 1
+    if_condition: str = ""
 
     def to_json_dict(self) -> dict[str, Any]:
         payload = {
@@ -72,6 +73,8 @@ class GraphEdge:
         }
         if self.after:
             payload["after"] = list(self.after)
+        if self.if_condition:
+            payload["if"] = self.if_condition
         return payload
 
 
@@ -201,6 +204,7 @@ def _edge_from_mapping(value: object, node_ids: set[str], index: int) -> GraphEd
             value.get("max_traversals", 1),
             field_name=f"edge {edge_id} max_traversals",
         ),
+        if_condition=str(value.get("if") or ""),
     )
 
 

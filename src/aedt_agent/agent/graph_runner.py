@@ -170,8 +170,11 @@ def _apply_wave_results(
 ) -> dict[str, Any]:
     waiting_for_approval = False
     retry_counts: dict[str, int] = {}
+    expanded = False
 
     for item, node_run, result in zip(ready, node_runs, results, strict=True):
+        if item.node.expand:
+            expanded = True
         outcome, fail_graph, edge_error = _process_wave_result(
             runtime, graph_run, template, item, node_run, result,
             retry_counts, worker_id=worker_id, registry=registry,
@@ -194,6 +197,14 @@ def _apply_wave_results(
             waiting_for_approval = True
 
     graph_run = runtime.store.increment_graph_step(graph_run.graph_run_id)
+
+    # Re-parse template from snapshot if any node expanded dynamically
+    if expanded:
+        graph_run = runtime.store.get_graph_run(graph_run.graph_run_id)
+        template = graph_template_from_mapping(
+            graph_run.template_snapshot,
+            source=f"graph run {graph_run.graph_run_id} expanded snapshot",
+        )
 
     if waiting_for_approval:
         runtime.store.update_graph_run_status(
@@ -385,7 +396,41 @@ def _complete_and_route(
         edge_decision=result.outcome,
         error=result.error,
     )
+    # Handle dynamic node expansion — update snapshot and re-parse for edge creation
+    if item.node.expand:
+        _expand_dynamic_nodes(runtime, graph_run, result.output_payload)
+        graph_run = runtime.store.get_graph_run(graph_run.graph_run_id)
+        template = graph_template_from_mapping(
+            graph_run.template_snapshot,
+            source=f"graph run {graph_run.graph_run_id} expanded snapshot",
+        )
     return _create_matching_edges(runtime, graph_run, template, item.node, node_run, result.output_payload, result.outcome)
+
+
+def _expand_dynamic_nodes(
+    runtime,
+    graph_run: GraphRunRecord,
+    output_payload: dict[str, Any],
+) -> None:
+    """Merge expand_nodes and expand_edges from output into the template snapshot."""
+    expand_nodes = output_payload.get("expand_nodes")
+    expand_edges = output_payload.get("expand_edges")
+    if not isinstance(expand_nodes, list) and not isinstance(expand_edges, list):
+        return
+
+    snapshot = dict(graph_run.template_snapshot)
+    existing_ids = {n.get("id") for n in snapshot.get("nodes", []) if isinstance(n, dict)}
+    if isinstance(expand_nodes, list):
+        for node in expand_nodes:
+            if isinstance(node, dict) and node.get("id") not in existing_ids:
+                snapshot.setdefault("nodes", []).append(node)
+                existing_ids.add(node.get("id"))
+    if isinstance(expand_edges, list):
+        for edge in expand_edges:
+            if isinstance(edge, dict):
+                snapshot.setdefault("edges", []).append(edge)
+
+    runtime.store.update_graph_run_snapshot(graph_run.graph_run_id, snapshot)
 
 
 def _create_matching_edges(
@@ -404,10 +449,84 @@ def _create_matching_edges(
             continue
         if not is_fan_out and edge.on != outcome:
             continue
+        if edge.if_condition and not _evaluate_edge_condition(edge.if_condition, output_payload):
+            continue
         error = _create_edge_handoff(runtime, graph_run, edge, node_run, output_payload)
         if error is not None:
             return error
     return None
+
+
+def _evaluate_edge_condition(condition: str, payload: dict[str, Any]) -> bool:
+    """Evaluate a simple edge condition against the output payload.
+
+    Supports: field >= value, field <= value, field > value, field < value,
+    field == value, field != value, has(field), and combinations with 'and'.
+    """
+    condition = condition.strip()
+    if not condition:
+        return True
+
+    # Handle 'and' combinations
+    if " and " in condition:
+        parts = condition.split(" and ")
+        return all(_evaluate_edge_condition(part.strip(), payload) for part in parts)
+
+    # Handle has(field)
+    if condition.startswith("has(") and condition.endswith(")"):
+        field = condition[4:-1].strip()
+        return field in payload and payload[field] is not None
+
+    # Handle comparison operators
+    import re
+    match = re.match(r'(\w[\w.]*)\s*(>=|<=|!=|==|>|<)\s*(.+)', condition)
+    if not match:
+        return True  # unknown conditions pass through
+
+    field_path = match.group(1)
+    op = match.group(2)
+    raw_value = match.group(3).strip()
+
+    # Resolve dot-delimited field path
+    value = payload
+    for key in field_path.split("."):
+        if isinstance(value, dict) and key in value:
+            value = value[key]
+        else:
+            return False
+
+    # Parse comparison value
+    try:
+        if raw_value in ("true", "True"):
+            cmp_value = True
+        elif raw_value in ("false", "False"):
+            cmp_value = False
+        elif "." in raw_value or raw_value.lstrip("-").isdigit():
+            cmp_value = float(raw_value)
+        else:
+            cmp_value = raw_value.strip("'\"")
+    except ValueError:
+        cmp_value = raw_value.strip("'\"")
+
+    try:
+        if op == ">=":
+            return float(value) >= float(cmp_value)
+        elif op == "<=":
+            return float(value) <= float(cmp_value)
+        elif op == ">":
+            return float(value) > float(cmp_value)
+        elif op == "<":
+            return float(value) < float(cmp_value)
+        elif op == "==":
+            if isinstance(cmp_value, bool):
+                return bool(value) == cmp_value
+            return str(value) == str(cmp_value)
+        elif op == "!=":
+            return str(value) != str(cmp_value)
+    except (ValueError, TypeError):
+        return False
+
+    return True
 
 
 def _retry_delay(backoff: str, base_delay: float, attempt: int) -> float:

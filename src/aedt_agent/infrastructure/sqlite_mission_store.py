@@ -873,6 +873,13 @@ class SQLiteMissionStore:
             )
         return updated
 
+    def update_graph_run_snapshot(self, graph_run_id: str, snapshot: dict) -> None:
+        with self._connect() as db:
+            db.execute(
+                "UPDATE graph_runs SET template_snapshot_json = ? WHERE graph_run_id = ?",
+                (_dump(snapshot), graph_run_id),
+            )
+
     def create_graph_handoff(self, record: GraphHandoffRecord) -> GraphHandoffRecord:
         with self._connect() as db:
             db.execute(
