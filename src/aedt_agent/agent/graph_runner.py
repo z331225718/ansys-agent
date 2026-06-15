@@ -117,6 +117,13 @@ def advance_graph(
             f"graph max_steps reached: {graph_run.max_steps}",
         )
 
+    if template.max_rounds > 0:
+        completed_cycles = _count_completed_cycles(runtime, graph_run)
+        if completed_cycles >= template.max_rounds:
+            return _complete_graph_with_rounds_exhausted(
+                runtime, graph_run, completed_cycles, template.max_rounds,
+            )
+
     node_runs = runtime.store.list_node_runs(graph_run_id)
     pending = runtime.store.list_graph_handoffs(
         graph_run_id,
@@ -1166,3 +1173,38 @@ def _require_graph_run(runtime, graph_run_id: str) -> GraphRunRecord:
     if graph_run is None:
         raise KeyError(f"graph run not found: {graph_run_id}")
     return graph_run
+
+
+def _count_completed_cycles(runtime, graph_run: GraphRunRecord) -> int:
+    """Count how many times the graph has completed a full cycle (all nodes run at least once)."""
+    node_runs = runtime.store.list_node_runs(graph_run.graph_run_id)
+    if not node_runs:
+        return 0
+    nodes_seen: set[str] = set()
+    cycles = 0
+    for run in sorted(node_runs, key=lambda r: r.sequence):
+        nodes_seen.add(run.node_id)
+        if len(nodes_seen) >= len({r.node_id for r in node_runs}):
+            cycles += 1
+            nodes_seen.clear()
+    return cycles
+
+
+def _complete_graph_with_rounds_exhausted(
+    runtime,
+    graph_run: GraphRunRecord,
+    completed: int,
+    max_rounds: int,
+) -> dict[str, Any]:
+    """Complete the graph with a rounds-exhausted final report."""
+    runtime.store.update_graph_run_status(
+        graph_run.graph_run_id,
+        GraphRunStatus.SUCCEEDED,
+        current_node_id=graph_run.current_node_id,
+        error={
+            "code": "rounds_exhausted",
+            "message": f"graph completed {completed}/{max_rounds} rounds",
+        },
+    )
+    _complete_mission(runtime, graph_run.mission_id)
+    return graph_status(runtime, graph_run.graph_run_id)

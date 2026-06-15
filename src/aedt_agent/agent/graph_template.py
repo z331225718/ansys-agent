@@ -86,6 +86,7 @@ class GraphTemplate:
     nodes: list[GraphNode]
     edges: list[GraphEdge]
     handoffs: dict[str, HandoffSchema]
+    max_rounds: int = 0  # 0 = unlimited
 
     def node(self, node_id: str) -> GraphNode:
         for node in self.nodes:
@@ -101,6 +102,7 @@ class GraphTemplate:
             "nodes": [node.to_json_dict() for node in self.nodes],
             "edges": [edge.to_json_dict() for edge in self.edges],
             "handoffs": {key: schema.to_json_dict() for key, schema in self.handoffs.items()},
+            "max_rounds": self.max_rounds,
         }
 
 
@@ -146,6 +148,7 @@ def graph_template_from_mapping(data: object, *, source: str = "graph template")
         nodes=nodes,
         edges=edges,
         handoffs=handoffs,
+        max_rounds=int(data.get("max_rounds") or 0),
     )
 
 

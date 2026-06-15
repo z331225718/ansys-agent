@@ -1,0 +1,100 @@
+id: brd_iterative_optimize
+version: 1
+description: Iterative BRD optimization loop: propose action → approve → execute → compare → repeat.
+max_rounds: 5
+nodes:
+  - id: planner
+    role: planner
+    kind: llm
+    max_runs: 1
+  - id: score_current
+    role: worker
+    kind: worker
+    capability: brd.channel.score
+    input_schema: channel_score_request
+    output_schema: channel_score_result
+    max_runs: 5
+    on_failure: skip
+  - id: action_proposer
+    role: worker
+    kind: worker
+    capability: brd.action.propose
+    input_schema: action_propose_request
+    output_schema: action_propose_result
+    max_runs: 5
+    on_failure: fail
+  - id: approval_gate
+    role: approval_gate
+    kind: human_gate
+    input_schema: action_propose_result
+    output_schema: approval_decision
+    join: any
+    max_runs: 5
+  - id: action_executor
+    role: worker
+    kind: worker
+    capability: brd.action.execute_recorded
+    input_schema: approved_void_action
+    output_schema: recorded_action_result
+    max_runs: 5
+    on_failure: skip
+  - id: scorecard
+    role: scorecard
+    kind: program
+    input_schema: recorded_action_result
+    output_schema: scorecard_report
+    max_runs: 5
+edges:
+  - id: plan-to-score
+    from: planner
+    to: score_current
+    on: succeeded
+    max_traversals: 1
+  - id: score-to-propose
+    from: score_current
+    to: action_proposer
+    on: succeeded
+    max_traversals: 5
+  - id: propose-to-approval
+    from: action_proposer
+    to: approval_gate
+    on: succeeded
+    max_traversals: 5
+  - id: approval-to-execute
+    from: approval_gate
+    to: action_executor
+    on: approved
+    max_traversals: 5
+  - id: execute-to-scorecard
+    from: action_executor
+    to: scorecard
+    on: succeeded
+    max_traversals: 5
+  - id: scorecard-to-score
+    from: scorecard
+    to: score_current
+    on: passed
+    max_traversals: 5
+    if: "has(continue_optimization)"
+  - id: scorecard-to-end
+    from: scorecard
+    to: score_current
+    on: failed
+    max_traversals: 1
+handoffs:
+  channel_score_request:
+    required_fields: [touchstone_path, tdr_path, artifact_dir]
+  channel_score_result:
+    required_fields: [status, score, evidence_summary, artifact_refs]
+  action_propose_request:
+    required_fields: [current_score, target_metrics]
+  action_propose_result:
+    required_fields: [status, candidates, current_score]
+  approved_void_action:
+    required_fields: [action_id, approval_id, digest]
+  recorded_action_result:
+    required_fields: [status, action_id, decision, comparison, evidence_summary, artifact_refs]
+  approval_decision:
+    required_fields: [approval_id, action_id, digest, decision]
+  scorecard_report:
+    required_fields: [status, checks]
