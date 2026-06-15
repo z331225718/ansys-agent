@@ -6,43 +6,59 @@ nodes:
     role: planner
     kind: llm
     output_schema: brd_local_cut_request
+    max_runs: 1
   - id: input_validator
     role: validator
     kind: program
     input_schema: brd_local_cut_request
     output_schema: validated_brd_local_cut_request
+    max_runs: 1
   - id: real_build_worker
     role: worker
     kind: worker
     capability: brd.local_cut.build
     input_schema: validated_brd_local_cut_request
     output_schema: brd_local_cut_build_result
+    max_runs: 1
   - id: model_review_scorecard
     role: scorecard
     kind: program
     input_schema: brd_local_cut_build_result
     output_schema: scorecard_report
+    max_runs: 1
   - id: approval_gate
     role: approval_gate
     kind: human_gate
     input_schema: scorecard_report
     output_schema: approval_decision
+    join: any
+    max_runs: 1
 edges:
-  - from: planner
+  - id: planner-to-validator
+    from: planner
     to: input_validator
     on: succeeded
-  - from: input_validator
+    max_traversals: 1
+  - id: validator-to-build
+    from: input_validator
     to: real_build_worker
     on: succeeded
-  - from: real_build_worker
+    max_traversals: 1
+  - id: build-to-approval
+    from: real_build_worker
     to: approval_gate
     on: approval_required
-  - from: real_build_worker
+    max_traversals: 1
+  - id: build-to-scorecard
+    from: real_build_worker
     to: model_review_scorecard
     on: succeeded
-  - from: model_review_scorecard
+    max_traversals: 1
+  - id: scorecard-to-approval
+    from: model_review_scorecard
     to: approval_gate
     on: passed
+    max_traversals: 1
 handoffs:
   brd_local_cut_request:
     required_fields:

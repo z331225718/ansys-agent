@@ -70,9 +70,28 @@ def test_cli_creates_brd_channel_score_mission_and_runs_graph(tmp_path):
 
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
-    assert payload["status"] == "passed"
-    assert payload["executed_node"]["id"] == "channel_score_worker"
-    assert payload["executed_job"]["output_payload"]["evidence_summary"]["raw_sparameters"] == "artifact_only"
+    assert payload["status"] == "waiting_approval"
+    worker_run = next(run for run in payload["node_runs"] if run["node_id"] == "channel_score_worker")
+    assert worker_run["output_payload"]["evidence_summary"]["raw_sparameters"] == "artifact_only"
+
+    graph_run_id = payload["graph_run"]["graph_run_id"]
+    approval_run = next(run for run in payload["node_runs"] if run["node_id"] == "approval_gate")
+    approved = _run(
+        tmp_path,
+        "mission",
+        "approve",
+        "--approval-id",
+        approval_run["output_payload"]["approval_id"],
+        "--option-id",
+        "approve",
+    )
+    resumed = _run(tmp_path, "mission", "resume-graph", "--graph-run-id", graph_run_id)
+
+    assert approved.returncode == 0, approved.stderr
+    assert resumed.returncode == 0, resumed.stderr
+    resumed_payload = json.loads(resumed.stdout)
+    assert resumed_payload["status"] == "succeeded"
+    assert resumed_payload["graph_run"]["graph_run_id"] == graph_run_id
 
     graph_runs = json.loads(_run(tmp_path, "mission", "graph-runs", "--mission-id", mission_id).stdout)
     evidence = json.loads(_run(tmp_path, "mission", "evidence", "--mission-id", mission_id).stdout)

@@ -7,32 +7,43 @@ nodes:
     kind: program
     input_schema: controlled_void_action
     output_schema: validated_void_action
+    max_runs: 1
   - id: action_approval_gate
     role: approval_gate
     kind: human_gate
     input_schema: validated_void_action
     output_schema: action_approval_decision
+    join: any
+    max_runs: 1
   - id: recorded_action_worker
     role: worker
     kind: worker
     capability: brd.action.execute_recorded
     input_schema: approved_void_action
     output_schema: recorded_action_result
+    max_runs: 1
   - id: final_scorecard
     role: scorecard
     kind: program
     input_schema: recorded_action_result
     output_schema: scorecard_report
+    max_runs: 1
 edges:
-  - from: action_validator
+  - id: validator-to-approval
+    from: action_validator
     to: action_approval_gate
     on: succeeded
-  - from: action_approval_gate
+    max_traversals: 1
+  - id: approval-to-action-worker
+    from: action_approval_gate
     to: recorded_action_worker
     on: approved
-  - from: recorded_action_worker
+    max_traversals: 1
+  - id: action-worker-to-scorecard
+    from: recorded_action_worker
     to: final_scorecard
     on: succeeded
+    max_traversals: 1
 handoffs:
   controlled_void_action:
     required_fields:

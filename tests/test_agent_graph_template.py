@@ -36,6 +36,45 @@ def test_load_brd_local_cut_graph_template_from_yaml():
     ]
 
 
+@pytest.mark.parametrize(
+    ("template_id", "expected_edge_ids"),
+    [
+        (
+            "brd_local_cut_build",
+            [
+                "planner-to-validator",
+                "validator-to-build",
+                "build-to-approval",
+                "build-to-scorecard",
+                "scorecard-to-approval",
+            ],
+        ),
+        (
+            "brd_local_cut_solve_evidence",
+            [
+                "planner-to-validator",
+                "validator-to-score-worker",
+                "score-worker-to-scorecard",
+                "scorecard-to-approval",
+            ],
+        ),
+        (
+            "brd_recorded_void_action",
+            [
+                "validator-to-approval",
+                "approval-to-action-worker",
+                "action-worker-to-scorecard",
+            ],
+        ),
+    ],
+)
+def test_builtin_graph_templates_use_explicit_stable_edges(template_id, expected_edge_ids):
+    template = load_graph_template(resolve_template_path(template_id))
+
+    assert [edge.edge_id for edge in template.edges] == expected_edge_ids
+    assert all(node.max_runs == 1 for node in template.nodes)
+
+
 def test_graph_template_rejects_edges_to_unknown_nodes(tmp_path):
     path = tmp_path / "bad.yaml"
     path.write_text(
