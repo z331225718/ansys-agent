@@ -187,6 +187,12 @@ def build_parser() -> argparse.ArgumentParser:
     cancel = mission_commands.add_parser("cancel")
     cancel.add_argument("--mission-id", required=True)
 
+    takeover = mission_commands.add_parser("takeover")
+    takeover.add_argument("--graph-run-id", required=True)
+    takeover.add_argument("--reason", default="orchestrator takeover")
+    takeover.add_argument("--new-template", default="")
+    takeover.add_argument("--override-payload", default="")
+
     return parser
 
 
@@ -609,6 +615,39 @@ def run(argv: Sequence[str] | None = None) -> int:
     if args.group == "mission" and args.mission_command == "cancel":
         mission = runtime.store.update_mission_state(args.mission_id, MissionState.CANCELED)
         _print_json(mission.to_json_dict())
+        return 0
+
+    if args.group == "mission" and args.mission_command == "takeover":
+        from aedt_agent.agent.graph_runner import create_graph_run
+        from aedt_agent.agent.graph_template import load_graph_template
+
+        graph_run = runtime.store.get_graph_run(args.graph_run_id)
+        if graph_run is None:
+            print(f"graph run not found: {args.graph_run_id}", file=sys.stderr)
+            return 1
+        # Cancel the current graph
+        runtime.store.update_graph_run_status(args.graph_run_id, GraphRunStatus.CANCELED,
+            error={"code": "orchestrator_takeover", "message": args.reason or "orchestrator takeover"})
+        # Create new graph with specified template + payload
+        template = load_graph_template(args.new_template or graph_run.template_id)
+        payload = dict(graph_run.initial_payload)
+        if args.reason:
+            payload["_takeover_reason"] = args.reason
+        if args.override_payload:
+            import json as _json
+            try:
+                override = _json.loads(args.override_payload)
+                payload.update(override)
+            except _json.JSONDecodeError:
+                print(f"invalid override-payload JSON: {args.override_payload}", file=sys.stderr)
+                return 1
+        new_graph_run = create_graph_run(runtime, graph_run.mission_id, template, initial_payload=payload)
+        _print_json({
+            "action": "takeover",
+            "canceled_graph_run_id": graph_run.graph_run_id,
+            "new_graph_run_id": new_graph_run.graph_run_id,
+            "template_id": template.template_id,
+        })
         return 0
 
     if args.group == "mission" and args.mission_command == "web":
