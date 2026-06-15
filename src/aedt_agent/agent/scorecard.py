@@ -407,11 +407,13 @@ def _port_count_in_summary(build_job) -> bool:
     if build_job is None:
         return False
     summary = build_job.output_payload.get("evidence_summary") or build_job.output_payload
-    # port_count may be explicit or derived from signal_nets
+    # port_count may be explicit or derived from signal_nets.
+    # NOTE: assumes differential pairs (2 ports per net). Single-ended signals
+    # need an explicit port_count in the summary to avoid overcounting.
     count = summary.get("port_count")
     if count is None:
         signal_nets = summary.get("signal_nets", [])
-        count = len(signal_nets) * 2  # differential pairs = 2 ports per net
+        count = len(signal_nets) * 2
     return isinstance(count, (int, float)) and count >= 2
 
 

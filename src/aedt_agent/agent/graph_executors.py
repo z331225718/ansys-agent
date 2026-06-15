@@ -124,8 +124,7 @@ def _plan_brd_local_cut_request(payload: dict[str, Any]) -> None:
     if "artifact_dir" not in payload:
         mission_id = payload.get("mission_id", "")
         layout = payload.get("layout_file", "unknown")
-        import os
-        base = os.path.dirname(str(layout)) if layout else "."
+        base = str(Path(str(layout)).parent) if layout else "."
         payload["artifact_dir"] = str(Path(base) / f"brd_build_{mission_id[:8] if mission_id else 'adhoc'}")
 
     # Build plan summary

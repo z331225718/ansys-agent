@@ -39,6 +39,8 @@ def run_evidence_compare_worker(job: JobRecord, context: WorkerContext) -> dict[
     before = json.loads(before_path.read_text(encoding="utf-8"))
     after = json.loads(after_path.read_text(encoding="utf-8"))
 
+    # Extract score dict; supports both flat (rl_worst_db inline) and
+    # nested {"score": {...}} formats produced by brd.channel.score worker.
     before_score = before.get("score", before)
     after_score = after.get("score", after)
     comparison = compare_channel_scores(before_score, after_score)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from uuid import uuid4
@@ -485,7 +486,6 @@ def _evaluate_edge_condition(condition: str, payload: dict[str, Any]) -> bool:
         return field in payload and payload[field] is not None
 
     # Handle comparison operators
-    import re
     match = re.match(r'(\w[\w.]*)\s*(>=|<=|!=|==|>|<)\s*(.+)', condition)
     if not match:
         return True  # unknown conditions pass through
@@ -1180,11 +1180,12 @@ def _count_completed_cycles(runtime, graph_run: GraphRunRecord) -> int:
     node_runs = runtime.store.list_node_runs(graph_run.graph_run_id)
     if not node_runs:
         return 0
+    total_nodes = len({r.node_id for r in node_runs})
     nodes_seen: set[str] = set()
     cycles = 0
     for run in sorted(node_runs, key=lambda r: r.sequence):
         nodes_seen.add(run.node_id)
-        if len(nodes_seen) >= len({r.node_id for r in node_runs}):
+        if len(nodes_seen) >= total_nodes:
             cycles += 1
             nodes_seen.clear()
     return cycles
@@ -1201,9 +1202,13 @@ def _complete_graph_with_rounds_exhausted(
         graph_run.graph_run_id,
         GraphRunStatus.SUCCEEDED,
         current_node_id=graph_run.current_node_id,
-        error={
+    )
+    runtime.store.set_mission_final_outcome(
+        graph_run.mission_id,
+        {
             "code": "rounds_exhausted",
-            "message": f"graph completed {completed}/{max_rounds} rounds",
+            "reason": f"graph completed {completed}/{max_rounds} rounds",
+            "decision": "completed",
         },
     )
     _complete_mission(runtime, graph_run.mission_id)
