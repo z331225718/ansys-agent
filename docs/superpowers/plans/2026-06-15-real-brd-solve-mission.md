@@ -366,7 +366,7 @@ git commit -m "feat: gate process workers on composite resources"
 - Modify: `src/aedt_agent/infrastructure/__init__.py`
 - Create: `tests/test_infrastructure_brd_real_solve.py`
 
-- [ ] **Step 1：写请求验证失败测试**
+- [x] **Step 1：写请求验证失败测试**
 
 ```python
 def test_real_solve_rejects_non_aedt_project(tmp_path):
@@ -388,7 +388,7 @@ def test_real_solve_rejects_unapproved_tdr_expression(tmp_path, expression):
 
 请求 helper 使用真实 `.aedt` 空 fixture 和 attempt artifacts 目录。
 
-- [ ] **Step 2：写 fake AEDT 生命周期失败测试**
+- [x] **Step 2：写 fake AEDT 生命周期失败测试**
 
 定义 `FakeHfss3dLayout`，提供：
 
@@ -497,7 +497,7 @@ def test_real_solve_copies_checkpoint_solves_and_exports_artifacts(tmp_path):
     ]
 ```
 
-- [ ] **Step 3：确认红灯**
+- [x] **Step 3：确认红灯**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q tests/test_infrastructure_brd_real_solve.py
@@ -505,7 +505,7 @@ def test_real_solve_copies_checkpoint_solves_and_exports_artifacts(tmp_path):
 
 Expected: module 不存在。
 
-- [ ] **Step 4：实现契约与验证**
+- [x] **Step 4：实现契约与验证**
 
 ```python
 class ArtifactExportError(RuntimeError):
@@ -574,7 +574,7 @@ if checkpoint_results.is_dir():
 
 首期只复制 `.aedt` 和相邻的 `<project>.aedtresults`；若真实 smoke 证明工程依赖额外外部目录，再以显式 allowlist 增补，不能递归复制任意父目录。
 
-- [ ] **Step 5：实现 adapter**
+- [x] **Step 5：实现 adapter**
 
 关键调用必须写成：
 
@@ -701,7 +701,7 @@ def _normalize_tdr_report_csv(
 
 `export_report_to_file()` 的返回文件必须 resolve 后位于 `_aedt_report_tmp/`，作为临时输入规范化到请求指定的 TDR 文件。规范化完成后在 `finally` 中删除该临时目录，不能把 AEDT 的不稳定列名暴露为正式 artifact。随后使用现有 `parse_touchstone()` 和 `parse_tdr_csv()` 做格式验证；文件缺失/为空抛 `ArtifactExportError`，格式错误或解析为空抛 `ArtifactValidationError`。manifest 先写 `.tmp` 再 `os.replace()`。
 
-- [ ] **Step 6：补失败与 finally 测试**
+- [x] **Step 6：补失败与 finally 测试**
 
 覆盖：
 
@@ -712,7 +712,7 @@ def _normalize_tdr_report_csv(
 - 任一阶段异常仍调用 `release_desktop`；
 - 输入 project 原件 SHA-256 和内容不变。
 
-- [ ] **Step 7：测试并提交**
+- [x] **Step 7：测试并提交**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q tests/test_infrastructure_brd_real_solve.py tests/test_infrastructure_brd_real_build.py

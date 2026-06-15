@@ -15,6 +15,13 @@ from aedt_agent.infrastructure.brd_real_build import (
     BrdRealBuildResult,
     RealAedtEnvironment,
 )
+from aedt_agent.infrastructure.brd_real_solve import (
+    ArtifactExportError,
+    ArtifactValidationError,
+    BrdRealSolveAdapter,
+    BrdRealSolveRequest,
+    BrdRealSolveResult,
+)
 from aedt_agent.infrastructure.sqlite_mission_store import SQLiteMissionStore
 
 __all__ = [
@@ -27,6 +34,11 @@ __all__ = [
     "BrdRealBuildAdapter",
     "BrdRealBuildRequest",
     "BrdRealBuildResult",
+    "ArtifactExportError",
+    "ArtifactValidationError",
+    "BrdRealSolveAdapter",
+    "BrdRealSolveRequest",
+    "BrdRealSolveResult",
     "RealAedtEnvironment",
     "SQLiteMissionStore",
 ]
