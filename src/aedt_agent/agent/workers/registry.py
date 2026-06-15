@@ -22,6 +22,21 @@ from aedt_agent.infrastructure.harness import (
 WorkerFn = Callable[[JobRecord, "WorkerContext"], dict[str, Any]]
 
 
+class WorkerReportedError(RuntimeError):
+    def __init__(
+        self,
+        error_class: str,
+        message: str,
+        *,
+        retryable: bool,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.error_class = error_class
+        self.retryable = retryable
+        self.details = dict(details or {})
+
+
 @dataclass(frozen=True)
 class WorkerContext:
     worker_id: str
@@ -268,6 +283,13 @@ class InMemoryWorkerRegistry:
 def classify_worker_error(error: Exception) -> JobError:
     message = str(error)
     lowered = message.lower()
+    if isinstance(error, WorkerReportedError):
+        return JobError(
+            _error_class(error.error_class),
+            message,
+            retryable=error.retryable,
+            details=dict(error.details),
+        )
     if isinstance(error, TimeoutError):
         return JobError(ErrorClass.TIMEOUT, message, retryable=True)
     if "license" in lowered and ("unavailable" in lowered or "denied" in lowered):

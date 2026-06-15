@@ -99,6 +99,21 @@ def test_child_main_writes_structured_failure_for_worker_exception(tmp_path):
     assert "fixture worker failed" in result.error.message
 
 
+def test_child_main_preserves_worker_reported_error(tmp_path):
+    request = _request(
+        tmp_path,
+        "tests.fixtures.process_workers:reported_error_worker",
+    )
+
+    child_main.run(_write_request(tmp_path, request))
+
+    error = _read_result(tmp_path).error
+    assert error is not None
+    assert error.error_class == "artifact_missing"
+    assert error.retryable is False
+    assert error.details["stage"] == "touchstone"
+
+
 def test_child_main_writes_structured_failure_for_missing_entrypoint(tmp_path):
     request = _request(tmp_path, "tests.fixtures.process_workers:missing_worker")
 

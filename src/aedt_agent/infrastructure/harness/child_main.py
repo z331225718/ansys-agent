@@ -10,7 +10,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 from aedt_agent.agent.mission import JobRecord
-from aedt_agent.agent.workers import WorkerContext
+from aedt_agent.agent.workers import (
+    WorkerContext,
+    WorkerReportedError,
+)
 from aedt_agent.infrastructure.harness.contracts import (
     HARNESS_PROTOCOL_VERSION,
     HarnessError,
@@ -87,11 +90,25 @@ def run(request_path: Path | str) -> int:
         )
     except Exception as exc:
         exit_code = 1
-        error_class = (
-            "invalid_input"
-            if isinstance(exc, (ImportError, AttributeError, HarnessProtocolError))
-            else "worker_crash"
-        )
+        if isinstance(exc, WorkerReportedError):
+            error_class = exc.error_class
+            retryable = exc.retryable
+            details = dict(exc.details)
+        else:
+            error_class = (
+                "invalid_input"
+                if isinstance(
+                    exc,
+                    (
+                        ImportError,
+                        AttributeError,
+                        HarnessProtocolError,
+                    ),
+                )
+                else "worker_crash"
+            )
+            retryable = error_class == "worker_crash"
+            details = {"error_type": type(exc).__name__}
         result = HarnessResult.create(
             harness_run_id=request.harness_run_id,
             job_id=request.job_id,
@@ -99,8 +116,8 @@ def run(request_path: Path | str) -> int:
             error=HarnessError(
                 error_class=error_class,
                 message=str(exc),
-                retryable=error_class == "worker_crash",
-                details={"error_type": type(exc).__name__},
+                retryable=retryable,
+                details=details,
             ),
             started_at=started_at,
             completed_at=_utc_now(),

@@ -733,7 +733,7 @@ git commit -m "feat: solve approved brd projects with aedt adapter"
 - Create: `tests/test_agent_brd_real_solve_worker.py`
 - Modify: `tests/test_agent_harness_child.py`
 
-- [ ] **Step 1：写 Worker 输入/输出失败测试**
+- [x] **Step 1：写 Worker 输入/输出失败测试**
 
 ```python
 def test_real_solve_worker_requires_harness_artifact_directory(tmp_path):
@@ -767,7 +767,7 @@ def test_real_solve_worker_uses_context_artifacts_and_returns_only_refs(
     assert len(output["artifact_refs"]) == 5
 ```
 
-- [ ] **Step 2：写 Job input builder 测试**
+- [x] **Step 2：写 Job input builder 测试**
 
 ```python
 def test_real_solve_job_input_contains_no_output_directory(tmp_path):
@@ -790,13 +790,13 @@ def test_real_solve_job_input_contains_no_output_directory(tmp_path):
     assert payload["approval_options"][0]["id"] == "approve"
 ```
 
-- [ ] **Step 3：确认红灯**
+- [x] **Step 3：确认红灯**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q tests/test_agent_brd_real_solve_worker.py
 ```
 
-- [ ] **Step 4：实现 Worker**
+- [x] **Step 4：实现 Worker**
 
 ```python
 BRD_REAL_SOLVE_CAPABILITY = "brd.local_cut.solve"
@@ -865,7 +865,7 @@ def run_brd_real_solve_worker(
 
 默认 entrypoint 不注入 adapter，真实子进程导入 PyAEDT。fake 集成通过 `tests.fixtures.fake_real_solve:run_fake_real_solve_worker` 使用相同 output contract。
 
-- [ ] **Step 5：增加错误类型**
+- [x] **Step 5：增加错误类型**
 
 `ErrorClass` 增加：
 
@@ -943,7 +943,7 @@ def test_child_main_preserves_worker_reported_error(tmp_path):
     assert error.details["stage"] == "touchstone"
 ```
 
-- [ ] **Step 6：测试并提交**
+- [x] **Step 6：测试并提交**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q tests/test_agent_brd_real_solve_worker.py tests/test_agent_worker_registry.py tests/test_agent_harness_child.py tests/test_agent_runtime_harness.py

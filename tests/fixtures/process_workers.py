@@ -7,6 +7,8 @@ import sys
 import time
 from pathlib import Path
 
+from aedt_agent.agent.workers import WorkerReportedError
+
 
 def echo_worker(job, context):
     return {"value": int(job.input_payload["value"]) + 1}
@@ -45,6 +47,15 @@ def logging_worker(job, context):
 
 def failing_worker(job, context):
     raise RuntimeError("fixture worker failed")
+
+
+def reported_error_worker(job, context):
+    raise WorkerReportedError(
+        "artifact_missing",
+        "touchstone was not exported",
+        retryable=False,
+        details={"stage": "touchstone"},
+    )
 
 
 def abrupt_exit_worker(job, context):

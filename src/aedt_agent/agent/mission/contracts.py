@@ -73,6 +73,8 @@ class ApprovalDecision(StrEnum):
 
 class ErrorClass(StrEnum):
     INVALID_INPUT = "invalid_input"
+    ARTIFACT_MISSING = "artifact_missing"
+    ARTIFACT_INVALID = "artifact_invalid"
     LICENSE_UNAVAILABLE = "license_unavailable"
     WORKER_CRASH = "worker_crash"
     TIMEOUT = "timeout"
