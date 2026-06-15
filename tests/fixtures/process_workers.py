@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 
@@ -56,3 +58,20 @@ def wrong_identity_worker(job, context):
         encoding="utf-8",
     )
     os._exit(0)
+
+
+def sleep_worker(job, context):
+    time.sleep(float(job.input_payload.get("sleep_seconds", 60)))
+    return {"finished": True}
+
+
+def spawn_child_worker(job, context):
+    child = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(60)"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    Path(job.input_payload["pid_path"]).write_text(str(child.pid), encoding="utf-8")
+    time.sleep(60)
+    return {"child_pid": child.pid}

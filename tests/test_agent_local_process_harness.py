@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import time
 
 import pytest
 
@@ -9,6 +10,7 @@ from aedt_agent.infrastructure.harness import (
     HarnessStatus,
     HarnessWorkspacePolicy,
     LocalProcessHarness,
+    ProcessTreeController,
     ResourceGate,
 )
 
@@ -23,6 +25,8 @@ def _execute(
     entrypoint: str,
     *,
     input_payload: dict | None = None,
+    timeout_seconds: int = 10,
+    cancel_requested=None,
 ):
     policy = HarnessWorkspacePolicy(tmp_path / "runs")
     workspace = policy.create_attempt("mission-1", "job-1", "attempt-1")
@@ -34,7 +38,7 @@ def _execute(
         worker_id="worker-1",
         capability="fake.worker",
         entrypoint=entrypoint,
-        timeout_seconds=10,
+        timeout_seconds=timeout_seconds,
         heartbeat_interval_seconds=1,
         input_payload=input_payload or {},
         workspace=str(workspace.root),
@@ -47,7 +51,12 @@ def _execute(
             max_concurrent_license_jobs=1,
         ),
     )
-    return harness.execute(request, allowed_env=(), resource_class="cpu")
+    return harness.execute(
+        request,
+        allowed_env=(),
+        resource_class="cpu",
+        cancel_requested=cancel_requested,
+    )
 
 
 def test_local_process_harness_captures_logs_and_result(tmp_path):
@@ -122,3 +131,40 @@ def test_local_process_harness_rejects_wrong_result_identity(tmp_path):
     assert result.error is not None
     assert "harness_run_id mismatch" in result.error.message
     assert result.termination_reason == "invalid_result"
+
+
+def test_local_process_timeout_terminates_worker(tmp_path):
+    result = _execute(
+        tmp_path,
+        "tests.fixtures.process_workers:sleep_worker",
+        input_payload={"sleep_seconds": 60},
+        timeout_seconds=1,
+    )
+
+    assert result.status == HarnessStatus.TIMED_OUT
+    assert result.error is not None
+    assert result.error.error_class == "timeout"
+    assert result.termination_reason == "wall_timeout"
+
+
+def test_cancel_terminates_spawned_child_process_tree(tmp_path):
+    marker = tmp_path / "child.pid"
+
+    result = _execute(
+        tmp_path,
+        "tests.fixtures.process_workers:spawn_child_worker",
+        input_payload={"pid_path": str(marker)},
+        timeout_seconds=10,
+        cancel_requested=marker.exists,
+    )
+
+    assert result.status == HarnessStatus.CANCELED
+    assert result.error is not None
+    assert result.error.error_class == "canceled"
+    assert result.termination_reason == "cancel_requested"
+    child_pid = int(marker.read_text(encoding="utf-8"))
+    controller = ProcessTreeController()
+    deadline = time.monotonic() + 3
+    while controller.is_alive(child_pid) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert not controller.is_alive(child_pid)

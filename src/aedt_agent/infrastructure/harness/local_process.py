@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import signal
 import subprocess
 import sys
 import time
@@ -32,9 +34,17 @@ class LocalProcessHarness:
         workspace_policy: HarnessWorkspacePolicy,
         *,
         resource_gate: ResourceGate | None = None,
+        process_controller: "ProcessTreeController | None" = None,
+        heartbeat_timeout_seconds: int = 30,
+        termination_grace_seconds: float = 2.0,
+        poll_interval_seconds: float = 0.05,
     ):
         self.workspace_policy = workspace_policy
         self.resource_gate = resource_gate or ResourceGate()
+        self.process_controller = process_controller or ProcessTreeController()
+        self.heartbeat_timeout_seconds = heartbeat_timeout_seconds
+        self.termination_grace_seconds = termination_grace_seconds
+        self.poll_interval_seconds = poll_interval_seconds
 
     def execute(
         self,
@@ -42,7 +52,9 @@ class LocalProcessHarness:
         *,
         allowed_env: tuple[str, ...] | list[str] = (),
         resource_class: str = "cpu",
+        cancel_requested=None,
     ) -> HarnessResult:
+        execution_started = time.monotonic()
         workspace = self._workspace_for_request(request)
         workspace.request_path.write_text(
             json.dumps(request.to_json_dict(), ensure_ascii=False, indent=2, sort_keys=True)
@@ -86,8 +98,36 @@ class LocalProcessHarness:
                     stdout=stdout_handle,
                     stderr=stderr_handle,
                     shell=False,
+                    **self.process_controller.popen_options(),
                 )
-                exit_code = process.wait()
+                termination_status: HarnessStatus | None = None
+                termination_reason = ""
+                while process.poll() is None:
+                    if cancel_requested is not None and cancel_requested():
+                        termination_status = HarnessStatus.CANCELED
+                        termination_reason = "cancel_requested"
+                        break
+                    if time.monotonic() - execution_started >= request.timeout_seconds:
+                        termination_status = HarnessStatus.TIMED_OUT
+                        termination_reason = "wall_timeout"
+                        break
+                    if (
+                        workspace.heartbeat_path.exists()
+                        and time.time() - workspace.heartbeat_path.stat().st_mtime
+                        > self.heartbeat_timeout_seconds
+                    ):
+                        termination_status = HarnessStatus.INTERRUPTED
+                        termination_reason = "heartbeat_timeout"
+                        break
+                    time.sleep(self.poll_interval_seconds)
+                if termination_status is not None:
+                    self.process_controller.terminate_tree(
+                        process,
+                        self.termination_grace_seconds,
+                    )
+                    exit_code = process.poll()
+                else:
+                    exit_code = process.wait()
 
         metadata = {
             "workspace": str(workspace.root),
@@ -100,6 +140,26 @@ class LocalProcessHarness:
             "resource_wait_seconds": lease.waited_seconds,
             "pid": process.pid,
         }
+        if termination_status is not None:
+            error_class = (
+                "canceled"
+                if termination_status == HarnessStatus.CANCELED
+                else "timeout"
+                if termination_status == HarnessStatus.TIMED_OUT
+                else "worker_crash"
+            )
+            return self._failure_result(
+                request,
+                workspace,
+                started_at=started_at,
+                status=termination_status,
+                error_class=error_class,
+                message=f"harness execution terminated: {termination_reason}",
+                retryable=termination_status != HarnessStatus.CANCELED,
+                exit_code=exit_code,
+                termination_reason=termination_reason,
+                metadata=metadata,
+            )
         if not workspace.result_path.exists():
             return self._failure_result(
                 request,
@@ -167,6 +227,7 @@ class LocalProcessHarness:
         workspace: HarnessWorkspace,
         *,
         started_at: str,
+        status: HarnessStatus | None = None,
         error_class: str,
         message: str,
         retryable: bool,
@@ -182,7 +243,8 @@ class LocalProcessHarness:
         return HarnessResult.create(
             harness_run_id=request.harness_run_id,
             job_id=request.job_id,
-            status=(
+            status=status
+            or (
                 HarnessStatus.TIMED_OUT
                 if error_class == "timeout"
                 else HarnessStatus.FAILED
@@ -199,6 +261,50 @@ class LocalProcessHarness:
             termination_reason=termination_reason,
             metadata=dict(metadata or {}),
         )
+
+
+class ProcessTreeController:
+    def popen_options(self) -> dict:
+        if os.name == "nt":
+            flags = subprocess.CREATE_NEW_PROCESS_GROUP
+            if hasattr(subprocess, "CREATE_NO_WINDOW"):
+                flags |= subprocess.CREATE_NO_WINDOW
+            return {"creationflags": flags}
+        return {"start_new_session": True}
+
+    def terminate_tree(
+        self,
+        process: subprocess.Popen,
+        grace_seconds: float,
+    ) -> None:
+        if process.poll() is not None:
+            return
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                check=False,
+                capture_output=True,
+                text=True,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        else:
+            os.killpg(process.pid, signal.SIGTERM)
+            try:
+                process.wait(timeout=grace_seconds)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+        try:
+            process.wait(timeout=max(grace_seconds, 0.1))
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=1)
+
+    def is_alive(self, pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        return True
 
 
 def _unique(values: list[str]) -> list[str]:

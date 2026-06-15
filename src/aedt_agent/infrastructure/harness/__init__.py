@@ -19,7 +19,10 @@ from aedt_agent.infrastructure.harness.resources import (
     ResourceGate,
     ResourceLease,
 )
-from aedt_agent.infrastructure.harness.local_process import LocalProcessHarness
+from aedt_agent.infrastructure.harness.local_process import (
+    LocalProcessHarness,
+    ProcessTreeController,
+)
 
 __all__ = [
     "HARNESS_PROTOCOL_VERSION",
@@ -32,6 +35,7 @@ __all__ = [
     "HarnessWorkspaceError",
     "HarnessWorkspacePolicy",
     "LocalProcessHarness",
+    "ProcessTreeController",
     "ResourceAcquireTimeout",
     "ResourceGate",
     "ResourceLease",
