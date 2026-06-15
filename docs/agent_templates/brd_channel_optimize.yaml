@@ -1,0 +1,168 @@
+id: brd_channel_optimize
+version: 1
+description: "BRD channel optimization: analyze → build → score → decide (full agent pipeline)"
+max_rounds: 5
+
+nodes:
+  - id: analyze
+    role: planner
+    kind: agent
+    system_prompt: analyze_prompt
+    output_schema: analysis_result
+    model: gpt-4.1-mini
+    profile: low_cost
+    constraints:
+      temperature: 0.2
+      response_format: json_object
+    max_runs: 1
+
+  - id: build_model
+    role: worker
+    kind: agent
+    capability: code_writer
+    system_prompt: build_prompt
+    input_schema: analysis_result
+    output_schema: build_evidence
+    model: gpt-4.1-mini
+    profile: standard
+    constraints:
+      temperature: 0.1
+      max_tokens: 4096
+      allowed_imports: [aedt_agent, pyedb, ansys.aedt.core, pathlib, json]
+      forbidden_patterns: ["os.system", "subprocess", "eval(", "exec("]
+    on_failure: skip
+    max_runs: 5
+
+  - id: score_channel
+    role: evaluator
+    kind: agent
+    system_prompt: score_prompt
+    input_schema: build_evidence
+    output_schema: score_result
+    model: gpt-4.1-mini
+    profile: low_cost
+    constraints:
+      temperature: 0.3
+      read_only: true
+    max_runs: 5
+
+  - id: decide
+    role: decision_maker
+    kind: agent
+    system_prompt: decide_prompt
+    input_schema: score_result
+    output_schema: next_action
+    model: gpt-4.1
+    profile: high_reasoning
+    constraints:
+      temperature: 0.4
+      allowed_decisions: [continue, adjust_void, adjust_clearance, widen_trace, rollback, complete]
+    max_runs: 5
+
+  - id: scorecard
+    role: scorecard
+    kind: program
+    input_schema: next_action
+    output_schema: scorecard_report
+    max_runs: 1
+
+edges:
+  - id: a-to-b
+    from: analyze
+    to: build_model
+    on: succeeded
+    max_traversals: 1
+  - id: b-to-s
+    from: build_model
+    to: score_channel
+    on: succeeded
+    max_traversals: 5
+  - id: s-to-d
+    from: score_channel
+    to: decide
+    on: succeeded
+    max_traversals: 5
+  - id: d-loop
+    from: decide
+    to: build_model
+    on: continue
+    max_traversals: 5
+  - id: d-complete
+    from: decide
+    to: scorecard
+    on: complete
+    max_traversals: 1
+
+prompts:
+  analyze_prompt: |
+    You are an RF/microwave engineering agent specializing in BRD/MCM
+    channel optimization. Analyze the user's request and produce a structured
+    JSON plan with: plan_summary, signal_nets, reference_nets,
+    frequency_range (start_ghz, stop_ghz), target_metrics (list of {type,
+    target_db, freq_ghz}), port_configuration ({count, style}), and
+    suggested_strategy.
+
+  build_prompt: |
+    You are an AEDT automation agent. Write PyAEDT Python code to build
+    the HFSS 3D Layout model as specified in the analysis handoff.
+
+    CONSTRAINTS:
+    - Only import from: pyedb, ansys.aedt.core, pathlib, json
+    - NEVER use: os.system, subprocess, eval(), exec()
+    - Output a JSON with: status, code (the Python code),
+      artifact_refs (list of expected file paths), project_path,
+      port_count, setup_name, sweep_range ({start, stop, step})
+
+  score_prompt: |
+    You are a signal integrity evaluator. Read the build evidence and
+    score the channel performance.
+
+    You have READ-ONLY access to artifact files. Determine:
+    - worst RL (dB) and its frequency
+    - pass band (frequencies where RL < target)
+    - TDR peak deviation (ohms) and time (ps)
+    - anomaly windows
+
+    Output JSON with: status (pass/fail), rl_worst_db,
+    rl_worst_frequency_ghz, rl_pass_band, tdr_peak_deviation_ohm,
+    tdr_peak_time_ps, tdr_anomaly_window, anomalies (list of descriptions)
+
+  decide_prompt: |
+    You are an optimization strategist. Based on channel scores and
+    previous actions, decide the next step.
+
+    Decision rules:
+    - If all metrics pass: output "complete"
+    - If RL > -15 dB: propose impedance adjustment (void or trace width)
+    - If TDR deviation > 10 ohm: propose clearance or stackup adjustment
+    - If no improvement for 2 consecutive rounds: output "complete"
+    - If metrics regressed: output "rollback"
+
+    Output exactly one decision from the allowed list as JSON:
+    {decision, reason, suggested_parameters (if applicable)}
+
+profiles:
+  low_cost:
+    model: gpt-4.1-mini
+    temperature: 0.2
+    max_tokens: 2048
+  standard:
+    model: gpt-4.1-mini
+    temperature: 0.1
+    max_tokens: 4096
+  high_reasoning:
+    model: gpt-4.1
+    temperature: 0.4
+    max_tokens: 4096
+
+handoffs:
+  analysis_result:
+    required_fields: [plan_summary, signal_nets, frequency_range, target_metrics, port_configuration]
+  build_evidence:
+    required_fields: [status, code, artifact_refs, project_path, port_count]
+  score_result:
+    required_fields: [status, rl_worst_db, tdr_peak_deviation_ohm]
+  next_action:
+    required_fields: [decision, reason]
+  scorecard_report:
+    required_fields: [status, checks]
