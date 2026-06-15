@@ -344,7 +344,7 @@ def dispatch_agent_request(
                 status.get("node_runs", []),
                 status.get("handoffs", []),
             )
-            return _json({"mermaid": mermaid, "status": status["status"]})
+            return _json({"mermaid": "\n".join(["```mermaid", mermaid, "```"]), "status": status["status"]})
 
         if method == "POST" and route.endswith("/advance"):
             graph_run_id = route.rsplit("/", 2)[0].rsplit("/", 1)[-1]

@@ -165,8 +165,7 @@ def render_graph_mermaid(
     for run in sorted(node_runs, key=lambda r: r.get("sequence", 0)):
         state_map[run["node_id"]] = run
 
-    lines = ["```mermaid", "flowchart TD"]
-    lines.append(f"  title[{template_id}]")
+    lines = ["flowchart TD"]
 
     # Define node styles
     for node in nodes:
@@ -174,43 +173,56 @@ def render_graph_mermaid(
         state = state_map.get(nid, {})
         status = state.get("status", "pending")
         decision = state.get("edge_decision", "")
-        label = f"{nid}<br/>({status})"
-        if decision and status in ("succeeded", "failed", "skipped"):
-            label = f"{nid}<br/>{status}:{decision}"
+        role = node.get("role", "")
+        kind = node.get("kind", "")
 
-        safe_id = nid.replace("-", "_").replace(".", "_")
+        # Build label: use \n for line breaks, escape parens
+        status_short = status[:4]  # succ/fail/skip/wait/runn/pend
+        if decision and status in ("succeeded", "failed", "skipped"):
+            label = f"{nid}\\n{status_short}:{decision}"
+        elif status == "pending":
+            label = f"{nid}\\n{role or kind}"
+        else:
+            label = f"{nid}\\n{status_short}"
+
+        safe_id = _safe_id(nid)
         color = _mermaid_color(status)
-        lines.append(f"  {safe_id}[{label}]")
+        lines.append(f'  {safe_id}["{label}"]')
         if color:
             lines.append(f"  style {safe_id} {color}")
 
     # Edges
     for edge in edges:
-        from_id = edge["from"].replace("-", "_").replace(".", "_")
-        to_id = edge["to"].replace("-", "_").replace(".", "_")
+        from_id = _safe_id(edge["from"])
+        to_id = _safe_id(edge["to"])
         condition = edge.get("if", edge.get("if_condition", ""))
-        label = ""
-        if condition:
-            label = f"|{condition[:20]}|"
         on = edge.get("on", "")
-        if on and not condition:
-            label = f"|{on}|"
-        lines.append(f"  {from_id} -->{label} {to_id}")
 
-    lines.append("```")
+        if condition:
+            lines.append(f'  {from_id} -->|"{condition[:30]}"| {to_id}')
+        elif on and on not in ("succeeded",):
+            lines.append(f'  {from_id} -->|{on}| {to_id}')
+        else:
+            lines.append(f"  {from_id} --> {to_id}")
+
     return "\n".join(lines)
 
 
 def _mermaid_color(status: str) -> str:
     mapping = {
-        "succeeded": "fill:#90EE90",
-        "failed": "fill:#FFB6C1",
-        "skipped": "fill:#FFD700",
-        "waiting_approval": "fill:#DDA0DD",
-        "running": "fill:#87CEEB",
-        "created": "fill:#D3D3D3",
+        "succeeded": "fill:#1a3a1a,stroke:#4ade80,color:#bbf7d0",
+        "failed": "fill:#3a1a1a,stroke:#f87171,color:#fecaca",
+        "skipped": "fill:#3a3510,stroke:#facc15,color:#fef08a",
+        "waiting_approval": "fill:#2a1a3a,stroke:#c084fc,color:#e9d5ff",
+        "running": "fill:#1a2a3a,stroke:#60a5fa,color:#bfdbfe",
+        "created": "fill:#1a1a2a,stroke:#6b7280,color:#9ca3af",
     }
     return mapping.get(status, "")
+
+
+def _safe_id(node_id: str) -> str:
+    """Make a node ID safe for Mermaid by replacing special chars."""
+    return node_id.replace("-", "_").replace(".", "_").replace(":", "_")
 
 
 def _topological_layout(

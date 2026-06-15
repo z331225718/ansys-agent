@@ -53,10 +53,8 @@ def test_render_graph_mermaid_generates_valid_syntax():
         "edges": [],
     }
     result = render_graph_mermaid(template, [], [])
-    assert "```mermaid" in result
     assert "flowchart TD" in result
-    assert "a" in result
-
+    assert 'a["a' in result
 
 def test_render_graph_mermaid_with_conditional_edge():
     template = {
