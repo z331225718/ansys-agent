@@ -105,17 +105,9 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
     </div>
   </div>
   <div style="display:grid;gap:4px;margin-top:8px;padding:8px;border:1px solid var(--line);border-radius:6px;background:#1a1c28">
-    <div class="muted" style="font-size:11px">🤖 输入自然语言需求，编排者自动执行</div>
+    <div class="muted" style="font-size:11px">🤖 输入需求，编排者自动选模板并执行</div>
     <input id="orchestrateGoal" placeholder="e.g. Optimize CLK0/CLK1 channel, RL <-20dB @28GHz" style="font-size:12px">
-    <div style="display:flex;gap:4px">
-      <select id="orchestrateTemplate" style="font-size:11px;flex:1">
-        <option value="brd_local_cut_build">brd_local_cut_build</option>
-        <option value="brd_channel_optimize">brd_channel_optimize</option>
-        <option value="brd_before_after_compare">brd_before_after_compare</option>
-        <option value="brd_real_solve_evidence">brd_real_solve_evidence</option>
-      </select>
-      <button onclick="orchestrateGoal()" style="font-size:12px;padding:6px 10px;white-space:nowrap">🤖 Go</button>
-    </div>
+    <button onclick="orchestrateGoal()" style="font-size:12px;padding:8px">🤖 Go</button>
     <div id="orchestrateLiveLog" style="display:none;max-height:100px;overflow:auto;font-size:10px;background:#111;padding:6px;border-radius:4px;line-height:1.4"></div>
   </div>
   <div class="field" style="margin-top:auto">
@@ -393,11 +385,10 @@ async function orchestrateMission(){
 async function orchestrateGoal(){
   const goal=document.getElementById('orchestrateGoal').value.trim();
   if(!goal)return alert('Please enter a goal');
-  const templateId=document.getElementById('orchestrateTemplate').value;
   const log=document.getElementById('orchestrateLiveLog');
-  log.style.display='block';log.innerHTML='<span style="color:var(--accent)">⏳ Starting…</span>';
+  log.style.display='block';log.innerHTML='<span style="color:var(--accent)">⏳ Orchestrator selecting template…</span>';
 
-  const data=await api('/api/orchestrate',{method:'POST',body:JSON.stringify({goal,template_id:templateId,adapter_mode:'deterministic'})});
+  const data=await api('/api/orchestrate',{method:'POST',body:JSON.stringify({goal,adapter_mode:'deterministic'})});
   const sid=data.session_id;
   let lastLen=0;
   const poll=setInterval(async()=>{
@@ -595,7 +586,12 @@ def dispatch_agent_request(
             goal = str(req.get("goal", ""))
             if not goal:
                 return _json({"error": "goal is required"}, status=400)
-            template_id = str(req.get("template_id", "brd_local_cut_build"))
+
+            # Auto-select template via LLM or fallback to default
+            template_id = str(req.get("template_id") or "")
+            if not template_id:
+                template_id = _select_template_for_goal(goal)
+
             session_id = str(_uuid.uuid4())[:12]
             _orchestrator_sessions[session_id] = {
                 "running": True, "log": [], "current_status": "starting",
@@ -809,6 +805,44 @@ def _save_web_llm_config(config: dict[str, Any]) -> None:
     if config.get("base_url"):
         saved["base_url"] = str(config["base_url"])
     _LLM_CONFIG_PATH.write_text(json.dumps(saved, indent=2), encoding="utf-8")
+
+
+def _select_template_for_goal(goal: str) -> str:
+    """Auto-select the best YAML template for a given goal using LLM or keyword heuristics."""
+    # Try LLM first
+    try:
+        from aedt_agent.agent.llm import LlmConfig, llm_complete_json
+        config = LlmConfig.from_env()
+        if config.api_key:
+            system = (
+                "Select the best ansys-agent YAML template for this engineering task. "
+                "Available templates:\n"
+                "- brd_local_cut_build: model review only (no solve)\n"
+                "- brd_channel_optimize: full optimization (analyze→build→score→decide→loop)\n"
+                "- brd_before_after_compare: compare before/after channel scores\n"
+                "- brd_real_solve_evidence: real AEDT solve with evidence package\n"
+                "- brd_multi_channel_demo: multi-channel fan-out scoring\n\n"
+                "Return JSON: {\"template_id\": \"...\", \"reason\": \"...\"}"
+            )
+            result = llm_complete_json(system, f"Task: {goal}", config=config)
+            tid = str(result.get("template_id", ""))
+            if tid in {"brd_local_cut_build", "brd_channel_optimize", "brd_before_after_compare",
+                        "brd_real_solve_evidence", "brd_multi_channel_demo"}:
+                return tid
+    except Exception:
+        pass
+
+    # Fallback: keyword heuristics
+    g = goal.lower()
+    if "optimize" in g or "optim" in g or "improve" in g or "tune" in g:
+        return "brd_channel_optimize"
+    if "compare" in g or "before" in g or "after" in g:
+        return "brd_before_after_compare"
+    if "solve" in g or "evidence" in g:
+        return "brd_real_solve_evidence"
+    if "multi" in g or "fan" in g:
+        return "brd_multi_channel_demo"
+    return "brd_local_cut_build"
 
 
 def _merge_web_llm_config(config: Any) -> Any:
