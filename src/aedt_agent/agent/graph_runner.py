@@ -906,13 +906,15 @@ def _execute_wave(
                         timeout = job.timeout_seconds
                     except Exception:
                         pass
+                from concurrent.futures import TimeoutError as FuturesTimeoutError
                 try:
                     results[index] = futures[index].result(timeout=timeout)
-                except Exception:
+                except FuturesTimeoutError:
                     results[index] = GraphNodeExecutionResult(
                         NodeRunStatus.FAILED, "failed", {},
                         error={"error_class": "worker_timeout", "message": "worker timed out"},
                     )
+                # Other exceptions propagate naturally to the outer try/except
     return [result for result in results if result is not None]
 
 

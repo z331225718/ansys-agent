@@ -69,12 +69,34 @@ def llm_complete(
             return _http_post(url, body, config)
         except Exception as e:
             last_error = e
-            if attempt < max_retries - 1:
+            if attempt < max_retries - 1 and _is_retryable(e):
                 import time as _time
-                delay = 2 ** attempt  # 1s, 2s, 4s
-                _time.sleep(delay)
+                _time.sleep(2 ** attempt)  # 1s, 2s, 4s
                 continue
+            raise
     raise last_error  # type: ignore[misc]
+
+
+def _is_retryable(exc: Exception) -> bool:
+    """Return True for transient network/timeout errors only."""
+    try:
+        import httpx
+        if isinstance(exc, (httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolError)):
+            return True
+    except ImportError:
+        pass
+    import urllib.error
+    if isinstance(exc, (urllib.error.URLError, ConnectionError, TimeoutError, OSError)):
+        return True
+    # 429, 502, 503, 504 are transient; httpx raises HTTPStatusError
+    try:
+        import httpx
+        if isinstance(exc, httpx.HTTPStatusError):
+            code = exc.response.status_code
+            return code in (429, 502, 503, 504)
+    except ImportError:
+        pass
+    return False
 
 
 def _http_post(url: str, body: dict, config: LlmConfig) -> str:
