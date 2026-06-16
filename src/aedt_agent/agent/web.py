@@ -134,8 +134,10 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
           </div>
           <div style="display:flex;gap:8px">
             <button onclick="createMission()">Create Mission</button>
+            <button class="secondary" onclick="orchestrateMission()" id="btnOrchestrate" style="background:var(--accent);color:#1e2030">🤖 Auto Orchestrate</button>
             <button class="secondary" onclick="document.getElementById('createPanel').style.display='none'">Cancel</button>
           </div>
+          <div id="orchestrateLog" style="display:none;margin-top:8px;max-height:160px;overflow:auto;font-size:11px;background:#111;padding:8px;border-radius:6px;line-height:1.5"></div>
         </div>
       </div>
       <div id="graphView">
@@ -331,6 +333,49 @@ function toggleLlmConfig(){
   el.style.display=el.style.display==='none'?'grid':'none';
 }
 
+async function orchestrateMission(){
+  const goal=document.getElementById('newGoal').value;
+  const templateId=document.getElementById('newTemplate').value||'brd_local_cut_build';
+  const nets=document.getElementById('newNets').value.split(',').map(s=>s.trim()).filter(Boolean);
+  const btn=document.getElementById('btnOrchestrate');
+  btn.disabled=true;btn.textContent='⏳ Running…';
+  const log=document.getElementById('orchestrateLog');
+  log.style.display='block';log.innerHTML='<div style="color:var(--accent)">Starting orchestrator…</div>';
+
+  const data=await api('/api/orchestrate',{method:'POST',body:JSON.stringify({
+    goal,template_id:templateId,signal_nets:nets,
+    bbox:document.getElementById('newBbox').value,
+    layout_file:document.getElementById('newLayout').value,
+    adapter_mode:'deterministic',
+  })});
+
+  const sid=data.session_id;
+  let lastLogLen=0;
+  const poll=setInterval(async()=>{
+    try{
+      const s=await api('/api/orchestrate-status/'+sid);
+      // Append new log entries
+      for(let i=lastLogLen;i<s.log.length;i++){
+        const e=s.log[i];
+        const cls={ok:'ok',err:'err',warn:'warn'}[e.type]||'info';
+        log.innerHTML+=`<div class="log-entry ${cls}">${e.msg}</div>`;
+        log.scrollTop=log.scrollHeight;
+      }
+      lastLogLen=s.log.length;
+      if(!s.running){
+        clearInterval(poll);
+        btn.disabled=false;btn.textContent='🤖 Auto Orchestrate';
+        log.innerHTML+='<div style="color:var(--green)">Done.</div>';
+        if(s.mission_id)await refreshMissions();
+      }
+      if(s.mission_id)activeMission=s.mission_id;
+      if(s.graph_run_id)activeGraphRun=s.graph_run_id;
+      document.getElementById('currentMission').textContent='Orchestrating: '+((s.mission_id||'').slice(0,12))+'…';
+      document.getElementById('stepCount').textContent='?';
+    }catch(e){clearInterval(poll);btn.disabled=false;btn.textContent='🤖 Auto Orchestrate'}
+  },1000);
+}
+
 async function saveLlmConfig(){
   const config={
     model:document.getElementById('llmModel').value,
@@ -504,6 +549,48 @@ def dispatch_agent_request(
             _save_web_llm_config(req)
             return _json({"saved": True})
 
+        # ── Orchestrator ──
+        if method == "POST" and route == "/api/orchestrate":
+            import uuid as _uuid
+            req = _json_body(body)
+            goal = str(req.get("goal", ""))
+            if not goal:
+                return _json({"error": "goal is required"}, status=400)
+            template_id = str(req.get("template_id", "brd_local_cut_build"))
+            session_id = str(_uuid.uuid4())[:12]
+            _orchestrator_sessions[session_id] = {
+                "running": True, "log": [], "current_status": "starting",
+                "mission_id": None, "graph_run_id": None,
+            }
+            payload = {
+                "_goal": goal,
+                "signal_nets": req.get("signal_nets", []),
+                "reference_nets": ["GND"],
+                "layout_file": str(req.get("layout_file", "")),
+                "local_cut_region": _parse_bbox(str(req.get("bbox", "0,0,10,10"))),
+                "target_metrics": [],
+                "adapter_mode": str(req.get("adapter_mode", "deterministic")),
+            }
+            _threading.Thread(
+                target=_orchestrator_loop,
+                args=(session_id, goal, runtime, template_id, payload),
+                daemon=True,
+            ).start()
+            return _json({"session_id": session_id, "goal": goal, "template_id": template_id}, status=201)
+
+        if method == "GET" and route.startswith("/api/orchestrate-status/"):
+            session_id = route.rsplit("/", 1)[-1]
+            session = _orchestrator_sessions.get(session_id)
+            if session is None:
+                return _json({"error": "session not found"}, status=404)
+            return _json({
+                "running": session["running"],
+                "current_status": session["current_status"],
+                "mission_id": session.get("mission_id"),
+                "graph_run_id": session.get("graph_run_id"),
+                "log": session["log"][-50:],  # last 50 entries
+            })
+
         return _json({"error": "not_found", "path": route}, status=404)
     except Exception as exc:
         return _json({"error": type(exc).__name__, "message": str(exc)}, status=400)
@@ -512,6 +599,85 @@ def dispatch_agent_request(
 # ---------------------------------------------------------------------------
 # Server
 # ---------------------------------------------------------------------------
+
+
+# ── Built-in Orchestrator ──
+
+import threading as _threading
+
+_orchestrator_sessions: dict[str, dict[str, Any]] = {}
+
+
+def _orchestrator_loop(
+    session_id: str,
+    goal: str,
+    runtime: Any,
+    template_id: str,
+    initial_payload: dict[str, Any],
+) -> None:
+    """Background orchestrator loop: create → monitor → decide → repeat."""
+    from aedt_agent.agent.graph_runner import advance_graph, create_graph_run, graph_status
+    from aedt_agent.agent.graph_template import load_graph_template, resolve_template_path
+    from aedt_agent.agent.llm import LlmConfig, llm_complete, llm_complete_json
+
+    session = _orchestrator_sessions[session_id]
+    try:
+        # Step 1: Create mission + graph_run
+        mission = runtime.create_mission(goal, [], [])
+        session["mission_id"] = mission.mission_id
+        template = load_graph_template(resolve_template_path(template_id))
+        graph_run = create_graph_run(runtime, mission.mission_id, template, initial_payload=initial_payload)
+        session["graph_run_id"] = graph_run.graph_run_id
+        session["log"].append({"type": "info", "msg": f"Created mission {mission.mission_id[:12]}… with {template_id}"})
+
+        # Step 2: Orchestration loop
+        fail_count = 0
+        max_fails = 5
+        while session["running"]:
+            report = advance_graph(runtime, graph_run.graph_run_id)
+            status = report["status"]
+            session["current_status"] = status
+            session["log"].append({"type": "info", "msg": f"Graph step: {status}"})
+
+            if status == "succeeded":
+                session["log"].append({"type": "ok", "msg": "✅ Graph completed successfully"})
+                break
+            elif status == "failed":
+                fail_count += 1
+                error = report.get("graph_run", {}).get("error", {})
+                session["log"].append({"type": "err", "msg": f"❌ Failed: {error.get('code','unknown')} ({fail_count}/{max_fails})"})
+                if fail_count >= max_fails:
+                    session["log"].append({"type": "err", "msg": "Too many failures, stopping"})
+                    break
+                # Try takeover with same template
+                session["log"].append({"type": "warn", "msg": "Retrying with takeover…"})
+                graph_run = create_graph_run(runtime, mission.mission_id, template, initial_payload=initial_payload)
+                session["graph_run_id"] = graph_run.graph_run_id
+            elif status == "waiting_approval":
+                session["log"].append({"type": "warn", "msg": "⏸ Waiting for approval — auto-approving"})
+                # Auto-approve for now; in production, ask orchestrator LLM
+                try:
+                    approvals = runtime.store.list_approvals(mission.mission_id)
+                    pending = [a for a in approvals if a.decision.value == "pending"]
+                    if pending:
+                        from aedt_agent.agent.mission import ApprovalDecision
+                        runtime.store.resolve_approval(pending[-1].approval_id, ApprovalDecision.APPROVED, None, None)
+                        runtime.store.update_graph_run_status(graph_run.graph_run_id, "running")
+                except Exception as e:
+                    session["log"].append({"type": "err", "msg": f"Auto-approve failed: {e}"})
+            elif status == "canceled":
+                session["log"].append({"type": "warn", "msg": "Graph was canceled"})
+                break
+            elif status == "running":
+                pass  # continue polling
+
+            import time as _time
+            _time.sleep(1)
+    except Exception as e:
+        session["log"].append({"type": "err", "msg": f"Orchestrator error: {e}"})
+    finally:
+        session["running"] = False
+        session["log"].append({"type": "info", "msg": "Orchestrator stopped"})
 
 
 def run_agent_window(
