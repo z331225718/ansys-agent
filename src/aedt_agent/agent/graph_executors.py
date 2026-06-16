@@ -116,12 +116,18 @@ def execute_agent_node(context: GraphNodeExecutionContext) -> GraphNodeExecution
     # 2. Resolve constraints (merge profile defaults + node overrides)
     constraints = _resolve_agent_constraints(context)
 
-    # 3. Build user message
-    user_msg = _json.dumps({
+    # 3. Build user message with knowledge context
+    user_parts: dict[str, Any] = {
         "handoff": context.input_payload,
         "output_schema": context.node.output_schema,
         "constraints": constraints,
-    }, ensure_ascii=False, indent=2)
+    }
+    # Inject knowledge for code_writer agents
+    if context.node.capability == "code_writer":
+        knowledge = _get_agent_knowledge(context)
+        if knowledge:
+            user_parts["knowledge"] = knowledge
+    user_msg = _json.dumps(user_parts, ensure_ascii=False, indent=2)
 
     # 4. Call LLM
     try:
@@ -204,6 +210,93 @@ def _resolve_agent_constraints(context: GraphNodeExecutionContext) -> dict[str, 
 
 
 def _extract_json_from_markdown(text: str) -> dict[str, Any]:
+    """Extract JSON from markdown code fences."""
+    import json as _json
+    import re as _re
+    # Try ```json ... ``` first
+    match = _re.search(r'```(?:json)?\s*\n(.*?)\n```', text, _re.DOTALL)
+    if match:
+        try:
+            return _json.loads(match.group(1))
+        except _json.JSONDecodeError:
+            pass
+    # Try first { ... } block
+    match = _re.search(r'\{.*\}', text, _re.DOTALL)
+    if match:
+        try:
+            return _json.loads(match.group(0))
+        except _json.JSONDecodeError:
+            pass
+    return {}
+
+
+# ── Agent Knowledge Injection ──
+
+_knowledge_provider: Any = None  # set at startup
+
+
+def set_agent_knowledge_provider(provider: Any) -> None:
+    global _knowledge_provider
+    _knowledge_provider = provider
+
+
+def _get_agent_knowledge(context: GraphNodeExecutionContext) -> dict[str, Any] | None:
+    """Get relevant API docs, examples, and common traps for an agent node."""
+    if _knowledge_provider is None:
+        return None
+
+    try:
+        capability = context.node.capability
+        handoff = context.input_payload
+
+        # Extract search terms from handoff
+        search_terms = []
+        for key in ("signal_nets", "target_metrics", "plan_summary", "goal", "_goal"):
+            val = handoff.get(key, "")
+            if isinstance(val, str) and val:
+                search_terms.append(val)
+            elif isinstance(val, list):
+                search_terms.extend(str(v) for v in val[:3])
+
+        query = " ".join(search_terms[:3]) if search_terms else "hfss 3d layout build"
+        apis = _knowledge_provider.search_api(query, limit=8)
+
+        if not apis:
+            return None
+
+        # Build knowledge context
+        api_docs = []
+        for api in apis:
+            doc = f"## {api.fqname}\n```python\n{api.signature}\n```\n"
+            if api.docstring:
+                doc += f"{api.docstring[:300]}\n"
+            if api.common_errors:
+                doc += f"⚠️ Common errors: {', '.join(api.common_errors[:3])}\n"
+            if api.constraints:
+                doc += f"🔒 Constraints: {', '.join(api.constraints[:3])}\n"
+            api_docs.append(doc)
+
+        traps = _knowledge_provider.list_common_traps(None)
+        trap_text = ""
+        if traps:
+            trap_text = "\n## ⚠️ Common Pitfalls\n" + "\n".join(
+                f"- **{t.trap_id}**: {t.description[:200]}" for t in traps[:5]
+            )
+
+        cases = _knowledge_provider.list_workflow_cases()
+        case_text = ""
+        if cases:
+            case_text = "\n## 📋 Reference Workflows\n" + "\n".join(
+                f"- **{c.case_id}**: {c.description[:200]}" for c in cases[:3]
+            )
+
+        return {
+            "api_reference": "\n\n".join(api_docs),
+            "common_traps": trap_text,
+            "workflow_examples": case_text,
+        }
+    except Exception:
+        return None
     """Extract JSON from markdown code fences."""
     import json as _json
     import re as _re

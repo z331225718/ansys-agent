@@ -730,6 +730,16 @@ def run_agent_window(
     registry.register(BRD_EVIDENCE_COMPARE_CAPABILITY, run_evidence_compare_worker)
     runtime = AgentRuntime(SQLiteMissionStore(db), registry=registry)
 
+    # Load knowledge provider for agent context injection
+    try:
+        from aedt_agent.knowledge.sqlite_provider import SqliteKnowledgeProvider
+        from aedt_agent.agent.graph_executors import set_agent_knowledge_provider
+        kp = SqliteKnowledgeProvider()
+        set_agent_knowledge_provider(kp)
+        print(f"Knowledge base loaded for agent context injection")
+    except Exception as e:
+        print(f"Knowledge base not available: {e}")
+
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             self._handle()
