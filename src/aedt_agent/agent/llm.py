@@ -18,13 +18,31 @@ class LlmConfig:
 
     @classmethod
     def from_env(cls, prefix: str = "AEDT_AGENT_") -> "LlmConfig":
-        return cls(
+        cfg = cls(
             model=os.getenv(f"{prefix}LLM_MODEL", os.getenv("LLM_MODEL", "gpt-4.1-mini")),
             api_key=os.getenv(f"{prefix}LLM_API_KEY", os.getenv("OPENAI_API_KEY", "")),
             base_url=os.getenv(f"{prefix}LLM_BASE_URL", os.getenv("OPENAI_BASE_URL", "")),
             temperature=float(os.getenv(f"{prefix}LLM_TEMPERATURE", "0.3")),
             max_tokens=int(os.getenv(f"{prefix}LLM_MAX_TOKENS", "2048")),
         )
+        # Merge web-saved config (web takes precedence over env defaults, env vars still win)
+        if not cfg.api_key or not cfg.base_url:
+            try:
+                from pathlib import Path as _Path
+                import json as _json
+                web_cfg_path = _Path(".aedt-agent/llm-config.json")
+                if web_cfg_path.exists():
+                    saved = _json.loads(web_cfg_path.read_text(encoding="utf-8"))
+                    cfg = cls(
+                        model=str(saved.get("model") or cfg.model),
+                        api_key=cfg.api_key or str(saved.get("api_key") or ""),
+                        base_url=cfg.base_url or str(saved.get("base_url") or ""),
+                        temperature=cfg.temperature,
+                        max_tokens=cfg.max_tokens,
+                    )
+            except Exception:
+                pass
+        return cfg
 
 
 def llm_complete(

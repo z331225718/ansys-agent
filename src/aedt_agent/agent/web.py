@@ -83,6 +83,14 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
     <button onclick="refreshMissions()">🔄 刷新 Missions</button>
     <button class="secondary" onclick="showCreate()">＋ 新建 Mission</button>
     <button class="secondary" onclick="monitorAll()" id="btnMonitorAll">📡 Monitor All</button>
+    <button class="secondary" onclick="toggleLlmConfig()">⚙️ LLM 配置</button>
+  </div>
+  <div id="llmConfig" style="display:none;display:grid;gap:6px;padding:8px;border:1px solid var(--line);border-radius:6px;background:#1a1c28">
+    <div class="field"><label>Model</label><input id="llmModel" value="gpt-4.1-mini" placeholder="gpt-4.1-mini"></div>
+    <div class="field"><label>API Key</label><input id="llmKey" type="password" placeholder="sk-..."></div>
+    <div class="field"><label>Base URL</label><input id="llmUrl" placeholder="https://api.openai.com/v1"></div>
+    <button onclick="saveLlmConfig()">💾 保存</button>
+    <div id="llmConfigStatus" class="muted" style="font-size:11px"></div>
   </div>
   <div class="field">
     <label>Missions</label>
@@ -307,12 +315,35 @@ toggleAutoRefresh();
 (async function checkLlm(){
   try{
     const data=await api('/api/llm-status');
-    document.getElementById('llmStatus').textContent='LLM: '+data.model+(data.configured?'':' (not configured)');
+    document.getElementById('llmStatus').textContent='LLM: '+data.model+(data.configured?' ✅':' ⚠️');
     document.getElementById('llmStatus').style.color=data.configured?'var(--green)':'var(--yellow)';
+    // Fill config fields
+    document.getElementById('llmModel').value=data.model||'gpt-4.1-mini';
+    document.getElementById('llmUrl').value=data.base_url||'';
+    document.getElementById('llmConfigStatus').textContent=data.configured?'已配置':'未配置 API Key';
   }catch(e){
     document.getElementById('llmStatus').textContent='LLM: unknown';
   }
 })();
+
+function toggleLlmConfig(){
+  const el=document.getElementById('llmConfig');
+  el.style.display=el.style.display==='none'?'grid':'none';
+}
+
+async function saveLlmConfig(){
+  const config={
+    model:document.getElementById('llmModel').value,
+    api_key:document.getElementById('llmKey').value,
+    base_url:document.getElementById('llmUrl').value,
+  };
+  await api('/api/llm-config',{method:'POST',body:JSON.stringify(config)});
+  document.getElementById('llmConfigStatus').textContent='已保存 ✅';
+  // Refresh LLM status
+  const data=await api('/api/llm-status');
+  document.getElementById('llmStatus').textContent='LLM: '+data.model+(data.configured?' ✅':' ⚠️');
+  document.getElementById('llmStatus').style.color=data.configured?'var(--green)':'var(--yellow)';
+}
 </script>
 </body>
 </html>"""
@@ -457,11 +488,21 @@ def dispatch_agent_request(
         if method == "GET" and route == "/api/llm-status":
             from aedt_agent.agent.llm import LlmConfig
             config = LlmConfig.from_env()
+            # Also check web-saved config
+            config = _merge_web_llm_config(config)
             return _json({
                 "model": config.model,
                 "configured": bool(config.api_key),
                 "base_url": config.base_url or "https://api.openai.com/v1",
             })
+
+        if method == "GET" and route == "/api/llm-config":
+            return _json(_load_web_llm_config())
+
+        if method == "POST" and route == "/api/llm-config":
+            req = _json_body(body)
+            _save_web_llm_config(req)
+            return _json({"saved": True})
 
         return _json({"error": "not_found", "path": route}, status=404)
     except Exception as exc:
@@ -540,3 +581,44 @@ def _parse_bbox(value: str) -> dict[str, Any]:
     if len(parts) != 4:
         return {"x1": 0, "y1": 0, "x2": 10, "y2": 10}
     return {"x1": parts[0], "y1": parts[1], "x2": parts[2], "y2": parts[3]}
+
+
+# ── LLM config persistence ──
+
+_LLM_CONFIG_PATH = Path(".aedt-agent/llm-config.json")
+
+
+def _load_web_llm_config() -> dict[str, Any]:
+    if _LLM_CONFIG_PATH.exists():
+        return json.loads(_LLM_CONFIG_PATH.read_text(encoding="utf-8"))
+    return {}
+
+
+def _save_web_llm_config(config: dict[str, Any]) -> None:
+    _LLM_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    saved = {}
+    if config.get("api_key"):
+        saved["api_key"] = str(config["api_key"])
+    if config.get("model"):
+        saved["model"] = str(config["model"])
+    if config.get("base_url"):
+        saved["base_url"] = str(config["base_url"])
+    _LLM_CONFIG_PATH.write_text(json.dumps(saved, indent=2), encoding="utf-8")
+
+
+def _merge_web_llm_config(config: Any) -> Any:
+    """Merge web-saved LLM config into LlmConfig, web takes precedence over env."""
+    try:
+        saved = _load_web_llm_config()
+    except Exception:
+        return config
+    if not saved:
+        return config
+    from aedt_agent.agent.llm import LlmConfig
+    return LlmConfig(
+        model=str(saved.get("model") or config.model),
+        api_key=str(saved.get("api_key") or config.api_key),
+        base_url=str(saved.get("base_url") or config.base_url),
+        temperature=config.temperature,
+        max_tokens=config.max_tokens,
+    )
