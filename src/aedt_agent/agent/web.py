@@ -85,7 +85,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
     <button class="secondary" onclick="monitorAll()" id="btnMonitorAll">📡 Monitor All</button>
     <button class="secondary" onclick="toggleLlmConfig()">⚙️ LLM 配置</button>
   </div>
-  <div id="llmConfig" style="display:none;display:grid;gap:6px;padding:8px;border:1px solid var(--line);border-radius:6px;background:#1a1c28">
+  <div id="llmConfig" style="display:none;gap:6px;padding:8px;border:1px solid var(--line);border-radius:6px;background:#1a1c28">
     <div class="field"><label>Model</label><input id="llmModel" value="gpt-4.1-mini" placeholder="gpt-4.1-mini"></div>
     <div class="field"><label>API Key</label><input id="llmKey" type="password" placeholder="sk-..."></div>
     <div class="field"><label>Base URL</label><input id="llmUrl" placeholder="https://api.openai.com/v1"></div>
@@ -103,6 +103,20 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
       <button class="approve" onclick="approveCurrent()">✓ 批准</button>
       <button class="reject" onclick="rejectCurrent()">✕ 拒绝</button>
     </div>
+  </div>
+  <div style="display:grid;gap:4px;margin-top:8px;padding:8px;border:1px solid var(--line);border-radius:6px;background:#1a1c28">
+    <div class="muted" style="font-size:11px">🤖 输入自然语言需求，编排者自动执行</div>
+    <input id="orchestrateGoal" placeholder="e.g. Optimize CLK0/CLK1 channel, RL <-20dB @28GHz" style="font-size:12px">
+    <div style="display:flex;gap:4px">
+      <select id="orchestrateTemplate" style="font-size:11px;flex:1">
+        <option value="brd_local_cut_build">brd_local_cut_build</option>
+        <option value="brd_channel_optimize">brd_channel_optimize</option>
+        <option value="brd_before_after_compare">brd_before_after_compare</option>
+        <option value="brd_real_solve_evidence">brd_real_solve_evidence</option>
+      </select>
+      <button onclick="orchestrateGoal()" style="font-size:12px;padding:6px 10px;white-space:nowrap">🤖 Go</button>
+    </div>
+    <div id="orchestrateLiveLog" style="display:none;max-height:100px;overflow:auto;font-size:10px;background:#111;padding:6px;border-radius:4px;line-height:1.4"></div>
   </div>
   <div class="field" style="margin-top:auto">
     <label>Auto-refresh</label>
@@ -373,6 +387,31 @@ async function orchestrateMission(){
       document.getElementById('currentMission').textContent='Orchestrating: '+((s.mission_id||'').slice(0,12))+'…';
       document.getElementById('stepCount').textContent='?';
     }catch(e){clearInterval(poll);btn.disabled=false;btn.textContent='🤖 Auto Orchestrate'}
+  },1000);
+}
+
+async function orchestrateGoal(){
+  const goal=document.getElementById('orchestrateGoal').value.trim();
+  if(!goal)return alert('Please enter a goal');
+  const templateId=document.getElementById('orchestrateTemplate').value;
+  const log=document.getElementById('orchestrateLiveLog');
+  log.style.display='block';log.innerHTML='<span style="color:var(--accent)">⏳ Starting…</span>';
+
+  const data=await api('/api/orchestrate',{method:'POST',body:JSON.stringify({goal,template_id:templateId,adapter_mode:'deterministic'})});
+  const sid=data.session_id;
+  let lastLen=0;
+  const poll=setInterval(async()=>{
+    try{
+      const s=await api('/api/orchestrate-status/'+sid);
+      for(let i=lastLen;i<s.log.length;i++){
+        const e=s.log[i];
+        log.innerHTML+=`<div style="color:${e.type==='err'?'var(--red)':e.type==='ok'?'var(--green)':e.type==='warn'?'var(--yellow)':'var(--muted)'}">${e.msg}</div>`;
+        log.scrollTop=log.scrollHeight;
+      }
+      lastLen=s.log.length;
+      if(!s.running){clearInterval(poll);refreshMissions()}
+      if(s.mission_id){activeMission=s.mission_id;refreshGraph()}
+    }catch(e){clearInterval(poll)}
   },1000);
 }
 
