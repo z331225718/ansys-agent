@@ -56,6 +56,8 @@ class SQLiteMissionStore:
         connection = sqlite3.connect(self.db_path)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("PRAGMA journal_mode = WAL")
+        connection.execute("PRAGMA busy_timeout = 5000")
         return connection
 
     def _init_schema(self) -> None:
@@ -341,23 +343,27 @@ class SQLiteMissionStore:
     def update_mission_state(self, mission_id: str, state: MissionState) -> MissionRecord:
         from aedt_agent.agent.orchestrator.state_machine import assert_transition
 
-        current = self.get_mission(mission_id)
-        if current is None:
-            raise KeyError(f"mission not found: {mission_id}")
-        if current.state == state:
-            return current
-        assert_transition(current.state, state)
         now = utc_now_iso()
         with self._connect() as db:
-            db.execute(
-                "UPDATE missions SET state = ?, updated_at = ? WHERE mission_id = ?",
-                (state.value, now, mission_id),
+            # Read current state within the same transaction to avoid TOCTOU
+            row = db.execute("SELECT state FROM missions WHERE mission_id = ?", (mission_id,)).fetchone()
+            if row is None:
+                raise KeyError(f"mission not found: {mission_id}")
+            current = MissionState(row["state"])
+            if current == state:
+                cursor = db.execute("SELECT * FROM missions WHERE mission_id = ?", (mission_id,))
+                return _mission_from_row(cursor.fetchone())
+            assert_transition(current, state)
+            # Atomic UPDATE with state precondition prevents races
+            cursor = db.execute(
+                "UPDATE missions SET state = ?, updated_at = ? WHERE mission_id = ? AND state = ?",
+                (state.value, now, mission_id, current.value),
             )
+            if cursor.rowcount != 1:
+                raise RuntimeError(f"concurrent modification detected for mission {mission_id}: expected state {current.value}")
             self._append_event_in_tx(db, mission_id, EventType.MISSION_STATE_CHANGED, {"state": state.value})
-        mission = self.get_mission(mission_id)
-        if mission is None:
-            raise KeyError(f"mission not found: {mission_id}")
-        return mission
+            cursor = db.execute("SELECT * FROM missions WHERE mission_id = ?", (mission_id,))
+        return _mission_from_row(cursor.fetchone())
 
     def set_mission_final_outcome(self, mission_id: str, outcome: dict) -> MissionRecord:
         mission = self.get_mission(mission_id)
@@ -487,36 +493,39 @@ class SQLiteMissionStore:
         timeout_seconds: int,
         retry_limit: int,
     ) -> JobRecord:
-        existing = self.get_job_by_idempotency_key(mission_id, idempotency_key)
-        if existing is not None:
-            return existing
+        import sqlite3 as _sqlite3
+
         job = JobRecord.create(str(uuid4()), mission_id, capability, idempotency_key, input_payload, timeout_seconds, retry_limit)
         with self._connect() as db:
-            db.execute(
-                """
-                INSERT INTO jobs (
-                    job_id, mission_id, capability, idempotency_key, input_payload_json,
-                    output_payload_json, artifact_refs_json, timeout_seconds, retry_limit,
-                    status, created_at, updated_at, error_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    job.job_id,
-                    job.mission_id,
-                    job.capability,
-                    job.idempotency_key,
-                    _dump(job.input_payload),
-                    _dump(job.output_payload),
-                    _dump(job.artifact_refs),
-                    job.timeout_seconds,
-                    job.retry_limit,
-                    job.status.value,
-                    job.created_at,
-                    job.updated_at,
-                    None,
-                ),
-            )
-            self._append_event_in_tx(db, mission_id, EventType.JOB_CREATED, {"job_id": job.job_id, "capability": capability})
+            try:
+                db.execute(
+                    """
+                    INSERT INTO jobs (
+                        job_id, mission_id, capability, idempotency_key, input_payload_json,
+                        output_payload_json, artifact_refs_json, timeout_seconds, retry_limit,
+                        status, created_at, updated_at, error_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        job.job_id,
+                        job.mission_id,
+                        job.capability,
+                        job.idempotency_key,
+                        _dump(job.input_payload),
+                        _dump(job.output_payload),
+                        _dump(job.artifact_refs),
+                        job.timeout_seconds,
+                        job.retry_limit,
+                        job.status.value,
+                        job.created_at,
+                        job.updated_at,
+                        None,
+                    ),
+                )
+                self._append_event_in_tx(db, mission_id, EventType.JOB_CREATED, {"job_id": job.job_id, "capability": capability})
+            except _sqlite3.IntegrityError:
+                # Race: another thread inserted the same idempotency_key
+                return self.get_job_by_idempotency_key(mission_id, idempotency_key)
         return job
 
     def get_job(self, job_id: str) -> JobRecord:
@@ -614,7 +623,6 @@ class SQLiteMissionStore:
         lease_seconds: int,
         now: datetime | None = None,
     ) -> WorkerLease:
-        job = self.get_job(job_id)
         current = now or datetime.now(UTC)
         lease = WorkerLease(
             lease_id=str(uuid4()),
@@ -625,15 +633,20 @@ class SQLiteMissionStore:
             released_at=None,
         )
         with self._connect() as db:
-            db.execute(
-                "UPDATE jobs SET status = ?, updated_at = ? WHERE job_id = ?",
-                (JobStatus.LEASED.value, utc_now_iso(), job_id),
+            # Atomic UPDATE with status precondition prevents double-lease
+            cursor = db.execute(
+                "UPDATE jobs SET status = ?, updated_at = ? WHERE job_id = ? AND status = ?",
+                (JobStatus.LEASED.value, utc_now_iso(), job_id, JobStatus.QUEUED.value),
             )
+            if cursor.rowcount != 1:
+                raise RuntimeError(f"job {job_id} is not queued or already leased")
+            # Fetch mission_id within same tx
+            job_row = db.execute("SELECT mission_id FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
             db.execute(
                 "INSERT INTO worker_leases VALUES (?, ?, ?, ?, ?, ?)",
                 (lease.lease_id, lease.job_id, lease.worker_id, lease.acquired_at, lease.expires_at, lease.released_at),
             )
-            self._append_event_in_tx(db, job.mission_id, EventType.JOB_LEASED, {"job_id": job_id, "worker_id": worker_id})
+            self._append_event_in_tx(db, job_row["mission_id"], EventType.JOB_LEASED, {"job_id": job_id, "worker_id": worker_id})
         return lease
 
     def release_job_lease(self, lease_id: str) -> WorkerLease:
@@ -864,22 +877,21 @@ class SQLiteMissionStore:
         return updated
 
     def increment_graph_step(self, graph_run_id: str) -> GraphRunRecord:
-        graph_run = self.get_graph_run(graph_run_id)
-        if graph_run is None:
-            raise KeyError(f"graph run not found: {graph_run_id}")
-        updated = graph_run.with_step_increment()
+        now = utc_now_iso()
         with self._connect() as db:
-            db.execute(
-                "UPDATE graph_runs SET step_count = ?, updated_at = ? WHERE graph_run_id = ?",
-                (updated.step_count, updated.updated_at, graph_run_id),
+            cursor = db.execute(
+                "UPDATE graph_runs SET step_count = step_count + 1, updated_at = ? WHERE graph_run_id = ?",
+                (now, graph_run_id),
             )
+            if cursor.rowcount != 1:
+                raise KeyError(f"graph run not found: {graph_run_id}")
             self._append_event_in_tx(
                 db,
-                graph_run.mission_id,
+                self.get_graph_run(graph_run_id).mission_id,
                 EventType.GRAPH_STEP_ADVANCED,
-                {"graph_run_id": graph_run_id, "step_count": updated.step_count},
+                {"graph_run_id": graph_run_id},
             )
-        return updated
+        return self.get_graph_run(graph_run_id)
 
     def update_graph_run_snapshot(self, graph_run_id: str, snapshot: dict) -> None:
         with self._connect() as db:

@@ -894,7 +894,25 @@ def _execute_wave(
                 for index in worker_indexes
             }
             for index in worker_indexes:
-                results[index] = futures[index].result()
+                timeout = 300  # default
+                job_id = runtime.store.get_graph_node_job(
+                    graph_run.graph_run_id,
+                    ready[index].node.node_id,
+                    ready[index].run_index,
+                )
+                if job_id:
+                    try:
+                        job = runtime.get_job(job_id)
+                        timeout = job.timeout_seconds
+                    except Exception:
+                        pass
+                try:
+                    results[index] = futures[index].result(timeout=timeout)
+                except Exception:
+                    results[index] = GraphNodeExecutionResult(
+                        NodeRunStatus.FAILED, "failed", {},
+                        error={"error_class": "worker_timeout", "message": "worker timed out"},
+                    )
     return [result for result in results if result is not None]
 
 
@@ -1125,6 +1143,9 @@ def _complete_mission(runtime, mission_id: str) -> None:
     mission = runtime.get_mission(mission_id)
     if mission.state in {MissionState.COMPLETED, MissionState.FAILED, MissionState.CANCELED}:
         return
+    if mission.state == MissionState.WAITING_APPROVAL:
+        # Graph completed while mission was awaiting approval — advance to completed
+        runtime.store.update_mission_state(mission_id, MissionState.EVALUATING)
     if mission.state == MissionState.CREATED:
         runtime.store.update_mission_state(mission_id, MissionState.PLANNING)
         runtime.store.update_mission_state(mission_id, MissionState.WAITING_WORKER)
@@ -1134,8 +1155,6 @@ def _complete_mission(runtime, mission_id: str) -> None:
         runtime.store.update_mission_state(mission_id, MissionState.EVALUATING)
     elif mission.state == MissionState.WAITING_WORKER:
         runtime.store.update_mission_state(mission_id, MissionState.EVALUATING)
-    elif mission.state == MissionState.WAITING_APPROVAL:
-        return
     runtime.store.update_mission_state(mission_id, MissionState.COMPLETED)
     runtime.store.set_mission_final_outcome(
         mission_id,

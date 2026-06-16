@@ -62,7 +62,23 @@ def llm_complete(
 
     url = (config.base_url or "https://api.openai.com/v1").rstrip("/") + "/chat/completions"
 
-    # Try httpx first, fall back to urllib
+    max_retries = 3
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            return _http_post(url, body, config)
+        except Exception as e:
+            last_error = e
+            if attempt < max_retries - 1:
+                import time as _time
+                delay = 2 ** attempt  # 1s, 2s, 4s
+                _time.sleep(delay)
+                continue
+    raise last_error  # type: ignore[misc]
+
+
+def _http_post(url: str, body: dict, config: LlmConfig) -> str:
+    """HTTP POST with httpx (preferred) or urllib fallback."""
     try:
         import httpx
         resp = httpx.post(
@@ -88,7 +104,6 @@ def llm_complete(
         )
         with urllib.request.urlopen(req, timeout=120) as resp:
             data = json.loads(resp.read())
-
     return data["choices"][0]["message"]["content"]
 
 

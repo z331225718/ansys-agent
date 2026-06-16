@@ -299,13 +299,20 @@ class ProcessTreeController:
         if process.poll() is not None:
             return
         if os.name == "nt":
+            # Try graceful shutdown first, then force-kill after grace period
             subprocess.run(
-                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                check=False,
-                capture_output=True,
-                text=True,
+                ["taskkill", "/PID", str(process.pid), "/T"],
+                check=False, capture_output=True, text=True,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
+            try:
+                process.wait(timeout=grace_seconds)
+            except subprocess.TimeoutExpired:
+                subprocess.run(
+                    ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                    check=False, capture_output=True, text=True,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
         else:
             os.killpg(process.pid, signal.SIGTERM)
             try:
