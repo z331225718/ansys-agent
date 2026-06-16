@@ -280,21 +280,25 @@ async function monitorAll(){
   const missions=await api('/api/missions');
   const el=document.getElementById('mermaidGraph');
   let html='<h2>📡 All Active Graphs</h2><div style="display:grid;gap:10px">';
+  let hasCards=false;
   for(const m of missions.missions){
     try{
       const detail=await api('/api/missions/'+m.mission_id);
       const gr=detail.graph_run;
       if(!gr)continue;
+      hasCards=true;
+      const st=gr.status||'unknown';
+      const cls={succeeded:'ok',failed:'err',waiting_approval:'wait',running:'run',canceled:'err'}[st]||'';
       html+='<div style="border:1px solid var(--line);border-radius:8px;padding:12px;background:#1e2030">';
       html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
       html+='<b style="cursor:pointer;color:var(--accent)" onclick="selectMission(\''+m.mission_id+'\')">'+m.goal+'</b>';
-      html+=badge(gr.status||'unknown')+'</div>';
+      html+='<span class="badge '+cls+'">'+st+'</span></div>';
       html+='<div style="font-size:11px;color:var(--muted)">Step '+gr.step_count+' | '+m.mission_id.slice(0,16)+'…</div>';
       html+='</div>';
     }catch(e){}
   }
   html+='</div>';
-  if(html.indexOf('border:1px')===-1)html+='<div class="muted">暂无活跃 Graph。用 CLI 创建: python -m aedt_agent.agent mission create ...</div>';
+  if(!hasCards)html+='<div class="muted">暂无活跃 Graph。用 CLI 创建: python -m aedt_agent.agent mission create ...</div>';
   el.innerHTML=html;
 }
 
