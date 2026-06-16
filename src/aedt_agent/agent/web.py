@@ -295,7 +295,7 @@ async function monitorAll(){
       html+='<span class="badge '+cls+'">'+st+'</span></div>';
       html+='<div style="font-size:11px;color:var(--muted)">Step '+gr.step_count+' | '+m.mission_id.slice(0,16)+'…</div>';
       html+='</div>';
-    }catch(e){}
+    }catch(e){console.error('monitorAll fetch failed for '+m.mission_id,e)}
   }
   html+='</div>';
   if(!hasCards)html+='<div class="muted">暂无活跃 Graph。用 CLI 创建: python -m aedt_agent.agent mission create ...</div>';
