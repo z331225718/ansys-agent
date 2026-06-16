@@ -82,6 +82,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
   <div style="display:grid;gap:6px">
     <button onclick="refreshMissions()">🔄 刷新 Missions</button>
     <button class="secondary" onclick="showCreate()">＋ 新建 Mission</button>
+    <button class="secondary" onclick="monitorAll()" id="btnMonitorAll">📡 Monitor All</button>
   </div>
   <div class="field">
     <label>Missions</label>
@@ -132,6 +133,26 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
       <div id="graphView">
         <h2>DAG 状态</h2>
         <div class="mermaid" id="mermaidGraph">选择 Mission 后显示</div>
+        <details style="margin-top:12px">
+          <summary style="cursor:pointer;color:var(--muted);font-size:12px">📋 Orchestrator CLI 参考 (Claude Code / Codex)</summary>
+          <pre style="font-size:11px;line-height:1.6;background:#111;padding:10px;border-radius:6px;overflow:auto;max-height:200px"># 创建 mission + graph_run
+python -m aedt_agent.agent mission create --goal "..." --brd-local-cut-model-review ...
+
+# 推进 graph（Orchestrator 轮询调用）
+python -m aedt_agent.agent mission advance-graph --graph-run-id &lt;id&gt;
+
+# 查看状态
+python -m aedt_agent.agent mission graph-status --graph-run-id &lt;id&gt;
+
+# 可视化
+python -m aedt_agent.agent mission graph-visualize --graph-run-id &lt;id&gt;
+
+# 审批
+python -m aedt_agent.agent mission approve --approval-id &lt;id&gt; --option-id approve
+
+# 接管
+python -m aedt_agent.agent mission takeover --graph-run-id &lt;id&gt; --reason "..."</pre>
+        </details>
       </div>
     </div>
     <div class="log-panel">
@@ -253,6 +274,30 @@ function toggleAutoRefresh(){
   if(refreshTimer)clearInterval(refreshTimer);
   if(v>0)refreshTimer=setInterval(refreshGraph,v*1000);
 }
+
+async function monitorAll(){
+  // Show all missions with their graph runs in a compact view
+  const missions=await api('/api/missions');
+  const el=document.getElementById('mermaidGraph');
+  let html='<h2>📡 All Active Graphs</h2><div style="display:grid;gap:10px">';
+  for(const m of missions.missions){
+    try{
+      const detail=await api('/api/missions/'+m.mission_id);
+      const gr=detail.graph_run;
+      if(!gr)continue;
+      html+='<div style="border:1px solid var(--line);border-radius:8px;padding:12px;background:#1e2030">';
+      html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
+      html+='<b style="cursor:pointer;color:var(--accent)" onclick="selectMission(\''+m.mission_id+'\')">'+m.goal+'</b>';
+      html+=badge(gr.status||'unknown')+'</div>';
+      html+='<div style="font-size:11px;color:var(--muted)">Step '+gr.step_count+' | '+m.mission_id.slice(0,16)+'…</div>';
+      html+='</div>';
+    }catch(e){}
+  }
+  html+='</div>';
+  if(html.indexOf('border:1px')===-1)html+='<div class="muted">暂无活跃 Graph。用 CLI 创建: python -m aedt_agent.agent mission create ...</div>';
+  el.innerHTML=html;
+}
+
 refreshMissions();
 toggleAutoRefresh();
 (async function checkLlm(){
