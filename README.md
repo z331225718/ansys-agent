@@ -239,3 +239,82 @@ Stage C.1 不做：
 ```bash
 .venv/bin/python -m pytest -q
 ```
+
+## 远端 reviewed BRD 优化闭环用法
+
+这条链路的日常入口不是人工手动逐个 worker 跑命令，而是在 AEDT 远端机器上让 Claude Code 作为外层编排者。Claude Code 读取仓库里的 `AGENTS.md` / `CLAUDE.md`，负责理解任务、选择 `brd_reviewed_model_optimize_loop` 模板、启动 loop、监控 DAG、审计失败、处理审批点，并把每轮的优化历史和报告交给用户。
+
+远端机器准备：
+
+```powershell
+cd D:\ansys-agent
+git pull
+.\.venv\Scripts\python.exe -m pip install -e .
+```
+
+复制示例配置并按机器实际路径修改：
+
+```powershell
+Copy-Item config\execution_profiles\local_real_aedt.example.json config\execution_profiles\local_real_aedt.json
+Copy-Item config\optimization_loops\reviewed_brd_remote.example.json config\optimization_loops\reviewed_brd_remote.json
+```
+
+重点检查 `reviewed_brd_remote.json` 里的 `source_project_path`、`working_project_path`、`report_dir`、`max_rounds`、`poll_interval_seconds`、`touchstone_name`、`tdr_expression` 和几何约束。`source_project_path` 指向人工检查过的 AEDT 模型；`working_project_path` 是 loop 复制后反复修改的工作模型，避免每轮生成一堆中间 AEDT 项目。
+
+按成本配置不同 LLM profile：
+
+```powershell
+$env:AEDT_AGENT_LLM_API_KEY = "sk-..."
+$env:AEDT_AGENT_LLM_BASE_URL = "https://api.openai.com/v1"
+$env:AEDT_AGENT_LLM_LOW_COST_MODEL = "gpt-4.1-mini"
+$env:AEDT_AGENT_LLM_STANDARD_MODEL = "gpt-4.1-mini"
+$env:AEDT_AGENT_LLM_HIGH_REASONING_MODEL = "gpt-4.1"
+```
+
+然后在 `D:\ansys-agent` 打开 Claude Code，直接用自然语言下达任务，例如：
+
+```text
+开始 reviewed BRD 优化闭环。使用 config\optimization_loops\reviewed_brd_remote.json
+和 config\execution_profiles\local_real_aedt.json。先启动 web dashboard，再启动 run-loop。
+轮询不要太频繁，按配置 30 秒一次；如果失败，先审计 graph-status、worker 输出和报告 artifact。
+每轮向我汇报 optimization_history.csv 的关键指标、修改了哪些结构、下一步建议。
+```
+
+Claude Code 应执行的等价命令如下。先开可视化页面：
+
+```powershell
+.\.venv\Scripts\python.exe -m aedt_agent.agent `
+  --db D:\aedt-agent-runs\reviewed-loop\missions.db `
+  mission web `
+  --host 0.0.0.0 `
+  --port 8766 `
+  --profile config\execution_profiles\local_real_aedt.json
+```
+
+浏览器打开：
+
+```text
+http://<aedt-machine-ip>:8766
+```
+
+再启动闭环：
+
+```powershell
+.\.venv\Scripts\python.exe -m aedt_agent.agent `
+  --db D:\aedt-agent-runs\reviewed-loop\missions.db `
+  mission run-loop `
+  --config config\optimization_loops\reviewed_brd_remote.json `
+  --profile config\execution_profiles\local_real_aedt.json `
+  --worker-id claude-code-orchestrator `
+  --max-workers 1
+```
+
+loop 输出目录由 `report_dir` 控制，至少应包含：
+
+```text
+optimization_history.csv
+optimization_progress.html
+optimization_progress.json
+```
+
+报告需要写清楚每轮修改、最终结果、是否满足 TDR / SDD11 / SDD21 指标，并保留 TDR、SDD11、SDD21 图。原始 S 参数和 TDR 曲线保持 artifact-only，不直接塞进 LLM 上下文。
