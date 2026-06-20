@@ -1,0 +1,197 @@
+id: brd_reviewed_model_optimize_loop
+version: 1
+description: "Reviewed AEDT model loop: prepare working copy -> solve -> score -> decide -> edit -> repeat -> report"
+
+nodes:
+  - id: prepare_working_project
+    role: prepare
+    kind: program
+    handler: brd.optimization.prepare_working_project
+    output_schema: real_solve_request
+    max_runs: 1
+
+  - id: real_solve_worker
+    role: worker
+    kind: worker
+    capability: brd.local_cut.solve
+    input_schema: real_solve_request
+    output_schema: solve_result
+    on_failure: retry
+    retry_max_attempts: 2
+    retry_backoff: linear
+    retry_delay_seconds: 30
+    max_runs: 5
+
+  - id: channel_score_worker
+    role: worker
+    kind: worker
+    capability: brd.channel.score
+    input_schema: solve_result
+    output_schema: score_result
+    max_runs: 5
+
+  - id: optimization_decider
+    role: decision_maker
+    kind: program
+    handler: brd.optimization.decide_next_action
+    input_schema: score_result
+    output_schema: next_action
+    profile: high_reasoning
+    constraints:
+      evidence_policy: bounded_summary_only
+      allowed_decisions:
+        - continue
+        - complete
+        - request_human_review
+      geometry_limits:
+        anti_pad:
+          max_radius_mil: 22
+          worker_constraints:
+            max_diameter: 44mil
+        non_functional_pad:
+          min_radius_mil: 7.875
+          max_radius_mil: 10
+          worker_constraints:
+            min_diameter: 15.75mil
+            max_diameter: 20mil
+    max_runs: 5
+
+  - id: action_approval_gate
+    role: approval_gate
+    kind: human_gate
+    input_schema: model_edit_request
+    output_schema: model_edit_request
+    max_runs: 4
+
+  - id: model_edit_worker
+    role: worker
+    kind: worker
+    capability: brd.model.edit
+    input_schema: model_edit_request
+    output_schema: model_edit_result
+    on_failure: fail
+    max_runs: 4
+
+  - id: prepare_next_solve
+    role: prepare
+    kind: program
+    handler: brd.optimization.prepare_next_solve
+    input_schema: model_edit_result
+    output_schema: real_solve_request
+    max_runs: 4
+
+  - id: optimization_report
+    role: scorecard
+    kind: program
+    handler: brd.optimization.write_report
+    input_schema: next_action
+    output_schema: scorecard_report
+    max_runs: 1
+
+edges:
+  - id: prepare-to-solve
+    from: prepare_working_project
+    to: real_solve_worker
+    on: succeeded
+    max_traversals: 1
+  - id: solve-to-score
+    from: real_solve_worker
+    to: channel_score_worker
+    on: succeeded
+    max_traversals: 5
+  - id: score-to-decide
+    from: channel_score_worker
+    to: optimization_decider
+    on: succeeded
+    max_traversals: 5
+  - id: decide-to-report
+    from: optimization_decider
+    to: optimization_report
+    on: complete
+    max_traversals: 1
+  - id: decide-to-edit
+    from: optimization_decider
+    to: model_edit_worker
+    on: continue
+    max_traversals: 4
+  - id: decide-to-approval
+    from: optimization_decider
+    to: action_approval_gate
+    on: approval_required
+    max_traversals: 4
+  - id: approval-to-edit
+    from: action_approval_gate
+    to: model_edit_worker
+    on: approved
+    max_traversals: 4
+  - id: edit-to-next-solve
+    from: model_edit_worker
+    to: prepare_next_solve
+    on: succeeded
+    max_traversals: 4
+  - id: next-solve-to-solve
+    from: prepare_next_solve
+    to: real_solve_worker
+    on: succeeded
+    max_traversals: 4
+
+profiles:
+  low_cost:
+    model: gpt-4.1-mini
+    temperature: 0.2
+    max_tokens: 2048
+  standard:
+    model: gpt-4.1-mini
+    temperature: 0.1
+    max_tokens: 4096
+  high_reasoning:
+    model: gpt-4.1
+    temperature: 0.2
+    max_tokens: 4096
+
+handoffs:
+  real_solve_request:
+    required_fields:
+      - project_path
+      - setup_name
+      - sweep_name
+      - tdr_expression
+      - expected_port_count
+      - loop_context
+  solve_result:
+    required_fields:
+      - status
+      - touchstone_path
+      - tdr_path
+      - solve_manifest
+      - loop_context
+  score_result:
+    required_fields:
+      - status
+      - score
+      - evidence_summary
+      - evidence_artifact
+      - loop_context
+  next_action:
+    required_fields:
+      - decision
+      - reason
+      - loop_context
+  model_edit_request:
+    required_fields:
+      - project_path
+      - actions
+      - project_copy_mode
+      - loop_context
+  model_edit_result:
+    required_fields:
+      - status
+      - edited_project_path
+      - model_edit_manifest
+      - loop_context
+  scorecard_report:
+    required_fields:
+      - status
+      - checks
+      - optimization_history_csv
+      - optimization_history_rows

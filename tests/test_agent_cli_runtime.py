@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 
@@ -48,3 +49,40 @@ def test_cli_cancel_changes_state_and_audits_event(tmp_path):
 
     assert canceled.returncode == 0
     assert json.loads(canceled.stdout)["state"] == "canceled"
+
+
+def test_runtime_with_workers_uses_ssh_runner_from_profile(tmp_path):
+    from aedt_agent.agent.cli import _runtime_with_workers
+    from aedt_agent.agent.policies import ExecutionProfile
+    from aedt_agent.agent.workers.simulation_runner import SshCliRunner
+
+    profile = replace(
+        ExecutionProfile.safe_recorded(),
+        simulation_runner="ssh_remote",
+        ssh_host="192.168.71.51",
+        ssh_user="z3312",
+        ssh_identity_file=r"C:\Users\z3312\.ssh\ansys_agent_ed25519",
+        ssh_remote_root=r"D:\aedt-agent-runs",
+        ssh_python="python",
+        ssh_repo_root=r"D:\ansys-agent",
+    )
+
+    runtime = _runtime_with_workers(tmp_path / "mission.db", profile=profile)
+
+    runner = runtime.registry.process_runner
+    assert isinstance(runner, SshCliRunner)
+    assert runner.config.host == "192.168.71.51"
+    assert runner.config.user == "z3312"
+    assert runner.config.remote_root == r"D:\aedt-agent-runs"
+
+
+def test_runtime_registers_model_edit_process_worker(tmp_path):
+    from aedt_agent.agent.cli import _runtime_with_workers
+    from aedt_agent.agent.workers import BRD_MODEL_EDIT_CAPABILITY
+
+    runtime = _runtime_with_workers(tmp_path / "mission.db")
+    registration = runtime.registry._registrations[BRD_MODEL_EDIT_CAPABILITY]
+
+    assert registration.execution_mode == "local_process"
+    assert registration.requires_real_aedt is True
+    assert registration.resource_classes == ("license", "aedt")

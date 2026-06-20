@@ -56,6 +56,74 @@ def test_real_solve_graph_template_has_approval_before_solve():
     )
 
 
+def test_reviewed_model_loop_template_uses_real_workers_and_report():
+    template = load_graph_template("brd_reviewed_model_optimize_loop")
+
+    assert [node.node_id for node in template.nodes] == [
+        "prepare_working_project",
+        "real_solve_worker",
+        "channel_score_worker",
+        "optimization_decider",
+        "action_approval_gate",
+        "model_edit_worker",
+        "prepare_next_solve",
+        "optimization_report",
+    ]
+    assert template.node("real_solve_worker").capability == "brd.local_cut.solve"
+    assert template.node("channel_score_worker").capability == "brd.channel.score"
+    assert template.node("model_edit_worker").capability == "brd.model.edit"
+    assert template.node("optimization_decider").handler == "brd.optimization.decide_next_action"
+    assert template.handoffs["scorecard_report"].required_fields == [
+        "status",
+        "checks",
+        "optimization_history_csv",
+        "optimization_history_rows",
+    ]
+
+
+def test_via_optimize_demo_keeps_llm_decisions_and_worker_execution_separate():
+    template = load_graph_template("via_optimize_demo")
+
+    assert [node.node_id for node in template.nodes] == [
+        "optimization_planner",
+        "via_parameter_proposer",
+        "proposal_approval_gate",
+        "local_cut_build_worker",
+        "real_solve_worker",
+        "channel_score_worker",
+        "optimization_decider",
+        "optimization_scorecard",
+    ]
+    assert template.node("via_parameter_proposer").kind == "agent"
+    assert template.node("optimization_decider").kind == "agent"
+    assert template.node("local_cut_build_worker").capability == "brd.local_cut.build"
+    assert template.node("real_solve_worker").capability == "brd.local_cut.solve"
+    assert template.node("channel_score_worker").capability == "brd.channel.score"
+    assert template.handoffs["bounded_channel_evidence"].required_fields == [
+        "status",
+        "touchstone_kind",
+        "return_loss_trace",
+        "insertion_loss_trace",
+        "sdd11_worst_db",
+        "sdd11_worst_frequency_ghz",
+        "sdd21_worst_db_in_band",
+        "tdr_observation_port",
+        "tdr_peak_deviation_ohm",
+        "tdr_anomaly_window",
+        "tdr_proximity_mse_ohm2",
+        "tdr_proximity_rmse_ohm",
+        "tdr_flatness_msd_ohm2",
+        "tdr_flatness_rms_step_ohm",
+        "rl_violation_sum_db",
+        "rl_violation_max_db",
+        "rl_violation_point_count",
+        "optimization_objective",
+        "plot_artifacts",
+        "pass_fail_reason",
+        "artifact_refs",
+    ]
+
+
 @pytest.mark.parametrize(
     ("template_id", "expected_edge_ids"),
     [

@@ -79,6 +79,11 @@ def _score(action, *, before: bool) -> dict:
         frequency_stop_ghz=float(action.adapter_input.get("frequency_stop_ghz", 67.0)),
         rl_target_db=float(action.adapter_input.get("rl_target_db", -20.0)),
         tdr_target_ohm=float(action.adapter_input.get("tdr_target_ohm", 100.0)),
+        tdr_tolerance_ohm=float(action.adapter_input.get("tdr_tolerance_ohm", 5.0)),
+        sparameter_mode=str(action.adapter_input.get("sparameter_mode") or "auto"),
+        tdr_observation_port=str(
+            action.adapter_input.get("tdr_observation_port") or ""
+        ),
     )
 
 

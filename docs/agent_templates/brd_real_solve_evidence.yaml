@@ -63,6 +63,7 @@ handoffs:
       - sweep_name
       - solution_name
       - tdr_expression
+      - tdr_observation_port
       - expected_port_count
   validated_real_solve_request:
     required_fields:
@@ -71,6 +72,7 @@ handoffs:
       - sweep_name
       - solution_name
       - tdr_expression
+      - tdr_observation_port
       - expected_port_count
       - approval_reason
       - approval_options
@@ -83,7 +85,11 @@ handoffs:
       - sweep_name
       - solution_name
       - tdr_expression
+      - tdr_observation_port
       - expected_port_count
+      - touchstone_name
+      - sparameter_mode
+      - project_copy_mode
       - frequency_start_ghz
       - frequency_stop_ghz
       - rl_target_db
@@ -99,6 +105,8 @@ handoffs:
       - frequency_stop_ghz
       - rl_target_db
       - tdr_target_ohm
+      - tdr_observation_port
+      - sparameter_mode
       - solve_summary
       - artifact_refs
   channel_score_result:

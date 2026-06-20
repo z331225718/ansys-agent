@@ -60,6 +60,22 @@ class GraphNodeExecutorRegistry:
         return _normalize_result(handler(context))
 
 
+_DEFAULT_EXECUTOR_REGISTRY: GraphNodeExecutorRegistry | None = None
+
+
+def default_graph_executor_registry() -> GraphNodeExecutorRegistry:
+    global _DEFAULT_EXECUTOR_REGISTRY
+    if _DEFAULT_EXECUTOR_REGISTRY is None:
+        registry = GraphNodeExecutorRegistry()
+        from aedt_agent.agent.optimization_handlers import (
+            register_optimization_handlers,
+        )
+
+        register_optimization_handlers(registry)
+        _DEFAULT_EXECUTOR_REGISTRY = registry
+    return _DEFAULT_EXECUTOR_REGISTRY
+
+
 def execute_graph_node(
     context: GraphNodeExecutionContext,
     *,
@@ -67,9 +83,10 @@ def execute_graph_node(
 ) -> GraphNodeExecutionResult:
     try:
         if context.node.handler:
-            if registry is None:
-                raise KeyError(f"graph handler not found: {context.node.handler}")
-            result = registry.execute(context.node.handler, context)
+            result = (registry or default_graph_executor_registry()).execute(
+                context.node.handler,
+                context,
+            )
         elif context.node.kind == "agent":
             result = execute_agent_node(context)
         elif context.node.kind == "worker":
@@ -133,7 +150,7 @@ def execute_agent_node(context: GraphNodeExecutionContext) -> GraphNodeExecution
     try:
         from aedt_agent.agent.llm import LlmConfig, llm_complete
 
-        config = LlmConfig.from_env()
+        config = LlmConfig.from_env(profile=context.node.profile)
         if not config.api_key:
             raise RuntimeError("LLM not configured")
         model = constraints.get("model") or config.model
@@ -171,6 +188,32 @@ def execute_agent_node(context: GraphNodeExecutionContext) -> GraphNodeExecution
             error={"error_class": "agent_output_not_json", "message": "agent output is not valid JSON"},
         )
 
+    if context.node.capability == "code_writer":
+        from aedt_agent.agent.code_agent import validate_code_agent_output
+
+        code, errors = validate_code_agent_output(
+            str(output.get("code") or ""),
+            allowed_imports=list(constraints.get("allowed_imports") or []),
+            forbidden_patterns=list(constraints.get("forbidden_patterns") or []),
+        )
+        if errors:
+            return GraphNodeExecutionResult(
+                NodeRunStatus.FAILED,
+                "failed",
+                output,
+                [],
+                error={
+                    "error_class": "code_agent_validation",
+                    "message": "; ".join(errors),
+                },
+            )
+        output["code"] = code
+        output["code_validation"] = {
+            "syntax": "passed",
+            "imports": "passed",
+            "forbidden_patterns": "passed",
+        }
+
     # 6. Validate handoff schema
     if context.node.output_schema:
         try:
@@ -182,7 +225,26 @@ def execute_agent_node(context: GraphNodeExecutionContext) -> GraphNodeExecution
                 error={"error_class": "agent_handoff_invalid", "message": str(e)},
             )
 
-    return GraphNodeExecutionResult(NodeRunStatus.SUCCEEDED, "succeeded", output, [])
+    outcome = _agent_edge_outcome(output, constraints)
+    return GraphNodeExecutionResult(NodeRunStatus.SUCCEEDED, outcome, output, [])
+
+
+def _agent_edge_outcome(
+    output: dict[str, Any],
+    constraints: dict[str, Any],
+) -> str:
+    raw = output.get("edge_outcome") or output.get("decision")
+    if raw is None:
+        return "succeeded"
+    outcome = str(raw).strip()
+    if not outcome:
+        return "succeeded"
+    allowed = constraints.get("allowed_decisions")
+    if isinstance(allowed, list) and allowed:
+        allowed_values = {str(item) for item in allowed}
+        if outcome not in allowed_values:
+            return "failed"
+    return outcome
 
 
 def _resolve_prompt(context: GraphNodeExecutionContext) -> str:
@@ -601,32 +663,25 @@ def _execute_approval_gate(context: GraphNodeExecutionContext) -> GraphNodeExecu
     if approval_id:
         approval = context.runtime.store.get_approval(approval_id)
     else:
-        pending = context.runtime.store.list_approvals(
-            context.graph_run.mission_id,
-            decision=ApprovalDecision.PENDING,
+        reason = str(
+            context.input_payload.get("approval_reason")
+            or (
+                f"graph_gate:{context.graph_run.graph_run_id}:"
+                f"{context.node.node_id}:{context.run_index}"
+            )
         )
-        if pending:
-            approval = pending[-1]
-        else:
-            reason = str(
-                context.input_payload.get("approval_reason")
-                or (
-                    f"graph_gate:{context.graph_run.graph_run_id}:"
-                    f"{context.node.node_id}:{context.run_index}"
-                )
-            )
-            options = list(
-                context.input_payload.get("approval_options")
-                or [
-                    {"id": "approve", "label": "Approve"},
-                    {"id": "reject", "label": "Reject"},
-                ]
-            )
-            approval = ApprovalService(context.runtime.store).request_approval(
-                context.graph_run.mission_id,
-                reason,
-                options,
-            )
+        options = list(
+            context.input_payload.get("approval_options")
+            or [
+                {"id": "approve", "label": "Approve"},
+                {"id": "reject", "label": "Reject"},
+            ]
+        )
+        approval = ApprovalService(context.runtime.store).request_approval(
+            context.graph_run.mission_id,
+            reason,
+            options,
+        )
     output = _approval_output(context.input_payload, approval)
     if approval.decision == ApprovalDecision.PENDING:
         return GraphNodeExecutionResult(

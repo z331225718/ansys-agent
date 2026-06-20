@@ -1,0 +1,98 @@
+# Remote reviewed-model optimization loop
+
+This is the production-shaped entry point for the back half of the BRD via
+optimization flow. Run it on the AEDT machine, where Claude Code acts as the
+orchestrator and the workers run through the local process harness.
+
+## 1. Pull and prepare
+
+```powershell
+cd D:\ansys-agent
+git pull
+.\.venv\Scripts\python.exe -m pip install -e .
+```
+
+Copy and edit these files for the machine:
+
+```text
+config\execution_profiles\local_real_aedt.example.json
+config\optimization_loops\reviewed_brd_remote.example.json
+```
+
+The loop config must point to a human-reviewed source AEDT project and a
+separate working project path. The source project is copied once; the loop then
+edits the working project in place.
+
+## 2. LLM profiles
+
+The graph can use different model profiles by node. Small planner/utility
+reasoning can use a low-cost model, while the optimization decider can use a
+stronger model.
+
+```powershell
+$env:AEDT_AGENT_LLM_API_KEY = "sk-..."
+$env:AEDT_AGENT_LLM_BASE_URL = "https://api.openai.com/v1"
+
+$env:AEDT_AGENT_LLM_LOW_COST_MODEL = "gpt-4.1-mini"
+$env:AEDT_AGENT_LLM_STANDARD_MODEL = "gpt-4.1-mini"
+$env:AEDT_AGENT_LLM_HIGH_REASONING_MODEL = "gpt-4.1"
+```
+
+Profile-specific API keys and base URLs are also supported:
+
+```text
+AEDT_AGENT_LLM_LOW_COST_API_KEY
+AEDT_AGENT_LLM_LOW_COST_BASE_URL
+AEDT_AGENT_LLM_HIGH_REASONING_API_KEY
+AEDT_AGENT_LLM_HIGH_REASONING_BASE_URL
+```
+
+## 3. Start the web view
+
+```powershell
+.\.venv\Scripts\python.exe -m aedt_agent.agent `
+  --db D:\aedt-agent-runs\reviewed-loop\missions.db `
+  mission web `
+  --host 0.0.0.0 `
+  --port 8766 `
+  --profile config\execution_profiles\local_real_aedt.example.json
+```
+
+Open:
+
+```text
+http://<aedt-machine-ip>:8766
+```
+
+The page shows the DAG state, events, approvals, and the latest
+`optimization_history.csv` rows.
+
+## 4. Run the loop
+
+```powershell
+.\.venv\Scripts\python.exe -m aedt_agent.agent `
+  --db D:\aedt-agent-runs\reviewed-loop\missions.db `
+  mission run-loop `
+  --config config\optimization_loops\reviewed_brd_remote.example.json `
+  --profile config\execution_profiles\local_real_aedt.example.json `
+  --worker-id claude-code-orchestrator `
+  --max-workers 1
+```
+
+Default polling is 30 seconds. The solve itself is synchronous inside the
+worker harness, so the runner is not repeatedly polling AEDT during a long
+solve.
+
+## 5. Outputs
+
+The configured `report_dir` receives:
+
+```text
+optimization_history.csv
+optimization_progress.html
+optimization_progress.json
+```
+
+Each row records the round, model edit, solve and score status, SDD11/SDD21/TDR
+metrics, objective cost, artifact refs, and next recommendation. Raw S-parameter
+and TDR files remain artifact-only.

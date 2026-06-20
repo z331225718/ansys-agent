@@ -17,6 +17,10 @@ from aedt_agent.infrastructure.harness import (
     HarnessStatus,
     LocalProcessHarness,
 )
+from aedt_agent.agent.workers.simulation_runner import (
+    LocalCliRunner,
+    SimulationRunner,
+)
 
 
 WorkerFn = Callable[[JobRecord, "WorkerContext"], dict[str, Any]]
@@ -100,9 +104,11 @@ class InMemoryWorkerRegistry:
         heartbeat_interval_seconds: int = 5,
         default_allowed_env: tuple[str, ...] = (),
         allow_real_aedt: bool = False,
+        process_runner: SimulationRunner | None = None,
     ) -> None:
         self._registrations: dict[str, WorkerRegistration] = {}
         self.harness = harness
+        self.process_runner = process_runner
         self.heartbeat_interval_seconds = heartbeat_interval_seconds
         self.default_allowed_env = tuple(default_allowed_env)
         self.allow_real_aedt = bool(allow_real_aedt)
@@ -239,7 +245,10 @@ class InMemoryWorkerRegistry:
                     "process_started": False,
                 },
             )
-        if self.harness is None:
+        runner = self.process_runner
+        if runner is None and self.harness is not None:
+            runner = LocalCliRunner(self.harness)
+        if runner is None:
             return _configuration_failure(
                 job.job_id,
                 "local_process worker requires a configured process harness",
@@ -248,9 +257,9 @@ class InMemoryWorkerRegistry:
             return _configuration_failure(
                 job.job_id,
                 "local_process worker requires attempt_id",
-            )
+        )
         harness_run_id = str(uuid4())
-        workspace = self.harness.workspace_policy.create_attempt(
+        workspace = runner.workspace_policy.create_attempt(
             job.mission_id,
             job.job_id,
             attempt_id,
@@ -271,7 +280,7 @@ class InMemoryWorkerRegistry:
             ),
             workspace=str(workspace.root),
         )
-        result = self.harness.execute(
+        result = runner.submit(
             request,
             allowed_env=registration.allowed_env,
             resource_classes=registration.resource_classes,

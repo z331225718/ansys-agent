@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from aedt_agent.agent.approvals import ApprovalService
 from aedt_agent.agent.mission import ApprovalDecision, MissionState
 from aedt_agent.infrastructure.sqlite_mission_store import SQLiteMissionStore
@@ -44,3 +46,34 @@ def test_reject_moves_mission_to_failed(tmp_path):
 
     assert rejected.decision == ApprovalDecision.REJECTED
     assert store.get_mission("mission-1").state == MissionState.FAILED
+
+
+def test_approve_rejects_option_not_declared_on_request(tmp_path):
+    store = SQLiteMissionStore(tmp_path / "mission.db")
+    service = ApprovalService(store)
+    store.create_mission(__import__("aedt_agent.agent.mission", fromlist=["MissionRecord"]).MissionRecord.create("mission-1", "goal", [], []))
+    approval = service.request_approval(
+        "mission-1",
+        "选择端口",
+        [{"id": "p1", "label": "P1"}],
+    )
+
+    with pytest.raises(ValueError, match="selected option"):
+        service.approve(approval.approval_id, selected_option_id="p2")
+
+    assert store.get_approval(approval.approval_id).decision == ApprovalDecision.PENDING
+
+
+def test_approval_can_only_be_resolved_once(tmp_path):
+    store = SQLiteMissionStore(tmp_path / "mission.db")
+    service = ApprovalService(store)
+    store.create_mission(__import__("aedt_agent.agent.mission", fromlist=["MissionRecord"]).MissionRecord.create("mission-1", "goal", [], []))
+    approval = service.request_approval(
+        "mission-1",
+        "选择端口",
+        [{"id": "p1", "label": "P1"}],
+    )
+    service.approve(approval.approval_id, selected_option_id="p1")
+
+    with pytest.raises(ValueError, match="already resolved"):
+        service.reject(approval.approval_id)

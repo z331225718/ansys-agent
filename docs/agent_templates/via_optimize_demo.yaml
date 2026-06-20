@@ -1,0 +1,292 @@
+id: via_optimize_demo
+version: 1
+description: "BRD high-speed via optimization demo: LLM proposes parameters, workers build/solve/score, LLM decides next round."
+max_rounds: 3
+
+nodes:
+  - id: optimization_planner
+    role: planner
+    kind: agent
+    system_prompt: optimization_planner_prompt
+    output_schema: via_optimization_plan
+    model: glm-remote
+    profile: high_reasoning
+    constraints:
+      temperature: 0.2
+      response_format: json_object
+    max_runs: 1
+
+  - id: via_parameter_proposer
+    role: parameter_proposer
+    kind: agent
+    system_prompt: via_parameter_proposer_prompt
+    input_schema: via_optimization_plan
+    output_schema: via_parameter_proposal
+    model: glm-remote
+    profile: high_reasoning
+    constraints:
+      temperature: 0.3
+      response_format: json_object
+      allowed_parameters:
+        - anti_pad.enlarge
+        - non_functional_pad.add_or_enlarge
+      geometry_limits:
+        anti_pad:
+          max_radius_mil: 22
+          worker_constraints:
+            max_diameter: 44mil
+        non_functional_pad:
+          min_radius_mil: 7.875
+          max_radius_mil: 10
+          worker_constraints:
+            min_diameter: 15.75mil
+            max_diameter: 20mil
+      required_proposal_fields:
+        - tdr_observation_port
+        - tdr_feature_time
+        - constraints_checked
+      forbidden_outputs:
+        - raw_python
+        - raw_pyaedt_code
+    max_runs: 3
+
+  - id: proposal_approval_gate
+    role: approval_gate
+    kind: human_gate
+    input_schema: via_parameter_proposal
+    output_schema: approved_via_parameter_proposal
+    max_runs: 3
+
+  - id: local_cut_build_worker
+    role: worker
+    kind: worker
+    capability: brd.local_cut.build
+    input_schema: approved_via_parameter_proposal
+    output_schema: local_cut_build_result
+    max_runs: 3
+
+  - id: real_solve_worker
+    role: worker
+    kind: worker
+    capability: brd.local_cut.solve
+    input_schema: local_cut_build_result
+    output_schema: real_solve_result
+    max_runs: 3
+
+  - id: channel_score_worker
+    role: worker
+    kind: worker
+    capability: brd.channel.score
+    input_schema: real_solve_result
+    output_schema: bounded_channel_evidence
+    max_runs: 3
+
+  - id: optimization_decider
+    role: decision_maker
+    kind: agent
+    system_prompt: optimization_decider_prompt
+    input_schema: bounded_channel_evidence
+    output_schema: optimization_decision
+    model: glm-remote
+    profile: high_reasoning
+    constraints:
+      temperature: 0.2
+      response_format: json_object
+      allowed_decisions:
+        - continue
+        - complete
+        - rollback
+        - request_human_review
+      evidence_policy: bounded_summary_only
+      geometry_limits:
+        anti_pad:
+          max_radius_mil: 22
+        non_functional_pad:
+          min_radius_mil: 7.875
+          max_radius_mil: 10
+    max_runs: 3
+
+  - id: optimization_scorecard
+    role: scorecard
+    kind: program
+    input_schema: optimization_decision
+    output_schema: optimization_scorecard_report
+    max_runs: 1
+
+edges:
+  - id: plan-to-propose
+    from: optimization_planner
+    to: via_parameter_proposer
+    on: succeeded
+    max_traversals: 1
+  - id: propose-to-approval
+    from: via_parameter_proposer
+    to: proposal_approval_gate
+    on: succeeded
+    max_traversals: 3
+  - id: approval-to-build
+    from: proposal_approval_gate
+    to: local_cut_build_worker
+    on: approved
+    max_traversals: 3
+  - id: build-to-solve
+    from: local_cut_build_worker
+    to: real_solve_worker
+    on: succeeded
+    max_traversals: 3
+  - id: solve-to-score
+    from: real_solve_worker
+    to: channel_score_worker
+    on: succeeded
+    max_traversals: 3
+  - id: score-to-decide
+    from: channel_score_worker
+    to: optimization_decider
+    on: succeeded
+    max_traversals: 3
+  - id: decide-to-next-proposal
+    from: optimization_decider
+    to: via_parameter_proposer
+    on: continue
+    max_traversals: 2
+  - id: decide-to-scorecard
+    from: optimization_decider
+    to: optimization_scorecard
+    on: complete
+    max_traversals: 1
+  - id: rollback-to-scorecard
+    from: optimization_decider
+    to: optimization_scorecard
+    on: rollback
+    max_traversals: 1
+
+prompts:
+  optimization_planner_prompt: |
+    你是高速 BRD 过孔结构优化 planner。你必须把用户目标转成结构化计划，
+    但不能写 PyAEDT/Python 脚本。输出必须包含优化目标、频段、受控参数范围、
+    初始候选数量、验收阈值和需要人工确认的风险点。
+    当前真实闭环按差分四端口执行：Touchstone 是 s4p，回波损耗看 SDD11，
+    插入损耗看 SDD21，TDR 默认观察端口为 Diff1。
+
+  via_parameter_proposer_prompt: |
+    你是高速过孔结构参数 proposal agent。你只能提出受控参数 patch，
+    不能输出脚本、命令或任意 AEDT API 调用。每个 proposal 必须解释
+    为什么这些参数可能改善 SDD11/SDD21 或 TDR，并给出 rollback digest。
+    TDR 驱动的 proposal 必须写明观察端口和时间窗口；如果观察端口是
+    Diff1，还必须说明 Diff1 对应的物理端口方向证据，不能只凭时间猜近端/远端。
+    必须遵守几何约束：反焊盘圆形 void 半径不得超过 22mil；非功能焊盘
+    一旦添加，显式 signal-net circle shape 半径必须在 7.875mil 到 10mil
+    之间。worker handoff 中必须写入对应 diameter 约束：anti-pad
+    max_diameter=44mil；non-functional pad min_diameter=15.75mil,
+    max_diameter=20mil。
+
+  optimization_decider_prompt: |
+    你是优化决策 agent。你只能读取 bounded evidence，不读取原始 S 参数数组。
+    对差分通道，bounded evidence 里的 return_loss_trace 必须是 SDD11，
+    insertion_loss_trace 必须是 SDD21；TDR 默认从 Diff1 观察。
+    除 pass/fail 外，必须使用 bounded objective 排序候选：RL violation、
+    TDR proximity、TDR flatness 和 optimization_objective.total_cost。
+    平坦 TDR 通常意味着 RL 会改善；当 pass/fail 未变化时，优先选择
+    total_cost 更低且几何改动更小、可回退的方案。
+    如果指标已达标，输出 complete；如果未达标且仍有明确工程方向，输出 continue
+    和下一轮参数调整理由；如果指标退化明显，输出 rollback；如果证据不足，
+    输出 request_human_review。
+    每一轮都必须能进入优化历史 CSV；如果 solve 已完成但 TDR/score 缺失，
+    不要跳过该轮，应标记 needs_tdr_export_before_score 或 needs_channel_score。
+
+profiles:
+  high_reasoning:
+    model: glm-remote
+    temperature: 0.2
+    max_tokens: 4096
+
+handoffs:
+  via_optimization_plan:
+    required_fields:
+      - objective
+      - frequency_start_ghz
+      - frequency_stop_ghz
+      - target_metrics
+      - controlled_parameter_ranges
+      - acceptance_thresholds
+  via_parameter_proposal:
+    required_fields:
+      - status
+      - proposal_id
+      - round_index
+      - parameter_patch
+      - engineering_rationale
+      - rollback_digest
+      - approval_reason
+      - approval_options
+  approved_via_parameter_proposal:
+    required_fields:
+      - approval_id
+      - decision
+      - proposal_id
+      - parameter_patch
+      - rollback_digest
+      - layout_file
+      - signal_nets
+      - reference_nets
+      - local_cut_region
+      - artifact_dir
+      - adapter_mode
+  local_cut_build_result:
+    required_fields:
+      - status
+      - project_path
+      - setup_name
+      - sweep_name
+      - solution_name
+      - tdr_expression
+      - expected_port_count
+      - artifact_refs
+  real_solve_result:
+    required_fields:
+      - status
+      - touchstone_path
+      - tdr_path
+      - solve_manifest
+      - artifact_dir
+      - frequency_start_ghz
+      - frequency_stop_ghz
+      - rl_target_db
+      - tdr_target_ohm
+      - solve_summary
+      - artifact_refs
+  bounded_channel_evidence:
+    required_fields:
+      - status
+      - touchstone_kind
+      - return_loss_trace
+      - insertion_loss_trace
+      - sdd11_worst_db
+      - sdd11_worst_frequency_ghz
+      - sdd21_worst_db_in_band
+      - tdr_observation_port
+      - tdr_peak_deviation_ohm
+      - tdr_anomaly_window
+      - tdr_proximity_mse_ohm2
+      - tdr_proximity_rmse_ohm
+      - tdr_flatness_msd_ohm2
+      - tdr_flatness_rms_step_ohm
+      - rl_violation_sum_db
+      - rl_violation_max_db
+      - rl_violation_point_count
+      - optimization_objective
+      - plot_artifacts
+      - pass_fail_reason
+      - artifact_refs
+  optimization_decision:
+    required_fields:
+      - decision
+      - reason
+      - round_index
+      - evidence_digest
+  optimization_scorecard_report:
+    required_fields:
+      - status
+      - checks
+      - optimization_history_csv
+      - optimization_history_rows

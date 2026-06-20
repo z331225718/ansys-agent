@@ -45,12 +45,18 @@ def test_brd_channel_score_worker_outputs_bounded_evidence(tmp_path):
 
     assert output["status"] == "failed"
     assert output["score"]["rl_worst_frequency_ghz"] == 18.0
+    assert output["evidence_summary"]["touchstone_kind"] == "s2p"
     assert output["evidence_summary"]["raw_sparameters"] == "artifact_only"
     assert output["evidence_summary"]["raw_tdr"] == "artifact_only"
+    assert output["evidence_summary"]["tdr_flatness_msd_ohm2"] == 55.0
+    assert output["evidence_summary"]["optimization_objective"]["strategy"] == "rl_violation_plus_tdr_proximity_flatness"
     assert output["sparameter_evidence"]["raw_trace_policy"] == "artifact_only"
     assert str(touchstone) in output["artifact_refs"]
     assert str(tdr) in output["artifact_refs"]
     assert output["evidence_artifact"].endswith("brd_channel_score_evidence.json")
+    assert Path(output["score"]["plot_artifacts"]["tdr"]).is_file()
+    assert Path(output["score"]["plot_artifacts"]["s11"]).is_file()
+    assert Path(output["score"]["plot_artifacts"]["s21"]).is_file()
     assert "0.00 0.05" not in str(output["evidence_summary"])
 
 

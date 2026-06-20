@@ -15,6 +15,11 @@ from aedt_agent.infrastructure.brd_real_build import (
     BrdRealBuildResult,
     RealAedtEnvironment,
 )
+from aedt_agent.infrastructure.brd_model_edit import (
+    BrdModelEditAdapter,
+    BrdModelEditRequest,
+    BrdModelEditResult,
+)
 from aedt_agent.infrastructure.brd_real_solve import (
     ArtifactExportError,
     ArtifactValidationError,
@@ -34,6 +39,9 @@ __all__ = [
     "BrdRealBuildAdapter",
     "BrdRealBuildRequest",
     "BrdRealBuildResult",
+    "BrdModelEditAdapter",
+    "BrdModelEditRequest",
+    "BrdModelEditResult",
     "ArtifactExportError",
     "ArtifactValidationError",
     "BrdRealSolveAdapter",

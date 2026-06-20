@@ -747,6 +747,8 @@ class SQLiteMissionStore:
             row = db.execute("SELECT * FROM approvals WHERE approval_id = ?", (approval_id,)).fetchone()
             if row is None:
                 raise KeyError(f"approval not found: {approval_id}")
+            if ApprovalDecision(row["decision"]) != ApprovalDecision.PENDING:
+                raise ValueError(f"approval already resolved: {approval_id}")
             db.execute(
                 """
                 UPDATE approvals

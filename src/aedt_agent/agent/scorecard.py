@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from aedt_agent.agent.mission import JobStatus
+from aedt_agent.agent.mission import JobStatus, NodeRunStatus
 
 
 def score_mission(runtime, mission_id: str, *, template_id: str = "") -> dict[str, Any]:
@@ -17,6 +17,16 @@ def score_mission(runtime, mission_id: str, *, template_id: str = "") -> dict[st
     checks.append(_check("event_stream_present", bool(events), {"event_count": len(events)}))
 
     jobs = runtime.list_jobs(mission_id)
+    if template_id == "brd_channel_optimize":
+        checks.extend(_agent_audit_checks(runtime, mission_id))
+        status = "passed" if all(check["passed"] for check in checks) else "failed"
+        return {
+            "status": status,
+            "mission_id": mission_id,
+            "template_id": template_id,
+            "checks": checks,
+        }
+
     checks.append(_check("job_created", bool(jobs), {"job_count": len(jobs)}))
     checks.append(
         _check(
@@ -51,11 +61,6 @@ def score_mission(runtime, mission_id: str, *, template_id: str = "") -> dict[st
         checks.extend(
             _model_review_checks(runtime, mission_id, jobs)
         )
-    elif template_id == "brd_channel_optimize":
-        checks.extend(
-            _agent_audit_checks(runtime, mission_id, jobs)
-        )
-
     status = "passed" if all(check["passed"] for check in checks) else "failed"
     return {
         "status": status,
@@ -435,22 +440,39 @@ def _summary_port_count(build_job) -> int:
 def _agent_audit_checks(
     runtime,
     mission_id: str,
-    jobs,
 ) -> list[dict[str, Any]]:
-    """Audit agent node outputs for LLM model, token estimates, and planning source."""
-    agent_jobs = [
-        job for job in jobs
-        if job.capability and "agent" not in job.capability
-        and job.status == JobStatus.SUCCEEDED
+    """Audit agent node outputs directly from graph node runs."""
+    graph_runs = runtime.store.list_graph_runs(mission_id)
+    node_runs = [
+        node_run
+        for graph_run in graph_runs
+        for node_run in runtime.store.list_node_runs(graph_run.graph_run_id)
     ]
-    # Agent nodes leave evidence in output_payload
+    agent_runs = [
+        node_run
+        for node_run in node_runs
+        if node_run.node_kind == "agent"
+        and node_run.status == NodeRunStatus.SUCCEEDED
+    ]
     agent_outputs = [
-        job.output_payload for job in jobs
-        if job.output_payload.get("planning_source") == "llm"
-        or job.output_payload.get("proposal_source") == "llm"
+        node_run.output_payload
+        for node_run in agent_runs
+        if node_run.output_payload.get("planning_source") == "llm"
+        or node_run.output_payload.get("proposal_source") == "llm"
+        or node_run.output_payload.get("llm_model")
     ]
 
     return [
+        _check(
+            "agent_graph_run_present",
+            bool(graph_runs),
+            {"graph_run_count": len(graph_runs)},
+        ),
+        _check(
+            "agent_node_succeeded",
+            bool(agent_runs),
+            {"agent_node_run_ids": [run.node_run_id for run in agent_runs]},
+        ),
         _check(
             "agent_llm_powered",
             bool(agent_outputs),

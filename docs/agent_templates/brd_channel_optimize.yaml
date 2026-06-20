@@ -56,7 +56,19 @@ nodes:
     profile: high_reasoning
     constraints:
       temperature: 0.4
-      allowed_decisions: [continue, adjust_void, adjust_clearance, widen_trace, rollback, complete]
+      allowed_decisions: [continue, anti_pad.enlarge, non_functional_pad.add_or_enlarge, rollback, complete, request_human_review]
+      geometry_limits:
+        anti_pad:
+          max_radius_mil: 22
+          worker_constraints:
+            max_diameter: 44mil
+        non_functional_pad:
+          min_radius_mil: 7.875
+          max_radius_mil: 10
+          worker_constraints:
+            min_diameter: 15.75mil
+            max_diameter: 20mil
+      evidence_policy: bounded_summary_only
     max_runs: 5
 
   - id: scorecard
@@ -118,14 +130,29 @@ prompts:
     score the channel performance.
 
     You have READ-ONLY access to artifact files. Determine:
-    - worst RL (dB) and its frequency
+    - for four-port differential artifacts, score RL from SDD11 rather than
+      single-ended S11
+    - worst SDD11/RL (dB) and its frequency
+    - worst SDD21 in band and its frequency
     - pass band (frequencies where RL < target)
-    - TDR peak deviation (ohms) and time (ps)
+    - TDR peak deviation (ohms) and time (ps), observed from Diff1 unless
+      the score handoff names a different differential port
+    - TDR proximity MSE/RMSE to target impedance
+    - TDR flatness MSD/RMS adjacent-step change
+    - RL violation sum/max/count in the target band
+    - bounded optimization objective and total cost
     - anomaly windows
+    - plot artifact refs for TDR, SDD11, and SDD21
 
-    Output JSON with: status (pass/fail), rl_worst_db,
-    rl_worst_frequency_ghz, rl_pass_band, tdr_peak_deviation_ohm,
-    tdr_peak_time_ps, tdr_anomaly_window, anomalies (list of descriptions)
+    Output JSON with: status (pass/fail), touchstone_kind, return_loss_trace,
+    insertion_loss_trace, rl_worst_db, rl_worst_frequency_ghz,
+    insertion_worst_db_in_band, insertion_worst_frequency_ghz,
+    rl_pass_band, tdr_observation_port, tdr_peak_deviation_ohm,
+    tdr_peak_time_ps, tdr_anomaly_window, tdr_proximity_mse_ohm2,
+    tdr_proximity_rmse_ohm, tdr_flatness_msd_ohm2,
+    tdr_flatness_rms_step_ohm, rl_violation_sum_db,
+    rl_violation_max_db, rl_violation_point_count,
+    optimization_objective, plot_artifacts, anomalies (list of descriptions)
 
   decide_prompt: |
     You are an optimization strategist. Based on channel scores and
@@ -133,10 +160,31 @@ prompts:
 
     Decision rules:
     - If all metrics pass: output "complete"
-    - If RL > -15 dB: propose impedance adjustment (void or trace width)
-    - If TDR deviation > 10 ohm: propose clearance or stackup adjustment
+    - Use bounded evidence only; do not request raw S-parameter or full TDR arrays
+    - Treat differential channels as s4p evidence: SDD11 for return loss and
+      SDD21 for insertion loss
+    - Rank comparable iterations with optimization_objective.total_cost; lower is
+      better because it combines RL violation, TDR proximity, and TDR flatness
+    - Treat TDR flatness as a first-class engineering signal: a flatter curve
+      near target impedance usually predicts better RL
+    - The default TDR observation port is Diff1, but before mapping TDR time to
+      physical near/far geometry, identify which end Diff1 observes from port
+      or model evidence
+    - Every TDR-driven action must name the TDR observation port and feature time/window
+    - If TDR indicates local low impedance, propose anti_pad.enlarge only when the
+      physical target, layer, selected plane shape, and center source are known
+    - If TDR indicates local high impedance through a through-via or buried-via
+      barrel, propose non_functional_pad.add_or_enlarge using explicit signal-net
+      circle shapes
+    - Do not propose trace width, stackup, or route edits in this workflow
+    - Anti-pad radius must be <= 22mil; worker constraints must include max_diameter=44mil
+    - Non-functional pad radius, once added, must be in [7.875mil, 10mil]; worker
+      constraints must include min_diameter=15.75mil and max_diameter=20mil
     - If no improvement for 2 consecutive rounds: output "complete"
     - If metrics regressed: output "rollback"
+    - Ensure every round is captured in optimization history. If solve succeeded
+      but TDR or score is missing, record the partial round and request the
+      missing artifact instead of silently continuing.
 
     Output exactly one decision from the allowed list as JSON:
     {decision, reason, suggested_parameters (if applicable)}
@@ -161,8 +209,8 @@ handoffs:
   build_evidence:
     required_fields: [status, code, artifact_refs, project_path, port_count]
   score_result:
-    required_fields: [status, rl_worst_db, tdr_peak_deviation_ohm]
+    required_fields: [status, touchstone_kind, return_loss_trace, insertion_loss_trace, rl_worst_db, insertion_worst_db_in_band, tdr_observation_port, tdr_peak_deviation_ohm, tdr_proximity_mse_ohm2, tdr_flatness_msd_ohm2, rl_violation_sum_db, optimization_objective, plot_artifacts]
   next_action:
     required_fields: [decision, reason]
   scorecard_report:
-    required_fields: [status, checks]
+    required_fields: [status, checks, optimization_history_csv, optimization_history_rows]

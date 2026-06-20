@@ -41,13 +41,25 @@ def test_real_aedt_solve_exports_touchstone_and_tdr(tmp_path):
         setup_name=setup_name,
         sweep_name=sweep_name,
         solution_name=f"{setup_name} : {sweep_name}",
-        touchstone_name="channel.s2p",
+        touchstone_name=os.getenv(
+            "ANSYS_AGENT_REAL_AEDT_TOUCHSTONE_NAME",
+            "channel.s4p",
+        ),
         tdr_report_name="AgentTDR",
         tdr_expression=os.environ[
             "ANSYS_AGENT_REAL_AEDT_TDR_EXPRESSION"
         ],
         expected_port_count=int(
-            os.getenv("ANSYS_AGENT_REAL_AEDT_PORT_COUNT", "2")
+            os.getenv("ANSYS_AGENT_REAL_AEDT_PORT_COUNT", "4")
+        ),
+        tdr_differential_pairs=os.getenv(
+            "ANSYS_AGENT_REAL_AEDT_TDR_DIFFERENTIAL_PAIRS",
+            "1",
+        )
+        != "0",
+        tdr_observation_port=os.getenv(
+            "ANSYS_AGENT_REAL_AEDT_TDR_OBSERVATION_PORT",
+            "Diff1",
         ),
         environment=RealAedtEnvironment(
             version=os.getenv(

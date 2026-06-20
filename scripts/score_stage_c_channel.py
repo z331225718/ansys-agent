@@ -9,6 +9,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from aedt_agent.layout.channel_scoring import score_channel_result
+from aedt_agent.reporting.channel_plots import write_channel_plot_artifacts
 from aedt_agent.reporting.channel_scoring_report import render_channel_score_html
 
 
@@ -19,6 +20,9 @@ def main() -> None:
     parser.add_argument("--frequency-stop-ghz", type=float, default=26.56)
     parser.add_argument("--rl-target-db", type=float, default=-20.0)
     parser.add_argument("--tdr-target-ohm", type=float, default=100.0)
+    parser.add_argument("--tdr-tolerance-ohm", type=float, default=5.0)
+    parser.add_argument("--sparameter-mode", default="auto")
+    parser.add_argument("--tdr-observation-port", default="")
     parser.add_argument("--output-json", required=True)
     parser.add_argument("--output-html", required=True)
     args = parser.parse_args()
@@ -28,6 +32,15 @@ def main() -> None:
         frequency_stop_ghz=args.frequency_stop_ghz,
         rl_target_db=args.rl_target_db,
         tdr_target_ohm=args.tdr_target_ohm,
+        tdr_tolerance_ohm=args.tdr_tolerance_ohm,
+        sparameter_mode=args.sparameter_mode,
+        tdr_observation_port=args.tdr_observation_port,
+    )
+    score["plot_artifacts"] = write_channel_plot_artifacts(
+        touchstone_path=args.touchstone,
+        tdr_path=args.tdr,
+        artifact_dir=Path(args.output_html).parent,
+        sparameter_mode=score["sparameter_mode"],
     )
     Path(args.output_json).write_text(json.dumps(score, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     Path(args.output_html).write_text(render_channel_score_html(score), encoding="utf-8")

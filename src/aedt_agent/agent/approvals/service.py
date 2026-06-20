@@ -21,11 +21,36 @@ class ApprovalService:
         return created
 
     def approve(self, approval_id: str, selected_option_id: str, comment: str | None = None) -> ApprovalRequest:
+        approval = self.store.get_approval(approval_id)
+        _ensure_pending(approval)
+        _ensure_selected_option(approval, selected_option_id)
         approval = self.store.resolve_approval(approval_id, ApprovalDecision.APPROVED, selected_option_id, comment)
         self.store.update_mission_state(approval.mission_id, MissionState.WAITING_WORKER)
         return approval
 
     def reject(self, approval_id: str, comment: str | None = None) -> ApprovalRequest:
+        approval = self.store.get_approval(approval_id)
+        _ensure_pending(approval)
         approval = self.store.resolve_approval(approval_id, ApprovalDecision.REJECTED, None, comment)
         self.store.update_mission_state(approval.mission_id, MissionState.FAILED)
         return approval
+
+
+def _ensure_pending(approval: ApprovalRequest) -> None:
+    if approval.decision != ApprovalDecision.PENDING:
+        raise ValueError(f"approval already resolved: {approval.approval_id}")
+
+
+def _ensure_selected_option(
+    approval: ApprovalRequest,
+    selected_option_id: str,
+) -> None:
+    option_ids = {
+        str(option.get("id"))
+        for option in approval.options
+        if isinstance(option, dict) and option.get("id") is not None
+    }
+    if selected_option_id not in option_ids:
+        raise ValueError(
+            f"selected option is not available for approval {approval.approval_id}: {selected_option_id}"
+        )

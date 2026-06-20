@@ -198,6 +198,26 @@ def test_human_gate_creates_approval_and_waits(tmp_path):
     assert result.output_payload["approval_id"] == approvals[0].approval_id
 
 
+def test_human_gate_does_not_adopt_unrelated_pending_approval(tmp_path):
+    runtime, mission, graph_run = _runtime(tmp_path)
+    unrelated = ApprovalService(runtime.store).request_approval(
+        mission.mission_id,
+        "unrelated_action",
+        [{"id": "approve", "label": "Approve"}],
+    )
+    node = GraphNode("gate", "approval_gate", "human_gate")
+    template = _template(node)
+
+    result = execute_graph_node(
+        _context(runtime, graph_run, node, template, {"status": "passed"})
+    )
+
+    approvals = runtime.store.list_approvals(mission.mission_id)
+    assert result.status == NodeRunStatus.WAITING_APPROVAL
+    assert result.output_payload["approval_id"] != unrelated.approval_id
+    assert len(approvals) == 2
+
+
 def test_human_gate_resumes_same_node_after_approval(tmp_path):
     runtime, mission, graph_run = _runtime(tmp_path)
     approval = ApprovalService(runtime.store).request_approval(
@@ -320,3 +340,79 @@ def test_custom_program_handler_is_dispatched_by_registry(tmp_path):
     )
 
     assert result.output_payload == {"total": 3}
+
+
+def test_code_writer_rejects_forbidden_import_before_handoff_validation(
+    tmp_path,
+    monkeypatch,
+):
+    runtime, _, graph_run = _runtime(tmp_path)
+    node = GraphNode(
+        "writer",
+        "worker",
+        "agent",
+        capability="code_writer",
+        system_prompt="write code",
+        output_schema="build_evidence",
+        constraints={
+            "allowed_imports": ["pyedb"],
+            "forbidden_patterns": ["os.system"],
+        },
+    )
+    template = GraphTemplate(
+        "test",
+        1,
+        "",
+        [node],
+        [],
+        {
+            "build_evidence": HandoffSchema(
+                "build_evidence",
+                ["status", "code", "artifact_refs", "project_path", "port_count"],
+            )
+        },
+    )
+
+    def fake_complete(*args, **kwargs):
+        return (
+            '{"status":"succeeded","code":"import os\\nos.system(\\\"x\\\")",'
+            '"artifact_refs":[],"project_path":"p.aedt","port_count":2}'
+        )
+
+    monkeypatch.setenv("AEDT_AGENT_LLM_API_KEY", "test")
+    monkeypatch.setattr("aedt_agent.agent.llm.llm_complete", fake_complete)
+
+    result = execute_graph_node(
+        _context(runtime, graph_run, node, template, {})
+    )
+
+    assert result.status == NodeRunStatus.FAILED
+    assert result.error["error_class"] == "code_agent_validation"
+    assert "forbidden import" in result.error["message"]
+
+
+def test_agent_node_uses_decision_as_edge_outcome(tmp_path, monkeypatch):
+    runtime, _, graph_run = _runtime(tmp_path)
+    node = GraphNode(
+        "decider",
+        "decision_maker",
+        "agent",
+        system_prompt="decide",
+        profile="low_cost",
+        constraints={"allowed_decisions": ["continue", "complete"]},
+    )
+    template = _template(node)
+
+    def fake_complete(*args, **kwargs):
+        return '{"decision":"continue","reason":"bounded next step"}'
+
+    monkeypatch.setenv("AEDT_AGENT_LLM_API_KEY", "test")
+    monkeypatch.setattr("aedt_agent.agent.llm.llm_complete", fake_complete)
+
+    result = execute_graph_node(
+        _context(runtime, graph_run, node, template, {"score": {"status": "fail"}})
+    )
+
+    assert result.status == NodeRunStatus.SUCCEEDED
+    assert result.outcome == "continue"
+    assert result.output_payload["reason"] == "bounded next step"

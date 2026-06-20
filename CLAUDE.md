@@ -27,6 +27,21 @@ All commands run inside the project directory (`C:\Users\z3312\code\ansys-agent`
 # Visualize the DAG
 .venv/Scripts/python.exe -m aedt_agent.agent mission graph-visualize --graph-run-id <id>
 
+# Run the reviewed AEDT working-project optimization loop
+.venv/Scripts/python.exe -m aedt_agent.agent \
+  --db D:\aedt-agent-runs\reviewed-loop\missions.db \
+  mission run-loop \
+  --config config\optimization_loops\reviewed_brd_remote.example.json \
+  --profile config\execution_profiles\local_real_aedt.example.json \
+  --worker-id claude-code-orchestrator \
+  --max-workers 1
+
+# Start the web dashboard for DAG + optimization history
+.venv/Scripts/python.exe -m aedt_agent.agent \
+  --db D:\aedt-agent-runs\reviewed-loop\missions.db \
+  mission web --host 0.0.0.0 --port 8766 \
+  --profile config\execution_profiles\local_real_aedt.example.json
+
 # Takeover — cancel current graph, start a new one
 .venv/Scripts/python.exe -m aedt_agent.agent mission takeover \
   --graph-run-id <id> --reason "..." --new-template <template>
@@ -38,6 +53,7 @@ All commands run inside the project directory (`C:\Users\z3312\code\ansys-agent`
 |----------|----------|
 | `brd_local_cut_build` | User wants model review only (no solve) |
 | `brd_channel_optimize` | Full optimization: analyze→build→score→decide→loop |
+| `brd_reviewed_model_optimize_loop` | Real reviewed AEDT working-project loop: solve→score→decide→edit→repeat→report |
 | `brd_before_after_compare` | Compare before/after channel scores |
 | `brd_real_solve_evidence` | Real AEDT solve with evidence package |
 | `brd_multi_channel_demo` | Multi-channel fan-out scoring demo |
@@ -54,7 +70,7 @@ When you poll `graph-status`, the JSON tells you:
 
 | Status | Action |
 |--------|--------|
-| running | Wait, poll again in 3s |
+| running | Wait; use 30s polling for long AEDT solves unless the graph just advanced |
 | succeeded | Report success + key metrics from scorecard |
 | failed | Check error.code. If recoverable → takeover. If not → report to user |
 | waiting_approval | Check approval_reason in node output. Decide or ask user |
@@ -73,6 +89,13 @@ The agent nodes use LLM internally. Set these env vars if not already configured
 ```
 AEDT_AGENT_LLM_API_KEY=sk-...
 AEDT_AGENT_LLM_MODEL=gpt-4.1-mini
+```
+
+Per-profile model overrides are supported:
+```
+AEDT_AGENT_LLM_LOW_COST_MODEL=gpt-4.1-mini
+AEDT_AGENT_LLM_STANDARD_MODEL=gpt-4.1-mini
+AEDT_AGENT_LLM_HIGH_REASONING_MODEL=gpt-4.1
 ```
 
 Without LLM, nodes fall back to deterministic mode (limited, but works for model-review).

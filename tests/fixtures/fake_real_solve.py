@@ -71,10 +71,22 @@ def run_fake_real_solve_worker(job, context):
         "tdr_target_ohm": float(
             job.input_payload.get("tdr_target_ohm", 100.0)
         ),
+        "tdr_observation_port": str(
+            job.input_payload.get("tdr_observation_port") or ""
+        ),
+        "sparameter_mode": str(
+            job.input_payload.get("sparameter_mode") or "auto"
+        ),
         "evidence_summary": {
             "status": "solve_completed",
             "raw_sparameters": "artifact_only",
             "raw_tdr": "artifact_only",
+            "tdr_observation_port": str(
+                job.input_payload.get("tdr_observation_port") or ""
+            ),
+            "sparameter_mode": str(
+                job.input_payload.get("sparameter_mode") or "auto"
+            ),
             "artifact_refs": refs,
         },
         "artifact_refs": refs,

@@ -102,6 +102,17 @@ def build_parser() -> argparse.ArgumentParser:
     web_parser.add_argument("--host", default="127.0.0.1")
     web_parser.add_argument("--port", type=int, default=8766)
     web_parser.add_argument("--db", type=Path, default=Path(".aedt-agent/missions.db"))
+    web_parser.add_argument("--profile", default="safe-recorded")
+
+    run_loop_parser = mission_commands.add_parser(
+        "run-loop",
+        help="Run a configured reviewed-model optimization graph loop.",
+    )
+    run_loop_parser.add_argument("--config", required=True, type=Path)
+    run_loop_parser.add_argument("--profile", default="safe-recorded")
+    run_loop_parser.add_argument("--worker-id", default="loop-runner")
+    run_loop_parser.add_argument("--max-workers", type=int, default=2)
+    run_loop_parser.add_argument("--poll-seconds", type=int, default=0)
 
     resume_graph_parser = mission_commands.add_parser("resume-graph")
     resume_graph_parser.add_argument("--graph-run-id", required=True)
@@ -446,6 +457,27 @@ def run(argv: Sequence[str] | None = None) -> int:
         _print_json(report)
         return _graph_exit_code(report["status"])
 
+    if args.group == "mission" and args.mission_command == "run-loop":
+        from aedt_agent.agent.loop_runner import (
+            load_loop_config,
+            run_loop_from_config,
+        )
+
+        profile = _load_execution_profile(args.profile)
+        runtime = _runtime_with_workers(args.db, profile)
+        config = load_loop_config(args.config)
+        report = run_loop_from_config(
+            runtime,
+            config,
+            worker_id=args.worker_id,
+            max_workers=args.max_workers,
+            poll_interval_seconds=(
+                args.poll_seconds if args.poll_seconds > 0 else None
+            ),
+        )
+        _print_json(report)
+        return _graph_exit_code(str(report["status"]))
+
     if args.group == "mission" and args.mission_command == "advance":
         from aedt_agent.agent.orchestrator import MissionLoopController
 
@@ -652,7 +684,14 @@ def run(argv: Sequence[str] | None = None) -> int:
 
     if args.group == "mission" and args.mission_command == "web":
         from aedt_agent.agent.web import run_agent_window
-        run_agent_window(host=args.host, port=args.port, db_path=args.db)
+        profile = _load_execution_profile(args.profile)
+        runtime = _runtime_with_workers(args.db, profile)
+        run_agent_window(
+            host=args.host,
+            port=args.port,
+            db_path=args.db,
+            runtime=runtime,
+        )
         return 0
 
     _print_json(
@@ -669,6 +708,7 @@ def _runtime_with_workers(db_path: Path, profile=None) -> AgentRuntime:
     from aedt_agent.agent.workers import (
         BRD_CHANNEL_SCORE_CAPABILITY,
         BRD_LOCAL_CUT_BUILD_CAPABILITY,
+        BRD_MODEL_EDIT_CAPABILITY,
         BRD_RECORDED_VOID_ACTION_CAPABILITY,
         BRD_REAL_SOLVE_CAPABILITY,
         InMemoryWorkerRegistry,
@@ -681,6 +721,11 @@ def _runtime_with_workers(db_path: Path, profile=None) -> AgentRuntime:
         HarnessWorkspacePolicy,
         LocalProcessHarness,
         ResourceGate,
+    )
+    from aedt_agent.agent.workers.simulation_runner import (
+        LocalCliRunner,
+        SshCliRunner,
+        SshCliRunnerConfig,
     )
 
     profile = profile or ExecutionProfile.safe_recorded()
@@ -698,8 +743,22 @@ def _runtime_with_workers(db_path: Path, profile=None) -> AgentRuntime:
         heartbeat_timeout_seconds=profile.heartbeat_timeout_seconds,
         termination_grace_seconds=profile.termination_grace_seconds,
     )
+    process_runner = LocalCliRunner(harness)
+    if profile.simulation_runner == "ssh_remote":
+        process_runner = SshCliRunner(
+            HarnessWorkspacePolicy(harness_root),
+            SshCliRunnerConfig(
+                host=profile.ssh_host,
+                user=profile.ssh_user,
+                identity_file=profile.ssh_identity_file,
+                remote_root=profile.ssh_remote_root,
+                python=profile.ssh_python,
+                repo_root=profile.ssh_repo_root,
+            ),
+        )
     registry = InMemoryWorkerRegistry(
         harness=harness,
+        process_runner=process_runner,
         heartbeat_interval_seconds=profile.heartbeat_interval_seconds,
         default_allowed_env=tuple(profile.allowed_env),
         allow_real_aedt=profile.allow_real_aedt,
@@ -709,6 +768,21 @@ def _runtime_with_workers(db_path: Path, profile=None) -> AgentRuntime:
     registry.register(
         BRD_RECORDED_VOID_ACTION_CAPABILITY,
         lambda job, context: run_brd_recorded_void_action_worker(job, context, store=store),
+    )
+    registry.register_process(
+        BRD_MODEL_EDIT_CAPABILITY,
+        (
+            "aedt_agent.agent.workers.brd_model_edit:"
+            "run_brd_model_edit_worker"
+        ),
+        resource_classes=("license", "aedt"),
+        requires_real_aedt=True,
+        input_overrides={
+            "aedt": {
+                "version": profile.aedt_version,
+                "non_graphical": profile.aedt_non_graphical,
+            }
+        },
     )
     registry.register_process(
         BRD_REAL_SOLVE_CAPABILITY,

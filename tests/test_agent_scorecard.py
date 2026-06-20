@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from aedt_agent.agent.graph_template import graph_template_from_mapping
+from aedt_agent.agent.graph_runner import run_graph
 from aedt_agent.agent.orchestrator import AgentRuntime
 from aedt_agent.agent.scorecard import score_mission
 from aedt_agent.agent.workers import BRD_LOCAL_CUT_BUILD_CAPABILITY, InMemoryWorkerRegistry, build_brd_local_cut_job_input, run_brd_local_cut_worker
@@ -55,3 +57,63 @@ def test_scorecard_fails_when_mission_has_no_jobs(tmp_path):
     assert report["status"] == "failed"
     failed = [check["id"] for check in report["checks"] if not check["passed"]]
     assert "job_created" in failed
+
+
+def test_agent_scorecard_passes_agent_only_graph_without_jobs(
+    tmp_path,
+    monkeypatch,
+):
+    runtime = _runtime(tmp_path)
+    mission = runtime.create_mission("agent optimize", [], [])
+    template = graph_template_from_mapping(
+        {
+            "id": "brd_channel_optimize",
+            "version": 1,
+            "nodes": [
+                {
+                    "id": "decide",
+                    "role": "decision_maker",
+                    "kind": "agent",
+                    "system_prompt": "decide",
+                    "output_schema": "next_action",
+                    "constraints": {"response_format": "json_object"},
+                },
+                {
+                    "id": "scorecard",
+                    "role": "scorecard",
+                    "kind": "program",
+                    "input_schema": "next_action",
+                    "output_schema": "scorecard_report",
+                },
+            ],
+            "edges": [
+                {
+                    "id": "decide-scorecard",
+                    "from": "decide",
+                    "to": "scorecard",
+                    "on": "complete",
+                }
+            ],
+            "handoffs": {
+                "next_action": {"required_fields": ["decision", "reason"]},
+                "scorecard_report": {"required_fields": ["status", "checks"]},
+            },
+        }
+    )
+
+    monkeypatch.setenv("AEDT_AGENT_LLM_API_KEY", "test")
+    monkeypatch.setattr(
+        "aedt_agent.agent.llm.llm_complete",
+        lambda *args, **kwargs: '{"decision":"complete","reason":"all good","edge_outcome":"complete","llm_model":"test-model","planning_source":"llm","evidence_summary":{"decision_rule":"target_met"}}',
+    )
+
+    report = run_graph(runtime, mission.mission_id, template, initial_payload={})
+
+    assert report["status"] == "succeeded"
+    assert runtime.list_jobs(mission.mission_id) == []
+    score = score_mission(
+        runtime,
+        mission.mission_id,
+        template_id="brd_channel_optimize",
+    )
+    assert score["status"] == "passed"

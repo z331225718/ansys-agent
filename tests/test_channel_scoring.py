@@ -37,6 +37,26 @@ def test_parse_touchstone_reads_ri_format(tmp_path):
     assert round(samples[0]["s11_db"], 3) == -20.0
 
 
+def test_parse_touchstone_reads_s4p_differential_samples(tmp_path):
+    path = tmp_path / "case.s4p"
+    path.write_text(
+        "# GHz S MA R 50\n"
+        "1.0 "
+        "0.2 0 0.05 0 0 0 0 0 "
+        "0.05 0 0.2 0 0 0 0 0 "
+        "0.8 0 0 0 0.05 0 0 0 "
+        "0 0 0.8 0 0 0 0.05 0\n",
+        encoding="utf-8",
+    )
+
+    samples = parse_touchstone(path)
+
+    assert round(samples[0]["sdd11_db"], 3) == -16.478
+    assert round(samples[0]["sdd21_db"], 3) == -1.938
+    assert samples[0]["s11_db"] == samples[0]["sdd11_db"]
+    assert samples[0]["s21_db"] == samples[0]["sdd21_db"]
+
+
 def test_parse_tdr_csv_accepts_time_and_impedance_columns(tmp_path):
     path = tmp_path / "tdr.csv"
     path.write_text("time_ps,impedance_ohm\n0,100\n10,104\n20,92\n", encoding="utf-8")
@@ -70,6 +90,91 @@ def test_score_channel_result_reports_worst_rl_and_tdr_peak(tmp_path):
     assert score["tdr_peak_deviation_ohm"] == 8.0
     assert score["tdr_peak_time_ps"] == 20.0
     assert score["tdr_anomaly_window"] == {"start_ps": 10.0, "stop_ps": 30.0}
+    assert score["tdr_mean_impedance_ohm"] == 99.25
+    assert score["tdr_peak_to_peak_ohm"] == 12.0
+    assert score["tdr_proximity_mse_ohm2"] == 20.25
+    assert score["tdr_proximity_rmse_ohm"] == 4.5
+    assert score["tdr_flatness_msd_ohm2"] == 80.333
+    assert score["tdr_flatness_rms_step_ohm"] == 8.963
+    assert score["rl_violation_point_count"] == 1
+    assert score["optimization_objective"]["strategy"] == "rl_violation_plus_tdr_proximity_flatness"
+    assert score["optimization_objective"]["total_cost"] == 11.98232
+
+
+def test_score_channel_result_uses_configured_tdr_tolerance(tmp_path):
+    touchstone = tmp_path / "case.s2p"
+    touchstone.write_text(
+        "# GHz S MA R 50\n"
+        "0.0 0.05 0 0.80 0 0.80 0 0.05 0\n"
+        "13.28 0.08 0 0.70 0 0.70 0 0.08 0\n",
+        encoding="utf-8",
+    )
+    tdr = tmp_path / "tdr.csv"
+    tdr.write_text(
+        "time_ps,impedance_ohm\n0,100\n10,108\n",
+        encoding="utf-8",
+    )
+
+    default_score = score_channel_result(
+        touchstone,
+        tdr,
+        frequency_stop_ghz=28.0,
+        rl_target_db=-17,
+        tdr_target_ohm=100,
+    )
+    relaxed_score = score_channel_result(
+        touchstone,
+        tdr,
+        frequency_stop_ghz=28.0,
+        rl_target_db=-17,
+        tdr_target_ohm=100,
+        tdr_tolerance_ohm=9,
+    )
+
+    assert default_score["status"] == "fail"
+    assert relaxed_score["status"] == "pass"
+    assert relaxed_score["tdr_tolerance_ohm"] == 9
+
+
+def test_score_channel_result_uses_sdd11_for_s4p(tmp_path):
+    touchstone = tmp_path / "case.s4p"
+    touchstone.write_text(
+        "# GHz S MA R 50\n"
+        "1.0 "
+        "0.2 0 0.05 0 0 0 0 0 "
+        "0.05 0 0.2 0 0 0 0 0 "
+        "0.8 0 0 0 0.05 0 0 0 "
+        "0 0 0.8 0 0 0 0.05 0\n"
+        "28.0 "
+        "0.4 0 0.05 0 0 0 0 0 "
+        "0.05 0 0.4 0 0 0 0 0 "
+        "0.7 0 0 0 0.05 0 0 0 "
+        "0 0 0.7 0 0 0 0.05 0\n",
+        encoding="utf-8",
+    )
+    tdr = tmp_path / "tdr.csv"
+    tdr.write_text(
+        "time_ps,impedance_ohm\n0,90\n10,96\n",
+        encoding="utf-8",
+    )
+
+    score = score_channel_result(
+        touchstone,
+        tdr,
+        frequency_stop_ghz=28.0,
+        rl_target_db=-17,
+        tdr_target_ohm=90,
+        tdr_tolerance_ohm=9,
+        tdr_observation_port="Diff1",
+    )
+
+    assert score["sparameter_mode"] == "differential"
+    assert score["touchstone_kind"] == "s4p"
+    assert score["return_loss_trace"] == "SDD11"
+    assert score["insertion_loss_trace"] == "SDD21"
+    assert score["tdr_observation_port"] == "Diff1"
+    assert score["rl_worst_frequency_ghz"] == 28.0
+    assert "sdd21_worst_db_in_band" in score
 
 
 def test_compare_channel_scores_classifies_improvement():
@@ -114,6 +219,7 @@ def test_render_channel_score_html_contains_chinese_sections():
     assert "Stage C.4 通道离线评分报告" in html
     assert "回波损耗" in html
     assert "TDR" in html
+    assert "优化目标函数" in html
     assert "-12.041" in html
     assert "case.s2p" in html
 

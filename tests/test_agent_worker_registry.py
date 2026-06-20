@@ -289,6 +289,70 @@ def test_process_registration_overrides_aedt_environment_from_profile():
     }
 
 
+def test_registry_can_route_process_worker_through_supplied_runner(tmp_path):
+    from aedt_agent.infrastructure.harness import HarnessWorkspacePolicy
+
+    class RecordingRunner:
+        def __init__(self):
+            self.workspace_policy = HarnessWorkspacePolicy(tmp_path / "runs")
+            self.calls = []
+
+        def submit(
+            self,
+            request,
+            *,
+            allowed_env,
+            resource_classes,
+            cancel_requested,
+        ):
+            self.calls.append(
+                {
+                    "request": request,
+                    "allowed_env": tuple(allowed_env),
+                    "resource_classes": tuple(resource_classes),
+                    "cancel_requested": cancel_requested,
+                }
+            )
+            return HarnessResult.create(
+                harness_run_id=request.harness_run_id,
+                job_id=request.job_id,
+                status=HarnessStatus.SUCCEEDED,
+                output_payload={"value": 99},
+                artifact_refs=["remote-artifact"],
+                metadata={"runner": "fake"},
+            )
+
+    runner = RecordingRunner()
+    registry = InMemoryWorkerRegistry(
+        process_runner=runner,
+        default_allowed_env=("PYTHONPATH",),
+    )
+    registry.register_process(
+        "fake.echo",
+        "tests.fixtures.process_workers:echo_worker",
+        resource_classes=("license", "aedt"),
+    )
+
+    result = registry.execute(
+        _job(),
+        WorkerContext("worker-1"),
+        attempt_id="attempt-runner",
+    )
+
+    assert result.status == JobStatus.SUCCEEDED
+    assert result.output_payload == {"value": 99}
+    assert result.artifact_refs == ["remote-artifact"]
+    assert runner.calls[0]["request"].workspace.endswith(
+        "mission-1\\job-1\\attempt-runner"
+    ) or runner.calls[0]["request"].workspace.endswith(
+        "mission-1/job-1/attempt-runner"
+    )
+    assert runner.calls[0]["allowed_env"] == ("PYTHONPATH",)
+    assert runner.calls[0]["resource_classes"] == ("license", "aedt")
+    assert result.metadata["runner"] == "fake"
+    assert result.metadata["execution_mode"] == "local_process"
+
+
 @pytest.mark.parametrize(
     "registration",
     [

@@ -32,6 +32,13 @@ class ExecutionProfile:
     heartbeat_timeout_seconds: int
     termination_grace_seconds: int
     allowed_env: list[str]
+    simulation_runner: str = "local_cli"
+    ssh_host: str = ""
+    ssh_user: str = ""
+    ssh_identity_file: str = ""
+    ssh_remote_root: str = ""
+    ssh_python: str = "python"
+    ssh_repo_root: str = ""
 
     def __post_init__(self) -> None:
         positive_fields = (
@@ -59,6 +66,23 @@ class ExecutionProfile:
             raise ExecutionProfileError("harness_root is required")
         if self.execution_mode not in {"recorded", "local", "container"}:
             raise ExecutionProfileError(f"execution_mode is unsupported: {self.execution_mode}")
+        if self.simulation_runner not in {"local_cli", "ssh_remote"}:
+            raise ExecutionProfileError(
+                f"simulation_runner is unsupported: {self.simulation_runner}"
+            )
+        if self.simulation_runner == "ssh_remote":
+            required_ssh_fields = (
+                "ssh_host",
+                "ssh_user",
+                "ssh_remote_root",
+                "ssh_python",
+                "ssh_repo_root",
+            )
+            for field_name in required_ssh_fields:
+                if not str(getattr(self, field_name)).strip():
+                    raise ExecutionProfileError(
+                        f"{field_name} is required for ssh_remote simulation_runner"
+                    )
         if not isinstance(self.allow_real_aedt, bool):
             raise ExecutionProfileError("allow_real_aedt must be boolean")
         if not isinstance(self.aedt_version, str) or not self.aedt_version.strip():
@@ -112,7 +136,30 @@ class ExecutionProfile:
                 "LM_LICENSE_FILE",
                 "CDSROOT",
                 "CDS_LIC_FILE",
+                "OPENAI_API_KEY",
+                "OPENAI_BASE_URL",
+                "AEDT_AGENT_LLM_API_KEY",
+                "AEDT_AGENT_LLM_BASE_URL",
+                "AEDT_AGENT_LLM_MODEL",
+                "AEDT_AGENT_LLM_TEMPERATURE",
+                "AEDT_AGENT_LLM_MAX_TOKENS",
+                "AEDT_AGENT_LLM_LOW_COST_API_KEY",
+                "AEDT_AGENT_LLM_LOW_COST_BASE_URL",
+                "AEDT_AGENT_LLM_LOW_COST_MODEL",
+                "AEDT_AGENT_LLM_LOW_COST_TEMPERATURE",
+                "AEDT_AGENT_LLM_LOW_COST_MAX_TOKENS",
+                "AEDT_AGENT_LLM_STANDARD_API_KEY",
+                "AEDT_AGENT_LLM_STANDARD_BASE_URL",
+                "AEDT_AGENT_LLM_STANDARD_MODEL",
+                "AEDT_AGENT_LLM_STANDARD_TEMPERATURE",
+                "AEDT_AGENT_LLM_STANDARD_MAX_TOKENS",
+                "AEDT_AGENT_LLM_HIGH_REASONING_API_KEY",
+                "AEDT_AGENT_LLM_HIGH_REASONING_BASE_URL",
+                "AEDT_AGENT_LLM_HIGH_REASONING_MODEL",
+                "AEDT_AGENT_LLM_HIGH_REASONING_TEMPERATURE",
+                "AEDT_AGENT_LLM_HIGH_REASONING_MAX_TOKENS",
             ],
+            simulation_runner="local_cli",
         )
 
     @classmethod

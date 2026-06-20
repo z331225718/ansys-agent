@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from aedt_agent.agent.policies import ExecutionProfile, ExecutionProfileError
@@ -18,6 +21,7 @@ def test_safe_recorded_profile_is_bounded_and_disables_real_aedt():
     assert profile.aedt_version == "2026.1"
     assert profile.aedt_non_graphical is True
     assert profile.execution_mode == "recorded"
+    assert profile.simulation_runner == "local_cli"
     assert profile.harness_root == "harness"
     assert profile.heartbeat_interval_seconds == 5
     assert profile.heartbeat_timeout_seconds == 30
@@ -61,6 +65,56 @@ def test_execution_profile_rejects_unknown_fields():
     payload["surprise"] = True
 
     with pytest.raises(ExecutionProfileError, match="unknown profile fields"):
+        ExecutionProfile.from_json_dict(payload)
+
+
+def test_execution_profile_accepts_ssh_remote_runner_when_fields_are_set():
+    payload = ExecutionProfile.safe_recorded().to_json_dict()
+    payload.update(
+        {
+            "simulation_runner": "ssh_remote",
+            "ssh_host": "192.168.71.51",
+            "ssh_user": "z3312",
+            "ssh_identity_file": r"C:\Users\z3312\.ssh\ansys_agent_ed25519",
+            "ssh_remote_root": r"D:\aedt-agent-runs",
+            "ssh_python": "python",
+            "ssh_repo_root": r"D:\ansys-agent",
+        }
+    )
+
+    profile = ExecutionProfile.from_json_dict(payload)
+
+    assert profile.simulation_runner == "ssh_remote"
+    assert profile.ssh_host == "192.168.71.51"
+    assert profile.ssh_user == "z3312"
+    assert profile.ssh_remote_root == r"D:\aedt-agent-runs"
+
+
+def test_ssh_remote_example_profile_loads():
+    path = Path("config/execution_profiles/ssh_remote.example.json")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+
+    profile = ExecutionProfile.from_json_dict(payload)
+
+    assert profile.profile_id == "ssh-remote-aedt"
+    assert profile.simulation_runner == "ssh_remote"
+    assert profile.allow_real_aedt is True
+    assert "ANSYSLMD_LICENSE_FILE" in profile.allowed_env
+
+
+def test_execution_profile_rejects_ssh_remote_runner_without_endpoint():
+    payload = ExecutionProfile.safe_recorded().to_json_dict()
+    payload["simulation_runner"] = "ssh_remote"
+
+    with pytest.raises(ExecutionProfileError, match="ssh_host"):
+        ExecutionProfile.from_json_dict(payload)
+
+
+def test_execution_profile_rejects_unknown_simulation_runner():
+    payload = ExecutionProfile.safe_recorded().to_json_dict()
+    payload["simulation_runner"] = "http_magic"
+
+    with pytest.raises(ExecutionProfileError, match="simulation_runner"):
         ExecutionProfile.from_json_dict(payload)
 
 

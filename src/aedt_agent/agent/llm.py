@@ -17,13 +17,53 @@ class LlmConfig:
     max_tokens: int = 2048
 
     @classmethod
-    def from_env(cls, prefix: str = "AEDT_AGENT_") -> "LlmConfig":
+    def from_env(
+        cls,
+        prefix: str = "AEDT_AGENT_",
+        *,
+        profile: str = "",
+    ) -> "LlmConfig":
+        profile_key = _profile_env_key(profile)
+        profile_prefixes = (
+            (f"{prefix}LLM_{profile_key}_", f"{prefix}{profile_key}_LLM_")
+            if profile_key
+            else ()
+        )
+        explicit = {
+            "model": _env_any(profile_prefixes, "MODEL", f"{prefix}LLM_MODEL", "LLM_MODEL"),
+            "api_key": _env_any(profile_prefixes, "API_KEY", f"{prefix}LLM_API_KEY", "OPENAI_API_KEY"),
+            "base_url": _env_any(profile_prefixes, "BASE_URL", f"{prefix}LLM_BASE_URL", "OPENAI_BASE_URL"),
+        }
         cfg = cls(
-            model=os.getenv(f"{prefix}LLM_MODEL", os.getenv("LLM_MODEL", "gpt-4.1-mini")),
-            api_key=os.getenv(f"{prefix}LLM_API_KEY", os.getenv("OPENAI_API_KEY", "")),
-            base_url=os.getenv(f"{prefix}LLM_BASE_URL", os.getenv("OPENAI_BASE_URL", "")),
-            temperature=float(os.getenv(f"{prefix}LLM_TEMPERATURE", "0.3")),
-            max_tokens=int(os.getenv(f"{prefix}LLM_MAX_TOKENS", "2048")),
+            model=_env_first(
+                profile_prefixes,
+                "MODEL",
+                os.getenv(f"{prefix}LLM_MODEL", os.getenv("LLM_MODEL", "gpt-4.1-mini")),
+            ),
+            api_key=_env_first(
+                profile_prefixes,
+                "API_KEY",
+                os.getenv(f"{prefix}LLM_API_KEY", os.getenv("OPENAI_API_KEY", "")),
+            ),
+            base_url=_env_first(
+                profile_prefixes,
+                "BASE_URL",
+                os.getenv(f"{prefix}LLM_BASE_URL", os.getenv("OPENAI_BASE_URL", "")),
+            ),
+            temperature=float(
+                _env_first(
+                    profile_prefixes,
+                    "TEMPERATURE",
+                    os.getenv(f"{prefix}LLM_TEMPERATURE", "0.3"),
+                )
+            ),
+            max_tokens=int(
+                _env_first(
+                    profile_prefixes,
+                    "MAX_TOKENS",
+                    os.getenv(f"{prefix}LLM_MAX_TOKENS", "2048"),
+                )
+            ),
         )
         # Merge web-saved config (web takes precedence over env defaults, env vars still win)
         if not cfg.api_key or not cfg.base_url:
@@ -34,15 +74,56 @@ class LlmConfig:
                 if web_cfg_path.exists():
                     saved = _json.loads(web_cfg_path.read_text(encoding="utf-8"))
                     cfg = cls(
-                        model=str(saved.get("model") or cfg.model),
-                        api_key=cfg.api_key or str(saved.get("api_key") or ""),
-                        base_url=cfg.base_url or str(saved.get("base_url") or ""),
+                        model=(
+                            cfg.model
+                            if explicit["model"]
+                            else str(saved.get("model") or cfg.model)
+                        ),
+                        api_key=(
+                            cfg.api_key
+                            if explicit["api_key"]
+                            else cfg.api_key or str(saved.get("api_key") or "")
+                        ),
+                        base_url=(
+                            cfg.base_url
+                            if explicit["base_url"]
+                            else cfg.base_url or str(saved.get("base_url") or "")
+                        ),
                         temperature=cfg.temperature,
                         max_tokens=cfg.max_tokens,
                     )
             except Exception:
                 pass
         return cfg
+
+
+def _profile_env_key(profile: str) -> str:
+    key = "".join(
+        char.upper() if char.isalnum() else "_"
+        for char in str(profile or "").strip()
+    )
+    return "_".join(part for part in key.split("_") if part)
+
+
+def _env_first(
+    prefixes: tuple[str, ...],
+    suffix: str,
+    default: str,
+) -> str:
+    for profile_prefix in prefixes:
+        value = os.getenv(f"{profile_prefix}{suffix}")
+        if value not in {None, ""}:
+            return str(value)
+    return default
+
+
+def _env_any(
+    prefixes: tuple[str, ...],
+    suffix: str,
+    *names: str,
+) -> bool:
+    profile_names = [f"{profile_prefix}{suffix}" for profile_prefix in prefixes]
+    return any(os.getenv(name) not in {None, ""} for name in (*profile_names, *names))
 
 
 def llm_complete(

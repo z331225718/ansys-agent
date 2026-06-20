@@ -113,7 +113,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
   <div class="field" style="margin-top:auto">
     <label>Auto-refresh</label>
     <select id="autoRefresh" onchange="toggleAutoRefresh()">
-      <option value="0">关闭</option><option value="3">3s</option><option value="5" selected>5s</option><option value="10">10s</option>
+      <option value="0">关闭</option><option value="10">10s</option><option value="30" selected>30s</option><option value="60">60s</option>
     </select>
   </div>
 </aside>
@@ -149,6 +149,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
       <div id="graphView">
         <h2>DAG 状态</h2>
         <div class="mermaid" id="mermaidGraph">选择 Mission 后显示</div>
+        <div id="optimizationProgress" style="margin-top:12px"></div>
         <details style="margin-top:12px">
           <summary style="cursor:pointer;color:var(--muted);font-size:12px">📋 Orchestrator CLI 参考 (Claude Code / Codex)</summary>
           <pre style="font-size:11px;line-height:1.6;background:#111;padding:10px;border-radius:6px;overflow:auto;max-height:200px"># 创建 mission + graph_run
@@ -236,7 +237,23 @@ async function refreshGraph(){
       log.innerHTML=data.events.slice(-30).map(e=>`<div class="log-entry ${e.event_type.includes('fail')||e.event_type.includes('error')?'err':e.event_type.includes('succe')||e.event_type.includes('complet')?'ok':'info'}"><b>${e.event_type}</b><br><span style="color:var(--muted)">${JSON.stringify(e.payload||{}).slice(0,120)}</span></div>`).join('')||'<div class="muted">暂无事件</div>';
       log.scrollTop=log.scrollHeight;
     }
+    try{
+      const progress=await api('/api/missions/'+activeMission+'/optimization-progress');
+      const panel=document.getElementById('optimizationProgress');
+      if(progress.optimization_history_csv){
+        const rows=(progress.history_rows||[]).slice(-6);
+        panel.innerHTML='<h2>优化历史</h2><div class="muted" style="font-size:11px;margin-bottom:6px">'+progress.optimization_history_csv+'</div>'+
+          '<table style="width:100%;border-collapse:collapse;background:#181a25;border:1px solid var(--line);font-size:12px">'+
+          '<tr><th>Round</th><th>Status</th><th>Action</th><th>RL</th><th>TDR</th><th>Next</th></tr>'+
+          rows.map(r=>'<tr><td>'+esc(r.round_index)+'</td><td>'+esc(r.round_status)+'</td><td>'+esc(r.action_type||'')+'</td><td>'+esc(r.rl_worst_db||'')+'</td><td>'+esc(r.tdr_peak_deviation_ohm||'')+'</td><td>'+esc(r.continue_recommendation||'')+'</td></tr>').join('')+
+          '</table>';
+      }else{panel.innerHTML=''}
+    }catch(e){}
   }catch(e){console.error(e)}
+}
+
+function esc(v){
+  return String(v==null?'':v).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 }
 
 async function stepGraph(){
@@ -489,6 +506,17 @@ def dispatch_agent_request(
                 "status": graph_run.status.value,
             }, status=201)
 
+        if method == "GET" and "/approvals" in route:
+            parts = route.rstrip("/").split("/")
+            mission_id = parts[3]  # /api/missions/{id}/approvals
+            approvals = runtime.store.list_approvals(mission_id)
+            return _json({"approvals": [a.to_json_dict() for a in approvals]})
+
+        if method == "GET" and route.endswith("/optimization-progress"):
+            parts = route.rstrip("/").split("/")
+            mission_id = parts[3]  # /api/missions/{id}/optimization-progress
+            return _json(_optimization_progress(runtime, mission_id))
+
         if method == "GET" and route.startswith("/api/missions/"):
             mission_id = route.rsplit("/", 1)[-1]
             mission = runtime.get_mission(mission_id)
@@ -503,12 +531,6 @@ def dispatch_agent_request(
                 "graph_run": graph_run,
                 "events": events,
             })
-
-        if method == "GET" and "/approvals" in route:
-            parts = route.rstrip("/").split("/")
-            mission_id = parts[3]  # /api/missions/{id}/approvals
-            approvals = runtime.store.list_approvals(mission_id)
-            return _json({"approvals": [a.to_json_dict() for a in approvals]})
 
         # --- Graph runs ---
         if method == "POST" and route.endswith("/create-graph-run"):
@@ -541,13 +563,24 @@ def dispatch_agent_request(
 
         # --- Approvals ---
         if method == "POST" and "/decide" in route:
-            from aedt_agent.agent.mission import ApprovalDecision
+            from aedt_agent.agent.approvals import ApprovalService
 
-            approval_id = route.rsplit("/", 2)[0].rsplit("/", 1)[-1]
+            approval_id = route.rstrip("/").split("/")[-2]
             req = _json_body(body)
-            decision = ApprovalDecision.APPROVED if str(req.get("decision")) == "approved" else ApprovalDecision.REJECTED
-            runtime.store.resolve_approval(approval_id, decision, None, None)
-            return _json({"approval_id": approval_id, "decision": decision.value})
+            service = ApprovalService(runtime.store)
+            decision = str(req.get("decision") or "")
+            if decision in {"approved", "approve"}:
+                approval = service.approve(
+                    approval_id,
+                    str(req.get("option_id") or "approve"),
+                    req.get("comment"),
+                )
+            else:
+                approval = service.reject(
+                    approval_id,
+                    req.get("comment"),
+                )
+            return _json({"approval_id": approval_id, "decision": approval.decision.value})
 
         # --- Templates ---
         if method == "GET" and route == "/api/templates":
@@ -666,8 +699,7 @@ def _orchestrator_loop(
         session["log"].append({"type": "info", "msg": f"Created mission {mission.mission_id[:12]}… with {template_id}"})
 
         # Step 2: Orchestration loop
-        fail_count = 0
-        max_fails = 5
+        last_signature = None
         while session["running"]:
             report = advance_graph(runtime, graph_run.graph_run_id)
             status = report["status"]
@@ -678,28 +710,13 @@ def _orchestrator_loop(
                 session["log"].append({"type": "ok", "msg": "✅ Graph completed successfully"})
                 break
             elif status == "failed":
-                fail_count += 1
                 error = report.get("graph_run", {}).get("error", {})
-                session["log"].append({"type": "err", "msg": f"❌ Failed: {error.get('code','unknown')} ({fail_count}/{max_fails})"})
-                if fail_count >= max_fails:
-                    session["log"].append({"type": "err", "msg": "Too many failures, stopping"})
-                    break
-                # Try takeover with same template
-                session["log"].append({"type": "warn", "msg": "Retrying with takeover…"})
-                graph_run = create_graph_run(runtime, mission.mission_id, template, initial_payload=initial_payload)
-                session["graph_run_id"] = graph_run.graph_run_id
+                session["log"].append({"type": "err", "msg": f"❌ Failed: {error.get('code','unknown')}"})
+                session["log"].append({"type": "warn", "msg": "Stopped; explicit takeover required"})
+                break
             elif status == "waiting_approval":
-                session["log"].append({"type": "warn", "msg": "⏸ Waiting for approval — auto-approving"})
-                # Auto-approve for now; in production, ask orchestrator LLM
-                try:
-                    approvals = runtime.store.list_approvals(mission.mission_id)
-                    pending = [a for a in approvals if a.decision.value == "pending"]
-                    if pending:
-                        from aedt_agent.agent.mission import ApprovalDecision
-                        runtime.store.resolve_approval(pending[-1].approval_id, ApprovalDecision.APPROVED, None, None)
-                        runtime.store.update_graph_run_status(graph_run.graph_run_id, "running")
-                except Exception as e:
-                    session["log"].append({"type": "err", "msg": f"Auto-approve failed: {e}"})
+                session["log"].append({"type": "warn", "msg": "⏸ Waiting for human approval"})
+                break
             elif status == "canceled":
                 session["log"].append({"type": "warn", "msg": "Graph was canceled"})
                 break
@@ -707,7 +724,10 @@ def _orchestrator_loop(
                 pass  # continue polling
 
             import time as _time
-            _time.sleep(1)
+            signature = _web_orchestrator_signature(report)
+            if signature == last_signature:
+                _time.sleep(30)
+            last_signature = signature
     except Exception as e:
         session["log"].append({"type": "err", "msg": f"Orchestrator error: {e}"})
     finally:
@@ -719,16 +739,18 @@ def run_agent_window(
     host: str = "127.0.0.1",
     port: int = 8766,
     db_path: str | Path = ".aedt-agent/missions.db",
+    runtime: AgentRuntime | None = None,
 ) -> None:
     """Start the agent main window web server."""
     db = Path(db_path)
     db.parent.mkdir(parents=True, exist_ok=True)
 
-    registry = InMemoryWorkerRegistry()
-    registry.register(BRD_LOCAL_CUT_BUILD_CAPABILITY, run_brd_local_cut_worker)
-    registry.register(BRD_CHANNEL_SCORE_CAPABILITY, run_brd_channel_score_worker)
-    registry.register(BRD_EVIDENCE_COMPARE_CAPABILITY, run_evidence_compare_worker)
-    runtime = AgentRuntime(SQLiteMissionStore(db), registry=registry)
+    if runtime is None:
+        registry = InMemoryWorkerRegistry()
+        registry.register(BRD_LOCAL_CUT_BUILD_CAPABILITY, run_brd_local_cut_worker)
+        registry.register(BRD_CHANNEL_SCORE_CAPABILITY, run_brd_channel_score_worker)
+        registry.register(BRD_EVIDENCE_COMPARE_CAPABILITY, run_evidence_compare_worker)
+        runtime = AgentRuntime(SQLiteMissionStore(db), registry=registry)
 
     # Load knowledge provider for agent context injection
     try:
@@ -871,3 +893,55 @@ def _merge_web_llm_config(config: Any) -> Any:
         temperature=config.temperature,
         max_tokens=config.max_tokens,
     )
+
+
+def _web_orchestrator_signature(report: dict[str, Any]) -> tuple[Any, ...]:
+    graph_run = report.get("graph_run") or {}
+    return (
+        report.get("status"),
+        graph_run.get("step_count"),
+        graph_run.get("current_node_id"),
+        tuple(
+            (
+                item.get("node_id"),
+                item.get("sequence"),
+                item.get("status"),
+                item.get("edge_decision"),
+            )
+            for item in report.get("node_runs", [])
+        ),
+    )
+
+
+def _optimization_progress(runtime: AgentRuntime, mission_id: str) -> dict[str, Any]:
+    history_csv = ""
+    report_html = ""
+    report_json = ""
+    for graph_run in runtime.store.list_graph_runs(mission_id):
+        for node_run in runtime.store.list_node_runs(graph_run.graph_run_id):
+            payload = dict(node_run.output_payload or {})
+            loop_context = payload.get("loop_context")
+            if isinstance(loop_context, dict):
+                history_csv = str(
+                    loop_context.get("optimization_history_csv") or history_csv
+                )
+                report_html = str(loop_context.get("report_html") or report_html)
+                report_json = str(loop_context.get("report_json") or report_json)
+            history_csv = str(payload.get("optimization_history_csv") or history_csv)
+            report_html = str(payload.get("report_html") or report_html)
+            report_json = str(payload.get("report_json") or report_json)
+    rows = []
+    if history_csv:
+        try:
+            from aedt_agent.agent.optimization_handlers import read_history_csv
+
+            rows = read_history_csv(history_csv, limit=20)
+        except Exception:
+            rows = []
+    return {
+        "mission_id": mission_id,
+        "optimization_history_csv": history_csv,
+        "report_html": report_html,
+        "report_json": report_json,
+        "history_rows": rows,
+    }
