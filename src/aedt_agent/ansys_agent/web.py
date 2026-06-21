@@ -278,6 +278,13 @@ def render_operator_panel(case: AnsysAgentCase) -> str:
       </section>
       <section class="grid">
         <div class="panel">
+          <h2>Nodes</h2>
+          <table>
+            <thead><tr><th>#</th><th>Node</th><th>Kind</th><th>Status</th></tr></thead>
+            <tbody id="nodes"></tbody>
+          </table>
+        </div>
+        <div class="panel">
           <h2>Approvals</h2>
           <div id="approvals"></div>
         </div>
@@ -341,6 +348,7 @@ def render_operator_panel(case: AnsysAgentCase) -> str:
       $('recommendedCommand').textContent = data.recommended_command || '';
       window.__handlers = {{}};
       renderGlobalActions(data);
+      renderNodes(data.nodes || []);
       renderApprovals(data.pending_approvals || []);
       renderMetrics(data.metrics || {{}});
       renderArtifacts(data.latest_artifacts || []);
@@ -377,6 +385,12 @@ def render_operator_panel(case: AnsysAgentCase) -> str:
         </div>
       `).join('');
       bindButtons('approvals');
+    }}
+
+    function renderNodes(items) {{
+      $('nodes').innerHTML = items.length
+        ? items.map((item) => `<tr><td>${{esc(item.sequence || '')}}</td><td>${{esc(item.node_id || '')}}</td><td>${{esc(item.node_kind || '')}}</td><td>${{esc(item.status || '')}}</td></tr>`).join('')
+        : '<tr><td class="empty" colspan="4">none</td></tr>';
     }}
 
     function renderMetrics(metrics) {{

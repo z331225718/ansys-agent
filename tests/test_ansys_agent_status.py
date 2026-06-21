@@ -92,6 +92,42 @@ def test_agent_status_extracts_bounded_metrics_from_history_csv(tmp_path: Path):
     assert {"history_csv", "touchstone", "plot"}.issubset(artifact_kinds)
 
 
+def test_agent_status_lists_template_nodes_before_first_node_run(tmp_path: Path):
+    report = {
+        "status": "running",
+        "graph_run": {
+            "graph_run_id": "graph-1",
+            "mission_id": "mission-1",
+            "current_node_id": "prepare_working_project",
+            "template_snapshot": {
+                "nodes": [
+                    {
+                        "id": "prepare_working_project",
+                        "role": "prepare",
+                        "kind": "program",
+                    },
+                    {
+                        "id": "real_solve_worker",
+                        "role": "worker",
+                        "kind": "worker",
+                        "capability": "brd.local_cut.solve",
+                    },
+                ]
+            },
+        },
+        "node_runs": [],
+    }
+
+    status = summarize_graph_report(_case(tmp_path), report)
+
+    assert [node["node_id"] for node in status["nodes"]] == [
+        "prepare_working_project",
+        "real_solve_worker",
+    ]
+    assert [node["status"] for node in status["nodes"]] == ["pending", "pending"]
+    assert status["nodes"][1]["capability"] == "brd.local_cut.solve"
+
+
 def test_agent_status_reports_failure_summary(tmp_path: Path):
     report = {
         "status": "failed",

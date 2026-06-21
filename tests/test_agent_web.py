@@ -177,6 +177,50 @@ def test_web_dashboard_summarizes_brd_loop_progress(tmp_path):
     assert any(artifact["view_url"] for artifact in data["artifacts"])
 
 
+def test_web_dashboard_lists_template_nodes_before_node_runs(tmp_path):
+    runtime = _runtime(tmp_path)
+    mission = runtime.create_mission("reviewed loop started by external orchestrator", [], [])
+    runtime.store.create_graph_run(
+        GraphRunRecord.create(
+            "graph-1",
+            mission.mission_id,
+            "brd_reviewed_model_optimize_loop",
+            1,
+            mission.plan_version,
+            template_snapshot={
+                "id": "brd_reviewed_model_optimize_loop",
+                "version": 1,
+                "nodes": [
+                    {
+                        "id": "prepare_working_project",
+                        "role": "prepare",
+                        "kind": "program",
+                    },
+                    {
+                        "id": "real_solve_worker",
+                        "role": "worker",
+                        "kind": "worker",
+                        "capability": "brd.local_cut.solve",
+                    },
+                ],
+                "edges": [],
+                "handoffs": {},
+            },
+        )
+    )
+
+    status, data = _dispatch("GET", f"/api/missions/{mission.mission_id}/dashboard", b"", runtime)
+
+    assert status == 200
+    assert data["node_runs"] == []
+    assert [node["node_id"] for node in data["graph_nodes"]] == [
+        "prepare_working_project",
+        "real_solve_worker",
+    ]
+    assert [node["status"] for node in data["graph_nodes"]] == ["pending", "pending"]
+    assert data["graph_nodes"][1]["capability"] == "brd.local_cut.solve"
+
+
 def test_web_serves_registered_artifact_file(tmp_path):
     runtime = _runtime(tmp_path)
     mission = runtime.create_mission("artifact view", [], [])

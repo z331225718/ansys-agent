@@ -60,6 +60,7 @@ def not_started_case_status(case: AnsysAgentCase) -> dict[str, Any]:
         "mission_id": case.mission_id,
         "graph_run_id": "",
         "active_node": "",
+        "nodes": [],
         "latest_round": "",
         "latest_action": "",
         "metrics": _empty_metrics(),
@@ -86,6 +87,7 @@ def summarize_graph_report(
     graph_run = dict(report.get("graph_run") or {})
     mission_id = str(graph_run.get("mission_id") or "")
     node_runs = list(report.get("node_runs") or [])
+    nodes = _graph_node_summaries(graph_run, node_runs)
     progress = _progress_from_node_runs(node_runs)
     history_rows = progress.get("history_rows") or []
     latest_row = history_rows[-1] if history_rows else {}
@@ -109,6 +111,7 @@ def summarize_graph_report(
         "mission_id": mission_id,
         "graph_run_id": graph_run_id,
         "active_node": str(graph_run.get("current_node_id") or latest_node.get("node_id") or ""),
+        "nodes": nodes,
         "latest_round": metrics.get("round_index") or "",
         "latest_action": latest_row.get("action_type") or _find_nested_value(
             latest_node.get("output_payload") or {},
@@ -151,6 +154,66 @@ def latest_graph_run_id(runtime: AgentRuntime) -> str:
             if latest is None or key > latest:
                 latest = key
     return "" if latest is None else latest[1]
+
+
+def _graph_node_summaries(
+    graph_run: dict[str, Any],
+    node_runs: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    latest_by_node: dict[str, dict[str, Any]] = {}
+    for run in node_runs:
+        node_id = str(run.get("node_id") or "")
+        if node_id:
+            latest_by_node[node_id] = run
+
+    snapshot = graph_run.get("template_snapshot")
+    template_nodes = []
+    if isinstance(snapshot, dict):
+        template_nodes = [
+            item for item in snapshot.get("nodes", [])
+            if isinstance(item, dict)
+        ]
+
+    summaries: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, node in enumerate(template_nodes, start=1):
+        node_id = str(node.get("id") or "")
+        if not node_id:
+            continue
+        run = latest_by_node.get(node_id, {})
+        seen.add(node_id)
+        summaries.append(
+            {
+                "node_id": node_id,
+                "node_role": run.get("node_role") or node.get("role") or "",
+                "node_kind": run.get("node_kind") or node.get("kind") or "",
+                "capability": node.get("capability") or "",
+                "sequence": run.get("sequence") or index,
+                "status": run.get("status") or "pending",
+                "edge_decision": run.get("edge_decision") or "",
+                "artifact_count": len(run.get("artifact_refs") or []),
+                "error": run.get("error") or {},
+            }
+        )
+
+    for run in node_runs:
+        node_id = str(run.get("node_id") or "")
+        if not node_id or node_id in seen:
+            continue
+        summaries.append(
+            {
+                "node_id": node_id,
+                "node_role": run.get("node_role") or "",
+                "node_kind": run.get("node_kind") or "",
+                "capability": "",
+                "sequence": run.get("sequence") or "",
+                "status": run.get("status") or "",
+                "edge_decision": run.get("edge_decision") or "",
+                "artifact_count": len(run.get("artifact_refs") or []),
+                "error": run.get("error") or {},
+            }
+        )
+    return summaries
 
 
 def _progress_from_node_runs(node_runs: list[dict[str, Any]]) -> dict[str, Any]:

@@ -290,7 +290,7 @@ function renderDashboard(data){
   const latest=data.latest_metrics||{};
   const pending=(data.approvals||[]).filter(a=>a.decision==='pending');
   const artifacts=(data.artifacts||[]).slice(0,18);
-  const nodes=(data.node_runs||[]).slice(-12);
+  const nodes=(data.graph_nodes||data.node_runs||[]).slice(-12);
   const dash=document.getElementById('runDashboard');
   dash.innerHTML=
     '<div class="dashboard-grid">'+
@@ -1039,6 +1039,10 @@ def _mission_dashboard(runtime: AgentRuntime, mission_id: str) -> dict[str, Any]
         "mission_id": mission_id,
         "graph_run": latest_status.get("graph_run"),
         "node_runs": [_node_run_dashboard_summary(item) for item in node_runs],
+        "graph_nodes": _graph_node_dashboard_summaries(
+            latest_status.get("graph_run") or {},
+            node_runs,
+        ),
         "handoffs": latest_status.get("handoffs") or [],
         "approvals": approvals,
         "artifacts": _collect_mission_artifacts(runtime, mission_id),
@@ -1060,6 +1064,54 @@ def _node_run_dashboard_summary(item: dict[str, Any]) -> dict[str, Any]:
         "error": item.get("error"),
         "completed_at": item.get("completed_at"),
     }
+
+
+def _graph_node_dashboard_summaries(
+    graph_run: dict[str, Any],
+    node_runs: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    latest_by_node: dict[str, dict[str, Any]] = {}
+    for run in node_runs:
+        node_id = str(run.get("node_id") or "")
+        if node_id:
+            latest_by_node[node_id] = run
+
+    snapshot = graph_run.get("template_snapshot")
+    template_nodes = []
+    if isinstance(snapshot, dict):
+        template_nodes = [
+            item for item in snapshot.get("nodes", [])
+            if isinstance(item, dict)
+        ]
+
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, node in enumerate(template_nodes, start=1):
+        node_id = str(node.get("id") or "")
+        if not node_id:
+            continue
+        run = latest_by_node.get(node_id, {})
+        seen.add(node_id)
+        rows.append(
+            {
+                "node_run_id": run.get("node_run_id"),
+                "node_id": node_id,
+                "node_role": run.get("node_role") or node.get("role") or "",
+                "node_kind": run.get("node_kind") or node.get("kind") or "",
+                "sequence": run.get("sequence") or index,
+                "status": run.get("status") or "pending",
+                "edge_decision": run.get("edge_decision") or "",
+                "artifact_count": len(run.get("artifact_refs") or []),
+                "error": run.get("error") or {},
+                "capability": node.get("capability") or "",
+            }
+        )
+    for run in node_runs:
+        node_id = str(run.get("node_id") or "")
+        if not node_id or node_id in seen:
+            continue
+        rows.append(_node_run_dashboard_summary(run))
+    return rows
 
 
 def _latest_metrics(

@@ -22,6 +22,7 @@ def test_ansys_agent_web_renders_operator_panel(tmp_path: Path):
     assert "ansys-agent / web-case" in html
     assert 'data-poll-seconds="10"' in html
     assert "/api/status" in html
+    assert 'id="nodes"' in html
     assert "Approve + Resume" in html
     assert "raw Touchstone" not in html
     assert "raw TDR" not in html
