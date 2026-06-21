@@ -76,6 +76,27 @@ def test_runtime_with_workers_uses_ssh_runner_from_profile(tmp_path):
     assert runner.config.remote_root == r"D:\aedt-agent-runs"
 
 
+def test_runtime_with_workers_uses_profile_solve_timeout_as_job_default(tmp_path):
+    from aedt_agent.agent.cli import _runtime_with_workers
+    from aedt_agent.agent.policies import ExecutionProfile
+
+    profile = replace(
+        ExecutionProfile.safe_recorded(),
+        solve_timeout_seconds=1234,
+    )
+    runtime = _runtime_with_workers(tmp_path / "mission.db", profile=profile)
+    mission = runtime.create_mission("solve timeout", [], [])
+
+    job = runtime.create_job(
+        mission.mission_id,
+        "fake.worker",
+        "job-1",
+        {},
+    )
+
+    assert job.timeout_seconds == 1234
+
+
 def test_runtime_registers_model_edit_process_worker(tmp_path):
     from aedt_agent.agent.cli import _runtime_with_workers
     from aedt_agent.agent.workers import (

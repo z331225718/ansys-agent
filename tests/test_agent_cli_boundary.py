@@ -7,6 +7,8 @@ import sys
 import tomllib
 from pathlib import Path
 
+import pytest
+
 
 def test_pyproject_exposes_new_and_v0_console_scripts():
     project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
@@ -24,6 +26,24 @@ def test_new_cli_exposes_mission_command_surface(tmp_path, capsys):
     assert exit_code == 0
     assert payload["state"] == "created"
     assert payload["user_goal"] == "mission-test"
+
+
+def test_cli_rejects_drive_relative_db_path(capsys):
+    from aedt_agent.agent.cli import run
+
+    with pytest.raises(SystemExit) as exc_info:
+        run([
+            "--db",
+            "D:aedt-agent-runsreviewed-loopmissions.db",
+            "mission",
+            "create",
+            "--goal",
+            "mission-test",
+        ])
+
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 2
+    assert "shell stripped backslashes" in captured.err
 
 
 def test_root_cli_module_executes_agent_cli(tmp_path):

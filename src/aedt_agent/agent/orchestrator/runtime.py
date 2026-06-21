@@ -24,10 +24,17 @@ from aedt_agent.agent.workers import InMemoryWorkerRegistry, WorkerContext, Work
 
 
 class AgentRuntime:
-    def __init__(self, store, registry: InMemoryWorkerRegistry | None = None, default_lease_seconds: int = 60):
+    def __init__(
+        self,
+        store,
+        registry: InMemoryWorkerRegistry | None = None,
+        default_lease_seconds: int = 60,
+        default_job_timeout_seconds: int = 300,
+    ):
         self.store = store
         self.registry = registry or InMemoryWorkerRegistry()
         self.default_lease_seconds = default_lease_seconds
+        self.default_job_timeout_seconds = default_job_timeout_seconds
 
     def create_mission(
         self,
@@ -51,9 +58,11 @@ class AgentRuntime:
         capability: str,
         idempotency_key: str,
         input_payload: dict,
-        timeout_seconds: int = 300,
+        timeout_seconds: int | None = None,
         retry_limit: int = 1,
     ) -> JobRecord:
+        if timeout_seconds is None:
+            timeout_seconds = self.default_job_timeout_seconds
         return self.store.create_job(mission_id, capability, idempotency_key, input_payload, timeout_seconds, retry_limit)
 
     def list_jobs(self, mission_id: str) -> list[JobRecord]:

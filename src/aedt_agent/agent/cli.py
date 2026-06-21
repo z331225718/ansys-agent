@@ -15,7 +15,7 @@ from aedt_agent.infrastructure import SQLiteMissionStore
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="aedt-agent")
-    parser.add_argument("--db", type=Path, default=Path(".aedt-agent/missions.db"))
+    parser.add_argument("--db", type=_db_path_arg, default=Path(".aedt-agent/missions.db"))
     subparsers = parser.add_subparsers(dest="group", required=True)
 
     mission = subparsers.add_parser("mission", help="Manage persistent engineering missions.")
@@ -103,7 +103,7 @@ def build_parser() -> argparse.ArgumentParser:
     web_parser = mission_commands.add_parser("web")
     web_parser.add_argument("--host", default="127.0.0.1")
     web_parser.add_argument("--port", type=int, default=8766)
-    web_parser.add_argument("--db", type=Path, default=Path(".aedt-agent/missions.db"))
+    web_parser.add_argument("--db", type=_db_path_arg, default=Path(".aedt-agent/missions.db"))
     web_parser.add_argument("--profile", default="safe-recorded")
 
     run_loop_parser = mission_commands.add_parser(
@@ -218,6 +218,18 @@ def build_parser() -> argparse.ArgumentParser:
     takeover.add_argument("--override-payload", default="")
 
     return parser
+
+
+def _db_path_arg(value: str) -> Path:
+    text = str(value)
+    if len(text) >= 2 and text[1] == ":" and (len(text) == 2 or text[2] not in ("\\", "/")):
+        raise argparse.ArgumentTypeError(
+            "invalid --db path: Windows drive-relative paths like "
+            f"{text!r} usually mean a shell stripped backslashes. "
+            "Run from PowerShell, or use a quoted forward-slash path such as "
+            "'D:/aedt-agent-runs/reviewed-loop/missions.db'."
+        )
+    return Path(text)
 
 
 def run(argv: Sequence[str] | None = None) -> int:
@@ -889,7 +901,11 @@ def _runtime_with_workers(db_path: Path, profile=None) -> AgentRuntime:
         "aedt_agent.agent.workers.brd_exports:run_brd_tdr_export_worker",
         resource_classes=("cpu",),
     )
-    return AgentRuntime(store, registry=registry)
+    return AgentRuntime(
+        store,
+        registry=registry,
+        default_job_timeout_seconds=profile.solve_timeout_seconds,
+    )
 
 
 def _runtime_with_harness(db_path: Path) -> AgentRuntime:
