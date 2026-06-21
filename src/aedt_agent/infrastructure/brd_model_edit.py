@@ -1516,7 +1516,7 @@ def _axis_aligned_rectangle_args(
     else:
         return {}
     return {
-        "representation_type": "LowerLeftUpperRight",
+        "representation_type": "lower_left_upper_right",
         "lower_left_point": lower_left,
         "upper_right_point": upper_right,
         "parameterized": any(
@@ -1528,13 +1528,13 @@ def _axis_aligned_rectangle_args(
 
 def _rectangle_representation_type(value: str) -> str:
     normalized = str(value).strip()
-    if normalized in {"LowerLeftUpperRight", "CenterWidthHeight"}:
+    if normalized in {"lower_left_upper_right", "center_width_height"}:
         return normalized
     key = normalized.replace("_", "").casefold()
     if key == "lowerleftupperright":
-        return "LowerLeftUpperRight"
+        return "lower_left_upper_right"
     if key == "centerwidthheight":
-        return "CenterWidthHeight"
+        return "center_width_height"
     return normalized
 
 
