@@ -4,6 +4,11 @@ This is the production-shaped entry point for the back half of the BRD via
 optimization flow. Run it on the AEDT machine, where Claude Code acts as the
 orchestrator and the workers run through the local process harness.
 
+Read `docs/orchestrator-worker-architecture.zh.md` first if there is any
+confusion about LLM nodes versus worker nodes. In short: `kind: agent` nodes use
+LLM reasoning; `kind: worker` nodes are standardized engineering executors by
+default.
+
 ## 1. Pull and prepare
 
 ```powershell
