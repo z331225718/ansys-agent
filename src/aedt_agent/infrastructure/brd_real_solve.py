@@ -448,19 +448,12 @@ def _export_tdr_solution_data(
         solution_data = get_solution_data()
         if solution_data is None:
             return False
-        raw_times = getattr(solution_data, "primary_sweep_values", None)
-        times = list(raw_times) if raw_times is not None else []
-        data_real = getattr(solution_data, "data_real", None)
-        if not callable(data_real):
-            return False
-        raw_impedances = data_real()
-        impedances = (
-            list(raw_impedances) if raw_impedances is not None else []
+        times, impedances, time_unit = _tdr_trace_from_solution_data(
+            solution_data,
+            request.tdr_expression,
         )
         if not times or not impedances or len(times) != len(impedances):
             return False
-        units = getattr(solution_data, "units_sweeps", {}) or {}
-        time_unit = str(units.get("Time") or units.get("time") or "ns")
         _write_tdr_solution_data_csv(
             output_path,
             times,
@@ -477,6 +470,87 @@ def _export_tdr_solution_data(
                 delete_report(report_name)
             except Exception:
                 pass
+
+
+def _tdr_trace_from_solution_data(
+    solution_data: Any,
+    expression: str,
+) -> tuple[list[Any], list[Any], str]:
+    units = getattr(solution_data, "units_sweeps", {}) or {}
+    time_unit = str(units.get("Time") or units.get("time") or "ns")
+    times = _sequence_list(
+        getattr(solution_data, "primary_sweep_values", None)
+    )
+
+    data_real = getattr(solution_data, "data_real", None)
+    if callable(data_real):
+        for args in ((), (expression,)):
+            try:
+                impedances = _sequence_list(data_real(*args))
+            except Exception:
+                continue
+            if _has_matching_samples(times, impedances):
+                return times, impedances, time_unit
+
+    get_expression_data = getattr(solution_data, "get_expression_data", None)
+    if callable(get_expression_data):
+        call_shapes = (
+            ((expression,), {"formula": "real"}),
+            ((expression,), {}),
+            ((), {"formula": "real"}),
+            ((), {}),
+        )
+        for args, kwargs in call_shapes:
+            try:
+                expression_data = get_expression_data(*args, **kwargs)
+            except Exception:
+                continue
+            expression_times, impedances = _expression_data_trace(
+                expression_data
+            )
+            if _has_matching_samples(expression_times, impedances):
+                return expression_times, impedances, time_unit
+            if _has_matching_samples(times, impedances):
+                return times, impedances, time_unit
+
+    return [], [], time_unit
+
+
+def _expression_data_trace(data: Any) -> tuple[list[Any], list[Any]]:
+    if isinstance(data, dict):
+        time_values = _first_mapping_value(data, "time", "Time", "x", "X")
+        impedance_values = _first_mapping_value(
+            data,
+            "impedance",
+            "Impedance",
+            "y",
+            "Y",
+            "values",
+        )
+        return _sequence_list(time_values), _sequence_list(impedance_values)
+    if isinstance(data, (list, tuple)) and len(data) >= 2:
+        return _sequence_list(data[0]), _sequence_list(data[1])
+    return [], []
+
+
+def _first_mapping_value(data: dict[Any, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in data and data[key] is not None:
+            return data[key]
+    return None
+
+
+def _sequence_list(value: Any) -> list[Any]:
+    if value is None or isinstance(value, (str, bytes)):
+        return []
+    try:
+        return list(value)
+    except TypeError:
+        return []
+
+
+def _has_matching_samples(times: list[Any], values: list[Any]) -> bool:
+    return bool(times) and bool(values) and len(times) == len(values)
 
 
 def _write_tdr_solution_data_csv(

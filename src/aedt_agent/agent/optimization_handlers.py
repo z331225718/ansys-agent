@@ -258,7 +258,7 @@ def _initial_loop_context(
         "solve": {
             "setup_name": str(payload.get("setup_name") or "Setup1"),
             "sweep_name": str(payload.get("sweep_name") or "Sweep1"),
-            "tdr_expression": str(payload.get("tdr_expression") or "TDRZt(Diff1)"),
+            "tdr_expression": str(payload.get("tdr_expression") or "TDRZ(Diff1)"),
             "expected_port_count": int(payload.get("expected_port_count") or 4),
             "touchstone_name": str(payload.get("touchstone_name") or "channel.s4p"),
             "tdr_report_name": str(payload.get("tdr_report_name") or "ChannelTDR"),
@@ -300,7 +300,7 @@ def _solve_input(
         "setup_name": solve.get("setup_name", "Setup1"),
         "sweep_name": solve.get("sweep_name", "Sweep1"),
         "solution_name": _solution_name(solve),
-        "tdr_expression": solve.get("tdr_expression", "TDRZt(Diff1)"),
+        "tdr_expression": solve.get("tdr_expression", "TDRZ(Diff1)"),
         "expected_port_count": int(solve.get("expected_port_count", 4)),
         "touchstone_name": solve.get("touchstone_name", "channel.s4p"),
         "tdr_report_name": solve.get("tdr_report_name", "ChannelTDR"),

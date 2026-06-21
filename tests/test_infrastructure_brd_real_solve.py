@@ -96,6 +96,8 @@ class FakePost:
                 },
             )
         )
+        if FakeHfss3dLayout.use_expression_data_report:
+            return FakeExpressionDataReport()
         if FakeHfss3dLayout.use_solution_data_report:
             return FakeReport()
         return object()
@@ -142,6 +144,30 @@ class FakeSolutionData:
 
     def data_real(self):
         return FakeArrayLike([100.0, 105.0])
+
+
+class FakeExpressionDataReport:
+    def get_solution_data(self):
+        FakeHfss3dLayout.calls.append(("get_solution_data", {}))
+        return FakeExpressionSolutionData()
+
+
+class FakeExpressionSolutionData:
+    primary_sweep_values = None
+    units_sweeps = {"Time": "ns"}
+    expressions = ["TDRZ(Diff1)"]
+
+    def get_expression_data(self, expression=None, formula="real"):
+        FakeHfss3dLayout.calls.append(
+            (
+                "get_expression_data",
+                {"expression": expression, "formula": formula},
+            )
+        )
+        return (
+            FakeArrayLike([0.0, 0.032835820895522366]),
+            FakeArrayLike([91.175, 74.228]),
+        )
 
 
 class FakeArrayLike(list):
@@ -209,6 +235,7 @@ class FakeHfss3dLayout:
     analyze_result = True
     use_native_report = False
     use_solution_data_report = False
+    use_expression_data_report = False
     touchstone_text = (
         "# GHz S MA R 50\n"
         "0 0.05 0 0.9 0 0.9 0 0.05 0\n"
@@ -230,6 +257,7 @@ class FakeHfss3dLayout:
         cls.analyze_result = True
         cls.use_native_report = False
         cls.use_solution_data_report = False
+        cls.use_expression_data_report = False
         cls.touchstone_text = (
             "# GHz S MA R 50\n"
             "0 0.05 0 0.9 0 0.9 0 0.05 0\n"
@@ -409,6 +437,33 @@ def test_real_solve_can_export_tdr_from_solution_data_without_csv_report_export(
         "delete_report",
         "release_desktop",
     ]
+
+
+def test_real_solve_can_export_tdr_from_expression_data_without_data_real(
+    tmp_path,
+):
+    adapter = _adapter()
+    FakeHfss3dLayout.use_expression_data_report = True
+
+    result = adapter.run(
+        _request(
+            tmp_path,
+            tdr_expression="TDRZ(Diff1)",
+            tdr_differential_pairs=True,
+            tdr_observation_port="Diff1",
+        )
+    )
+
+    assert Path(result.tdr_path).read_text(encoding="utf-8").splitlines() == [
+        "time_ps,impedance_ohm",
+        "0.0,91.175",
+        "32.83582089552237,74.228",
+    ]
+    assert result.summary["tdr_sample_count"] == 2
+    assert (
+        "get_expression_data",
+        {"expression": "TDRZ(Diff1)", "formula": "real"},
+    ) in FakeHfss3dLayout.calls
 
 
 def test_real_solve_uses_native_recorded_tdr_report_when_available(

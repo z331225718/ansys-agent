@@ -127,7 +127,7 @@ working_project_path  loop 复制后反复修改的工作模型
 run_root              本次 run 的根目录
 report_dir            优化历史和报告输出目录
 touchstone_name       channel.s4p
-tdr_expression        TDRZt(Diff1)
+tdr_expression        TDRZ(Diff1)
 tdr_observation_port  Diff1
 geometry_constraints  anti-pad <= 22mil; NFP radius 7.875-10mil
 ```
@@ -190,7 +190,7 @@ config\execution_profiles\local_real_aedt.local.json
 ```
 
 确认真实 AEDT 路径、`working_project_path`、`report_dir`、`channel.s4p`、
-`TDRZt(Diff1)`、`simulation_runner=local_cli` 和几何约束都正确后，再运行：
+`TDRZ(Diff1)`、`simulation_runner=local_cli` 和几何约束都正确后，再运行：
 
 旧 Windows 控制台建议先设置 UTF-8，避免 dashboard/run-loop 日志输出触发编码错误：
 
