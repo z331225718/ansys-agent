@@ -21,6 +21,40 @@ For the reviewed BRD loop, `optimization_decider` is the LLM decision node.
 Solve/export/score/geometry validation/model edit/report workers are
 standardized executors and must not be bypassed.
 
+## Production Hard Rules
+
+These rules are short enough to keep in harness context even though the full
+details live in the playbook:
+
+1. Raw S-parameter and raw TDR curves are artifact-only. Do not paste full
+   curves into chat context; report bounded metrics and artifact paths.
+2. The current reviewed loop is differential: Touchstone is four-port `s4p`,
+   return loss is `SDD11`, insertion is `SDD21`, and default TDR observation is
+   `Diff1`.
+3. Before mapping early/late TDR features to physical structures, identify
+   which physical end `Diff1` observes. If orientation evidence is missing,
+   stop at approval instead of guessing.
+4. Do not create a new AEDT project for every iteration. The source AEDT model
+   is human-reviewed; the loop copies it once to `working_project_path` and
+   repeatedly edits that working project.
+5. Do not optimize route traces in the first loop. The initial executable
+   geometry actions are limited to `anti_pad.enlarge` and
+   `non_functional_pad.add_or_enlarge`.
+6. Anti-pad circular void radius must be <= `22mil`. Non-functional-pad
+   explicit signal-net circle radius must be in [`7.875mil`, `10mil`].
+7. Anti-pad edits act on selected plane/reference/power shapes, not by direct
+   padstack `antipad_by_layer` edits. Confirm the target layer has a meaningful
+   shape around the via; route layers such as `L3`, `L5`, and `L7` often do not.
+8. Non-functional pads are explicit signal-net circle shapes on reviewed
+   through-via or buried-via barrel layers. Do not rely on direct padstack
+   non-functional-pad edits.
+9. Any geometry proposal missing explicit layers, shape evidence, center
+   source, radius constraints, `tdr_observation_port`, or rollback evidence
+   must request approval or fail validation.
+10. Final or stopped runs must leave `optimization_history.csv`,
+    `optimization_progress.html`, and bounded evidence for TDR, `SDD11`, and
+    `SDD21`.
+
 ## Your Job
 
 ```
@@ -101,7 +135,7 @@ When you poll `graph-status`, the JSON tells you:
 | running | Wait; use 30s polling for long AEDT solves unless the graph just advanced |
 | succeeded | Report success + key metrics from scorecard |
 | failed | Check error.code. If recoverable → takeover. If not → report to user |
-| waiting_approval | Check approval_reason in node output. Decide or ask user |
+| waiting_approval | Check approval_reason and evidence. Approve only if the payload satisfies the playbook and user limits; otherwise ask the user |
 | canceled | Was taken over — check for new graph_run |
 
 ## Intervention Rules
@@ -149,19 +183,33 @@ this sequence:
 Do not put raw S-parameter or raw TDR curves into chat context. Report bounded
 metrics and artifact paths instead.
 
+When reporting progress to the user, include:
+
+- graph status and active or last node;
+- latest round index and action taken;
+- `SDD11` worst value/frequency in 0-28 GHz;
+- `SDD21` worst value/frequency in band;
+- TDR observation port, peak deviation, and whether port orientation is known;
+- objective total cost if present;
+- report/artifact paths;
+- approval/failure reason and the next safe action.
+
 ## Example Session
 
 ```
-User: "Optimize the BRD channel for nets CLK0/CLK1 between 0,0 and 10,10mm, 
-       target RL < -20dB at 28GHz"
+User: "Start the reviewed BRD optimization loop on this AEDT machine."
 
 You:
-1. Parse: nets=CLK0,CLK1, bbox=0,0,10,10, target=-20dB@28GHz
-2. Select: brd_channel_optimize (full optimization)
-3. Launch: mission create --goal "Optimize CLK0/CLK1 ..." 
-           with initial_payload containing all params
-4. Loop: advance-graph → graph-status → decide
-5. Monitor: analyze running → build_model writing code → score_channel evaluating
-6. If decide node outputs "complete" → report final metrics
-7. If decide loops back → continue monitoring
+1. Read CLAUDE.md plus the architecture doc, playbook, and remote loop doc.
+2. Confirm local configs exist:
+   config\execution_profiles\local_real_aedt.json
+   config\optimization_loops\reviewed_brd_remote.json
+3. Run validate-loop-config. If it fails, report failed checks and stop.
+4. Start or confirm the web dashboard.
+5. Start mission run-loop with max-workers 1.
+6. Monitor with 30s polling. Do not manually call worker internals.
+7. If waiting_approval, inspect approval_reason, node output, history CSV, and
+   artifacts before asking the user or approving.
+8. If succeeded or max_rounds reached, report final bounded metrics and report
+   artifact paths.
 ```

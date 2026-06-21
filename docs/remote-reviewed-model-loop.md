@@ -21,9 +21,9 @@ git pull
 
 Copy and edit these files for the machine:
 
-```text
-config\execution_profiles\local_real_aedt.example.json
-config\optimization_loops\reviewed_brd_remote.example.json
+```powershell
+Copy-Item config\execution_profiles\local_real_aedt.example.json config\execution_profiles\local_real_aedt.json
+Copy-Item config\optimization_loops\reviewed_brd_remote.example.json config\optimization_loops\reviewed_brd_remote.json
 ```
 
 The loop config must point to a human-reviewed source AEDT project and a
@@ -74,7 +74,7 @@ AEDT_AGENT_LLM_HIGH_REASONING_BASE_URL
   mission web `
   --host 0.0.0.0 `
   --port 8766 `
-  --profile config\execution_profiles\local_real_aedt.example.json
+  --profile config\execution_profiles\local_real_aedt.json
 ```
 
 Open:
@@ -96,8 +96,8 @@ putting raw S-parameter or TDR data into LLM context.
 .\.venv\Scripts\python.exe -m aedt_agent.agent `
   --db D:\aedt-agent-runs\reviewed-loop\missions.db `
   mission run-loop `
-  --config config\optimization_loops\reviewed_brd_remote.example.json `
-  --profile config\execution_profiles\local_real_aedt.example.json `
+  --config config\optimization_loops\reviewed_brd_remote.json `
+  --profile config\execution_profiles\local_real_aedt.json `
   --worker-id claude-code-orchestrator `
   --max-workers 1
 ```
@@ -120,7 +120,7 @@ Claude Code or another orchestrator can run the same flow manually:
 
 .\.venv\Scripts\python.exe -m aedt_agent.agent --db D:\aedt-agent-runs\reviewed-loop\missions.db `
   mission run-graph --mission-id <mission_id> --template brd_reviewed_model_optimize_loop `
-  --initial-payload config\optimization_loops\reviewed_brd_remote.example.json --max-workers 1
+  --initial-payload config\optimization_loops\reviewed_brd_remote.json --max-workers 1
 
 .\.venv\Scripts\python.exe -m aedt_agent.agent --db D:\aedt-agent-runs\reviewed-loop\missions.db `
   mission graph-status --graph-run-id <graph_run_id>
