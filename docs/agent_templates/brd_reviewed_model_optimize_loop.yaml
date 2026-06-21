@@ -85,6 +85,14 @@ nodes:
     output_schema: model_edit_request
     max_runs: 4
 
+  - id: geometry_validator_worker
+    role: worker
+    kind: worker
+    capability: brd.geometry.validate
+    input_schema: model_edit_request
+    output_schema: model_edit_request
+    max_runs: 4
+
   - id: model_edit_worker
     role: worker
     kind: worker
@@ -143,8 +151,18 @@ edges:
     max_traversals: 1
   - id: decide-to-edit
     from: optimization_decider
-    to: model_edit_worker
+    to: geometry_validator_worker
     on: continue
+    max_traversals: 4
+  - id: validate-to-edit
+    from: geometry_validator_worker
+    to: model_edit_worker
+    on: succeeded
+    max_traversals: 4
+  - id: validate-to-approval
+    from: geometry_validator_worker
+    to: action_approval_gate
+    on: approval_required
     max_traversals: 4
   - id: decide-to-approval
     from: optimization_decider
@@ -206,6 +224,16 @@ prompts:
     decision, reason, selected_action when continuing, tdr_observation_port,
     tdr_port_orientation_evidence, constraints_checked, risk, rollback, and
     loop_context.
+
+    For continue, selected_action must be directly executable by the geometry
+    validator:
+    - anti_pad.enlarge: include target_radius or target_diameter, parameter_name,
+      target reference/power layers, center_padstack_instance_ids or via_centers,
+      plane_shape_ids or equivalent shape_evidence, and bridge_between_vias only
+      with bridge_length_factor=0.5 plus bridge_length_parameter_name.
+    - non_functional_pad.add_or_enlarge: use shape/circle_shape implementation,
+      include target_radius in [7.875mil, 10mil], parameter_name, target layers,
+      and center_padstack_instance_ids or via_centers plus signal net evidence.
 
 handoffs:
   real_solve_request:

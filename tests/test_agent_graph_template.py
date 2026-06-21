@@ -67,6 +67,7 @@ def test_reviewed_model_loop_template_uses_real_workers_and_report():
         "channel_score_worker",
         "optimization_decider",
         "action_approval_gate",
+        "geometry_validator_worker",
         "model_edit_worker",
         "prepare_next_solve",
         "optimization_report",
@@ -75,6 +76,7 @@ def test_reviewed_model_loop_template_uses_real_workers_and_report():
     assert template.node("touchstone_export_worker").capability == "brd.touchstone.export"
     assert template.node("tdr_export_worker").capability == "brd.tdr.export"
     assert template.node("channel_score_worker").capability == "brd.channel.score"
+    assert template.node("geometry_validator_worker").capability == "brd.geometry.validate"
     assert template.node("model_edit_worker").capability == "brd.model.edit"
     assert template.node("optimization_decider").kind == "agent"
     assert template.node("optimization_decider").system_prompt == "optimization_decider_prompt"

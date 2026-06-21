@@ -707,6 +707,7 @@ def run(argv: Sequence[str] | None = None) -> int:
 def _runtime_with_workers(db_path: Path, profile=None) -> AgentRuntime:
     from aedt_agent.agent.workers import (
         BRD_CHANNEL_SCORE_CAPABILITY,
+        BRD_GEOMETRY_VALIDATE_CAPABILITY,
         BRD_LOCAL_CUT_BUILD_CAPABILITY,
         BRD_MODEL_EDIT_CAPABILITY,
         BRD_RECORDED_VOID_ACTION_CAPABILITY,
@@ -774,6 +775,14 @@ def _runtime_with_workers(db_path: Path, profile=None) -> AgentRuntime:
         (
             "aedt_agent.agent.workers.brd_channel_score:"
             "run_brd_channel_score_worker"
+        ),
+        resource_classes=("cpu",),
+    )
+    registry.register_process(
+        BRD_GEOMETRY_VALIDATE_CAPABILITY,
+        (
+            "aedt_agent.agent.workers.brd_geometry_validate:"
+            "run_brd_geometry_validate_worker"
         ),
         resource_classes=("cpu",),
     )
