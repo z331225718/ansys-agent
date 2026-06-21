@@ -1,286 +1,153 @@
-# AEDT Agent Stage C.2 Demo README
+# ansys-agent
 
-## 这个 Demo 展示什么
-
-Stage C Demo 用来展示 AEDT Agent 的产品化闭环。默认首页现在固定演示一个真实 AEDT graphical microstrip S-parameter workflow，避免把 catalog、planner、benchmark 调试入口混在一起：
-
-```text
-固定 Microstrip S-Parameter Workflow
-        ↓
-Workflow JSON
-        ↓
-Validator
-        ↓
-Controlled NodeExecutor
-        ↓
-Real AEDT / Offline Fake Adapter
-        ↓
-Artifact / Validation / Report
-```
-
-它的重点不是完整拖拽 UI，而是让其他团队能直观看到：
-
-- 节点 catalog 已经结构化。
-- workflow template 可以复用。
-- 首页可以先用 LLM planner 把自然语言需求生成 workflow，再一键启动真实 AEDT graphical workflow。
-- Advanced 工作台仍保留 planner、catalog 和 API 调试入口。
-- workflow 会先 validation，再执行。
-- demo run 会创建空气盒、辐射边界、PEC ground/trace、两个与 trace 等宽的 lumped port，执行 solve，并生成 S 参数报告和 Touchstone artifact。
-- 真实 AEDT smoke 结果可以从报告入口查看。
-- Stage C.2 增加 planner mode 和 repair loop 展示：主模型只能生成 workflow JSON，后端 validator 决定是否可执行。
-
-## 启动命令
-
-在仓库根目录运行：
-
-```bash
-.venv/bin/python scripts/run_stage_c1_demo_server.py --port 8765
-```
-
-浏览器打开：
+ansys-agent 是面向高速 BRD / AEDT 仿真的工程 agent 系统。当前重点不是旧的
+Stage C demo，而是把“脚本式仿真工具”升级为可编排、可审计、可接管的工程
+闭环：
 
 ```text
-http://127.0.0.1:8765
+User goal
+  -> external orchestrator (Claude Code / Codex / other harness)
+  -> YAML graph
+  -> agent / program / worker / human_gate / scorecard nodes
+  -> AEDT artifacts + bounded evidence + optimization report
 ```
 
-默认配置来自：
+## 当前核心原则
+
+不是所有中间节点都是 LLM。
 
 ```text
-config/demo_config.example.json
+kind: agent      = LLM 推理节点
+kind: worker     = 标准化工程执行器，默认不是 LLM
+kind: program    = 本进程确定性处理逻辑
+kind: human_gate = 人工审批 / 模型检查点
+scorecard        = 程序审计层，查 DB 和 artifact，不相信 LLM 自述
 ```
 
-本地私有配置可以写到：
+LLM 负责规划、判断、提案和接管建议；worker 负责标准化执行，例如 AEDT
+solve、S4P/TDR 导出、评分、几何校验、模型修改、报告生成。原始 S 参数和
+TDR 曲线保持 artifact-only，不直接放进 LLM 上下文。
+
+## 先读这些文档
+
+远端 Claude Code 或任何外层编排者启动前，先读：
 
 ```text
-config/demo_config.local.json
+CLAUDE.md
+docs/orchestrator-worker-architecture.zh.md
+docs/agent_playbooks/brd-local-cut-optimization.md
+docs/remote-reviewed-model-loop.md
+docs/agent_templates/brd_reviewed_model_optimize_loop.yaml
 ```
 
-`config/*.local.json` 已被 `.gitignore` 忽略。不要把 API key、base URL 或本机绝对路径写入可提交文件。
+它们分别说明：
 
-## Planner Mode 和本地配置
+- `CLAUDE.md`：Claude Code 在本项目中如何作为外层编排者。
+- `orchestrator-worker-architecture.zh.md`：谁是 LLM、谁是 worker、谁负责审计。
+- `brd-local-cut-optimization.md`：BRD local-cut 工程经验、TDR 判断、反焊盘/NFP 规则。
+- `remote-reviewed-model-loop.md`：远端机器怎么配置、校验、开 dashboard、跑 loop。
+- `brd_reviewed_model_optimize_loop.yaml`：当前真实 reviewed AEDT 优化闭环图。
 
-Demo 默认使用 `deterministic` planner，不需要 LLM API。要测试 LLM planner，可以在本地创建 `config/demo_config.local.json`：
+## 当前真实闭环
 
-```json
-{
-  "planner": {
-    "mode": "llm",
-    "provider": "openai-compatible",
-    "model": "",
-    "base_url": "",
-    "api_key": "",
-    "max_repair_attempts": 3
-  }
-}
-```
-
-提交仓库时这些字段必须保持空值。LLM planner 的边界是：
-
-- 只允许输出 workflow JSON。
-- 不允许输出 PyAEDT Python。
-- 每一轮输出都必须经过 backend validator。
-- 如果 validation 失败，会把错误作为 repair context 进入下一轮。
-
-## 页面怎么演示
-
-推荐演示顺序：
-
-1. 打开首页，说明主链路是 `用户需求 -> LLM planner -> workflow validation -> AEDT 执行`。
-2. 在“用户需求”里输入微带线需求，例如“求解频率 2.4GHz，扫频到 10GHz”，页面会把频率同步到 workflow 参数。
-3. 点击 `Plan with LLM`，展示 planner mode、repair count 和 validator 接受的 workflow JSON。
-4. 点击 `Run Real AEDT`，页面会把 planner 生成的 workflow 交给真实 AEDT graphical smoke job，并轮询每个节点的完成状态。
-5. 查看结果区的 `Status`、`Validation Result`、S11/S21 和 expected outputs。
-6. 打开 artifact 链接，展示每次运行都会落盘：
-   - `workflow_run`
-   - `validation`
-   - `audit`
-   - `report`
-   - `microstrip_demo.s2p`
-7. 点击真实 AEDT smoke 和节点进化 review 链接，展示 Stage C 已跑过的真实 AEDT artifact 和受控节点进化机制。
-8. 如需展示 planner、node catalog、API 调试入口，打开：
+主线模板：
 
 ```text
-http://127.0.0.1:8765/advanced
+docs/agent_templates/brd_reviewed_model_optimize_loop.yaml
 ```
 
-## API 示例
-
-查看状态：
-
-```bash
-curl -s http://127.0.0.1:8765/api/status
-```
-
-查看模板：
-
-```bash
-curl -s http://127.0.0.1:8765/api/templates
-```
-
-自然语言规划：
-
-```bash
-curl -s -X POST http://127.0.0.1:8765/api/plan \
-  -H 'content-type: application/json' \
-  -d '{"user_request":"create a microstrip s-parameter simulation at 5GHz"}'
-```
-
-指定 planner mode：
-
-```bash
-curl -s -X POST http://127.0.0.1:8765/api/plan \
-  -H 'content-type: application/json' \
-  -d '{"planner_mode":"deterministic","user_request":"create a wave port setup"}'
-```
-
-启动真实 AEDT demo job：
-
-```bash
-curl -s -X POST http://127.0.0.1:8765/api/run-real \
-  -H 'content-type: application/json' \
-  -d '{"template_id":"microstrip_sparameter"}'
-```
-
-查询真实 job 状态：
-
-```bash
-curl -s http://127.0.0.1:8765/api/run-real/<job_id>
-```
-
-运行 offline fake adapter demo：
-
-```bash
-curl -s -X POST http://127.0.0.1:8765/api/run \
-  -H 'content-type: application/json' \
-  -d '{"template_id":"microstrip_sparameter"}'
-```
-
-## 真实 AEDT 与离线模式
-
-浏览器首页默认主按钮会启动真实 AEDT graphical smoke。它依赖本机 AEDT 2026.1、license、桌面环境和 `~/ansys_inc` 安装路径，运行时间明显长于 fake adapter。离线 fake adapter 仍保留为 fallback，因为真实 AEDT：
-
-- 依赖本机安装和 license。
-- 启动慢，容易受进程状态影响。
-- 需要独立记录 stdout、stderr、workflow_run、validation、audit 和 report artifact。
-
-命令行仍可以直接运行真实 AEDT smoke：
-
-```bash
-.venv/bin/python scripts/run_stage_c_real_workflow_smoke.py --template microstrip_sparameter --adapter real
-```
-
-如果要强制打开 AEDT GUI：
-
-```bash
-.venv/bin/python scripts/run_stage_c_real_workflow_smoke.py --template microstrip_sparameter --adapter real --graphical
-```
-
-Stage C 中也已经跑通过 3 个真实 workflow：
-
-- `microstrip_sparameter`
-- `wave_port_setup`
-- `radiation_airbox_setup`
-
-查看汇总报告：
+当前 reviewed BRD loop 的节点边界：
 
 ```text
-http://127.0.0.1:8765/reports/stage_c_real_smoke_dashboard.html
+prepare_working_project          program
+real_solve_worker                worker  brd.local_cut.solve
+touchstone_export_worker         worker  brd.touchstone.export
+tdr_export_worker                worker  brd.tdr.export
+channel_score_worker             worker  brd.channel.score
+iteration_qualifier_worker       worker  brd.iteration.qualify
+progress_report_worker           worker  brd.optimization.progress
+optimization_decider             agent   LLM high_reasoning
+geometry_validator_worker        worker  brd.geometry.validate
+model_edit_worker                worker  brd.model.edit
+optimization_report              worker  brd.optimization.report
 ```
 
-## Planner Benchmark
-
-运行 5 条内置自然语言请求的小型 planner benchmark：
-
-```bash
-.venv/bin/python scripts/run_stage_c2_planner_benchmark.py
-```
-
-输出：
+也就是说，真实闭环是：
 
 ```text
-benchmarks/reports/stage_c2_planner_benchmark.html
-benchmarks/reports/stage_c2_planner_benchmark.json
+确定性执行 -> 确定性评分/审计 -> LLM 决策 -> 确定性校验 -> 确定性修改 -> 再求解
 ```
 
-启动 demo server 后也可以直接打开：
+## 远端机器快速开始
 
-```text
-http://127.0.0.1:8765/reports/stage_c2_planner_benchmark.html
-```
-
-## 当前边界
-
-Stage C.1 不做：
-
-- 完整拖拽节点编辑器。
-- 浏览器启动真实 AEDT。
-- 多用户任务队列。
-- 云部署。
-- 电磁物理正确性证明。
-- 自动发布 stable 节点。
-- 通用优化 agent。
-
-## 验证命令
-
-运行 Stage C.1 相关测试：
-
-```bash
-.venv/bin/python -m pytest \
-  tests/test_stage_c1_demo_config.py \
-  tests/test_stage_c1_demo_service.py \
-  tests/test_stage_c1_demo_web.py \
-  tests/test_stage_c2_planner.py \
-  tests/test_stage_c2_planner_benchmark.py \
-  -q
-```
-
-运行全量测试：
-
-```bash
-.venv/bin/python -m pytest -q
-```
-
-## 远端 reviewed BRD 优化闭环用法
-
-这条链路的日常入口不是人工手动逐个 worker 跑命令，而是在 AEDT 远端机器上让 Claude Code 作为外层编排者。Claude Code 读取仓库里的 `AGENTS.md` / `CLAUDE.md`，负责理解任务、选择 `brd_reviewed_model_optimize_loop` 模板、启动 loop、监控 DAG、审计失败、处理审批点，并把每轮的优化历史和报告交给用户。
-
-远端机器准备：
+在 AEDT 远端机器：
 
 ```powershell
 cd D:\ansys-agent
-git pull
+git pull origin main
 .\.venv\Scripts\python.exe -m pip install -e .
 ```
 
-复制示例配置并按机器实际路径修改：
+复制本机配置：
 
 ```powershell
 Copy-Item config\execution_profiles\local_real_aedt.example.json config\execution_profiles\local_real_aedt.json
 Copy-Item config\optimization_loops\reviewed_brd_remote.example.json config\optimization_loops\reviewed_brd_remote.json
 ```
 
-重点检查 `reviewed_brd_remote.json` 里的 `source_project_path`、`working_project_path`、`report_dir`、`max_rounds`、`poll_interval_seconds`、`touchstone_name`、`tdr_expression` 和几何约束。`source_project_path` 指向人工检查过的 AEDT 模型；`working_project_path` 是 loop 复制后反复修改的工作模型，避免每轮生成一堆中间 AEDT 项目。
-
-按成本配置不同 LLM profile：
-
-```powershell
-$env:AEDT_AGENT_LLM_API_KEY = "sk-..."
-$env:AEDT_AGENT_LLM_BASE_URL = "https://api.openai.com/v1"
-$env:AEDT_AGENT_LLM_LOW_COST_MODEL = "gpt-4.1-mini"
-$env:AEDT_AGENT_LLM_STANDARD_MODEL = "gpt-4.1-mini"
-$env:AEDT_AGENT_LLM_HIGH_REASONING_MODEL = "gpt-4.1"
-```
-
-然后在 `D:\ansys-agent` 打开 Claude Code，直接用自然语言下达任务，例如：
+检查并修改：
 
 ```text
-开始 reviewed BRD 优化闭环。使用 config\optimization_loops\reviewed_brd_remote.json
-和 config\execution_profiles\local_real_aedt.json。先启动 web dashboard，再启动 run-loop。
-轮询不要太频繁，按配置 30 秒一次；如果失败，先审计 graph-status、worker 输出和报告 artifact。
-每轮向我汇报 optimization_history.csv 的关键指标、修改了哪些结构、下一步建议。
+config\execution_profiles\local_real_aedt.json
+config\optimization_loops\reviewed_brd_remote.json
 ```
 
-Claude Code 应执行的等价命令如下。先开可视化页面：
+重点确认：
+
+```text
+source_project_path   人工检查过的源 AEDT 模型
+working_project_path  loop 复制后反复修改的工作模型
+run_root              本次 run 的根目录
+report_dir            优化历史和报告输出目录
+touchstone_name       channel.s4p
+tdr_expression        TDRZt(Diff1)
+tdr_observation_port  Diff1
+geometry_constraints  anti-pad <= 22mil; NFP radius 7.875-10mil
+```
+
+## 让 Claude Code 编排
+
+在远端仓库根目录打开 Claude Code：
+
+```powershell
+cd D:\ansys-agent
+claude
+```
+
+给它的任务可以很短：
+
+```text
+开始 reviewed BRD 优化闭环。按 CLAUDE.md 执行。
+使用 config\optimization_loops\reviewed_brd_remote.json
+和 config\execution_profiles\local_real_aedt.json。
+先 validate-loop-config，再启动 web dashboard，然后 run-loop。
+不要频繁轮询；如果进入 approval 或 failed，先审计 graph-status、
+worker artifacts 和 optimization_history.csv，再问我。
+```
+
+Claude Code 的职责是外层监督和接管，不是替代 graph 里的 worker。
+
+## 手动等价命令
+
+先校验配置，不启动 AEDT：
+
+```powershell
+.\.venv\Scripts\python.exe -m aedt_agent.agent `
+  mission validate-loop-config `
+  --config config\optimization_loops\reviewed_brd_remote.json
+```
+
+启动 Web dashboard：
 
 ```powershell
 .\.venv\Scripts\python.exe -m aedt_agent.agent `
@@ -291,13 +158,13 @@ Claude Code 应执行的等价命令如下。先开可视化页面：
   --profile config\execution_profiles\local_real_aedt.json
 ```
 
-浏览器打开：
+打开：
 
 ```text
 http://<aedt-machine-ip>:8766
 ```
 
-再启动闭环：
+启动 reviewed BRD 优化 loop：
 
 ```powershell
 .\.venv\Scripts\python.exe -m aedt_agent.agent `
@@ -309,7 +176,11 @@ http://<aedt-machine-ip>:8766
   --max-workers 1
 ```
 
-loop 输出目录由 `report_dir` 控制，至少应包含：
+`run-loop` 是薄推进器：创建/推进/轮询 graph。它不是隐藏的大脚本大脑。
+
+## 输出
+
+`report_dir` 至少应包含：
 
 ```text
 optimization_history.csv
@@ -317,4 +188,61 @@ optimization_progress.html
 optimization_progress.json
 ```
 
-报告需要写清楚每轮修改、最终结果、是否满足 TDR / SDD11 / SDD21 指标，并保留 TDR、SDD11、SDD21 图。原始 S 参数和 TDR 曲线保持 artifact-only，不直接塞进 LLM 上下文。
+报告需要说明：
+
+- 每轮修改了哪些结构参数；
+- solve / export / score / qualify 是否成功；
+- SDD11、SDD21、TDR 指标；
+- TDR、SDD11、SDD21 图；
+- 当前是否满足目标；
+- 下一步建议或停止原因。
+
+## 常用审计命令
+
+```powershell
+.\.venv\Scripts\python.exe -m aedt_agent.agent `
+  --db D:\aedt-agent-runs\reviewed-loop\missions.db `
+  mission graph-status --graph-run-id <graph_run_id>
+
+.\.venv\Scripts\python.exe -m aedt_agent.agent `
+  --db D:\aedt-agent-runs\reviewed-loop\missions.db `
+  mission graph-visualize --graph-run-id <graph_run_id>
+
+.\.venv\Scripts\python.exe -m aedt_agent.agent `
+  --db D:\aedt-agent-runs\reviewed-loop\missions.db `
+  mission advance-graph --graph-run-id <graph_run_id> --max-workers 1
+```
+
+如果 graph 进入 `waiting_approval`，先看 node output 的 `approval_reason`
+和 dashboard，再决定 approve/reject。
+
+## 本地验证
+
+轻量验证：
+
+```powershell
+.\.venv\Scripts\python.exe -m py_compile `
+  src\aedt_agent\agent\loop_runner.py `
+  src\aedt_agent\agent\web.py `
+  src\aedt_agent\agent\cli.py
+
+.\.venv\Scripts\python.exe -m pytest `
+  tests\test_agent_loop_runner.py `
+  tests\test_agent_cli_dag_runner.py `
+  tests\test_agent_web.py `
+  -q
+```
+
+配置 dry-run：
+
+```powershell
+.\.venv\Scripts\python.exe -m aedt_agent.agent `
+  mission validate-loop-config `
+  --config config\optimization_loops\reviewed_brd_remote.example.json `
+  --no-check-paths
+```
+
+## 历史 demo
+
+旧 Stage C demo、microstrip smoke、planner benchmark 仍可能存在于代码和历史文档中，
+但它们不再是 README 首页主线。当前主线是 reviewed BRD optimization graph loop。
