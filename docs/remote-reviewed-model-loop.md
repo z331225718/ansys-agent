@@ -5,8 +5,10 @@ optimization flow. Run it on the AEDT machine, where Claude Code acts as the
 orchestrator and the workers run through the local process harness.
 
 Read `docs/orchestrator-worker-architecture.zh.md` first if there is any
-confusion about LLM nodes versus worker nodes. In short: `kind: agent` nodes use
-LLM reasoning; `kind: worker` nodes are standardized engineering executors by
+confusion about LLM nodes versus worker nodes, and read
+`docs/agent_playbooks/brd-local-cut-optimization.md` for the BRD local-cut
+engineering procedure and geometry rules. In short: `kind: agent` nodes use LLM
+reasoning; `kind: worker` nodes are standardized engineering executors by
 default.
 
 ## 1. Pull and prepare

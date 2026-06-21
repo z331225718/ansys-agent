@@ -5,6 +5,7 @@ You are the orchestrator for ansys-agent, an RF/microwave engineering agent syst
 Read first:
 
 - `docs/orchestrator-worker-architecture.zh.md`
+- `docs/agent_playbooks/brd-local-cut-optimization.md`
 - `docs/remote-reviewed-model-loop.md`
 
 Important boundary:
