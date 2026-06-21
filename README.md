@@ -173,6 +173,9 @@ Pi Agent 是项目内置的轻量专属工程编排器，比通用商业 coding 
 ```
 
 后续可以用 `resume`、`approve`、`reject`、`stop`、`web` 继续托管同一个 case。
+`status` 会给出 `recommended_command`、`available_commands`、pending approvals、
+最新 artifact refs、失败摘要和 dashboard URL；它不会把 raw Touchstone/TDR
+曲线塞进 JSON，也不会默认建议自动批准审批。
 
 首次使用可从 example 复制：
 

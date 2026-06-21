@@ -105,11 +105,35 @@ MVP 固定 `max_workers=1`，避免多个 AEDT worker 同时争用模型和 lice
     "tdr_peak_deviation_ohm": "8.7",
     "objective_total_cost": "123.4"
   },
-  "next_safe_action": "ask_user"
+  "next_safe_action": "ask_user",
+  "recommended_command": "python -m aedt_agent.pi_agent status --case config\\cases\\reviewed_brd.local.json",
+  "available_commands": {
+    "approve": "python -m aedt_agent.pi_agent approve --case config\\cases\\reviewed_brd.local.json --approval-id <approval_id> --option-id approve",
+    "reject": "python -m aedt_agent.pi_agent reject --case config\\cases\\reviewed_brd.local.json --approval-id <approval_id>",
+    "status": "python -m aedt_agent.pi_agent status --case config\\cases\\reviewed_brd.local.json",
+    "web": "python -m aedt_agent.pi_agent web --case config\\cases\\reviewed_brd.local.json"
+  },
+  "pending_approvals": [
+    {
+      "approval_id": "<approval_id>",
+      "reason": "geometry action needs review"
+    }
+  ],
+  "latest_artifacts": [
+    {
+      "path": "D:\\aedt-agent-runs\\reviewed-loop\\optimization_history.csv",
+      "kind": "history_csv",
+      "exists": true
+    }
+  ],
+  "dashboard_url": "http://localhost:8766",
+  "failure": {}
 }
 ```
 
-只汇报 bounded metrics 和 artifact refs；raw Touchstone/TDR 仍然是 artifact-only。
+`recommended_command` 不会自动建议批准审批；批准和拒绝只放在
+`available_commands` 里，由人或上层审计明确选择。状态只汇报 bounded
+metrics 和 artifact refs；raw Touchstone/TDR 仍然是 artifact-only。
 
 ## 控制命令
 

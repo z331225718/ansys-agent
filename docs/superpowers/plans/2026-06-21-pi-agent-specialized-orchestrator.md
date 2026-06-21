@@ -52,6 +52,15 @@ MVP 只做专属编排壳，不重写 worker，不做通用 coding agent。
 - [x] `web`：按 case 的 db/profile/dashboard 配置启动现有 dashboard。
 - [x] `resume` / `web` 复用 profile 安全检查，默认拒绝 `ssh_remote`。
 
+## Phase 3 Operator Status
+
+- [x] `status` 输出 pending approvals，而不是只看最新 waiting node。
+- [x] 输出 `recommended_command`、`available_commands` 和 `dashboard_url`。
+- [x] `waiting_approval` 时不默认推荐 approve；approve/reject 只作为可选命令暴露。
+- [x] 输出失败摘要：graph error 和 failed node errors。
+- [x] 输出 latest artifact refs 和 artifact kind/existence，不读取 raw S 参数/TDR 内容。
+- [x] 保留原有 `metrics`、`approval`、`artifacts` 字段以兼容轻量 harness。
+
 ## 验证命令
 
 ```powershell

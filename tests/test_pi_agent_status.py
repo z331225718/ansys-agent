@@ -17,6 +17,9 @@ def _case(tmp_path: Path) -> PiAgentCase:
         db_path=tmp_path / "missions.db",
         loop_config=loop_config,
         execution_profile=tmp_path / "profile.json",
+        dashboard_host="0.0.0.0",
+        dashboard_port=9876,
+        source_path=tmp_path / "case.json",
     )
 
 
@@ -48,9 +51,11 @@ def test_pi_status_extracts_bounded_metrics_from_history_csv(tmp_path: Path):
                 "node_id": "progress_report_worker",
                 "sequence": 1,
                 "status": "succeeded",
+                "artifact_refs": [str(history.parent / "channel.s4p")],
                 "output_payload": {
                     "optimization_history_csv": str(history),
                     "report_html": str(history.parent / "optimization_progress.html"),
+                    "plot_artifacts": [str(history.parent / "tdr.svg")],
                 },
             },
             {
@@ -74,3 +79,42 @@ def test_pi_status_extracts_bounded_metrics_from_history_csv(tmp_path: Path):
     assert status["metrics"]["rl_worst_db"] == "-16.8"
     assert status["metrics"]["tdr_observation_port"] == "Diff1"
     assert status["approval"]["approval_id"] == "approval-1"
+    assert status["pending_approvals"][0]["approval_id"] == "approval-1"
+    assert status["recommended_command"].endswith(
+        "status --case " + str(tmp_path / "case.json")
+    )
+    assert status["available_commands"]["approve"].endswith(
+        "--approval-id approval-1 --option-id approve"
+    )
+    assert status["available_commands"]["reject"].endswith("--approval-id approval-1")
+    assert status["dashboard_url"] == "http://localhost:9876"
+    artifact_kinds = {item["kind"] for item in status["latest_artifacts"]}
+    assert {"history_csv", "touchstone", "plot"}.issubset(artifact_kinds)
+
+
+def test_pi_status_reports_failure_summary(tmp_path: Path):
+    report = {
+        "status": "failed",
+        "graph_run": {
+            "graph_run_id": "graph-1",
+            "mission_id": "mission-1",
+            "current_node_id": "score",
+            "error": {"code": "worker_failed", "message": "score crashed"},
+        },
+        "node_runs": [
+            {
+                "node_id": "score",
+                "sequence": 1,
+                "status": "failed",
+                "error": {"code": "worker_failed", "message": "bad csv"},
+                "output_payload": {},
+            }
+        ],
+    }
+
+    status = summarize_graph_report(_case(tmp_path), report)
+
+    assert status["status"] == "failed"
+    assert status["next_safe_action"] == "inspect_failure"
+    assert status["failure"]["graph_error"]["code"] == "worker_failed"
+    assert status["failure"]["failed_nodes"][0]["node_id"] == "score"
