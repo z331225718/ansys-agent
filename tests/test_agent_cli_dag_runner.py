@@ -138,3 +138,44 @@ def test_cli_advance_graph_executes_exactly_one_wave(tmp_path):
     assert payload["status"] == "running"
     assert payload["graph_run"]["step_count"] == 1
     assert [run["node_id"] for run in payload["node_runs"]] == ["source"]
+
+
+def test_cli_run_graph_accepts_initial_payload_file(tmp_path):
+    template = tmp_path / "payload_graph.yaml"
+    template.write_text(
+        """
+id: payload_graph
+version: 1
+nodes:
+  - id: validator
+    role: validator
+    kind: program
+    output_schema: validated
+edges: []
+handoffs:
+  validated:
+    required_fields: [value]
+""".strip(),
+        encoding="utf-8",
+    )
+    payload_file = tmp_path / "payload.json"
+    payload_file.write_text('{"value": 42}', encoding="utf-8")
+    created = _run(tmp_path, "mission", "create", "--goal", "payload graph")
+    mission_id = json.loads(created.stdout)["mission_id"]
+
+    result = _run(
+        tmp_path,
+        "mission",
+        "run-graph",
+        "--mission-id",
+        mission_id,
+        "--template",
+        str(template),
+        "--initial-payload",
+        str(payload_file),
+    )
+
+    assert result.returncode == 0, result.stderr
+    output = json.loads(result.stdout)
+    assert output["graph_run"]["initial_payload"] == {"value": 42}
+    assert output["node_runs"][0]["output_payload"]["value"] == 42

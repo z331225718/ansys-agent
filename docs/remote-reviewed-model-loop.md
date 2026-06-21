@@ -83,6 +83,33 @@ Default polling is 30 seconds. The solve itself is synchronous inside the
 worker harness, so the runner is not repeatedly polling AEDT during a long
 solve.
 
+`run-loop` is only a thin wrapper around the graph control plane. It creates a
+mission and graph run from the YAML template, repeatedly calls
+`mission advance-graph`, and returns when the graph succeeds, fails, is
+canceled, or waits for approval. To resume an existing graph run, add
+`graph_run_id` to the loop config and rerun the same command.
+
+Claude Code or another orchestrator can run the same flow manually:
+
+```powershell
+.\.venv\Scripts\python.exe -m aedt_agent.agent --db D:\aedt-agent-runs\reviewed-loop\missions.db `
+  mission create --goal "Reviewed BRD optimization"
+
+.\.venv\Scripts\python.exe -m aedt_agent.agent --db D:\aedt-agent-runs\reviewed-loop\missions.db `
+  mission run-graph --mission-id <mission_id> --template brd_reviewed_model_optimize_loop `
+  --initial-payload config\optimization_loops\reviewed_brd_remote.example.json --max-workers 1
+
+.\.venv\Scripts\python.exe -m aedt_agent.agent --db D:\aedt-agent-runs\reviewed-loop\missions.db `
+  mission graph-status --graph-run-id <graph_run_id>
+
+.\.venv\Scripts\python.exe -m aedt_agent.agent --db D:\aedt-agent-runs\reviewed-loop\missions.db `
+  mission advance-graph --graph-run-id <graph_run_id> --max-workers 1
+```
+
+If the graph enters approval, use `mission approve` and then
+`mission resume-graph`. If the graph needs a different template or corrected
+payload, use `mission takeover`.
+
 ## 5. Outputs
 
 The configured `report_dir` receives:

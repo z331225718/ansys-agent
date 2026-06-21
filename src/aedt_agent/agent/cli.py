@@ -83,6 +83,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_graph.add_argument("--worker-id", default="cli-graph")
     run_graph.add_argument("--max-steps", type=int, default=32)
     run_graph.add_argument("--max-workers", type=int, default=4)
+    run_graph.add_argument("--initial-payload")
     run_graph.add_argument("--visualize", action="store_true")
 
     advance_graph_parser = mission_commands.add_parser("advance-graph")
@@ -401,6 +402,11 @@ def run(argv: Sequence[str] | None = None) -> int:
             runtime,
             args.mission_id,
             template,
+            initial_payload=(
+                _load_json_object_arg(args.initial_payload, "initial-payload")
+                if args.initial_payload
+                else None
+            ),
             max_steps=args.max_steps,
             worker_id=args.worker_id,
             max_workers=args.max_workers,
@@ -873,6 +879,17 @@ def _load_execution_profile(value: str):
     if not isinstance(payload, dict):
         raise TypeError(f"{path} must contain a JSON object")
     return ExecutionProfile.from_json_dict(payload)
+
+
+def _load_json_object_arg(value: str, label: str) -> dict[str, Any]:
+    path = Path(value)
+    if path.is_file():
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    else:
+        payload = json.loads(value)
+    if not isinstance(payload, dict):
+        raise TypeError(f"{label} must be a JSON object")
+    return payload
 
 
 def _loop_exit_code(decision: str) -> int:
