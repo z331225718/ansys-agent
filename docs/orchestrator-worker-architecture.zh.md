@@ -74,7 +74,7 @@ flowchart TD
 
 ### 1. 外层编排者
 
-外层编排者可以是 Claude Code、Codex，或者未来其它 harness。它可以用
+外层编排者可以是内置 Pi Agent、Claude Code、Codex，或者未来其它 harness。它可以用
 LLM，因为它的职责是：
 
 - 理解用户目标；
@@ -85,6 +85,14 @@ LLM，因为它的职责是：
 - 在失败或审批点决定是否接管、重试或询问用户。
 
 外层编排者不应该直接调用内部 worker 脚本来绕过 graph。
+
+当前 Pi Agent 是项目内置的轻量专属编排器。它比通用 coding agent 更窄：
+
+- 输入是一个 case config；
+- 默认只使用 AEDT 工作站本机 `local_cli` profile；
+- 只调用 preflight、run-loop、status 这类控制面；
+- 输出面向人和轻量 UI 的 JSON 状态摘要；
+- 遇到审批、失败、取消或成功即停止，不自行越权。
 
 ### 2. Graph 里的 agent 节点
 

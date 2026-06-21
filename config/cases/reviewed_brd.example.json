@@ -1,0 +1,15 @@
+{
+  "case_id": "reviewed-brd-s19",
+  "db_path": "D:\\aedt-agent-runs\\reviewed-loop\\missions.db",
+  "loop_config": "config\\optimization_loops\\reviewed_brd_remote.example.json",
+  "execution_profile": "config\\execution_profiles\\local_real_aedt.example.json",
+  "worker_id": "pi-agent",
+  "max_workers": 1,
+  "poll_interval_seconds": 30,
+  "check_paths": true,
+  "allow_ssh_remote": false,
+  "dashboard": {
+    "host": "0.0.0.0",
+    "port": 8766
+  }
+}
