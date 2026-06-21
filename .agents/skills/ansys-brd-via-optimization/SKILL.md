@@ -172,6 +172,7 @@ Every executable geometry proposal must be structured and bounded:
   "parasitic_target": "physical parasitic being reduced",
   "center_source": "padstack_instances | manual_reviewed_coordinates",
   "center_padstack_instance_ids": ["preferred ids for center lookup"],
+  "bridge_center_padstack_instance_ids": ["exactly two ids when bridge_between_vias is true and more than two centers are listed"],
   "via_centers": [{"x": 0.0, "y": 0.0, "unit": "mm"}],
   "target_diameter": {"value": 0.0, "unit": "mm"},
   "target_radius": {"value": 0.0, "unit": "mil"},
@@ -192,7 +193,10 @@ For `anti_pad.enlarge`, the executable proposal must name explicit layers,
 selected plane shape ids, the physical parasitic target, a center source,
 target void diameter or radius, and the user limits it checked. Prefer
 `center_padstack_instance_ids`; use manual `via_centers` only after human review
-confirms they are the centers of the intended parasitic. For
+confirms they are the centers of the intended parasitic. If more than two
+centers are listed for circular voids and `bridge_between_vias=true`, provide
+`bridge_center_padstack_instance_ids` or `bridge_via_centers` with exactly two
+reviewed centers for the rectangle bridge. For
 `non_functional_pad.add_or_enlarge`, it must name the target layers, via center
 source, signal nets or `center_padstack_instance_ids`, bounded circle diameter
 or radius, and limits checked. Otherwise it is not ready for worker execution.

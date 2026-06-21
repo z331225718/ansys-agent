@@ -361,6 +361,11 @@ def _apply_antipad_void_action(
     layers = _layers(action)
     center_plan = _antipad_center_plan(edb, action)
     centers = center_plan["centers"]
+    bridge_center_plan = (
+        _antipad_bridge_center_plan(edb, action, center_plan)
+        if _bridge_requested(action)
+        else None
+    )
     radius = _target_void_radius(edb, action)
     target_diameter_m = radius["diameter_m"]
     radius_m = radius["radius_m"]
@@ -395,9 +400,11 @@ def _apply_antipad_void_action(
                 }
             )
         if _bridge_requested(action):
+            assert bridge_center_plan is not None
+            bridge_centers = bridge_center_plan["centers"]
             bridge = _bridge_rectangle(
                 edb,
-                centers,
+                bridge_centers,
                 radius_m,
                 action,
                 width_expression=radius_expression,
@@ -405,7 +412,7 @@ def _apply_antipad_void_action(
             bridge_primitive = _create_bridge_void(edb, layer, bridge)
             bridge_shapes = _shapes_containing_all_points(
                 shapes,
-                centers + [bridge["center"]],
+                bridge_centers + [bridge["center"]],
             )
             if not bridge_shapes:
                 raise ValueError(
@@ -416,6 +423,12 @@ def _apply_antipad_void_action(
                 _add_void(edb, shape, bridge_primitive)
             bridge["added_to_shapes"] = [
                 _primitive_id(shape) for shape in bridge_shapes
+            ]
+            bridge["center_source"] = bridge_center_plan["source"]
+            bridge["center_refs"] = bridge_center_plan["refs"]
+            bridge["via_centers"] = [
+                {"x": center[0], "y": center[1], "unit": "m"}
+                for center in bridge_centers
             ]
             created_voids.append(bridge)
         changes.append(
@@ -458,6 +471,30 @@ def _antipad_center_plan(edb: Any, action: dict[str, Any]) -> dict[str, Any]:
         "refs": [],
         "parasitic_target": parasitic_target,
     }
+
+
+def _antipad_bridge_center_plan(
+    edb: Any,
+    action: dict[str, Any],
+    fallback_plan: dict[str, Any],
+) -> dict[str, Any]:
+    parasitic_target = _parasitic_target(action)
+    instance_ids = _bridge_center_padstack_instance_ids(action)
+    if instance_ids:
+        return _centers_from_padstack_instances(
+            edb,
+            instance_ids,
+            parasitic_target=parasitic_target,
+        )
+    centers = _bridge_via_centers(action)
+    if centers:
+        return {
+            "centers": centers,
+            "source": "manual_reviewed_bridge_coordinates",
+            "refs": [],
+            "parasitic_target": parasitic_target,
+        }
+    return fallback_plan
 
 
 def _non_functional_pad_targets(
@@ -568,6 +605,20 @@ def _center_padstack_instance_ids(action: dict[str, Any]) -> list[str]:
         "padstack_instance_ids",
         "center_instance_ids",
     )
+    return _instance_id_list(value, "center_padstack_instance_ids")
+
+
+def _bridge_center_padstack_instance_ids(action: dict[str, Any]) -> list[str]:
+    value = _first_present(
+        action,
+        "bridge_center_padstack_instance_ids",
+        "bridge_padstack_instance_ids",
+        "bridge_center_instance_ids",
+    )
+    return _instance_id_list(value, "bridge_center_padstack_instance_ids")
+
+
+def _instance_id_list(value: Any, field_name: str) -> list[str]:
     if value is None:
         return []
     if isinstance(value, (str, int)):
@@ -576,7 +627,7 @@ def _center_padstack_instance_ids(action: dict[str, Any]) -> list[str]:
         values = list(value or [])
     result = [str(item).strip() for item in values if str(item).strip()]
     if not result:
-        raise ValueError("center_padstack_instance_ids must not be empty")
+        raise ValueError(f"{field_name} must not be empty")
     return result
 
 
@@ -687,6 +738,20 @@ def _via_centers(action: dict[str, Any]) -> list[tuple[float, float]]:
     for item in items:
         centers.append(_via_center(item, action_unit))
     return centers
+
+
+def _bridge_via_centers(action: dict[str, Any]) -> list[tuple[float, float]]:
+    value = _first_present(action, "bridge_via_centers", "bridge_centers")
+    if value is None:
+        return []
+    if isinstance(value, dict):
+        items = [value]
+    elif _looks_like_xy_pair(value):
+        items = [value]
+    else:
+        items = list(value or [])
+    action_unit = str(action.get("unit") or "m")
+    return [_via_center(item, action_unit) for item in items]
 
 
 def _looks_like_xy_pair(value: Any) -> bool:

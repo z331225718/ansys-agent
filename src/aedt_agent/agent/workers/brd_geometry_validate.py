@@ -306,20 +306,21 @@ def _validate_antipad_bridge(
     checks: list[dict[str, Any]] = []
     issues: list[dict[str, Any]] = []
     prefix = f"action_{index}_anti_pad_bridge"
+    bridge_center_count = _bridge_center_count(action, center_count)
 
-    if center_count == 2:
+    if bridge_center_count == 2:
         _add_check(
             checks,
             f"{prefix}_center_count",
             "passed",
-            "bridge rectangle has exactly two via centers",
+            "bridge rectangle has exactly two bridge centers",
         )
     else:
         _approval(
             checks,
             issues,
             f"{prefix}_center_count",
-            "bridge rectangle requires exactly two via centers",
+            "bridge rectangle requires exactly two bridge centers",
         )
 
     factor = action.get("bridge_length_factor")
@@ -614,6 +615,33 @@ def _center_count(action: Mapping[str, Any]) -> int:
     if isinstance(centers, list):
         return len(centers)
     return 0
+
+
+def _bridge_center_count(
+    action: Mapping[str, Any],
+    fallback_count: int,
+) -> int:
+    for key in (
+        "bridge_center_padstack_instance_ids",
+        "bridge_padstack_instance_ids",
+        "bridge_center_instance_ids",
+    ):
+        value = action.get(key)
+        if value is None:
+            continue
+        if isinstance(value, list):
+            return len(value)
+        if isinstance(value, (str, int)):
+            return 1
+    for key in ("bridge_via_centers", "bridge_centers"):
+        value = action.get(key)
+        if value is None:
+            continue
+        if isinstance(value, dict):
+            return 1
+        if isinstance(value, list):
+            return len(value)
+    return fallback_count
 
 
 def _has_shape_evidence(action: Mapping[str, Any]) -> bool:

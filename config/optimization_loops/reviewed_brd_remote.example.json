@@ -54,6 +54,10 @@
         4294982001,
         4294982002
       ],
+      "bridge_center_padstack_instance_ids": [
+        4294981993,
+        4294982001
+      ],
       "target_radius": {"value": 22, "unit": "mil"},
       "parameter_name": "l02_void_r",
       "bridge_between_vias": true,

@@ -274,6 +274,8 @@ prompts:
       target reference/power layers, center_padstack_instance_ids or via_centers,
       plane_shape_ids or equivalent shape_evidence, and bridge_between_vias only
       with bridge_length_factor=0.5 plus bridge_length_parameter_name.
+      If circular voids list more than two centers, include exactly two
+      bridge_center_padstack_instance_ids or bridge_via_centers for the bridge.
     - non_functional_pad.add_or_enlarge: use shape/circle_shape implementation,
       include target_radius in [7.875mil, 10mil], parameter_name, target layers,
       and center_padstack_instance_ids or via_centers plus signal net evidence.

@@ -618,7 +618,9 @@ Required fields:
   reviewed center coordinates, and target circular void diameter or radius.
   When needed, also include
   `bridge_between_vias: true` so the worker adds the rectangle between the two
-  via centers.
+  via centers. If the circular void handoff lists more than two centers, also
+  include `bridge_center_padstack_instance_ids` or `bridge_via_centers` with
+  exactly two reviewed centers for the rectangle bridge.
 - Each anti-pad proposal must state `parasitic_target` and `center_source`.
   Prefer `center_padstack_instance_ids` so the worker resolves the center from
   EDB. Use literal `via_centers` only when a human has reviewed that those
@@ -728,6 +730,10 @@ shape is:
     4294981994,
     4294982001,
     4294982002
+  ],
+  "bridge_center_padstack_instance_ids": [
+    4294981993,
+    4294982001
   ],
   "layers": ["L2_GND"],
   "plane_shape_ids": [173575],
