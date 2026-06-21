@@ -181,7 +181,7 @@ report_dir            optimization_history.csv 和报告输出目录
 setup_name            AEDT setup 名称
 sweep_name            AEDT sweep 名称
 touchstone_name       channel.s4p
-tdr_expression        TDRZt(Diff1)
+tdr_expression        TDRZ(Diff1)
 tdr_observation_port  Diff1
 expected_port_count   4
 geometry_constraints  anti-pad <= 22mil; NFP radius 7.875-10mil

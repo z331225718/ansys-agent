@@ -11,7 +11,7 @@
   "poll_interval_seconds": 30,
   "setup_name": "Setup1",
   "sweep_name": "Sweep1",
-  "tdr_expression": "TDRZt(Diff1)",
+  "tdr_expression": "TDRZ(Diff1)",
   "tdr_report_name": "ChannelTDR",
   "tdr_observation_port": "Diff1",
   "tdr_differential_pairs": true,

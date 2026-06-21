@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from aedt_agent.agent.mission import MissionState
+from aedt_agent.agent.mission import GraphRunStatus, MissionState
 from aedt_agent.agent.orchestrator import AgentRuntime
 from aedt_agent.infrastructure import SQLiteMissionStore
 
