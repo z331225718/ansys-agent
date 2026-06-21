@@ -159,6 +159,9 @@ Pi Agent 是项目内置的轻量专属工程编排器，比通用商业 coding 
 它只读取 case config、做 preflight、推进 reviewed YAML graph、输出紧凑状态。
 
 ```powershell
+.\.venv\Scripts\python.exe -m aedt_agent.pi_agent init `
+  --case config\cases\reviewed_brd.example.json
+
 .\.venv\Scripts\python.exe -m aedt_agent.pi_agent preflight `
   --case config\cases\reviewed_brd.local.json
 
@@ -168,6 +171,8 @@ Pi Agent 是项目内置的轻量专属工程编排器，比通用商业 coding 
 .\.venv\Scripts\python.exe -m aedt_agent.pi_agent status `
   --case config\cases\reviewed_brd.local.json
 ```
+
+后续可以用 `resume`、`approve`、`reject`、`stop`、`web` 继续托管同一个 case。
 
 首次使用可从 example 复制：
 

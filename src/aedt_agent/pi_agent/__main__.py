@@ -13,7 +13,7 @@ from aedt_agent.pi_agent.supervisor import PiAgentSupervisor
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m aedt_agent.pi_agent")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    for command in ("preflight", "run", "status"):
+    for command in ("preflight", "run", "status", "resume", "stop", "web"):
         child = subparsers.add_parser(command)
         child.add_argument("--case", required=True, type=Path)
         if command in {"preflight", "run"}:
@@ -22,6 +22,26 @@ def build_parser() -> argparse.ArgumentParser:
                 action="store_true",
                 help="Validate contracts only; do not require machine-local AEDT paths.",
             )
+        if command in {"resume", "stop"}:
+            child.add_argument("--graph-run-id", default="")
+        if command == "stop":
+            child.add_argument("--reason", default="pi agent stop")
+
+    init = subparsers.add_parser("init")
+    init.add_argument("--case", required=True, type=Path)
+    init.add_argument("--target-case", default="")
+    init.add_argument("--force", action="store_true")
+
+    approve = subparsers.add_parser("approve")
+    approve.add_argument("--case", required=True, type=Path)
+    approve.add_argument("--approval-id", required=True)
+    approve.add_argument("--option-id", default="approve")
+    approve.add_argument("--comment", default=None)
+
+    reject = subparsers.add_parser("reject")
+    reject.add_argument("--case", required=True, type=Path)
+    reject.add_argument("--approval-id", required=True)
+    reject.add_argument("--comment", default=None)
     return parser
 
 
@@ -36,12 +56,42 @@ def run(argv: Sequence[str] | None = None) -> int:
         report = supervisor.preflight()
         _print_json(report)
         return 0 if report["status"] == "passed" else 1
+    if args.command == "init":
+        _print_json(
+            supervisor.init(
+                target_case=args.target_case or None,
+                force=bool(args.force),
+            )
+        )
+        return 0
     if args.command == "run":
         report = supervisor.run()
         _print_json(report)
         return 1 if report["status"] == "preflight_failed" else _status_exit_code(str(report["status"]))
     if args.command == "status":
         _print_json(supervisor.status())
+        return 0
+    if args.command == "resume":
+        report = supervisor.resume(graph_run_id=args.graph_run_id)
+        _print_json(report)
+        return _status_exit_code(str(report["status"]))
+    if args.command == "approve":
+        _print_json(
+            supervisor.approve(
+                approval_id=args.approval_id,
+                option_id=args.option_id,
+                comment=args.comment,
+            )
+        )
+        return 0
+    if args.command == "reject":
+        _print_json(supervisor.reject(approval_id=args.approval_id, comment=args.comment))
+        return 0
+    if args.command == "stop":
+        _print_json(supervisor.stop(graph_run_id=args.graph_run_id, reason=args.reason))
+        return 0
+    if args.command == "web":
+        supervisor.web()
         return 0
     raise AssertionError(f"unhandled command: {args.command}")
 

@@ -62,3 +62,50 @@ def test_pi_agent_cli_status_handles_missing_database(tmp_path: Path):
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["status"] == "not_started"
+
+
+def test_pi_agent_cli_init_outputs_created_files(tmp_path: Path):
+    profile = tmp_path / "local_real_aedt.example.json"
+    profile.write_text(
+        Path("config/execution_profiles/local_real_aedt.example.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    loop = tmp_path / "reviewed_brd_remote.example.json"
+    loop.write_text(
+        Path("config/optimization_loops/reviewed_brd_remote.example.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    case_file = tmp_path / "reviewed_brd.example.json"
+    case_file.write_text(
+        json.dumps(
+            {
+                "case_id": "cli-init",
+                "db_path": str(tmp_path / "missions.db"),
+                "loop_config": str(loop),
+                "execution_profile": str(profile),
+                "max_workers": 1,
+                "poll_interval_seconds": 30,
+                "check_paths": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "aedt_agent.pi_agent",
+            "init",
+            "--case",
+            str(case_file),
+        ],
+        cwd=Path.cwd(),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "initialized"
+    assert (tmp_path / "reviewed_brd.local.json").is_file()

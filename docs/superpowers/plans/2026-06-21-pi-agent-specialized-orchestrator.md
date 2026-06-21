@@ -43,6 +43,15 @@ MVP 只做专属编排壳，不重写 worker，不做通用 coding agent。
 - 不改现有 worker contract。
 - 不改变 Claude Code/Codex 仍可作为外层 harness 的兼容性。
 
+## Phase 2 控制命令
+
+- [x] `init`：从 example 生成 local case/profile/loop config，不覆盖已有文件除非 `--force`。
+- [x] `resume`：继续最新或指定 graph run。
+- [x] `approve` / `reject`：走既有 `ApprovalService`。
+- [x] `stop`：取消 graph run 和 mission。
+- [x] `web`：按 case 的 db/profile/dashboard 配置启动现有 dashboard。
+- [x] `resume` / `web` 复用 profile 安全检查，默认拒绝 `ssh_remote`。
+
 ## 验证命令
 
 ```powershell

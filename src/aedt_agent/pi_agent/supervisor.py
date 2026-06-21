@@ -8,9 +8,15 @@ from aedt_agent.agent.loop_runner import (
     run_loop_from_config,
     validate_loop_config_for_run,
 )
+from aedt_agent.agent.mission import GraphRunStatus, MissionState
 from aedt_agent.agent.policies import ExecutionProfile
 from aedt_agent.pi_agent.case_config import PiAgentCase, PiAgentCaseError
-from aedt_agent.pi_agent.status import build_case_status, summarize_graph_report
+from aedt_agent.pi_agent.initializer import initialize_local_case
+from aedt_agent.pi_agent.status import (
+    build_case_status,
+    latest_graph_run_id,
+    summarize_graph_report,
+)
 
 
 class PiAgentSupervisor:
@@ -99,6 +105,119 @@ class PiAgentSupervisor:
             }
         return build_case_status(self.case, runtime=self._runtime_without_workers())
 
+    def init(self, *, target_case: str | None = None, force: bool = False) -> dict[str, Any]:
+        return initialize_local_case(self.case, target_case=target_case, force=force)
+
+    def resume(self, *, graph_run_id: str = "") -> dict[str, Any]:
+        from aedt_agent.agent.graph_runner import resume_graph
+
+        profile = self._load_profile()
+        self._ensure_profile_allowed(profile)
+        runtime = self._runtime(profile)
+        selected_graph_id = self._select_graph_run_id(runtime, graph_run_id)
+        report = resume_graph(
+            runtime,
+            selected_graph_id,
+            worker_id=self.case.worker_id,
+            max_workers=self.case.max_workers,
+        )
+        return {
+            "status": report.get("status", "unknown"),
+            "graph_run_id": selected_graph_id,
+            "run": report,
+            "pi_status": summarize_graph_report(self.case, report),
+        }
+
+    def approve(
+        self,
+        *,
+        approval_id: str,
+        option_id: str = "approve",
+        comment: str | None = None,
+    ) -> dict[str, Any]:
+        from aedt_agent.agent.approvals import ApprovalService
+
+        runtime = self._runtime_without_workers()
+        approval = ApprovalService(runtime.store).approve(
+            approval_id,
+            selected_option_id=option_id,
+            comment=comment,
+        )
+        return {
+            "status": "approved",
+            "approval": approval.to_json_dict(),
+            "pi_status": build_case_status(self.case, runtime=runtime),
+        }
+
+    def reject(
+        self,
+        *,
+        approval_id: str,
+        comment: str | None = None,
+    ) -> dict[str, Any]:
+        from aedt_agent.agent.approvals import ApprovalService
+
+        runtime = self._runtime_without_workers()
+        approval = ApprovalService(runtime.store).reject(
+            approval_id,
+            comment=comment,
+        )
+        return {
+            "status": "rejected",
+            "approval": approval.to_json_dict(),
+            "pi_status": build_case_status(self.case, runtime=runtime),
+        }
+
+    def stop(self, *, graph_run_id: str = "", reason: str = "pi agent stop") -> dict[str, Any]:
+        runtime = self._runtime_without_workers()
+        selected_graph_id = self._select_graph_run_id(runtime, graph_run_id)
+        graph_run = runtime.store.get_graph_run(selected_graph_id)
+        if graph_run is None:
+            raise KeyError(f"graph run not found: {selected_graph_id}")
+        already_terminal = graph_run.status in {
+            GraphRunStatus.SUCCEEDED,
+            GraphRunStatus.FAILED,
+            GraphRunStatus.CANCELED,
+        }
+        if not already_terminal:
+            runtime.store.update_graph_run_status(
+                selected_graph_id,
+                GraphRunStatus.CANCELED,
+                current_node_id=graph_run.current_node_id,
+                error={"code": "pi_agent_stop", "message": reason},
+            )
+        mission = runtime.get_mission(graph_run.mission_id)
+        if mission.state not in {
+            MissionState.COMPLETED,
+            MissionState.FAILED,
+            MissionState.CANCELED,
+        }:
+            runtime.store.update_mission_state(graph_run.mission_id, MissionState.CANCELED)
+        return {
+            "status": "already_terminal" if already_terminal else "canceled",
+            "graph_run_id": selected_graph_id,
+            "mission_id": graph_run.mission_id,
+            "reason": reason,
+            "pi_status": build_case_status(
+                self.case,
+                runtime=runtime,
+                graph_run_id=selected_graph_id,
+            ),
+        }
+
+    def web(self) -> None:
+        from aedt_agent.agent.web import run_agent_window
+
+        profile = self._load_profile()
+        self._ensure_profile_allowed(profile)
+        runtime = self._runtime(profile)
+        run_agent_window(
+            host=self.case.dashboard_host,
+            port=self.case.dashboard_port,
+            db_path=self.case.db_path,
+            runtime=runtime,
+        )
+
     def _load_profile(self) -> ExecutionProfile:
         payload = json.loads(self.case.execution_profile.read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
@@ -127,6 +246,18 @@ class PiAgentSupervisor:
             ),
         ]
 
+    def _ensure_profile_allowed(self, profile: ExecutionProfile) -> None:
+        failed = [
+            item
+            for item in self._profile_checks(profile)
+            if item["status"] == "failed"
+        ]
+        if failed:
+            raise PiAgentCaseError(
+                "unsafe Pi Agent execution profile: "
+                + ", ".join(item["id"] for item in failed)
+            )
+
     def _runtime_without_workers(self):
         from aedt_agent.agent.orchestrator import AgentRuntime
         from aedt_agent.infrastructure import SQLiteMissionStore
@@ -137,6 +268,12 @@ class PiAgentSupervisor:
         from aedt_agent.agent.cli import _runtime_with_workers
 
         return _runtime_with_workers(self.case.db_path, profile)
+
+    def _select_graph_run_id(self, runtime, explicit: str = "") -> str:
+        selected = explicit or self.case.graph_run_id or latest_graph_run_id(runtime)
+        if not selected:
+            raise PiAgentCaseError("no graph_run_id found; run the case first")
+        return selected
 
 
 def _check(check_id: str, passed: bool, message: str) -> dict[str, str]:

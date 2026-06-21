@@ -48,6 +48,9 @@ Copy-Item config\cases\reviewed_brd.example.json config\cases\reviewed_brd.local
 然后运行：
 
 ```powershell
+.\.venv\Scripts\python.exe -m aedt_agent.pi_agent init `
+  --case config\cases\reviewed_brd.example.json
+
 .\.venv\Scripts\python.exe -m aedt_agent.pi_agent preflight `
   --case config\cases\reviewed_brd.local.json
 
@@ -107,3 +110,36 @@ MVP 固定 `max_workers=1`，避免多个 AEDT worker 同时争用模型和 lice
 ```
 
 只汇报 bounded metrics 和 artifact refs；raw Touchstone/TDR 仍然是 artifact-only。
+
+## 控制命令
+
+Phase 2 起 Pi Agent 还提供受控操作命令：
+
+```powershell
+# 继续一个已存在或最新 graph_run
+.\.venv\Scripts\python.exe -m aedt_agent.pi_agent resume `
+  --case config\cases\reviewed_brd.local.json
+
+# 批准 graph/human gate 审批项
+.\.venv\Scripts\python.exe -m aedt_agent.pi_agent approve `
+  --case config\cases\reviewed_brd.local.json `
+  --approval-id <approval_id> `
+  --option-id approve
+
+# 拒绝审批项
+.\.venv\Scripts\python.exe -m aedt_agent.pi_agent reject `
+  --case config\cases\reviewed_brd.local.json `
+  --approval-id <approval_id>
+
+# 停止当前或指定 graph_run
+.\.venv\Scripts\python.exe -m aedt_agent.pi_agent stop `
+  --case config\cases\reviewed_brd.local.json `
+  --reason "manual stop"
+
+# 启动现有 ansys-agent dashboard
+.\.venv\Scripts\python.exe -m aedt_agent.pi_agent web `
+  --case config\cases\reviewed_brd.local.json
+```
+
+`resume` 和 `web` 会执行同一套 execution profile 安全检查：默认只允许
+`local_cli`，除非 case 明确设置 `allow_ssh_remote=true`。

@@ -38,7 +38,7 @@ def build_case_status(
     graph_run_id: str = "",
 ) -> dict[str, Any]:
     runtime = runtime or AgentRuntime(SQLiteMissionStore(case.db_path))
-    selected_graph_id = graph_run_id or case.graph_run_id or _latest_graph_run_id(runtime)
+    selected_graph_id = graph_run_id or case.graph_run_id or latest_graph_run_id(runtime)
     if not selected_graph_id:
         return {
             "case_id": case.case_id,
@@ -89,7 +89,7 @@ def summarize_graph_report(case: PiAgentCase, report: dict[str, Any]) -> dict[st
     }
 
 
-def _latest_graph_run_id(runtime: AgentRuntime) -> str:
+def latest_graph_run_id(runtime: AgentRuntime) -> str:
     latest: tuple[str, str] | None = None
     for mission in runtime.store.list_missions(limit=50):
         for graph_run in runtime.store.list_graph_runs(mission.mission_id):
