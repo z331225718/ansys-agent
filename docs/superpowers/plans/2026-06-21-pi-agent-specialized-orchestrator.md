@@ -68,6 +68,15 @@ MVP 只做专属编排壳，不重写 worker，不做通用 coding agent。
 - [x] `status.available_commands` 暴露 `approve_and_resume`，并携带 graph run id。
 - [x] 新增测试覆盖 pending gate 保护和 approve+resume 一步恢复。
 
+## Phase 5 Pi Operator Panel
+
+- [x] `pi_agent web` 启动轻量 operator panel，而不是只代理通用 dashboard。
+- [x] Panel 提供 `/api/status` 和受控 POST action：resume / approve / reject / stop。
+- [x] 页面展示 status、recommended command、pending approvals、bounded metrics、artifact refs、failure summary。
+- [x] 页面按 case `poll_interval_seconds` 低频刷新，最小 10s。
+- [x] 页面不读取 raw Touchstone/TDR 内容。
+- [x] 新增 web 渲染和 dispatch 测试。
+
 ## 验证命令
 
 ```powershell

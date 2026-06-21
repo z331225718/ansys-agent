@@ -75,6 +75,18 @@ def test_pi_agent_resume_stops_at_pending_approval_without_advancing(tmp_path: P
     assert len(runtime.store.list_node_runs(report["graph_run"]["graph_run_id"])) == node_count_before
 
 
+def test_pi_agent_status_without_db_includes_operator_fields(tmp_path: Path):
+    status = PiAgentSupervisor(_case(tmp_path)).status()
+
+    assert status["status"] == "not_started"
+    assert status["reason"].startswith("mission db does not exist")
+    assert status["available_commands"]["preflight"].startswith(
+        "python -m aedt_agent.pi_agent preflight"
+    )
+    assert status["recommended_command"].startswith("python -m aedt_agent.pi_agent preflight")
+    assert status["pending_approvals"] == []
+
+
 def test_pi_agent_approve_with_resume_finishes_waiting_graph(tmp_path: Path):
     _, report, approval_id = _waiting_local_cut_graph(tmp_path)
     supervisor = PiAgentSupervisor(_case(tmp_path))

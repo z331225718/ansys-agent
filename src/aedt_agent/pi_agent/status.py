@@ -40,24 +40,7 @@ def build_case_status(
     runtime = runtime or AgentRuntime(SQLiteMissionStore(case.db_path))
     selected_graph_id = graph_run_id or case.graph_run_id or latest_graph_run_id(runtime)
     if not selected_graph_id:
-        return {
-            "case_id": case.case_id,
-            "status": "not_started",
-            "mission_id": case.mission_id,
-            "graph_run_id": "",
-            "active_node": "",
-            "latest_round": "",
-            "latest_action": "",
-            "metrics": _empty_metrics(),
-            "next_safe_action": "preflight",
-            "recommended_command": _recommended_command(case, "not_started", ""),
-            "available_commands": _available_commands(case, "not_started", ""),
-            "dashboard_url": _dashboard_url(case),
-            "artifacts": _expected_report_artifacts_from_config(case.loop_config),
-            "latest_artifacts": [],
-            "pending_approvals": [],
-            "failure": {},
-        }
+        return not_started_case_status(case)
 
     report = graph_status(runtime, selected_graph_id)
     mission_id = str((report.get("graph_run") or {}).get("mission_id") or "")
@@ -66,6 +49,30 @@ def build_case_status(
         report,
         pending_approvals=_pending_approvals(runtime, mission_id),
     )
+
+
+def not_started_case_status(case: PiAgentCase) -> dict[str, Any]:
+    return {
+        "case_id": case.case_id,
+        "status": "not_started",
+        "mission_id": case.mission_id,
+        "graph_run_id": "",
+        "active_node": "",
+        "latest_round": "",
+        "latest_action": "",
+        "metrics": _empty_metrics(),
+        "next_safe_action": "preflight",
+        "recommended_command": _recommended_command(case, "not_started", ""),
+        "available_commands": _available_commands(case, "not_started", ""),
+        "dashboard_url": _dashboard_url(case),
+        "artifacts": _expected_report_artifacts_from_config(case.loop_config),
+        "latest_artifacts": [],
+        "pending_approvals": [],
+        "failure": {},
+        "graph": {},
+        "error": {},
+        "approval": {},
+    }
 
 
 def summarize_graph_report(

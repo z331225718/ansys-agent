@@ -169,7 +169,7 @@ Phase 2 起 Pi Agent 还提供受控操作命令：
   --case config\cases\reviewed_brd.local.json `
   --reason "manual stop"
 
-# 启动现有 ansys-agent dashboard
+# 启动 Pi operator panel
 .\.venv\Scripts\python.exe -m aedt_agent.pi_agent web `
   --case config\cases\reviewed_brd.local.json
 ```
@@ -178,3 +178,8 @@ Phase 2 起 Pi Agent 还提供受控操作命令：
 `local_cli`，除非 case 明确设置 `allow_ssh_remote=true`。
 如果 graph 仍有 pending approval，`resume` 会返回 `waiting_approval` 和可选命令，
 不会重新启动 worker；需要先 `approve` 或 `reject`。
+
+`web` 会启动一个轻量 operator panel，默认按 case 的 `poll_interval_seconds`
+低频刷新。页面只通过 Pi Agent 的受控命令操作 graph：查看状态、批准并恢复、
+拒绝、恢复、停止；页面展示 bounded metrics、pending approvals、latest artifact
+refs 和 failure summary，不读取 raw Touchstone/TDR 内容。

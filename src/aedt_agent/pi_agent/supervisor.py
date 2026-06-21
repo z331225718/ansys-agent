@@ -15,6 +15,7 @@ from aedt_agent.pi_agent.initializer import initialize_local_case
 from aedt_agent.pi_agent.status import (
     build_case_status,
     latest_graph_run_id,
+    not_started_case_status,
     summarize_graph_report,
 )
 
@@ -97,13 +98,13 @@ class PiAgentSupervisor:
 
     def status(self) -> dict[str, Any]:
         if not self.case.db_path.is_file():
-            return {
-                "case_id": self.case.case_id,
-                "status": "not_started",
-                "reason": f"mission db does not exist: {self.case.db_path}",
-                "case": self.case.to_json_dict(),
-            }
-        return build_case_status(self.case, runtime=self._runtime_without_workers())
+            status = not_started_case_status(self.case)
+        else:
+            status = build_case_status(self.case, runtime=self._runtime_without_workers())
+        if not self.case.db_path.is_file():
+            status["reason"] = f"mission db does not exist: {self.case.db_path}"
+        status["case"] = self.case.to_json_dict()
+        return status
 
     def init(self, *, target_case: str | None = None, force: bool = False) -> dict[str, Any]:
         return initialize_local_case(self.case, target_case=target_case, force=force)
@@ -245,16 +246,14 @@ class PiAgentSupervisor:
         }
 
     def web(self) -> None:
-        from aedt_agent.agent.web import run_agent_window
+        from aedt_agent.pi_agent.web import run_pi_agent_panel
 
         profile = self._load_profile()
         self._ensure_profile_allowed(profile)
-        runtime = self._runtime(profile)
-        run_agent_window(
+        run_pi_agent_panel(
+            self,
             host=self.case.dashboard_host,
             port=self.case.dashboard_port,
-            db_path=self.case.db_path,
-            runtime=runtime,
         )
 
     def _load_profile(self) -> ExecutionProfile:

@@ -178,6 +178,7 @@ Pi Agent 是项目内置的轻量专属工程编排器，比通用商业 coding 
 曲线塞进 JSON，也不会默认建议自动批准审批。
 `resume` 遇到未决审批会停在 `waiting_approval`；审完后可以用
 `approve --resume --graph-run-id <id>` 明确恢复同一个 graph run。
+`web` 会启动 Pi operator panel，用同一组受控命令查看状态、审批、恢复和停止。
 
 首次使用可从 example 复制：
 
