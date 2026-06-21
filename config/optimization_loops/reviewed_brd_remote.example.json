@@ -2,7 +2,7 @@
   "goal": "Run reviewed AEDT local-cut BRD via optimization loop for the 102-006060501 s19 channel.",
   "template_id": "brd_reviewed_model_optimize_loop",
   "run_root": "D:\\aedt-agent-runs\\reviewed-loop",
-  "source_project_path": "D:\\aedt-agent-runs\\source\\102-006060501_R01_0610-3-s19\\102-006060501_R01_0610-3-s19.aedt",
+  "source_project_path": "D:\\aedt-agent-runs\\source\\102-006060501_R01_0610-3-s19.aedt",
   "working_project_path": "D:\\aedt-agent-runs\\reviewed-loop\\working\\102-006060501_R01_0610-3-s19.aedt",
   "reset_working_project": false,
   "report_dir": "D:\\aedt-agent-runs\\reviewed-loop\\optimization_progress",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -220,6 +221,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run(argv: Sequence[str] | None = None) -> int:
+    _configure_console_encoding()
     args = build_parser().parse_args(argv)
     runtime = AgentRuntime(SQLiteMissionStore(args.db))
 
@@ -1023,6 +1025,13 @@ def _parse_bbox(value: str | None) -> dict[str, Any] | None:
 
 def _print_json(payload: dict[str, Any]) -> None:
     print(json.dumps(payload, ensure_ascii=True, sort_keys=True))
+
+
+def _configure_console_encoding() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            reconfigure(encoding=stream.encoding or "utf-8", errors="replace")
 
 
 def main() -> None:

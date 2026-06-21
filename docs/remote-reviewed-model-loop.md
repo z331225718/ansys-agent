@@ -22,6 +22,7 @@ default.
 ```powershell
 cd D:\ansys-agent
 git pull
+$env:PYTHONUTF8 = "1"
 .\.venv\Scripts\python.exe -m pip install -e .
 ```
 
@@ -35,6 +36,15 @@ Copy-Item config\optimization_loops\reviewed_brd_remote.example.json config\opti
 The loop config must point to a human-reviewed source AEDT project and a
 separate working project path. The source project is copied once; the loop then
 edits the working project in place.
+
+For the current s19 bring-up, the source project is usually:
+
+```text
+D:\aedt-agent-runs\source\102-006060501_R01_0610-3-s19.aedt
+```
+
+Use the actual path on the AEDT machine. Do not keep the old double-directory
+form if the `.aedt` file is directly under `D:\aedt-agent-runs\source`.
 
 Before running a long solve, validate the config:
 
@@ -75,6 +85,7 @@ AEDT_AGENT_LLM_HIGH_REASONING_BASE_URL
 ## 3. Start the web view
 
 ```powershell
+$env:PYTHONUTF8 = "1"
 .\.venv\Scripts\python.exe -m aedt_agent.agent `
   --db D:\aedt-agent-runs\reviewed-loop\missions.db `
   mission web `
@@ -99,6 +110,7 @@ putting raw S-parameter or TDR data into LLM context.
 ## 4. Run the loop
 
 ```powershell
+$env:PYTHONUTF8 = "1"
 .\.venv\Scripts\python.exe -m aedt_agent.agent `
   --db D:\aedt-agent-runs\reviewed-loop\missions.db `
   mission run-loop `

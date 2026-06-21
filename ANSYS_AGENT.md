@@ -33,6 +33,7 @@ ansys-agent 不可以：
 
 ```powershell
 cd D:\ansys-agent
+$env:PYTHONUTF8 = "1"
 .\.venv\Scripts\python.exe -m pip install -e .
 ```
 
@@ -97,6 +98,13 @@ cd D:\ansys-agent
 初始化本机配置 -> 修改真实路径 -> preflight -> cli/run/web 托管闭环
 ```
 
+建议在 AEDT 工作站的 PowerShell 会话里先打开 UTF-8 输出，避免旧 Windows
+控制台在 dashboard/run-loop 日志中遇到 Unicode 字符时报编码错误：
+
+```powershell
+$env:PYTHONUTF8 = "1"
+```
+
 ### 1. 初始化本机配置
 
 先复制并编辑真实本机配置：
@@ -152,6 +160,14 @@ tdr_observation_port  Diff1
 expected_port_count   4
 geometry_constraints  anti-pad <= 22mil; NFP radius 7.875-10mil
 ```
+
+当前 s19 bring-up 里，源模型通常是：
+
+```text
+D:\aedt-agent-runs\source\102-006060501_R01_0610-3-s19.aedt
+```
+
+如果你的文件仍在子目录里，按实际路径填写；不要照抄旧的双层目录路径。
 
 编辑 `config\execution_profiles\local_real_aedt.local.json`，默认保持：
 

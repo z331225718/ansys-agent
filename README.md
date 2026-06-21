@@ -101,6 +101,7 @@ optimization_report              worker  brd.optimization.report
 ```powershell
 cd D:\ansys-agent
 git pull origin main
+$env:PYTHONUTF8 = "1"
 .\.venv\Scripts\python.exe -m pip install -e .
 ```
 
@@ -191,6 +192,12 @@ config\execution_profiles\local_real_aedt.local.json
 确认真实 AEDT 路径、`working_project_path`、`report_dir`、`channel.s4p`、
 `TDRZt(Diff1)`、`simulation_runner=local_cli` 和几何约束都正确后，再运行：
 
+旧 Windows 控制台建议先设置 UTF-8，避免 dashboard/run-loop 日志输出触发编码错误：
+
+```powershell
+$env:PYTHONUTF8 = "1"
+```
+
 ```powershell
 .\.venv\Scripts\python.exe -m aedt_agent.ansys_agent preflight `
   --case config\cases\reviewed_brd.local.json
@@ -241,6 +248,7 @@ Copy-Item config\cases\reviewed_brd.example.json config\cases\reviewed_brd.local
 启动 Web dashboard：
 
 ```powershell
+$env:PYTHONUTF8 = "1"
 .\.venv\Scripts\python.exe -m aedt_agent.agent `
   --db D:\aedt-agent-runs\reviewed-loop\missions.db `
   mission web `
@@ -258,6 +266,7 @@ http://<aedt-machine-ip>:8766
 启动 reviewed BRD 优化 loop：
 
 ```powershell
+$env:PYTHONUTF8 = "1"
 .\.venv\Scripts\python.exe -m aedt_agent.agent `
   --db D:\aedt-agent-runs\reviewed-loop\missions.db `
   mission run-loop `

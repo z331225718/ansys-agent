@@ -77,6 +77,9 @@ def test_prepare_working_project_copies_reviewed_bundle(tmp_path):
     assert (working.with_suffix(".aedb") / "edb.def").read_text(encoding="utf-8") == "edb"
     assert result.output_payload["touchstone_name"] == "channel.s4p"
     assert result.output_payload["sparameter_mode"] == "differential"
+    assert result.output_payload["solution_name"] == "Setup1 : Sweep1"
+    assert result.output_payload["loop_context"]["solve"]["setup_name"] == "Setup1"
+    assert result.output_payload["loop_context"]["solve"]["sweep_name"] == "Sweep1"
 
 
 def test_agent_decider_falls_back_to_deterministic_handler_without_llm(

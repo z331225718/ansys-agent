@@ -131,6 +131,8 @@ class ExecutionProfile:
             termination_grace_seconds=2,
             allowed_env=[
                 "PYTHONPATH",
+                "PYTHONUTF8",
+                "PYTHONIOENCODING",
                 "AWP_ROOT261",
                 "ANSYSEM_ROOT261",
                 "LM_LICENSE_FILE",

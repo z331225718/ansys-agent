@@ -27,6 +27,8 @@ def test_safe_recorded_profile_is_bounded_and_disables_real_aedt():
     assert profile.heartbeat_timeout_seconds == 30
     assert profile.termination_grace_seconds == 2
     assert "PYTHONPATH" in profile.allowed_env
+    assert "PYTHONUTF8" in profile.allowed_env
+    assert "PYTHONIOENCODING" in profile.allowed_env
 
 
 def test_execution_profile_round_trips_through_json_dict():
@@ -100,6 +102,7 @@ def test_ssh_remote_example_profile_loads():
     assert profile.simulation_runner == "ssh_remote"
     assert profile.allow_real_aedt is True
     assert "ANSYSLMD_LICENSE_FILE" in profile.allowed_env
+    assert "PYTHONUTF8" in profile.allowed_env
 
 
 def test_execution_profile_rejects_ssh_remote_runner_without_endpoint():

@@ -291,6 +291,7 @@ def _solve_input(
         "project_path": project_path,
         "setup_name": solve.get("setup_name", "Setup1"),
         "sweep_name": solve.get("sweep_name", "Sweep1"),
+        "solution_name": _solution_name(solve),
         "tdr_expression": solve.get("tdr_expression", "TDRZt(Diff1)"),
         "expected_port_count": int(solve.get("expected_port_count", 4)),
         "touchstone_name": solve.get("touchstone_name", "channel.s4p"),
@@ -308,6 +309,15 @@ def _solve_input(
         "sparameter_mode": score.get("sparameter_mode", "differential"),
         "loop_context": {**loop_context, "round_index": round_index},
     }
+
+
+def _solution_name(solve: Mapping[str, Any]) -> str:
+    explicit = str(solve.get("solution_name") or "").strip()
+    if explicit:
+        return explicit
+    setup_name = str(solve.get("setup_name") or "Setup1")
+    sweep_name = str(solve.get("sweep_name") or "Sweep1")
+    return f"{setup_name} : {sweep_name}"
 
 
 def _decision_payload(

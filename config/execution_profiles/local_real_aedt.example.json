@@ -21,6 +21,8 @@
   "termination_grace_seconds": 10,
   "allowed_env": [
     "PYTHONPATH",
+    "PYTHONUTF8",
+    "PYTHONIOENCODING",
     "AWP_ROOT261",
     "ANSYSEM_ROOT261",
     "ANSYSLMD_LICENSE_FILE",
