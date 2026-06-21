@@ -115,6 +115,19 @@ class PiAgentSupervisor:
         self._ensure_profile_allowed(profile)
         runtime = self._runtime(profile)
         selected_graph_id = self._select_graph_run_id(runtime, graph_run_id)
+        pending_approvals = self._pending_approvals_for_graph(runtime, selected_graph_id)
+        if pending_approvals:
+            return {
+                "status": "waiting_approval",
+                "graph_run_id": selected_graph_id,
+                "reason": "pending approvals must be resolved before resume",
+                "pending_approvals": pending_approvals,
+                "pi_status": build_case_status(
+                    self.case,
+                    runtime=runtime,
+                    graph_run_id=selected_graph_id,
+                ),
+            }
         report = resume_graph(
             runtime,
             selected_graph_id,
@@ -134,15 +147,41 @@ class PiAgentSupervisor:
         approval_id: str,
         option_id: str = "approve",
         comment: str | None = None,
+        resume: bool = False,
+        graph_run_id: str = "",
     ) -> dict[str, Any]:
         from aedt_agent.agent.approvals import ApprovalService
 
-        runtime = self._runtime_without_workers()
+        selected_graph_id = ""
+        if resume:
+            profile = self._load_profile()
+            self._ensure_profile_allowed(profile)
+            runtime = self._runtime(profile)
+            selected_graph_id = self._select_graph_run_id(runtime, graph_run_id)
+            self._ensure_approval_matches_graph(runtime, approval_id, selected_graph_id)
+        else:
+            runtime = self._runtime_without_workers()
         approval = ApprovalService(runtime.store).approve(
             approval_id,
             selected_option_id=option_id,
             comment=comment,
         )
+        if resume:
+            from aedt_agent.agent.graph_runner import resume_graph
+
+            report = resume_graph(
+                runtime,
+                selected_graph_id,
+                worker_id=self.case.worker_id,
+                max_workers=self.case.max_workers,
+            )
+            return {
+                "status": report.get("status", "unknown"),
+                "approval": approval.to_json_dict(),
+                "graph_run_id": selected_graph_id,
+                "resume": report,
+                "pi_status": summarize_graph_report(self.case, report),
+            }
         return {
             "status": "approved",
             "approval": approval.to_json_dict(),
@@ -274,6 +313,37 @@ class PiAgentSupervisor:
         if not selected:
             raise PiAgentCaseError("no graph_run_id found; run the case first")
         return selected
+
+    def _pending_approvals_for_graph(self, runtime, graph_run_id: str) -> list[dict[str, Any]]:
+        graph_run = runtime.store.get_graph_run(graph_run_id)
+        if graph_run is None:
+            raise KeyError(f"graph run not found: {graph_run_id}")
+        pending = []
+        for approval in runtime.store.list_approvals(graph_run.mission_id):
+            payload = approval.to_json_dict()
+            if payload.get("decision") != "pending":
+                continue
+            pending.append(
+                {
+                    "approval_id": payload.get("approval_id", ""),
+                    "mission_id": payload.get("mission_id", ""),
+                    "reason": payload.get("reason", ""),
+                    "options": payload.get("options", []),
+                    "created_at": payload.get("created_at", ""),
+                }
+            )
+        return pending
+
+    def _ensure_approval_matches_graph(self, runtime, approval_id: str, graph_run_id: str) -> None:
+        approval = runtime.store.get_approval(approval_id)
+        graph_run = runtime.store.get_graph_run(graph_run_id)
+        if graph_run is None:
+            raise KeyError(f"graph run not found: {graph_run_id}")
+        if approval.mission_id != graph_run.mission_id:
+            raise PiAgentCaseError(
+                "approval mission does not match graph_run_id: "
+                f"{approval.mission_id} != {graph_run.mission_id}"
+            )
 
 
 def _check(check_id: str, passed: bool, message: str) -> dict[str, str]:

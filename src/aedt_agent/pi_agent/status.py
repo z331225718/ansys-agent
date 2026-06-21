@@ -313,9 +313,15 @@ def _available_commands(
         if approvals:
             approval_id = str(approvals[0].get("approval_id") or "")
         if approval_id:
+            graph_arg = f" --graph-run-id {_shell_arg(graph_run_id)}" if graph_run_id else ""
             commands["approve"] = (
                 "python -m aedt_agent.pi_agent approve "
                 f"--case {case_arg} --approval-id {_shell_arg(approval_id)} --option-id approve"
+            )
+            commands["approve_and_resume"] = (
+                "python -m aedt_agent.pi_agent approve "
+                f"--case {case_arg} --approval-id {_shell_arg(approval_id)} "
+                f"--option-id approve --resume{graph_arg}"
             )
             commands["reject"] = (
                 "python -m aedt_agent.pi_agent reject "

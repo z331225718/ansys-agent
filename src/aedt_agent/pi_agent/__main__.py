@@ -37,6 +37,8 @@ def build_parser() -> argparse.ArgumentParser:
     approve.add_argument("--approval-id", required=True)
     approve.add_argument("--option-id", default="approve")
     approve.add_argument("--comment", default=None)
+    approve.add_argument("--resume", action="store_true")
+    approve.add_argument("--graph-run-id", default="")
 
     reject = subparsers.add_parser("reject")
     reject.add_argument("--case", required=True, type=Path)
@@ -81,6 +83,8 @@ def run(argv: Sequence[str] | None = None) -> int:
                 approval_id=args.approval_id,
                 option_id=args.option_id,
                 comment=args.comment,
+                resume=bool(args.resume),
+                graph_run_id=args.graph_run_id,
             )
         )
         return 0

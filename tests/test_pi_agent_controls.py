@@ -7,7 +7,7 @@ import pytest
 from aedt_agent.agent.cli import _runtime_with_workers
 from aedt_agent.agent.graph_runner import create_graph_run, run_graph
 from aedt_agent.agent.graph_template import graph_template_from_mapping, load_graph_template
-from aedt_agent.agent.mission import GraphRunStatus
+from aedt_agent.agent.mission import ApprovalDecision, GraphRunStatus
 from aedt_agent.agent.orchestrator import AgentRuntime
 from aedt_agent.infrastructure import SQLiteMissionStore
 from aedt_agent.pi_agent.case_config import PiAgentCase, PiAgentCaseError
@@ -26,7 +26,7 @@ def _case(tmp_path: Path) -> PiAgentCase:
     )
 
 
-def test_pi_agent_approve_and_resume_finishes_waiting_graph(tmp_path: Path):
+def _waiting_local_cut_graph(tmp_path: Path):
     runtime = _runtime_with_workers(tmp_path / "missions.db")
     mission = runtime.create_mission("review local cut", [], [])
     layout_file = tmp_path / "case.brd"
@@ -39,7 +39,14 @@ def test_pi_agent_approve_and_resume_finishes_waiting_graph(tmp_path: Path):
             "layout_file": str(layout_file),
             "signal_nets": ["P", "N"],
             "reference_nets": ["GND"],
-            "local_cut_region": {"type": "bbox", "unit": "mil", "x_min": 0, "y_min": 0, "x_max": 1, "y_max": 1},
+            "local_cut_region": {
+                "type": "bbox",
+                "unit": "mil",
+                "x_min": 0,
+                "y_min": 0,
+                "x_max": 1,
+                "y_max": 1,
+            },
             "artifact_dir": str(tmp_path / "artifacts"),
             "adapter_mode": "deterministic",
         },
@@ -49,14 +56,65 @@ def test_pi_agent_approve_and_resume_finishes_waiting_graph(tmp_path: Path):
         for run in report["node_runs"]
         if "approval_id" in run["output_payload"]
     )
+    return runtime, report, approval_id
+
+
+def test_pi_agent_resume_stops_at_pending_approval_without_advancing(tmp_path: Path):
+    runtime, report, approval_id = _waiting_local_cut_graph(tmp_path)
+    supervisor = PiAgentSupervisor(_case(tmp_path))
+    node_count_before = len(runtime.store.list_node_runs(report["graph_run"]["graph_run_id"]))
+
+    blocked = supervisor.resume(graph_run_id=report["graph_run"]["graph_run_id"])
+
+    assert blocked["status"] == "waiting_approval"
+    assert blocked["pending_approvals"][0]["approval_id"] == approval_id
+    assert blocked["pi_status"]["available_commands"]["approve_and_resume"].endswith(
+        "--option-id approve --resume --graph-run-id "
+        + report["graph_run"]["graph_run_id"]
+    )
+    assert len(runtime.store.list_node_runs(report["graph_run"]["graph_run_id"])) == node_count_before
+
+
+def test_pi_agent_approve_with_resume_finishes_waiting_graph(tmp_path: Path):
+    _, report, approval_id = _waiting_local_cut_graph(tmp_path)
     supervisor = PiAgentSupervisor(_case(tmp_path))
 
-    approved = supervisor.approve(approval_id=approval_id, comment="ok")
-    resumed = supervisor.resume(graph_run_id=report["graph_run"]["graph_run_id"])
+    resumed = supervisor.approve(
+        approval_id=approval_id,
+        comment="ok",
+        resume=True,
+        graph_run_id=report["graph_run"]["graph_run_id"],
+    )
 
-    assert approved["status"] == "approved"
     assert resumed["status"] == "succeeded"
+    assert resumed["approval"]["selected_option_id"] == "approve"
+    assert resumed["graph_run_id"] == report["graph_run"]["graph_run_id"]
     assert resumed["pi_status"]["next_safe_action"] == "report"
+
+
+def test_pi_agent_approve_resume_rejects_mismatched_graph_run(tmp_path: Path):
+    runtime, _, approval_id = _waiting_local_cut_graph(tmp_path)
+    other_mission = runtime.create_mission("other mission", [], [])
+    other_template = graph_template_from_mapping(
+        {
+            "id": "other_graph",
+            "version": 1,
+            "nodes": [{"id": "source", "role": "planner", "kind": "llm"}],
+            "edges": [],
+            "handoffs": {},
+        }
+    )
+    other_graph = create_graph_run(runtime, other_mission.mission_id, other_template)
+    supervisor = PiAgentSupervisor(_case(tmp_path))
+
+    with pytest.raises(PiAgentCaseError, match="approval mission does not match"):
+        supervisor.approve(
+            approval_id=approval_id,
+            resume=True,
+            graph_run_id=other_graph.graph_run_id,
+        )
+
+    assert runtime.store.get_approval(approval_id).decision == ApprovalDecision.PENDING
 
 
 def test_pi_agent_stop_cancels_running_graph_and_mission(tmp_path: Path):

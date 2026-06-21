@@ -61,6 +61,13 @@ MVP 只做专属编排壳，不重写 worker，不做通用 coding agent。
 - [x] 输出 latest artifact refs 和 artifact kind/existence，不读取 raw S 参数/TDR 内容。
 - [x] 保留原有 `metrics`、`approval`、`artifacts` 字段以兼容轻量 harness。
 
+## Phase 4 Approval / Resume Flow
+
+- [x] `resume` 遇到 pending approval 时返回 `waiting_approval`，不重新启动 worker。
+- [x] `approve` 支持 `--resume --graph-run-id <id>`，由用户明确批准后恢复同一个 graph。
+- [x] `status.available_commands` 暴露 `approve_and_resume`，并携带 graph run id。
+- [x] 新增测试覆盖 pending gate 保护和 approve+resume 一步恢复。
+
 ## 验证命令
 
 ```powershell

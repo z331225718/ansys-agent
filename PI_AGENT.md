@@ -109,6 +109,7 @@ MVP 固定 `max_workers=1`，避免多个 AEDT worker 同时争用模型和 lice
   "recommended_command": "python -m aedt_agent.pi_agent status --case config\\cases\\reviewed_brd.local.json",
   "available_commands": {
     "approve": "python -m aedt_agent.pi_agent approve --case config\\cases\\reviewed_brd.local.json --approval-id <approval_id> --option-id approve",
+    "approve_and_resume": "python -m aedt_agent.pi_agent approve --case config\\cases\\reviewed_brd.local.json --approval-id <approval_id> --option-id approve --resume --graph-run-id <graph_run_id>",
     "reject": "python -m aedt_agent.pi_agent reject --case config\\cases\\reviewed_brd.local.json --approval-id <approval_id>",
     "status": "python -m aedt_agent.pi_agent status --case config\\cases\\reviewed_brd.local.json",
     "web": "python -m aedt_agent.pi_agent web --case config\\cases\\reviewed_brd.local.json"
@@ -150,6 +151,14 @@ Phase 2 起 Pi Agent 还提供受控操作命令：
   --approval-id <approval_id> `
   --option-id approve
 
+# 批准后明确恢复同一个 graph_run
+.\.venv\Scripts\python.exe -m aedt_agent.pi_agent approve `
+  --case config\cases\reviewed_brd.local.json `
+  --approval-id <approval_id> `
+  --option-id approve `
+  --resume `
+  --graph-run-id <graph_run_id>
+
 # 拒绝审批项
 .\.venv\Scripts\python.exe -m aedt_agent.pi_agent reject `
   --case config\cases\reviewed_brd.local.json `
@@ -167,3 +176,5 @@ Phase 2 起 Pi Agent 还提供受控操作命令：
 
 `resume` 和 `web` 会执行同一套 execution profile 安全检查：默认只允许
 `local_cli`，除非 case 明确设置 `allow_ssh_remote=true`。
+如果 graph 仍有 pending approval，`resume` 会返回 `waiting_approval` 和可选命令，
+不会重新启动 worker；需要先 `approve` 或 `reject`。
