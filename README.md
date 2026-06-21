@@ -158,10 +158,40 @@ Claude Code 的职责是外层监督和接管，不是替代 graph 里的 worker
 ansys-agent 是项目内置的轻量专属工程编排器，比通用商业 coding agent 更窄：
 它只读取 case config、做 preflight、推进 reviewed YAML graph、输出紧凑状态。
 
+先做不启动 AEDT 的 5 分钟验证：
+
+```powershell
+.\.venv\Scripts\python.exe -m aedt_agent.ansys_agent preflight `
+  --case config\cases\reviewed_brd.example.json `
+  --no-check-paths
+
+.\.venv\Scripts\python.exe -m aedt_agent.ansys_agent cli `
+  --case config\cases\reviewed_brd.example.json `
+  --once "看状态"
+```
+
+期望结果：preflight 返回 `"status": "passed"`；CLI 输出 `状态：not_started`
+并给出下一条建议命令。
+
+真实运行前初始化本机配置：
+
 ```powershell
 .\.venv\Scripts\python.exe -m aedt_agent.ansys_agent init `
   --case config\cases\reviewed_brd.example.json
+```
 
+然后编辑：
+
+```text
+config\cases\reviewed_brd.local.json
+config\optimization_loops\reviewed_brd_remote.local.json
+config\execution_profiles\local_real_aedt.local.json
+```
+
+确认真实 AEDT 路径、`working_project_path`、`report_dir`、`channel.s4p`、
+`TDRZt(Diff1)`、`simulation_runner=local_cli` 和几何约束都正确后，再运行：
+
+```powershell
 .\.venv\Scripts\python.exe -m aedt_agent.ansys_agent preflight `
   --case config\cases\reviewed_brd.local.json
 
@@ -196,7 +226,7 @@ ansys-agent 是项目内置的轻量专属工程编排器，比通用商业 codi
 Copy-Item config\cases\reviewed_brd.example.json config\cases\reviewed_brd.local.json
 ```
 
-详细说明见 `ANSYS_AGENT.md`。
+完整使用和验证方法见 `ANSYS_AGENT.md`。
 
 ## 手动等价命令
 
@@ -283,14 +313,22 @@ optimization_progress.json
 
 ```powershell
 .\.venv\Scripts\python.exe -m py_compile `
-  src\aedt_agent\agent\loop_runner.py `
-  src\aedt_agent\agent\web.py `
-  src\aedt_agent\agent\cli.py
+  src\aedt_agent\ansys_agent\__main__.py `
+  src\aedt_agent\ansys_agent\case_config.py `
+  src\aedt_agent\ansys_agent\supervisor.py `
+  src\aedt_agent\ansys_agent\status.py `
+  src\aedt_agent\ansys_agent\chat.py `
+  src\aedt_agent\ansys_agent\web.py
 
 .\.venv\Scripts\python.exe -m pytest `
+  tests\test_ansys_agent_case_config.py `
+  tests\test_ansys_agent_cli.py `
+  tests\test_ansys_agent_chat.py `
+  tests\test_ansys_agent_controls.py `
+  tests\test_ansys_agent_status.py `
+  tests\test_ansys_agent_web.py `
   tests\test_agent_loop_runner.py `
   tests\test_agent_cli_dag_runner.py `
-  tests\test_agent_web.py `
   -q
 ```
 
@@ -301,6 +339,18 @@ optimization_progress.json
   mission validate-loop-config `
   --config config\optimization_loops\reviewed_brd_remote.example.json `
   --no-check-paths
+```
+
+ansys-agent example case dry-run：
+
+```powershell
+.\.venv\Scripts\python.exe -m aedt_agent.ansys_agent preflight `
+  --case config\cases\reviewed_brd.example.json `
+  --no-check-paths
+
+.\.venv\Scripts\python.exe -m aedt_agent.ansys_agent cli `
+  --case config\cases\reviewed_brd.example.json `
+  --once "看状态"
 ```
 
 ## 历史 demo
