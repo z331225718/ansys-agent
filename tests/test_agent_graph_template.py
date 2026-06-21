@@ -65,7 +65,9 @@ def test_reviewed_model_loop_template_uses_real_workers_and_report():
         "touchstone_export_worker",
         "tdr_export_worker",
         "channel_score_worker",
+        "iteration_qualifier_worker",
         "optimization_decider",
+        "iteration_qualification_approval_gate",
         "action_approval_gate",
         "geometry_validator_worker",
         "model_edit_worker",
@@ -76,6 +78,7 @@ def test_reviewed_model_loop_template_uses_real_workers_and_report():
     assert template.node("touchstone_export_worker").capability == "brd.touchstone.export"
     assert template.node("tdr_export_worker").capability == "brd.tdr.export"
     assert template.node("channel_score_worker").capability == "brd.channel.score"
+    assert template.node("iteration_qualifier_worker").capability == "brd.iteration.qualify"
     assert template.node("geometry_validator_worker").capability == "brd.geometry.validate"
     assert template.node("model_edit_worker").capability == "brd.model.edit"
     assert template.node("optimization_decider").kind == "agent"

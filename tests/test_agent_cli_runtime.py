@@ -81,6 +81,7 @@ def test_runtime_registers_model_edit_process_worker(tmp_path):
     from aedt_agent.agent.workers import (
         BRD_CHANNEL_SCORE_CAPABILITY,
         BRD_GEOMETRY_VALIDATE_CAPABILITY,
+        BRD_ITERATION_QUALIFY_CAPABILITY,
         BRD_MODEL_EDIT_CAPABILITY,
         BRD_TDR_EXPORT_CAPABILITY,
         BRD_TOUCHSTONE_EXPORT_CAPABILITY,
@@ -107,6 +108,12 @@ def test_runtime_registers_model_edit_process_worker(tmp_path):
     assert (
         runtime.registry._registrations[
             BRD_GEOMETRY_VALIDATE_CAPABILITY
+        ].execution_mode
+        == "local_process"
+    )
+    assert (
+        runtime.registry._registrations[
+            BRD_ITERATION_QUALIFY_CAPABILITY
         ].execution_mode
         == "local_process"
     )

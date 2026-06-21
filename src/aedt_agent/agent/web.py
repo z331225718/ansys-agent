@@ -16,12 +16,14 @@ from aedt_agent.agent.workers import (
     BRD_CHANNEL_SCORE_CAPABILITY,
     BRD_EVIDENCE_COMPARE_CAPABILITY,
     BRD_GEOMETRY_VALIDATE_CAPABILITY,
+    BRD_ITERATION_QUALIFY_CAPABILITY,
     BRD_LOCAL_CUT_BUILD_CAPABILITY,
     BRD_TDR_EXPORT_CAPABILITY,
     BRD_TOUCHSTONE_EXPORT_CAPABILITY,
     InMemoryWorkerRegistry,
     run_brd_channel_score_worker,
     run_brd_geometry_validate_worker,
+    run_brd_iteration_qualify_worker,
     run_brd_local_cut_worker,
     run_brd_tdr_export_worker,
     run_brd_touchstone_export_worker,
@@ -756,6 +758,7 @@ def run_agent_window(
         registry.register(BRD_LOCAL_CUT_BUILD_CAPABILITY, run_brd_local_cut_worker)
         registry.register(BRD_CHANNEL_SCORE_CAPABILITY, run_brd_channel_score_worker)
         registry.register(BRD_GEOMETRY_VALIDATE_CAPABILITY, run_brd_geometry_validate_worker)
+        registry.register(BRD_ITERATION_QUALIFY_CAPABILITY, run_brd_iteration_qualify_worker)
         registry.register(BRD_TOUCHSTONE_EXPORT_CAPABILITY, run_brd_touchstone_export_worker)
         registry.register(BRD_TDR_EXPORT_CAPABILITY, run_brd_tdr_export_worker)
         registry.register(BRD_EVIDENCE_COMPARE_CAPABILITY, run_evidence_compare_worker)

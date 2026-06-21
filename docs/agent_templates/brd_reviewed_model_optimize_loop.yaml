@@ -48,6 +48,14 @@ nodes:
     output_schema: score_result
     max_runs: 5
 
+  - id: iteration_qualifier_worker
+    role: scorecard
+    kind: worker
+    capability: brd.iteration.qualify
+    input_schema: score_result
+    output_schema: score_result
+    max_runs: 5
+
   - id: optimization_decider
     role: decision_maker
     kind: agent
@@ -76,6 +84,13 @@ nodes:
           worker_constraints:
             min_diameter: 15.75mil
             max_diameter: 20mil
+    max_runs: 5
+
+  - id: iteration_qualification_approval_gate
+    role: approval_gate
+    kind: human_gate
+    input_schema: score_result
+    output_schema: score_result
     max_runs: 5
 
   - id: action_approval_gate
@@ -139,10 +154,25 @@ edges:
     to: channel_score_worker
     on: succeeded
     max_traversals: 5
-  - id: score-to-decide
+  - id: score-to-qualify
     from: channel_score_worker
+    to: iteration_qualifier_worker
+    on: succeeded
+    max_traversals: 5
+  - id: qualify-to-decide
+    from: iteration_qualifier_worker
     to: optimization_decider
     on: succeeded
+    max_traversals: 5
+  - id: qualify-to-approval
+    from: iteration_qualifier_worker
+    to: iteration_qualification_approval_gate
+    on: approval_required
+    max_traversals: 5
+  - id: qualification-approval-to-decide
+    from: iteration_qualification_approval_gate
+    to: optimization_decider
+    on: approved
     max_traversals: 5
   - id: decide-to-report
     from: optimization_decider
