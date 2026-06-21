@@ -879,13 +879,18 @@ def run_agent_window(
         def log_message(self, *args):
             pass
 
-    print(f"⚡ ansys-agent window → http://{host}:{port}")
+    print(_dashboard_startup_message(host, port))
     ThreadingHTTPServer((host, port), Handler).serve_forever()
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _dashboard_startup_message(host: str, port: int) -> str:
+    message = f"[ansys-agent] dashboard: http://{host}:{port}"
+    return message.encode("ascii", errors="replace").decode("ascii")
 
 
 def _json(data, *, status=200):

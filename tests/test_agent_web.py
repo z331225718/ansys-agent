@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 from urllib.parse import quote
 
-from aedt_agent.agent.web import dispatch_agent_request
+from aedt_agent.agent.web import _dashboard_startup_message, dispatch_agent_request
 from aedt_agent.agent.approvals import ApprovalService
 from aedt_agent.agent.graph_runner import graph_status
 from aedt_agent.agent.mission import GraphRunRecord, NodeRunRecord, NodeRunStatus
@@ -36,6 +36,13 @@ def test_web_root_returns_html(tmp_path):
     runtime = _runtime(tmp_path)
     status, headers, resp = dispatch_agent_request("GET", "/", b"", runtime)
     assert status == 200
+
+
+def test_web_dashboard_startup_message_is_ascii_safe():
+    message = _dashboard_startup_message("本机", 8766)
+
+    message.encode("ascii")
+    assert message == "[ansys-agent] dashboard: http://??:8766"
 
 
 def test_web_list_missions_empty(tmp_path):
