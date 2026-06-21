@@ -82,13 +82,13 @@ def execute_graph_node(
     registry: GraphNodeExecutorRegistry | None = None,
 ) -> GraphNodeExecutionResult:
     try:
-        if context.node.handler:
+        if context.node.kind == "agent":
+            result = execute_agent_node(context, registry=registry)
+        elif context.node.handler:
             result = (registry or default_graph_executor_registry()).execute(
                 context.node.handler,
                 context,
             )
-        elif context.node.kind == "agent":
-            result = execute_agent_node(context)
         elif context.node.kind == "worker":
             result = _execute_worker(context)
         elif context.node.role == "planner":
@@ -114,7 +114,11 @@ def execute_graph_node(
         )
 
 
-def execute_agent_node(context: GraphNodeExecutionContext) -> GraphNodeExecutionResult:
+def execute_agent_node(
+    context: GraphNodeExecutionContext,
+    *,
+    registry: GraphNodeExecutorRegistry | None = None,
+) -> GraphNodeExecutionResult:
     """Execute a kind=agent node by calling an LLM with the node's system_prompt.
 
     Resolves prompt text from template.prompts (if system_prompt is a key)
@@ -122,16 +126,24 @@ def execute_agent_node(context: GraphNodeExecutionContext) -> GraphNodeExecution
     """
     import json as _json
 
-    # 1. Resolve prompt
+    # 1. Resolve constraints (merge profile defaults + node overrides)
+    constraints = _resolve_agent_constraints(context)
+
+    # 2. Resolve prompt
     prompt_text = _resolve_prompt(context)
     if not prompt_text:
+        fallback = _execute_agent_fallback(
+            context,
+            registry=registry,
+            constraints=constraints,
+            reason="agent node has no system_prompt",
+        )
+        if fallback is not None:
+            return fallback
         return GraphNodeExecutionResult(
             NodeRunStatus.FAILED, "failed", {},
             error={"error_class": "agent_no_prompt", "message": "agent node has no system_prompt"},
         )
-
-    # 2. Resolve constraints (merge profile defaults + node overrides)
-    constraints = _resolve_agent_constraints(context)
 
     # 3. Build user message with knowledge context
     user_parts: dict[str, Any] = {
@@ -166,6 +178,14 @@ def execute_agent_node(context: GraphNodeExecutionContext) -> GraphNodeExecution
             ),
         )
     except (ImportError, RuntimeError) as e:
+        fallback = _execute_agent_fallback(
+            context,
+            registry=registry,
+            constraints=constraints,
+            reason=str(e),
+        )
+        if fallback is not None:
+            return fallback
         return GraphNodeExecutionResult(
             NodeRunStatus.FAILED, "failed", {},
             error={"error_class": "agent_llm_unavailable", "message": str(e)},
@@ -227,6 +247,40 @@ def execute_agent_node(context: GraphNodeExecutionContext) -> GraphNodeExecution
 
     outcome = _agent_edge_outcome(output, constraints)
     return GraphNodeExecutionResult(NodeRunStatus.SUCCEEDED, outcome, output, [])
+
+
+def _execute_agent_fallback(
+    context: GraphNodeExecutionContext,
+    *,
+    registry: GraphNodeExecutorRegistry | None,
+    constraints: dict[str, Any],
+    reason: str,
+) -> GraphNodeExecutionResult | None:
+    if not context.node.handler:
+        return None
+    if constraints.get("deterministic_fallback", True) is False:
+        return None
+    result = (registry or default_graph_executor_registry()).execute(
+        context.node.handler,
+        context,
+    )
+    output = dict(result.output_payload)
+    output.setdefault(
+        "agent_fallback",
+        {
+            "status": "used",
+            "reason": reason,
+            "handler": context.node.handler,
+        },
+    )
+    return GraphNodeExecutionResult(
+        result.status,
+        result.outcome,
+        output,
+        list(result.artifact_refs),
+        evidence_package_id=result.evidence_package_id,
+        error=result.error,
+    )
 
 
 def _agent_edge_outcome(

@@ -50,17 +50,21 @@ nodes:
 
   - id: optimization_decider
     role: decision_maker
-    kind: program
+    kind: agent
     handler: brd.optimization.decide_next_action
+    system_prompt: optimization_decider_prompt
     input_schema: score_result
     output_schema: next_action
     profile: high_reasoning
     constraints:
+      deterministic_fallback: true
+      response_format: json_object
       evidence_policy: bounded_summary_only
       allowed_decisions:
         - continue
         - complete
-        - request_human_review
+        - approval_required
+        - failed
       geometry_limits:
         anti_pad:
           max_radius_mil: 22
@@ -177,6 +181,32 @@ profiles:
     temperature: 0.2
     max_tokens: 4096
 
+prompts:
+  optimization_decider_prompt: |
+    You are the reviewed BRD optimization decider. Use only bounded evidence
+    and candidate actions from the handoff. Do not read or request raw
+    S-parameter or TDR arrays.
+
+    The current workflow is differential: Touchstone must be treated as s4p,
+    return loss is SDD11, insertion loss is SDD21, and the default TDR
+    observation port is Diff1. Before mapping a TDR feature to near/far
+    geometry, use tdr_observation_port and tdr_port_orientation_evidence; if
+    orientation is unknown, say unknown and request approval rather than
+    inventing a physical location.
+
+    Choose exactly one decision:
+    - continue: select one small, reversible action within constraints.
+    - complete: stop because the current evidence is acceptable or no bounded
+      action remains.
+    - approval_required: evidence or constraints are insufficient for an
+      executable edit.
+    - failed: the graph should fail because the evidence is invalid.
+
+    Return a JSON object that satisfies the next_action handoff. Include:
+    decision, reason, selected_action when continuing, tdr_observation_port,
+    tdr_port_orientation_evidence, constraints_checked, risk, rollback, and
+    loop_context.
+
 handoffs:
   real_solve_request:
     required_fields:
@@ -224,6 +254,11 @@ handoffs:
     required_fields:
       - decision
       - reason
+      - tdr_observation_port
+      - tdr_port_orientation_evidence
+      - constraints_checked
+      - risk
+      - rollback
       - loop_context
   model_edit_request:
     required_fields:

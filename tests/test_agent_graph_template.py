@@ -76,8 +76,11 @@ def test_reviewed_model_loop_template_uses_real_workers_and_report():
     assert template.node("tdr_export_worker").capability == "brd.tdr.export"
     assert template.node("channel_score_worker").capability == "brd.channel.score"
     assert template.node("model_edit_worker").capability == "brd.model.edit"
+    assert template.node("optimization_decider").kind == "agent"
+    assert template.node("optimization_decider").system_prompt == "optimization_decider_prompt"
     assert template.node("optimization_decider").handler == "brd.optimization.decide_next_action"
     assert template.node("channel_score_worker").input_schema == "tdr_export_result"
+    assert "tdr_observation_port" in template.handoffs["next_action"].required_fields
     assert template.handoffs["scorecard_report"].required_fields == [
         "status",
         "checks",

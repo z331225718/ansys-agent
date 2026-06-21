@@ -124,7 +124,7 @@ def decide_next_action(
         )
         return _ok(output, outcome="complete")
 
-    selected, reason, source = _select_candidate_action(
+    selected, reason, source, selection_decision = _select_candidate_action(
         context,
         score=score,
         evidence=evidence,
@@ -132,20 +132,27 @@ def decide_next_action(
         start_index=used_actions,
     )
     if selected is None:
+        decision = (
+            selection_decision
+            if selection_decision in {"complete", "approval_required", "failed"}
+            else "complete"
+        )
         output = _decision_payload(
             payload,
             loop_context,
-            decision="complete",
+            decision=decision,
             reason=reason or "no executable candidate action remains",
         )
-        return _ok(output, outcome="complete")
+        outcome = "approval_required" if decision == "approval_required" else decision
+        return _ok(output, outcome=outcome)
 
     if not _action_within_known_limits(selected):
         output = _decision_payload(
             payload,
             loop_context,
-            decision="request_human_review",
+            decision="approval_required",
             reason="selected candidate violates known geometry limits",
+            selected_action=selected,
         )
         return _ok(output, outcome="approval_required")
 
@@ -156,6 +163,7 @@ def decide_next_action(
         loop_context,
         decision="continue",
         reason=reason,
+        selected_action=selected,
     )
     output.update(
         {
@@ -309,12 +317,32 @@ def _decision_payload(
     *,
     decision: str,
     reason: str,
+    selected_action: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    score = payload.get("score") or {}
+    evidence = payload.get("evidence_summary") or {}
+    action = dict(selected_action or {})
+    tdr_observation_port = str(
+        action.get("tdr_observation_port")
+        or score.get("tdr_observation_port")
+        or evidence.get("tdr_observation_port")
+        or ""
+    )
     return {
         "decision": decision,
         "reason": reason,
-        "score": payload.get("score") or {},
-        "evidence_summary": payload.get("evidence_summary") or {},
+        "selected_action": action,
+        "tdr_observation_port": tdr_observation_port,
+        "tdr_port_orientation_evidence": str(
+            action.get("tdr_port_orientation_evidence")
+            or evidence.get("tdr_port_orientation_evidence")
+            or "unknown"
+        ),
+        "constraints_checked": list(action.get("constraints_checked") or []),
+        "risk": str(action.get("risk") or ""),
+        "rollback": str(action.get("rollback") or ""),
+        "score": score,
+        "evidence_summary": evidence,
         "loop_context": loop_context,
     }
 
@@ -326,7 +354,7 @@ def _select_candidate_action(
     evidence: Mapping[str, Any],
     candidate_actions: list[dict[str, Any]],
     start_index: int,
-) -> tuple[dict[str, Any] | None, str, str]:
+) -> tuple[dict[str, Any] | None, str, str, str]:
     llm_selection = _select_candidate_action_with_llm(
         context,
         score=score,
@@ -334,7 +362,11 @@ def _select_candidate_action(
         candidate_actions=candidate_actions,
         start_index=start_index,
     )
-    if llm_selection[0] is not None:
+    if llm_selection[0] is not None or llm_selection[3] in {
+        "complete",
+        "approval_required",
+        "failed",
+    }:
         return llm_selection
 
     target = float(score.get("tdr_target_ohm") or evidence.get("tdr_target_ohm") or 90.0)
@@ -354,14 +386,16 @@ def _select_candidate_action(
             action,
             f"deterministic candidate {index} selected for {desired_effect or 'next bounded edit'}",
             "deterministic",
+            "continue",
         )
     if start_index < len(candidate_actions):
         return (
             candidate_actions[start_index],
             f"deterministic candidate {start_index} selected as next bounded edit",
             "deterministic",
+            "continue",
         )
-    return None, "no candidate action remains", "deterministic"
+    return None, "no candidate action remains", "deterministic", "complete"
 
 
 def _select_candidate_action_with_llm(
@@ -371,15 +405,15 @@ def _select_candidate_action_with_llm(
     evidence: Mapping[str, Any],
     candidate_actions: list[dict[str, Any]],
     start_index: int,
-) -> tuple[dict[str, Any] | None, str, str]:
+) -> tuple[dict[str, Any] | None, str, str, str]:
     if start_index >= len(candidate_actions):
-        return None, "no candidate action remains", "llm"
+        return None, "no candidate action remains", "llm", "complete"
     try:
         from aedt_agent.agent.llm import LlmConfig, llm_complete_json
 
         config = LlmConfig.from_env(profile=context.node.profile)
         if not config.api_key:
-            return None, "LLM not configured", "llm"
+            return None, "LLM not configured", "llm", ""
         user_payload = {
             "bounded_score": _bounded_score_for_decider(score, evidence),
             "candidate_actions": candidate_actions[start_index:],
@@ -390,28 +424,30 @@ def _select_candidate_action_with_llm(
             (
                 "Select the next BRD via optimization action from the provided "
                 "candidate_actions. Use only bounded score evidence. Return JSON "
-                "with decision=continue|complete|request_human_review, action_index "
+                "with decision=continue|complete|approval_required, action_index "
                 "as an absolute index when continuing, and reason."
             ),
             json.dumps(user_payload, ensure_ascii=False, indent=2),
             config=config,
         )
     except Exception:
-        return None, "LLM selection unavailable", "llm"
+        return None, "LLM selection unavailable", "llm", ""
 
     decision = str(result.get("decision") or "").strip()
-    if decision in {"complete", "request_human_review"}:
-        return None, str(result.get("reason") or decision), "llm"
+    if decision in {"complete", "approval_required", "request_human_review", "failed"}:
+        normalized = "approval_required" if decision == "request_human_review" else decision
+        return None, str(result.get("reason") or normalized), "llm", normalized
     try:
         action_index = int(result.get("action_index"))
     except (TypeError, ValueError):
-        return None, "LLM did not return a valid action_index", "llm"
+        return None, "LLM did not return a valid action_index", "llm", ""
     if action_index < start_index or action_index >= len(candidate_actions):
-        return None, "LLM action_index is out of range", "llm"
+        return None, "LLM action_index is out of range", "llm", ""
     return (
         candidate_actions[action_index],
         str(result.get("reason") or f"LLM selected candidate {action_index}"),
         "llm",
+        "continue",
     )
 
 
