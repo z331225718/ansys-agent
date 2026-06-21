@@ -15,6 +15,14 @@ from aedt_agent.agent.workers.brd_evidence_compare import (
     build_evidence_compare_job_input,
     run_evidence_compare_worker,
 )
+from aedt_agent.agent.workers.brd_exports import (
+    BRD_TDR_EXPORT_CAPABILITY,
+    BRD_TOUCHSTONE_EXPORT_CAPABILITY,
+    build_brd_tdr_export_job_input,
+    build_brd_touchstone_export_job_input,
+    run_brd_tdr_export_worker,
+    run_brd_touchstone_export_worker,
+)
 from aedt_agent.agent.workers.brd_local_cut import (
     BRD_LOCAL_CUT_BUILD_CAPABILITY,
     build_brd_local_cut_job_input,
@@ -52,6 +60,8 @@ __all__ = [
     "BRD_MODEL_EDIT_CAPABILITY",
     "BRD_RECORDED_VOID_ACTION_CAPABILITY",
     "BRD_REAL_SOLVE_CAPABILITY",
+    "BRD_TDR_EXPORT_CAPABILITY",
+    "BRD_TOUCHSTONE_EXPORT_CAPABILITY",
     "InMemoryWorkerRegistry",
     "WorkerContext",
     "WorkerExecutionResult",
@@ -63,6 +73,8 @@ __all__ = [
     "build_brd_model_edit_job_input",
     "build_brd_recorded_void_action_job_input",
     "build_brd_real_solve_job_input",
+    "build_brd_tdr_export_job_input",
+    "build_brd_touchstone_export_job_input",
     "build_evidence_compare_job_input",
     "classify_worker_error",
     "run_action_propose_worker",
@@ -71,5 +83,7 @@ __all__ = [
     "run_brd_model_edit_worker",
     "run_brd_recorded_void_action_worker",
     "run_brd_real_solve_worker",
+    "run_brd_tdr_export_worker",
+    "run_brd_touchstone_export_worker",
     "run_evidence_compare_worker",
 ]

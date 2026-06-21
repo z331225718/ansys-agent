@@ -62,6 +62,8 @@ def test_reviewed_model_loop_template_uses_real_workers_and_report():
     assert [node.node_id for node in template.nodes] == [
         "prepare_working_project",
         "real_solve_worker",
+        "touchstone_export_worker",
+        "tdr_export_worker",
         "channel_score_worker",
         "optimization_decider",
         "action_approval_gate",
@@ -70,9 +72,12 @@ def test_reviewed_model_loop_template_uses_real_workers_and_report():
         "optimization_report",
     ]
     assert template.node("real_solve_worker").capability == "brd.local_cut.solve"
+    assert template.node("touchstone_export_worker").capability == "brd.touchstone.export"
+    assert template.node("tdr_export_worker").capability == "brd.tdr.export"
     assert template.node("channel_score_worker").capability == "brd.channel.score"
     assert template.node("model_edit_worker").capability == "brd.model.edit"
     assert template.node("optimization_decider").handler == "brd.optimization.decide_next_action"
+    assert template.node("channel_score_worker").input_schema == "tdr_export_result"
     assert template.handoffs["scorecard_report"].required_fields == [
         "status",
         "checks",

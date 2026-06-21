@@ -1,6 +1,6 @@
 id: brd_reviewed_model_optimize_loop
 version: 1
-description: "Reviewed AEDT model loop: prepare working copy -> solve -> score -> decide -> edit -> repeat -> report"
+description: "Reviewed AEDT model loop: prepare working copy -> solve -> export -> score -> decide -> edit -> repeat -> report"
 
 nodes:
   - id: prepare_working_project
@@ -22,11 +22,29 @@ nodes:
     retry_delay_seconds: 30
     max_runs: 5
 
+  - id: touchstone_export_worker
+    role: worker
+    kind: worker
+    capability: brd.touchstone.export
+    input_schema: solve_result
+    output_schema: touchstone_export_result
+    on_failure: fail
+    max_runs: 5
+
+  - id: tdr_export_worker
+    role: worker
+    kind: worker
+    capability: brd.tdr.export
+    input_schema: touchstone_export_result
+    output_schema: tdr_export_result
+    on_failure: fail
+    max_runs: 5
+
   - id: channel_score_worker
     role: worker
     kind: worker
     capability: brd.channel.score
-    input_schema: solve_result
+    input_schema: tdr_export_result
     output_schema: score_result
     max_runs: 5
 
@@ -94,8 +112,18 @@ edges:
     to: real_solve_worker
     on: succeeded
     max_traversals: 1
-  - id: solve-to-score
+  - id: solve-to-touchstone-export
     from: real_solve_worker
+    to: touchstone_export_worker
+    on: succeeded
+    max_traversals: 5
+  - id: touchstone-export-to-tdr-export
+    from: touchstone_export_worker
+    to: tdr_export_worker
+    on: succeeded
+    max_traversals: 5
+  - id: tdr-export-to-score
+    from: tdr_export_worker
     to: channel_score_worker
     on: succeeded
     max_traversals: 5
@@ -161,9 +189,29 @@ handoffs:
   solve_result:
     required_fields:
       - status
+      - project_path
+      - solve_manifest
+      - artifact_dir
+      - loop_context
+  touchstone_export_result:
+    required_fields:
+      - status
+      - touchstone_path
+      - touchstone_kind
+      - sparameter_mode
+      - return_loss_trace
+      - insertion_loss_trace
+      - touchstone_export_manifest
+      - artifact_dir
+      - loop_context
+  tdr_export_result:
+    required_fields:
+      - status
       - touchstone_path
       - tdr_path
-      - solve_manifest
+      - touchstone_export_manifest
+      - tdr_export_manifest
+      - artifact_dir
       - loop_context
   score_result:
     required_fields:

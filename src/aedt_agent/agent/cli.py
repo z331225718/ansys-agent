@@ -711,8 +711,9 @@ def _runtime_with_workers(db_path: Path, profile=None) -> AgentRuntime:
         BRD_MODEL_EDIT_CAPABILITY,
         BRD_RECORDED_VOID_ACTION_CAPABILITY,
         BRD_REAL_SOLVE_CAPABILITY,
+        BRD_TDR_EXPORT_CAPABILITY,
+        BRD_TOUCHSTONE_EXPORT_CAPABILITY,
         InMemoryWorkerRegistry,
-        run_brd_channel_score_worker,
         run_brd_local_cut_worker,
         run_brd_recorded_void_action_worker,
     )
@@ -764,10 +765,17 @@ def _runtime_with_workers(db_path: Path, profile=None) -> AgentRuntime:
         allow_real_aedt=profile.allow_real_aedt,
     )
     registry.register(BRD_LOCAL_CUT_BUILD_CAPABILITY, run_brd_local_cut_worker)
-    registry.register(BRD_CHANNEL_SCORE_CAPABILITY, run_brd_channel_score_worker)
     registry.register(
         BRD_RECORDED_VOID_ACTION_CAPABILITY,
         lambda job, context: run_brd_recorded_void_action_worker(job, context, store=store),
+    )
+    registry.register_process(
+        BRD_CHANNEL_SCORE_CAPABILITY,
+        (
+            "aedt_agent.agent.workers.brd_channel_score:"
+            "run_brd_channel_score_worker"
+        ),
+        resource_classes=("cpu",),
     )
     registry.register_process(
         BRD_MODEL_EDIT_CAPABILITY,
@@ -798,6 +806,19 @@ def _runtime_with_workers(db_path: Path, profile=None) -> AgentRuntime:
                 "non_graphical": profile.aedt_non_graphical,
             }
         },
+    )
+    registry.register_process(
+        BRD_TOUCHSTONE_EXPORT_CAPABILITY,
+        (
+            "aedt_agent.agent.workers.brd_exports:"
+            "run_brd_touchstone_export_worker"
+        ),
+        resource_classes=("cpu",),
+    )
+    registry.register_process(
+        BRD_TDR_EXPORT_CAPABILITY,
+        "aedt_agent.agent.workers.brd_exports:run_brd_tdr_export_worker",
+        resource_classes=("cpu",),
     )
     return AgentRuntime(store, registry=registry)
 

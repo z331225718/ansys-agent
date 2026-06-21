@@ -78,7 +78,12 @@ def test_runtime_with_workers_uses_ssh_runner_from_profile(tmp_path):
 
 def test_runtime_registers_model_edit_process_worker(tmp_path):
     from aedt_agent.agent.cli import _runtime_with_workers
-    from aedt_agent.agent.workers import BRD_MODEL_EDIT_CAPABILITY
+    from aedt_agent.agent.workers import (
+        BRD_CHANNEL_SCORE_CAPABILITY,
+        BRD_MODEL_EDIT_CAPABILITY,
+        BRD_TDR_EXPORT_CAPABILITY,
+        BRD_TOUCHSTONE_EXPORT_CAPABILITY,
+    )
 
     runtime = _runtime_with_workers(tmp_path / "mission.db")
     registration = runtime.registry._registrations[BRD_MODEL_EDIT_CAPABILITY]
@@ -86,3 +91,21 @@ def test_runtime_registers_model_edit_process_worker(tmp_path):
     assert registration.execution_mode == "local_process"
     assert registration.requires_real_aedt is True
     assert registration.resource_classes == ("license", "aedt")
+    assert (
+        runtime.registry._registrations[
+            BRD_CHANNEL_SCORE_CAPABILITY
+        ].execution_mode
+        == "local_process"
+    )
+    assert (
+        runtime.registry._registrations[
+            BRD_TOUCHSTONE_EXPORT_CAPABILITY
+        ].execution_mode
+        == "local_process"
+    )
+    assert (
+        runtime.registry._registrations[
+            BRD_TDR_EXPORT_CAPABILITY
+        ].execution_mode
+        == "local_process"
+    )
