@@ -115,6 +115,17 @@ def build_parser() -> argparse.ArgumentParser:
     run_loop_parser.add_argument("--max-workers", type=int, default=2)
     run_loop_parser.add_argument("--poll-seconds", type=int, default=0)
 
+    validate_loop_parser = mission_commands.add_parser(
+        "validate-loop-config",
+        help="Validate a reviewed-model optimization loop config without running AEDT.",
+    )
+    validate_loop_parser.add_argument("--config", required=True, type=Path)
+    validate_loop_parser.add_argument(
+        "--no-check-paths",
+        action="store_true",
+        help="Validate schema/contracts only; do not require machine-local files to exist.",
+    )
+
     resume_graph_parser = mission_commands.add_parser("resume-graph")
     resume_graph_parser.add_argument("--graph-run-id", required=True)
     resume_graph_parser.add_argument("--worker-id", default="cli-graph-resume")
@@ -483,6 +494,20 @@ def run(argv: Sequence[str] | None = None) -> int:
         )
         _print_json(report)
         return _graph_exit_code(str(report["status"]))
+
+    if args.group == "mission" and args.mission_command == "validate-loop-config":
+        from aedt_agent.agent.loop_runner import (
+            load_loop_config,
+            validate_loop_config_for_run,
+        )
+
+        config = load_loop_config(args.config)
+        report = validate_loop_config_for_run(
+            config,
+            check_paths=not args.no_check_paths,
+        )
+        _print_json(report)
+        return 0 if report["status"] == "passed" else 1
 
     if args.group == "mission" and args.mission_command == "advance":
         from aedt_agent.agent.orchestrator import MissionLoopController

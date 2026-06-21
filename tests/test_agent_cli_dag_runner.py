@@ -179,3 +179,19 @@ handoffs:
     output = json.loads(result.stdout)
     assert output["graph_run"]["initial_payload"] == {"value": 42}
     assert output["node_runs"][0]["output_payload"]["value"] == 42
+
+
+def test_cli_validate_loop_config_without_machine_paths(tmp_path):
+    result = _run(
+        tmp_path,
+        "mission",
+        "validate-loop-config",
+        "--config",
+        "config/optimization_loops/reviewed_brd_remote.example.json",
+        "--no-check-paths",
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "passed"
+    assert "touchstone_is_s4p" not in payload["failed_checks"]

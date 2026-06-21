@@ -23,6 +23,18 @@ The loop config must point to a human-reviewed source AEDT project and a
 separate working project path. The source project is copied once; the loop then
 edits the working project in place.
 
+Before running a long solve, validate the config:
+
+```powershell
+.\.venv\Scripts\python.exe -m aedt_agent.agent `
+  mission validate-loop-config `
+  --config config\optimization_loops\reviewed_brd_remote.json
+```
+
+Use `--no-check-paths` only when reviewing a config on a machine that does not
+have the AEDT project files mounted. On the AEDT machine, path checks should
+pass before the loop starts.
+
 ## 2. LLM profiles
 
 The graph can use different model profiles by node. Small planner/utility
@@ -64,8 +76,12 @@ Open:
 http://<aedt-machine-ip>:8766
 ```
 
-The page shows the DAG state, events, approvals, and the latest
-`optimization_history.csv` rows.
+The page shows the DAG state, node runs, events, pending approvals, key
+artifacts/reports, and the latest `optimization_history.csv` rows. If an
+artifact exists on the web server host, the dashboard exposes an `open` link for
+the HTML report, CSV, JSON, and SVG/PNG plots. Remote paths that have not been
+mirrored are still shown as paths so the orchestrator can report them without
+putting raw S-parameter or TDR data into LLM context.
 
 ## 4. Run the loop
 
@@ -110,7 +126,32 @@ If the graph enters approval, use `mission approve` and then
 `mission resume-graph`. If the graph needs a different template or corrected
 payload, use `mission takeover`.
 
-## 5. Outputs
+## 5. Minimal production checklist
+
+Run this checklist on the AEDT machine before handing the task to Claude Code:
+
+```powershell
+git status --short
+.\.venv\Scripts\python.exe -m py_compile src\aedt_agent\agent\loop_runner.py src\aedt_agent\agent\web.py
+.\.venv\Scripts\python.exe -m pytest tests\test_agent_loop_runner.py tests\test_agent_web.py -q
+.\.venv\Scripts\python.exe -m aedt_agent.agent `
+  mission validate-loop-config `
+  --config config\optimization_loops\reviewed_brd_remote.json
+```
+
+The validate command should report:
+
+```text
+status: passed
+template_loadable: passed
+working_project_is_separate: passed
+touchstone_is_s4p: passed
+differential_traces: passed
+tdr_diff1: passed
+geometry_constraints: passed
+```
+
+## 6. Outputs
 
 The configured `report_dir` receives:
 

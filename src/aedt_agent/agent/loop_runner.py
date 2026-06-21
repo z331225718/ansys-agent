@@ -30,6 +30,117 @@ def load_loop_config(path: str | Path) -> dict[str, Any]:
     return payload
 
 
+def validate_loop_config_for_run(
+    config: dict[str, Any],
+    *,
+    check_paths: bool = True,
+) -> dict[str, Any]:
+    checks: list[dict[str, Any]] = []
+
+    def check(check_id: str, passed: bool, message: str, *, severity: str = "error") -> None:
+        checks.append(
+            {
+                "id": check_id,
+                "status": "passed" if passed else "failed",
+                "severity": severity,
+                "message": message,
+            }
+        )
+
+    try:
+        template = load_graph_template(str(config.get("template_id")))
+        check("template_loadable", True, f"loaded template {template.template_id}")
+    except Exception as exc:
+        check("template_loadable", False, str(exc))
+
+    graph_run_id = str(config.get("graph_run_id") or "").strip()
+    if graph_run_id:
+        check("resume_graph_run_id", True, f"will resume graph_run_id={graph_run_id}")
+        return _validation_report(checks)
+
+    source_project = str(config.get("source_project_path") or config.get("project_path") or "").strip()
+    working_project = str(config.get("working_project_path") or "").strip()
+    run_root = str(config.get("run_root") or "").strip()
+    report_dir = str(config.get("report_dir") or "").strip()
+
+    check("source_project_path_present", bool(source_project), source_project or "missing")
+    check("working_project_path_present", bool(working_project), working_project or "missing")
+    check("run_root_present", bool(run_root), run_root or "missing")
+    check("report_dir_present", bool(report_dir), report_dir or "missing")
+    if source_project and working_project:
+        check(
+            "working_project_is_separate",
+            Path(source_project) != Path(working_project),
+            "working project must be separate from the human-reviewed source project",
+        )
+    if run_root and working_project:
+        check(
+            "working_project_under_run_root",
+            _path_is_under(Path(working_project), Path(run_root)),
+            "working project should live under run_root so the loop edits one controlled copy",
+        )
+    if run_root and report_dir:
+        check(
+            "report_dir_under_run_root",
+            _path_is_under(Path(report_dir), Path(run_root)),
+            "report_dir should live under run_root for artifact review and cleanup",
+        )
+
+    if check_paths and source_project:
+        check(
+            "source_project_exists",
+            Path(source_project).is_file(),
+            source_project,
+        )
+    if check_paths and working_project:
+        parent = Path(working_project).parent
+        check(
+            "working_project_parent_ready",
+            parent.exists() or parent.parent.exists(),
+            str(parent),
+            severity="warning",
+        )
+
+    check(
+        "poll_interval_seconds",
+        int(config.get("poll_interval_seconds") or 30) >= MIN_POLL_INTERVAL_SECONDS,
+        f"poll_interval_seconds={config.get('poll_interval_seconds', 30)}",
+    )
+    check(
+        "max_rounds_positive",
+        int(config.get("max_rounds") or 0) > 0,
+        f"max_rounds={config.get('max_rounds')}",
+    )
+    check(
+        "touchstone_is_s4p",
+        str(config.get("touchstone_name") or "").casefold().endswith(".s4p")
+        and int(config.get("expected_port_count") or 0) == 4,
+        "differential reviewed BRD loop must export a four-port .s4p",
+    )
+    check(
+        "differential_traces",
+        str(config.get("sparameter_mode") or "").casefold() == "differential",
+        "score worker must use differential SDD11/SDD21 evidence",
+    )
+    check(
+        "tdr_diff1",
+        "diff1" in str(config.get("tdr_expression") or "").casefold()
+        and str(config.get("tdr_observation_port") or "").casefold() == "diff1",
+        "TDR observation should default to Diff1 for this workflow",
+    )
+    check(
+        "tdr_export_enabled",
+        bool(config.get("export_tdr", True)),
+        "TDR export is required before channel score",
+    )
+    check(
+        "geometry_constraints",
+        _geometry_constraints_valid(config),
+        "anti-pad radius <=22mil; NFP radius in [7.875mil, 10mil]",
+    )
+    return _validation_report(checks)
+
+
 def run_loop_from_config(
     runtime,
     config: dict[str, Any],
@@ -113,6 +224,48 @@ def _validate_loop_config(payload: dict[str, Any], config_path: Path) -> None:
         raise ValueError(f"{config_path}: goal is required")
     if not str(payload.get("template_id") or "").strip():
         raise ValueError(f"{config_path}: template_id is required")
+
+
+def _validation_report(checks: list[dict[str, Any]]) -> dict[str, Any]:
+    error_failures = [
+        item for item in checks
+        if item["status"] == "failed" and item.get("severity") != "warning"
+    ]
+    warning_failures = [
+        item for item in checks
+        if item["status"] == "failed" and item.get("severity") == "warning"
+    ]
+    return {
+        "status": "failed" if error_failures else "passed",
+        "checks": checks,
+        "failed_checks": [item["id"] for item in error_failures],
+        "warning_checks": [item["id"] for item in warning_failures],
+    }
+
+
+def _path_is_under(path: Path, root: Path) -> bool:
+    try:
+        path.resolve(strict=False).relative_to(root.resolve(strict=False))
+        return True
+    except Exception:
+        return False
+
+
+def _geometry_constraints_valid(config: dict[str, Any]) -> bool:
+    constraints = config.get("geometry_constraints")
+    if not isinstance(constraints, dict):
+        return False
+    anti_pad = constraints.get("anti_pad")
+    nfp = constraints.get("non_functional_pad")
+    if not isinstance(anti_pad, dict) or not isinstance(nfp, dict):
+        return False
+    try:
+        anti_max = float(anti_pad.get("max_radius_mil"))
+        nfp_min = float(nfp.get("min_radius_mil"))
+        nfp_max = float(nfp.get("max_radius_mil"))
+    except (TypeError, ValueError):
+        return False
+    return anti_max <= 22 and nfp_min >= 7.875 and nfp_max <= 10 and nfp_min <= nfp_max
 
 
 def _progress_signature(report: dict[str, Any]) -> tuple[Any, ...]:

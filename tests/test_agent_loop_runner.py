@@ -116,3 +116,51 @@ def test_run_loop_from_config_can_resume_existing_graph(monkeypatch):
     assert report["status"] == "waiting_approval"
     assert report["mission_id"] == "mission-existing"
     assert report["graph_run_id"] == "graph-existing"
+
+
+def test_validate_reviewed_loop_example_without_machine_paths():
+    config = loop_runner.load_loop_config(
+        Path("config/optimization_loops/reviewed_brd_remote.example.json")
+    )
+
+    report = loop_runner.validate_loop_config_for_run(config, check_paths=False)
+
+    assert report["status"] == "passed"
+    assert report["failed_checks"] == []
+    check_status = {item["id"]: item["status"] for item in report["checks"]}
+    assert check_status["template_loadable"] == "passed"
+    assert check_status["working_project_is_separate"] == "passed"
+    assert check_status["touchstone_is_s4p"] == "passed"
+    assert check_status["differential_traces"] == "passed"
+    assert check_status["tdr_diff1"] == "passed"
+    assert check_status["geometry_constraints"] == "passed"
+
+
+def test_validate_loop_config_rejects_single_ended_contract():
+    config = {
+        "goal": "bad loop",
+        "template_id": "brd_reviewed_model_optimize_loop",
+        "run_root": "D:/runs",
+        "source_project_path": "D:/source/reviewed.aedt",
+        "working_project_path": "D:/runs/working/reviewed.aedt",
+        "report_dir": "D:/runs/report",
+        "max_rounds": 2,
+        "poll_interval_seconds": 30,
+        "touchstone_name": "channel.s2p",
+        "expected_port_count": 2,
+        "sparameter_mode": "single_ended",
+        "tdr_expression": "TDRZt(Port1)",
+        "tdr_observation_port": "Port1",
+        "export_tdr": True,
+        "geometry_constraints": {
+            "anti_pad": {"max_radius_mil": 22},
+            "non_functional_pad": {"min_radius_mil": 7.875, "max_radius_mil": 10},
+        },
+    }
+
+    report = loop_runner.validate_loop_config_for_run(config, check_paths=False)
+
+    assert report["status"] == "failed"
+    assert "touchstone_is_s4p" in report["failed_checks"]
+    assert "differential_traces" in report["failed_checks"]
+    assert "tdr_diff1" in report["failed_checks"]

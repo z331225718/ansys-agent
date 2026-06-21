@@ -26,6 +26,15 @@
   "tdr_target_ohm": 90.0,
   "tdr_tolerance_ohm": 9.0,
   "require_action_approval": false,
+  "geometry_constraints": {
+    "anti_pad": {
+      "max_radius_mil": 22
+    },
+    "non_functional_pad": {
+      "min_radius_mil": 7.875,
+      "max_radius_mil": 10
+    }
+  },
   "candidate_actions": [
     {
       "hypothesis": "TDR low-impedance feature is mapped to the reviewed L1 ball and L1-L4 laser-via pad parasitic region; enlarge the existing L2 plane void from 20mil to 22mil to increase local impedance.",
