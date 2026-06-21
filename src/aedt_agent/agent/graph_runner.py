@@ -894,7 +894,7 @@ def _execute_wave(
                 for index in worker_indexes
             }
             for index in worker_indexes:
-                timeout = 300  # default
+                timeout = int(getattr(runtime, "default_job_timeout_seconds", 300))
                 job_id = runtime.store.get_graph_node_job(
                     graph_run.graph_run_id,
                     ready[index].node.node_id,
@@ -911,7 +911,7 @@ def _execute_wave(
                     results[index] = futures[index].result(timeout=timeout)
                 except FuturesTimeoutError:
                     results[index] = GraphNodeExecutionResult(
-                        NodeRunStatus.FAILED, "failed", {},
+                        NodeRunStatus.FAILED, "failed", {}, [],
                         error={"error_class": "worker_timeout", "message": "worker timed out"},
                     )
                 # Other exceptions propagate naturally to the outer try/except

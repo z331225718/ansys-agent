@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from aedt_agent.agent.graph_runner import run_graph_once
-from aedt_agent.agent.graph_template import load_graph_template, resolve_template_path
+from aedt_agent.agent.graph_executors import GraphNodeExecutionResult
+from aedt_agent.agent.graph_runner import _execute_wave, run_graph_once
+from aedt_agent.agent.graph_template import GraphNode, load_graph_template, resolve_template_path
+from aedt_agent.agent.mission import NodeRunStatus
 from aedt_agent.agent.orchestrator import AgentRuntime
 from aedt_agent.agent.workers import BRD_LOCAL_CUT_BUILD_CAPABILITY, InMemoryWorkerRegistry, build_brd_local_cut_job_input, run_brd_local_cut_worker
 from aedt_agent.infrastructure import SQLiteMissionStore
@@ -60,3 +63,55 @@ def test_run_graph_once_rejects_job_outside_template(tmp_path):
 
     with pytest.raises(ValueError, match="not allowed by graph template"):
         run_graph_once(runtime, mission.mission_id, template, worker_id="graph")
+
+
+def test_worker_wave_uses_runtime_default_timeout_before_job_is_bound(monkeypatch):
+    from aedt_agent.agent import graph_runner
+
+    observed_timeouts: list[int] = []
+
+    class FakeFuture:
+        def result(self, timeout=None):
+            observed_timeouts.append(timeout)
+            return GraphNodeExecutionResult(
+                NodeRunStatus.SUCCEEDED,
+                "succeeded",
+                {},
+                [],
+            )
+
+    class FakeExecutor:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def submit(self, *args, **kwargs):
+            return FakeFuture()
+
+    monkeypatch.setattr(graph_runner, "ThreadPoolExecutor", FakeExecutor)
+    runtime = SimpleNamespace(
+        default_job_timeout_seconds=1234,
+        store=SimpleNamespace(get_graph_node_job=lambda *args: None),
+        get_job=lambda job_id: None,
+    )
+    node = GraphNode("worker", "worker", "worker", capability="fake.worker")
+    ready = [SimpleNamespace(node=node, input_payload={}, run_index=1)]
+
+    results = _execute_wave(
+        runtime,
+        SimpleNamespace(graph_run_id="graph-1"),
+        SimpleNamespace(),
+        ready,
+        [SimpleNamespace()],
+        worker_id="graph",
+        max_workers=1,
+        registry=None,
+    )
+
+    assert results[0].status == NodeRunStatus.SUCCEEDED
+    assert observed_timeouts == [1234]

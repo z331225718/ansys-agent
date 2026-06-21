@@ -97,6 +97,38 @@ def test_runtime_with_workers_uses_profile_solve_timeout_as_job_default(tmp_path
     assert job.timeout_seconds == 1234
 
 
+def test_runtime_with_workers_extends_heartbeat_timeout_for_real_aedt(tmp_path):
+    from aedt_agent.agent.cli import _runtime_with_workers
+    from aedt_agent.agent.policies import ExecutionProfile
+
+    profile = replace(
+        ExecutionProfile.safe_recorded(),
+        allow_real_aedt=True,
+        solve_timeout_seconds=4321,
+        heartbeat_timeout_seconds=30,
+    )
+
+    runtime = _runtime_with_workers(tmp_path / "mission.db", profile=profile)
+
+    assert runtime.registry.harness.heartbeat_timeout_seconds == 4321
+
+
+def test_resume_graph_parser_accepts_profile():
+    from aedt_agent.agent.cli import build_parser
+
+    args = build_parser().parse_args([
+        "mission",
+        "resume-graph",
+        "--graph-run-id",
+        "graph-1",
+        "--profile",
+        "config/execution_profiles/local_real_aedt.json",
+    ])
+
+    assert args.mission_command == "resume-graph"
+    assert args.profile == "config/execution_profiles/local_real_aedt.json"
+
+
 def test_runtime_registers_model_edit_process_worker(tmp_path):
     from aedt_agent.agent.cli import _runtime_with_workers
     from aedt_agent.agent.workers import (

@@ -131,6 +131,7 @@ def build_parser() -> argparse.ArgumentParser:
     resume_graph_parser.add_argument("--graph-run-id", required=True)
     resume_graph_parser.add_argument("--worker-id", default="cli-graph-resume")
     resume_graph_parser.add_argument("--max-workers", type=int, default=4)
+    resume_graph_parser.add_argument("--profile", default="safe-recorded")
 
     advance = mission_commands.add_parser("advance")
     advance.add_argument("--mission-id", required=True)
@@ -478,7 +479,8 @@ def run(argv: Sequence[str] | None = None) -> int:
     if args.group == "mission" and args.mission_command == "resume-graph":
         from aedt_agent.agent.graph_runner import resume_graph
 
-        runtime = _runtime_with_workers(args.db)
+        profile = _load_execution_profile(args.profile)
+        runtime = _runtime_with_workers(args.db, profile)
         report = resume_graph(
             runtime,
             args.graph_run_id,
@@ -783,6 +785,12 @@ def _runtime_with_workers(db_path: Path, profile=None) -> AgentRuntime:
     harness_root = Path(profile.harness_root)
     if not harness_root.is_absolute():
         harness_root = db_path.parent / harness_root
+    heartbeat_timeout_seconds = profile.heartbeat_timeout_seconds
+    if profile.allow_real_aedt:
+        heartbeat_timeout_seconds = max(
+            heartbeat_timeout_seconds,
+            profile.solve_timeout_seconds,
+        )
     harness = LocalProcessHarness(
         HarnessWorkspacePolicy(harness_root),
         resource_gate=ResourceGate(
@@ -790,7 +798,7 @@ def _runtime_with_workers(db_path: Path, profile=None) -> AgentRuntime:
             max_concurrent_aedt=profile.max_concurrent_aedt,
             max_concurrent_license_jobs=profile.max_concurrent_license_jobs,
         ),
-        heartbeat_timeout_seconds=profile.heartbeat_timeout_seconds,
+        heartbeat_timeout_seconds=heartbeat_timeout_seconds,
         termination_grace_seconds=profile.termination_grace_seconds,
     )
     process_runner = LocalCliRunner(harness)
