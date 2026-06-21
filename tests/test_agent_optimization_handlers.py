@@ -82,6 +82,84 @@ def test_prepare_working_project_copies_reviewed_bundle(tmp_path):
     assert result.output_payload["loop_context"]["solve"]["sweep_name"] == "Sweep1"
 
 
+def test_prepare_working_project_removes_reused_working_project_lock(tmp_path):
+    source = tmp_path / "source" / "case.aedt"
+    source.parent.mkdir()
+    source.write_text("source project", encoding="utf-8")
+    source_lock = source.with_name(f"{source.name}.lock")
+    source_lock.write_text("source lock", encoding="utf-8")
+    working = tmp_path / "run" / "working" / "case.aedt"
+    working.parent.mkdir(parents=True)
+    working.write_text("existing working project", encoding="utf-8")
+    working_lock = working.with_name(f"{working.name}.lock")
+    working_lock.write_text("stale lock", encoding="utf-8")
+    node = GraphNode(
+        "prepare",
+        "prepare",
+        "program",
+        handler="brd.optimization.prepare_working_project",
+        output_schema="real_solve_request",
+    )
+    template = GraphTemplate(
+        "test",
+        1,
+        "",
+        [node],
+        [],
+        {
+            "real_solve_request": HandoffSchema(
+                "real_solve_request",
+                [
+                    "project_path",
+                    "setup_name",
+                    "sweep_name",
+                    "tdr_expression",
+                    "expected_port_count",
+                    "loop_context",
+                ],
+            )
+        },
+    )
+    graph_run = GraphRunRecord.create("graph-1", "mission-1", "test", 1, 1)
+    node_run = NodeRunRecord.create(
+        "node-run-1",
+        graph_run.graph_run_id,
+        graph_run.mission_id,
+        node.node_id,
+        node.role,
+        node.kind,
+        1,
+        {},
+    )
+    context = GraphNodeExecutionContext(
+        runtime=None,
+        graph_run=graph_run,
+        node_run=node_run,
+        node=node,
+        template=template,
+        input_payload={
+            "source_project_path": str(source),
+            "working_project_path": str(working),
+            "run_root": str(tmp_path / "run"),
+            "report_dir": str(tmp_path / "run" / "progress"),
+            "reset_working_project": False,
+        },
+        run_index=1,
+        worker_id="test",
+    )
+
+    result = execute_graph_node(context)
+
+    assert result.status == NodeRunStatus.SUCCEEDED
+    assert result.output_payload["project_path"] == str(working)
+    assert working.read_text(encoding="utf-8") == "existing working project"
+    assert not working_lock.exists()
+    assert source_lock.exists()
+    assert result.output_payload["stale_aedt_lock_files_removed"] == [
+        str(working_lock.resolve())
+    ]
+
+
 def test_agent_decider_falls_back_to_deterministic_handler_without_llm(
     tmp_path,
     monkeypatch,

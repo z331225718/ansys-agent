@@ -52,18 +52,26 @@ def prepare_working_project(
     if not source_project.is_file():
         raise FileNotFoundError(f"source_project_path not found: {source_project}")
     reset = bool(payload.get("reset_working_project", False))
+    run_root = _run_root(payload, working_project.parent)
+    cleanup_lock = bool(payload.get("cleanup_stale_aedt_lock", True))
+    removed_lock_files = (
+        _remove_project_lock(working_project, run_root=run_root)
+        if cleanup_lock
+        else []
+    )
     if working_project != source_project:
         _copy_project_bundle_once(
             source_project,
             working_project,
             reset=reset,
-            run_root=_run_root(payload, working_project.parent),
+            run_root=run_root,
         )
 
     loop_context = _initial_loop_context(payload, working_project)
     output = _solve_input(payload, loop_context, round_index=1)
     output["working_project_prepared"] = True
     output["source_project_path"] = str(source_project)
+    output["stale_aedt_lock_files_removed"] = removed_lock_files
     return _ok(output)
 
 
@@ -600,6 +608,21 @@ def _ensure_within(path: Path, root: Path) -> None:
     if path == root or path.is_relative_to(root):
         return
     raise ValueError(f"path is outside configured run_root: {path}")
+
+
+def _remove_project_lock(project_path: Path, *, run_root: Path) -> list[str]:
+    lock_path = Path(f"{project_path}.lock")
+    if not lock_path.exists():
+        return []
+    lock_path = lock_path.resolve()
+    _ensure_within(lock_path, run_root.resolve())
+    try:
+        lock_path.unlink(missing_ok=True)
+    except OSError as exc:
+        raise RuntimeError(
+            f"could not remove AEDT project lock: {lock_path}"
+        ) from exc
+    return [str(lock_path)]
 
 
 def read_history_csv(path: str | Path, *, limit: int = 20) -> list[dict[str, str]]:
