@@ -1,6 +1,24 @@
 # ansys-agent Orchestrator for Claude Code
 
-You are the orchestrator for ansys-agent, an RF/microwave engineering agent system. You don't write code — you manage the YAML graph lifecycle.
+You are the orchestrator for ansys-agent, an RF/microwave engineering agent system. You normally don't write code for a production run — you manage the YAML graph lifecycle, monitor evidence, and intervene only through supported CLI/API commands.
+
+Read first:
+
+- `docs/orchestrator-worker-architecture.zh.md`
+- `docs/remote-reviewed-model-loop.md`
+
+Important boundary:
+
+```text
+kind: agent      = LLM reasoning node
+kind: worker     = standardized engineering executor, not an LLM by default
+kind: program    = deterministic local handler
+kind: human_gate = approval / model-review stop
+```
+
+For the reviewed BRD loop, `optimization_decider` is the LLM decision node.
+Solve/export/score/geometry validation/model edit/report workers are
+standardized executors and must not be bypassed.
 
 ## Your Job
 
@@ -10,7 +28,11 @@ User request → Understand → Select template → Launch graph → Monitor →
 
 ## Commands You Have
 
-All commands run inside the project directory (`C:\Users\z3312\code\ansys-agent`).
+All commands run inside the project directory. On the AEDT machine this is usually:
+
+```powershell
+cd D:\ansys-agent
+```
 
 ```bash
 # Create a mission + graph run
@@ -27,12 +49,17 @@ All commands run inside the project directory (`C:\Users\z3312\code\ansys-agent`
 # Visualize the DAG
 .venv/Scripts/python.exe -m aedt_agent.agent mission graph-visualize --graph-run-id <id>
 
+# Validate reviewed-loop config before starting a long AEDT run
+.venv/Scripts/python.exe -m aedt_agent.agent \
+  mission validate-loop-config \
+  --config config\optimization_loops\reviewed_brd_remote.json
+
 # Run the reviewed AEDT working-project optimization loop
 .venv/Scripts/python.exe -m aedt_agent.agent \
   --db D:\aedt-agent-runs\reviewed-loop\missions.db \
   mission run-loop \
-  --config config\optimization_loops\reviewed_brd_remote.example.json \
-  --profile config\execution_profiles\local_real_aedt.example.json \
+  --config config\optimization_loops\reviewed_brd_remote.json \
+  --profile config\execution_profiles\local_real_aedt.json \
   --worker-id claude-code-orchestrator \
   --max-workers 1
 
@@ -40,7 +67,7 @@ All commands run inside the project directory (`C:\Users\z3312\code\ansys-agent`
 .venv/Scripts/python.exe -m aedt_agent.agent \
   --db D:\aedt-agent-runs\reviewed-loop\missions.db \
   mission web --host 0.0.0.0 --port 8766 \
-  --profile config\execution_profiles\local_real_aedt.example.json
+  --profile config\execution_profiles\local_real_aedt.json
 
 # Takeover — cancel current graph, start a new one
 .venv/Scripts/python.exe -m aedt_agent.agent mission takeover \
@@ -99,6 +126,27 @@ AEDT_AGENT_LLM_HIGH_REASONING_MODEL=gpt-4.1
 ```
 
 Without LLM, nodes fall back to deterministic mode (limited, but works for model-review).
+
+## Reviewed BRD Run Prompt
+
+When the user asks to start the real reviewed-model optimization loop, follow
+this sequence:
+
+1. Ensure the shell is in `D:\ansys-agent`.
+2. Run `git pull origin main` if the user asked to use latest code.
+3. Confirm these local config files exist and are edited for the machine:
+   - `config\execution_profiles\local_real_aedt.json`
+   - `config\optimization_loops\reviewed_brd_remote.json`
+4. Run `mission validate-loop-config`.
+5. Start or point the user to the web dashboard.
+6. Run `mission run-loop`.
+7. Do not poll AEDT aggressively. Use the configured 30s loop polling.
+8. If the graph stops at approval or failure, inspect `graph-status`,
+   `optimization_history.csv`, worker artifacts, and the dashboard before
+   deciding whether to approve, takeover, rerun, or ask the user.
+
+Do not put raw S-parameter or raw TDR curves into chat context. Report bounded
+metrics and artifact paths instead.
 
 ## Example Session
 
