@@ -1,8 +1,14 @@
-# Remote reviewed-model optimization loop
+# Reviewed-model optimization loop on the AEDT machine
 
 This is the production-shaped entry point for the back half of the BRD via
 optimization flow. Run it on the AEDT machine, where Claude Code acts as the
 orchestrator and the workers run through the local process harness.
+
+The filename still contains `remote` because early bring-up used a split
+orchestrator/AEDT setup. That is not the default production mode. Most runs use
+`config\execution_profiles\local_real_aedt.json` with `simulation_runner =
+local_cli`, and SSH is not started. Use `ssh_remote` only when the orchestrator
+is intentionally running on a different machine from AEDT.
 
 Read `docs/orchestrator-worker-architecture.zh.md` first if there is any
 confusion about LLM nodes versus worker nodes, and read

@@ -21,6 +21,22 @@ For the reviewed BRD loop, `optimization_decider` is the LLM decision node.
 Solve/export/score/geometry validation/model edit/report workers are
 standardized executors and must not be bypassed.
 
+## Execution Profile Policy
+
+The normal production path is local execution on the AEDT workstation:
+
+```text
+config\execution_profiles\local_real_aedt.json
+simulation_runner = local_cli
+```
+
+Do not start SSH by default. Do not choose `ssh_remote` unless the user
+explicitly says the external orchestrator is running on a different machine
+from AEDT, or provides an execution profile whose `simulation_runner` is
+`ssh_remote`. In the usual setup, Claude Code is opened directly on the AEDT
+machine in `D:\ansys-agent`, and all solve/export/score/edit workers run
+through the local process harness.
+
 ## Production Hard Rules
 
 These rules are short enough to keep in harness context even though the full

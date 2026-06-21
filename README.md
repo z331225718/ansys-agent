@@ -30,7 +30,7 @@ TDR 曲线保持 artifact-only，不直接放进 LLM 上下文。
 
 ## 先读这些文档
 
-远端 Claude Code 或任何外层编排者启动前，先读：
+AEDT 工作站上的 Claude Code 或任何外层编排者启动前，先读：
 
 ```text
 CLAUDE.md
@@ -45,8 +45,24 @@ docs/agent_templates/brd_reviewed_model_optimize_loop.yaml
 - `CLAUDE.md`：Claude Code 在本项目中如何作为外层编排者。
 - `orchestrator-worker-architecture.zh.md`：谁是 LLM、谁是 worker、谁负责审计。
 - `brd-local-cut-optimization.md`：BRD local-cut 工程经验、TDR 判断、反焊盘/NFP 规则。
-- `remote-reviewed-model-loop.md`：远端机器怎么配置、校验、开 dashboard、跑 loop。
+- `remote-reviewed-model-loop.md`：AEDT 工作站怎么配置、校验、开 dashboard、跑 loop。
 - `brd_reviewed_model_optimize_loop.yaml`：当前真实 reviewed AEDT 优化闭环图。
+
+## 执行位置和 Runner
+
+默认、大多数真实运行都在 AEDT 工作站本地执行：
+
+```text
+config\execution_profiles\local_real_aedt.json
+simulation_runner = local_cli
+```
+
+这意味着 Claude Code / Codex 可以直接在 AEDT 机器的仓库目录里作为外层编排者，
+worker 通过本地 process harness 启动 AEDT/PyAEDT。SSH 默认不启动，也不是主路径。
+
+`ssh_remote` 只用于少数拆分部署：外层编排者不在 AEDT 机器上，而 AEDT/worker 必须
+在另一台大内存机器本机执行。除非用户明确要求这种跨机器模式，否则不要使用
+`config\execution_profiles\ssh_remote.example.json`。
 
 ## 当前真实闭环
 
@@ -78,9 +94,9 @@ optimization_report              worker  brd.optimization.report
 确定性执行 -> 确定性评分/审计 -> LLM 决策 -> 确定性校验 -> 确定性修改 -> 再求解
 ```
 
-## 远端机器快速开始
+## AEDT 工作站本地快速开始
 
-在 AEDT 远端机器：
+在 AEDT 工作站：
 
 ```powershell
 cd D:\ansys-agent
@@ -117,7 +133,7 @@ geometry_constraints  anti-pad <= 22mil; NFP radius 7.875-10mil
 
 ## 让 Claude Code 编排
 
-在远端仓库根目录打开 Claude Code：
+在 AEDT 工作站的仓库根目录打开 Claude Code：
 
 ```powershell
 cd D:\ansys-agent

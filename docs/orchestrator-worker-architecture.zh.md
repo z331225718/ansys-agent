@@ -109,8 +109,10 @@ schema 和 model profile。
 
 ### 3. Worker 节点
 
-`kind: worker` 是标准化执行单元。它们通常通过本地 process harness、
-`local_cli` runner 或 `ssh_remote` runner 执行。
+`kind: worker` 是标准化执行单元。默认生产路径是在 AEDT 工作站本地通过
+process harness / `local_cli` runner 执行。`ssh_remote` 只是拆分部署时的可选
+runner：外层编排者不在 AEDT 机器上，而 worker 必须在远端 AEDT 机器本机调用
+PyAEDT/AEDT。除非用户明确选择跨机器模式，编排者不应启动或假设 SSH。
 
 worker 的规则：
 
@@ -173,7 +175,7 @@ kind: agent
 profile: high_reasoning
 ```
 
-远端机器上可以通过环境变量把不同 profile 指到不同模型：
+运行机器上可以通过环境变量把不同 profile 指到不同模型：
 
 ```powershell
 $env:AEDT_AGENT_LLM_LOW_COST_MODEL = "gpt-4.1-mini"
