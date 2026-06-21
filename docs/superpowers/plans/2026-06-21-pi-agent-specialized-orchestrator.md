@@ -77,6 +77,14 @@ MVP 只做专属编排壳，不重写 worker，不做通用 coding agent。
 - [x] 页面不读取 raw Touchstone/TDR 内容。
 - [x] 新增 web 渲染和 dispatch 测试。
 
+## Phase 6 Interactive CLI
+
+- [x] 新增 `pi_agent cli` / `pi_agent chat` 交互入口。
+- [x] 支持中文/英文自然语言意图：开始优化、看状态、预检、继续、批准、批准并继续、拒绝、停止、打开页面、退出。
+- [x] 交互入口只路由到已有受控命令，不直接调用 worker 内部脚本，不绕过 approval gate。
+- [x] 支持 `--once`，方便远端 smoke 和脚本化验证。
+- [x] 新增 intent、approval resume 和 CLI once 测试。
+
 ## 验证命令
 
 ```powershell

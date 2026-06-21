@@ -172,6 +172,16 @@ Pi Agent 是项目内置的轻量专属工程编排器，比通用商业 coding 
   --case config\cases\reviewed_brd.local.json
 ```
 
+想要更像 agent 的终端体验，可以直接进交互式 CLI：
+
+```powershell
+.\.venv\Scripts\python.exe -m aedt_agent.pi_agent cli `
+  --case config\cases\reviewed_brd.local.json
+```
+
+然后输入“开始优化”“看状态”“批准并继续”“停止”等需求，Pi 会映射到
+已有受控命令执行。`chat` 是同一入口的别名。
+
 后续可以用 `resume`、`approve`、`reject`、`stop`、`web` 继续托管同一个 case。
 `status` 会给出 `recommended_command`、`available_commands`、pending approvals、
 最新 artifact refs、失败摘要和 dashboard URL；它不会把 raw Touchstone/TDR

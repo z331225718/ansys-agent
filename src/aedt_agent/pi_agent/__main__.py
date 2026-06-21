@@ -13,7 +13,7 @@ from aedt_agent.pi_agent.supervisor import PiAgentSupervisor
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m aedt_agent.pi_agent")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    for command in ("preflight", "run", "status", "resume", "stop", "web"):
+    for command in ("preflight", "run", "status", "resume", "stop", "web", "chat", "cli"):
         child = subparsers.add_parser(command)
         child.add_argument("--case", required=True, type=Path)
         if command in {"preflight", "run"}:
@@ -26,6 +26,12 @@ def build_parser() -> argparse.ArgumentParser:
             child.add_argument("--graph-run-id", default="")
         if command == "stop":
             child.add_argument("--reason", default="pi agent stop")
+        if command in {"chat", "cli"}:
+            child.add_argument(
+                "--once",
+                default="",
+                help="Handle one natural-language request and exit.",
+            )
 
     init = subparsers.add_parser("init")
     init.add_argument("--case", required=True, type=Path)
@@ -97,6 +103,10 @@ def run(argv: Sequence[str] | None = None) -> int:
     if args.command == "web":
         supervisor.web()
         return 0
+    if args.command in {"chat", "cli"}:
+        from aedt_agent.pi_agent.chat import run_chat
+
+        return run_chat(supervisor, once=args.once)
     raise AssertionError(f"unhandled command: {args.command}")
 
 

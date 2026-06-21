@@ -64,6 +64,43 @@ def test_pi_agent_cli_status_handles_missing_database(tmp_path: Path):
     assert payload["status"] == "not_started"
 
 
+def test_pi_agent_cli_once_status_is_human_readable(tmp_path: Path):
+    case_file = tmp_path / "case.json"
+    case_file.write_text(
+        json.dumps(
+            {
+                "case_id": "chat-case",
+                "db_path": str(tmp_path / "missing.db"),
+                "loop_config": "config/optimization_loops/reviewed_brd_remote.example.json",
+                "execution_profile": "config/execution_profiles/local_real_aedt.example.json",
+                "max_workers": 1,
+                "poll_interval_seconds": 30,
+            }
+        ),
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "aedt_agent.pi_agent",
+            "cli",
+            "--case",
+            str(case_file),
+            "--once",
+            "看状态",
+        ],
+        cwd=Path.cwd(),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "状态：not_started" in result.stdout
+    assert "建议命令：" in result.stdout
+
+
 def test_pi_agent_cli_init_outputs_created_files(tmp_path: Path):
     profile = tmp_path / "local_real_aedt.example.json"
     profile.write_text(

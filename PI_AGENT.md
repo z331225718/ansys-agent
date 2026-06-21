@@ -61,6 +61,33 @@ Copy-Item config\cases\reviewed_brd.example.json config\cases\reviewed_brd.local
   --case config\cases\reviewed_brd.local.json
 ```
 
+也可以进入交互式 Pi CLI，让 Pi 按自然语言意图调用受控命令：
+
+```powershell
+.\.venv\Scripts\python.exe -m aedt_agent.pi_agent cli `
+  --case config\cases\reviewed_brd.local.json
+```
+
+进入后可以输入：
+
+```text
+开始优化
+看状态
+批准并继续
+继续
+停止
+打开页面
+退出
+```
+
+`chat` 和 `cli` 是同一个入口；`--once` 可用于脚本化验证：
+
+```powershell
+.\.venv\Scripts\python.exe -m aedt_agent.pi_agent cli `
+  --case config\cases\reviewed_brd.local.json `
+  --once "看状态"
+```
+
 如果只想验证仓库里的 example contract，不检查本机 AEDT 路径：
 
 ```powershell
@@ -183,3 +210,6 @@ Phase 2 起 Pi Agent 还提供受控操作命令：
 低频刷新。页面只通过 Pi Agent 的受控命令操作 graph：查看状态、批准并恢复、
 拒绝、恢复、停止；页面展示 bounded metrics、pending approvals、latest artifact
 refs 和 failure summary，不读取 raw Touchstone/TDR 内容。
+
+交互式 `cli/chat` 也是同样的安全边界：它只把自然语言映射到 Pi Agent
+已有受控命令，不直接调用 worker 内部脚本，不绕过 approval gate。
