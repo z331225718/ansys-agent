@@ -99,6 +99,15 @@ class FakePadstacks:
                 "TOP",
                 "L2_GND",
             ),
+            504: FakePadstackInstance(
+                504,
+                "via_dn_l1",
+                "DN0",
+                "BBVIA_L1_L2",
+                [0.0028, 0.002],
+                "TOP",
+                "L2_GND",
+            ),
         }
 
 
@@ -488,6 +497,49 @@ def test_model_edit_can_parameterize_antipad_void_radius(tmp_path):
     assert change["created_voids"][2]["parameters"]["length"]["scope"] == "project"
     assert change["created_voids"][2]["length_factor"] == 0.5
     assert change["created_voids"][2]["rectangle"]["parameterized"] is True
+
+
+def test_model_edit_uses_explicit_bridge_centers_for_multi_center_antipad(tmp_path):
+    request = _request(
+        tmp_path,
+        actions=[
+            {
+                "action_type": "anti_pad.enlarge",
+                "parasitic_target": "l2_laser_via_pad_parasitic",
+                "center_padstack_instance_ids": [501, 502, 503, 504],
+                "bridge_center_padstack_instance_ids": [501, 502],
+                "layers": ["L06_GND"],
+                "plane_shape_ids": [101],
+                "target_radius": {"value": 20, "unit": "mil"},
+                "parameter_name": "l02_void_r",
+                "bridge_length_factor": 0.5,
+                "bridge_length_parameter_name": "l02_bridge_len",
+                "bridge_between_vias": True,
+            }
+        ],
+    )
+
+    result = BrdModelEditAdapter(edb_factory=FakeEdb).run(request)
+
+    change = result.summary["changes"][0]
+    bridge = change["created_voids"][3]
+    assert [void["type"] for void in change["created_voids"]] == [
+        "circle",
+        "circle",
+        "circle",
+        "rectangle_bridge",
+    ]
+    assert change["via_centers"] == [
+        {"x": 0.001, "y": 0.002, "unit": "m"},
+        {"x": 0.0019, "y": 0.002, "unit": "m"},
+        {"x": 0.0028, "y": 0.002, "unit": "m"},
+    ]
+    assert bridge["via_centers"] == [
+        {"x": 0.001, "y": 0.002, "unit": "m"},
+        {"x": 0.0019, "y": 0.002, "unit": "m"},
+    ]
+    assert [ref["id"] for ref in bridge["center_refs"]] == [501, 502]
+    assert "$l02_bridge_len" in bridge["rectangle"]["lower_left_point"][0]
 
 
 def test_model_edit_handles_tuple_variable_api(tmp_path):
