@@ -91,6 +91,20 @@ and `mission run-loop`:
 $db = "D:\aedt-agent-runs\reviewed-loop\missions.db"
 ```
 
+## 1.2 Windows worker environment
+
+The local process harness preserves the Windows base environment required by
+AEDT/PyAEDT, including `APPDATA`, `LOCALAPPDATA`, `USERPROFILE`, `TEMP`, `TMP`,
+`SYSTEMROOT`, `PATH`, and `PATHEXT`. If a worker fails with `KeyError:
+'APPDATA'`, the worker was launched with an old harness or an over-restricted
+profile; pull the latest code and keep these variables in the local AEDT
+profile.
+
+Do not apply this rule blindly to `ssh_remote`. In split-machine mode, the SSH
+PowerShell session already has its own remote Windows environment, and
+`allowed_env` should only forward variables that intentionally come from the
+orchestrator side, such as license, Python, or LLM configuration.
+
 ## 2. LLM profiles
 
 The graph can use different model profiles by node. Small planner/utility

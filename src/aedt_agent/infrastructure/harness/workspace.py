@@ -9,12 +9,21 @@ from pathlib import Path
 _BASE_ENV_NAMES = (
     "PATH",
     "PATHEXT",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "ALLUSERSPROFILE",
+    "PROGRAMDATA",
     "SYSTEMROOT",
+    "SYSTEMDRIVE",
     "WINDIR",
     "TEMP",
     "TMP",
+    "HOMEDRIVE",
+    "HOMEPATH",
     "HOME",
     "USERPROFILE",
+    "USERNAME",
+    "COMPUTERNAME",
     "PYTHONPATH",
 )
 _ENV_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
