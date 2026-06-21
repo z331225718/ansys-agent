@@ -141,6 +141,8 @@ def test_ssh_cli_runner_forwards_allowed_environment_to_remote_command(tmp_path,
     )
 
     monkeypatch.setenv("PYTHONPATH", "src")
+    monkeypatch.setenv("APPDATA", r"C:\Users\local\AppData\Roaming")
+    monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\local\AppData\Local")
     workspace = tmp_path / "local" / "mission-1" / "job-1" / "attempt-1"
     workspace.mkdir(parents=True)
     transport = FakeSshTransport()

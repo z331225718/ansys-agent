@@ -187,6 +187,11 @@ expected_port_count   4
 geometry_constraints  anti-pad <= 22mil; NFP radius 7.875-10mil
 ```
 
+本地 `local_cli` harness 会自动保留 AEDT/PyAEDT 需要的 Windows 基础环境，
+包括 `APPDATA`、`LOCALAPPDATA`、`USERPROFILE`、`TEMP`、`TMP`、`SYSTEMROOT`、
+`PATH`、`PATHEXT`。如果 worker 报 `KeyError: 'APPDATA'`，通常说明代码还没
+pull 到最新版本，或本机 profile 过度收窄了环境。
+
 当前 s19 bring-up 里，源模型通常是：
 
 ```text

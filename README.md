@@ -132,6 +132,11 @@ tdr_observation_port  Diff1
 geometry_constraints  anti-pad <= 22mil; NFP radius 7.875-10mil
 ```
 
+本地 `local_cli` harness 会自动保留 AEDT/PyAEDT 需要的 Windows 基础环境，
+包括 `APPDATA`、`LOCALAPPDATA`、`USERPROFILE`、`TEMP`、`TMP`、`SYSTEMROOT`、
+`PATH`、`PATHEXT`。如果 worker 报 `KeyError: 'APPDATA'`，通常说明远端还没
+pull 到最新 harness，或本机 profile 过度收窄了环境。
+
 ## 让 Claude Code 编排
 
 在 AEDT 工作站的仓库根目录打开 Claude Code：

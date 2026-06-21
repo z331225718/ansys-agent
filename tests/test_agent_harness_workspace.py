@@ -47,6 +47,10 @@ def test_workspace_rejects_reusing_attempt_directory(tmp_path):
 def test_child_environment_contains_only_base_and_allowed_names(monkeypatch):
     monkeypatch.setenv("SYSTEMROOT", r"C:\Windows")
     monkeypatch.setenv("PATH", r"C:\Windows\System32")
+    monkeypatch.setenv("APPDATA", r"C:\Users\z3312\AppData\Roaming")
+    monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\z3312\AppData\Local")
+    monkeypatch.setenv("USERPROFILE", r"C:\Users\z3312")
+    monkeypatch.setenv("TEMP", r"C:\Users\z3312\AppData\Local\Temp")
     monkeypatch.setenv("AWP_ROOT261", r"C:\Ansys")
     monkeypatch.setenv("SECRET_TOKEN", "do-not-copy")
 
@@ -54,6 +58,10 @@ def test_child_environment_contains_only_base_and_allowed_names(monkeypatch):
 
     assert env["SYSTEMROOT"] == r"C:\Windows"
     assert env["PATH"] == r"C:\Windows\System32"
+    assert env["APPDATA"] == r"C:\Users\z3312\AppData\Roaming"
+    assert env["LOCALAPPDATA"] == r"C:\Users\z3312\AppData\Local"
+    assert env["USERPROFILE"] == r"C:\Users\z3312"
+    assert env["TEMP"] == r"C:\Users\z3312\AppData\Local\Temp"
     assert env["AWP_ROOT261"] == r"C:\Ansys"
     assert "SECRET_TOKEN" not in env
 
