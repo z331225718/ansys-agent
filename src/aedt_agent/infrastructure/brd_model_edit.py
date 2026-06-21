@@ -1325,6 +1325,33 @@ def _bridge_rectangle(
     pitch = math.hypot(dx, dy)
     if pitch <= 0:
         raise ValueError("via centers must not be identical")
+
+    radius_expr = width_expression if width_expression is not None else radius_m
+    rectangle = _axis_aligned_tangent_rectangle_args(
+        first=first,
+        second=second,
+        radius_expr=radius_expr,
+    )
+    if rectangle:
+        return {
+            "type": "rectangle_bridge",
+            "points": [],
+            "rectangle": rectangle,
+            "center": (
+                (first[0] + second[0]) / 2.0,
+                (first[1] + second[1]) / 2.0,
+            ),
+            "length_m": pitch,
+            "length_expression": pitch,
+            "width_m": 2.0 * radius_m,
+            "width_expression": _scaled_expression(radius_expr, 2.0),
+            "length_factor": 1.0,
+            "width_factor": 2.0,
+            "parameters": {},
+            "via_pitch_m": pitch,
+            "bridge_convention": "center_to_center_tangent_rectangle",
+        }
+
     bridge_length_spec = _first_present(action, "bridge_length")
     length_factor = _bridge_factor(action, "bridge_length_factor", default=1.0)
     length_m = (
@@ -1519,6 +1546,66 @@ def _axis_aligned_rectangle_args(
         "representation_type": "lower_left_upper_right",
         "lower_left_point": lower_left,
         "upper_right_point": upper_right,
+        "parameterized": any(
+            isinstance(value, str)
+            for value in lower_left + upper_right
+        ),
+    }
+
+
+def _axis_aligned_tangent_rectangle_args(
+    *,
+    first: tuple[float, float],
+    second: tuple[float, float],
+    radius_expr: float | str,
+) -> dict[str, Any]:
+    if abs(first[1] - second[1]) < 1e-12:
+        left, right = sorted((first, second), key=lambda center: center[0])
+        lower_left = [
+            _coordinate_with_offset(left[0], 0.0, radius_expr),
+            _coordinate_with_offset(left[1], -1.0, radius_expr),
+        ]
+        upper_right = [
+            _coordinate_with_offset(right[0], 0.0, radius_expr),
+            _coordinate_with_offset(right[1], 1.0, radius_expr),
+        ]
+        engineering_start = [
+            _coordinate_with_offset(left[0], 0.0, radius_expr),
+            _coordinate_with_offset(left[1], 1.0, radius_expr),
+        ]
+        engineering_end = [
+            _coordinate_with_offset(right[0], 0.0, radius_expr),
+            _coordinate_with_offset(right[1], -1.0, radius_expr),
+        ]
+        orientation = "horizontal"
+    elif abs(first[0] - second[0]) < 1e-12:
+        bottom, top = sorted((first, second), key=lambda center: center[1])
+        lower_left = [
+            _coordinate_with_offset(bottom[0], -1.0, radius_expr),
+            _coordinate_with_offset(bottom[1], 0.0, radius_expr),
+        ]
+        upper_right = [
+            _coordinate_with_offset(top[0], 1.0, radius_expr),
+            _coordinate_with_offset(top[1], 0.0, radius_expr),
+        ]
+        engineering_start = [
+            _coordinate_with_offset(bottom[0], -1.0, radius_expr),
+            _coordinate_with_offset(bottom[1], 0.0, radius_expr),
+        ]
+        engineering_end = [
+            _coordinate_with_offset(top[0], 1.0, radius_expr),
+            _coordinate_with_offset(top[1], 0.0, radius_expr),
+        ]
+        orientation = "vertical"
+    else:
+        return {}
+    return {
+        "representation_type": "lower_left_upper_right",
+        "lower_left_point": lower_left,
+        "upper_right_point": upper_right,
+        "engineering_start_point": engineering_start,
+        "engineering_end_point": engineering_end,
+        "orientation": orientation,
         "parameterized": any(
             isinstance(value, str)
             for value in lower_left + upper_right

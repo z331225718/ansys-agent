@@ -178,9 +178,6 @@ Every executable geometry proposal must be structured and bounded:
   "target_radius": {"value": 0.0, "unit": "mil"},
   "parameter_name": "optional_aedt_design_variable_for_void_radius",
   "bridge_between_vias": false,
-  "bridge_length_factor": 0.5,
-  "bridge_width_factor": 1.0,
-  "bridge_length_parameter_name": "optional_project_variable_for_bridge_length",
   "delta": {"value": 0.0, "unit": "mm"},
   "constraints_checked": ["user limit ids or literal bounds"],
   "expected_effect": "increase_impedance | decrease_impedance",
@@ -232,11 +229,16 @@ Executable proposals must include radius constraints in worker-ready form:
 `constraints.max_diameter = 20mil`.
 
 When creating a bridge rectangle, use a true AEDT Rectangle primitive for
-parameterization, not a polygon with expression points. For a requested
-`pitch/2 x r_void` rectangle, use `bridge_length_factor=0.5` and
-`bridge_width_factor=1.0`. For a standard racetrack whose rectangle top/bottom
-edges are tangent to radius-`r_void` circles, use `bridge_length_factor=1.0`
-and `bridge_width_factor=2.0`.
+parameterization, not a polygon with expression points. The generic axis-aligned
+rule applies on L02 and all other selected plane-shape layers: if the two bridge
+via centers have the same y coordinate, the engineering start point is
+`(left_via.x, left_via.y + r_void)` and the engineering end point is
+`(right_via.x, right_via.y - r_void)`. If the two centers have the same x
+coordinate, swap x and y: the rectangle spans the two y coordinates and uses
+`x +/- r_void`. The worker stores lower-left/upper-right points for PyEDB but
+records these engineering start/end points in the manifest. Do not request
+`bridge_length_factor` or a separate bridge-length variable for this standard
+center-to-center tangent bridge.
 
 ## Useful Project Artifacts
 

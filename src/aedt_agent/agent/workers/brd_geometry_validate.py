@@ -323,51 +323,19 @@ def _validate_antipad_bridge(
             "bridge rectangle requires exactly two bridge centers",
         )
 
-    factor = action.get("bridge_length_factor")
-    if factor is not None and abs(float(factor) - 0.5) < 1e-9:
-        _add_check(
-            checks,
-            f"{prefix}_length_factor",
-            "passed",
-            "bridge rectangle length is via_pitch/2",
-        )
-    else:
-        _approval(
-            checks,
-            issues,
-            f"{prefix}_length_factor",
-            "bridge rectangle should use bridge_length_factor=0.5 so it is tangent to the circular voids",
-        )
-
-    width_factor = action.get("bridge_width_factor")
-    if width_factor is None or abs(float(width_factor) - 1.0) < 1e-9:
-        _add_check(
-            checks,
-            f"{prefix}_width_factor",
-            "passed",
-            "bridge rectangle width follows the void radius",
-        )
-    else:
-        _approval(
-            checks,
-            issues,
-            f"{prefix}_width_factor",
-            "bridge rectangle width should follow the void radius",
-        )
-
-    if _first_present(action, "bridge_length_parameter_name", "bridge_length_parameter"):
+    if _parameter_name(action):
         _add_check(
             checks,
             f"{prefix}_parameterized",
             "passed",
-            "bridge rectangle length is parameterized",
+            "bridge rectangle follows the parameterized anti-pad radius",
         )
     else:
         _approval(
             checks,
             issues,
             f"{prefix}_parameterized",
-            "bridge rectangle must be parameterized, not only the circular voids",
+            "bridge rectangle requires parameter_name so its +/- radius edges are parameterized",
         )
     return checks, issues
 

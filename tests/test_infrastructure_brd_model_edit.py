@@ -458,8 +458,6 @@ def test_model_edit_can_parameterize_antipad_void_radius(tmp_path):
                 "plane_shape_ids": [101],
                 "target_radius": {"value": 20, "unit": "mil"},
                 "parameter_name": "l02_void_r",
-                "bridge_length_factor": 0.5,
-                "bridge_length_parameter_name": "l02_bridge_len",
                 "bridge_between_vias": True,
             }
         ],
@@ -469,14 +467,14 @@ def test_model_edit_can_parameterize_antipad_void_radius(tmp_path):
 
     edb = FakeEdb.last_instance
     assert edb.design_variables["l02_void_r"] == "20mil"
-    assert edb.project_variables["$l02_bridge_len"] == "0.45mm"
     shape = edb.modeler.primitives[0]
     circle = shape.voids[0]
     bridge = shape.voids[2]
     assert circle.radius == "l02_void_r"
     assert circle.center == (0.001, 0.002)
+    assert bridge.lower_left_point == ["1.0mm", "2.0mm-1.0*l02_void_r"]
+    assert bridge.upper_right_point == ["1.9mm", "2.0mm+1.0*l02_void_r"]
     assert "l02_void_r" in bridge.lower_left_point[1]
-    assert "$l02_bridge_len" in bridge.lower_left_point[0]
     change = result.summary["changes"][0]
     assert change["parameters"] == {
         "name": "l02_void_r",
@@ -492,11 +490,20 @@ def test_model_edit_can_parameterize_antipad_void_radius(tmp_path):
         {"x": 0.0019, "y": 0.002, "unit": "m"},
     ]
     assert change["created_voids"][0]["radius_expression"] == "l02_void_r"
-    assert change["created_voids"][2]["width_expression"] == "l02_void_r"
-    assert change["created_voids"][2]["length_expression"] == "$l02_bridge_len"
-    assert change["created_voids"][2]["parameters"]["length"]["scope"] == "project"
-    assert change["created_voids"][2]["length_factor"] == 0.5
+    assert change["created_voids"][2]["width_expression"] == "2.0*l02_void_r"
+    assert change["created_voids"][2]["length_m"] == pytest.approx(0.0009)
+    assert change["created_voids"][2]["length_factor"] == 1.0
+    assert change["created_voids"][2]["width_factor"] == 2.0
+    assert change["created_voids"][2]["bridge_convention"] == "center_to_center_tangent_rectangle"
     assert change["created_voids"][2]["rectangle"]["parameterized"] is True
+    assert change["created_voids"][2]["rectangle"]["engineering_start_point"] == [
+        "1.0mm",
+        "2.0mm+1.0*l02_void_r",
+    ]
+    assert change["created_voids"][2]["rectangle"]["engineering_end_point"] == [
+        "1.9mm",
+        "2.0mm-1.0*l02_void_r",
+    ]
     assert (
         change["created_voids"][2]["rectangle"]["representation_type"]
         == "lower_left_upper_right"
@@ -516,8 +523,6 @@ def test_model_edit_uses_explicit_bridge_centers_for_multi_center_antipad(tmp_pa
                 "plane_shape_ids": [101],
                 "target_radius": {"value": 20, "unit": "mil"},
                 "parameter_name": "l02_void_r",
-                "bridge_length_factor": 0.5,
-                "bridge_length_parameter_name": "l02_bridge_len",
                 "bridge_between_vias": True,
             }
         ],
@@ -543,7 +548,57 @@ def test_model_edit_uses_explicit_bridge_centers_for_multi_center_antipad(tmp_pa
         {"x": 0.0019, "y": 0.002, "unit": "m"},
     ]
     assert [ref["id"] for ref in bridge["center_refs"]] == [501, 502]
-    assert "$l02_bridge_len" in bridge["rectangle"]["lower_left_point"][0]
+    assert bridge["rectangle"]["engineering_start_point"] == [
+        "1.0mm",
+        "2.0mm+1.0*l02_void_r",
+    ]
+    assert bridge["rectangle"]["engineering_end_point"] == [
+        "1.9mm",
+        "2.0mm-1.0*l02_void_r",
+    ]
+
+
+def test_model_edit_flips_xy_for_vertical_antipad_bridge(tmp_path):
+    request = _request(
+        tmp_path,
+        actions=[
+            {
+                "action_type": "anti_pad.enlarge",
+                "parasitic_target": "reviewed_vertical_pair",
+                "via_centers": [
+                    {"x": 1.0, "y": 2.0, "unit": "mm"},
+                    {"x": 1.0, "y": 2.9, "unit": "mm"},
+                ],
+                "layers": ["L06_GND"],
+                "plane_shape_ids": [101],
+                "target_radius": {"value": 20, "unit": "mil"},
+                "parameter_name": "void_r",
+                "bridge_between_vias": True,
+            }
+        ],
+    )
+
+    result = BrdModelEditAdapter(edb_factory=FakeEdb).run(request)
+
+    change = result.summary["changes"][0]
+    bridge = change["created_voids"][2]
+    assert bridge["rectangle"]["orientation"] == "vertical"
+    assert bridge["rectangle"]["lower_left_point"] == [
+        "1.0mm-1.0*void_r",
+        "2.0mm",
+    ]
+    assert bridge["rectangle"]["upper_right_point"] == [
+        "1.0mm+1.0*void_r",
+        "2.9mm",
+    ]
+    assert bridge["rectangle"]["engineering_start_point"] == [
+        "1.0mm-1.0*void_r",
+        "2.0mm",
+    ]
+    assert bridge["rectangle"]["engineering_end_point"] == [
+        "1.0mm+1.0*void_r",
+        "2.9mm",
+    ]
 
 
 def test_model_edit_handles_tuple_variable_api(tmp_path):
@@ -586,8 +641,6 @@ def test_model_edit_handles_tuple_variable_api(tmp_path):
                 "plane_shape_ids": [101],
                 "target_radius": {"value": 20, "unit": "mil"},
                 "parameter_name": "l02_void_r",
-                "bridge_length_factor": 0.5,
-                "bridge_length_parameter_name": "l02_bridge_len",
                 "bridge_between_vias": True,
             }
         ],
@@ -597,7 +650,7 @@ def test_model_edit_handles_tuple_variable_api(tmp_path):
 
     edb = FakeEdb.last_instance
     assert edb.design_variables["l02_void_r"] == "20mil"
-    assert edb.project_variables["$l02_bridge_len"] == "0.45mm"
+    assert edb.project_variables == {}
 
 
 def test_model_edit_rejects_delta_only_for_antipad_void(tmp_path):

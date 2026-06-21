@@ -630,14 +630,16 @@ Required fields:
   or update the design variable, use it as the circle radius, and use it as the
   bridge rectangle width.
 - Parameterized bridge rectangles must be AEDT Rectangle primitives, not polygon
-  primitives with expression points. In AEDT 2026.1 gRPC PyEDB, multiple design
-  variables can report incorrect values, so use a design variable for the void
-  radius and a project variable such as `$l02_bridge_len` for bridge length.
-- A `pitch/2 x r_void` bridge is represented with
-  `bridge_length_factor=0.5` and `bridge_width_factor=1.0`. A standard
-  racetrack-style bridge whose top and bottom edges are tangent to two circular
-  voids of radius `r_void` is represented with `bridge_length_factor=1.0` and
-  `bridge_width_factor=2.0`.
+  primitives with expression points. For axis-aligned differential via pairs,
+  the same rule applies on L02 and all other selected plane-shape layers: if the
+  two bridge centers share y, the engineering start point is
+  `(left_via.x, left_via.y + r_void)` and the engineering end point is
+  `(right_via.x, right_via.y - r_void)`. If the two bridge centers share x,
+  swap x/y: the rectangle spans the two y coordinates and uses `x +/- r_void`.
+  The worker passes lower-left/upper-right coordinates to PyEDB but records the
+  engineering start/end points in the manifest. Do not add
+  `bridge_length_factor` or a separate bridge-length variable for this standard
+  center-to-center tangent bridge.
 - For `non_functional_pad.add_or_enlarge`: target layers, via center source,
   signal nets or `center_padstack_instance_ids`, and target explicit circle
   diameter or bounded radius/delta. The worker should draw signal-net circle
@@ -739,11 +741,7 @@ shape is:
   "plane_shape_ids": [173575],
   "target_radius": {"value": 20, "unit": "mil"},
   "parameter_name": "l02_void_r",
-  "bridge_between_vias": true,
-  "bridge_length_factor": 0.5,
-  "bridge_width_factor": 1.0,
-  "bridge_length_parameter_name": "l02_bridge_len",
-  "bridge_length_parameter_scope": "project"
+  "bridge_between_vias": true
 }
 ```
 
@@ -762,11 +760,11 @@ DP0 L2 center: x=63.178182mm, y=299.946568mm
 DN0 L2 center: x=64.078104mm, y=299.946568mm
 ```
 
-For this reviewed L02 case, the pitch is approximately `0.899922 mm`
-(`35.43 mil`) while `l02_void_r=20 mil`. Therefore a strict
-`pitch/2 x r_void` rectangle and a standard tangent racetrack are different
-geometries. The worker can generate both for review; the executable proposal
-must name which bridge convention is intended.
+For this reviewed L02 case, the bridge centers have the same y coordinate and
+the pitch is approximately `0.899922 mm` (`35.43 mil`). The bridge rectangle
+therefore spans x=`63.178182mm` to x=`64.078104mm` and y=`299.946568mm +/-`
+`l02_void_r`. The same center-to-center tangent rule applies to deeper selected
+shape layers; only the reviewed parasitic centers and target layer change.
 
 ## Current Real Case Baseline
 

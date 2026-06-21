@@ -37,8 +37,6 @@ def test_geometry_validator_passes_parameterized_antipad_bridge(tmp_path):
                 "target_radius": {"value": 20, "unit": "mil"},
                 "parameter_name": "l02_void_r",
                 "bridge_between_vias": True,
-                "bridge_length_factor": 0.5,
-                "bridge_length_parameter_name": "l02_bridge_len",
             }
         ],
         loop_context={"round_index": 1},
@@ -80,9 +78,6 @@ def test_geometry_validator_allows_multi_center_antipad_with_explicit_bridge_pai
                 "target_radius": {"value": 22, "unit": "mil"},
                 "parameter_name": "l02_void_r",
                 "bridge_between_vias": True,
-                "bridge_length_factor": 0.5,
-                "bridge_width_factor": 1.0,
-                "bridge_length_parameter_name": "l02_bridge_len",
             }
         ],
     )
@@ -110,7 +105,6 @@ def test_geometry_validator_requires_approval_for_missing_shape_and_radius_limit
                 "target_radius": {"value": 23, "unit": "mil"},
                 "parameter_name": "l03_void_r",
                 "bridge_between_vias": True,
-                "bridge_length_factor": 1.0,
             }
         ],
     )
@@ -133,7 +127,6 @@ def test_geometry_validator_requires_approval_for_missing_shape_and_radius_limit
     ]
     assert any("exceeds max 22mil" in message for message in messages)
     assert any("plane_shape_ids" in message for message in messages)
-    assert any("bridge_length_factor=0.5" in message for message in messages)
 
 
 def test_geometry_validator_passes_shape_non_functional_pad(tmp_path):
