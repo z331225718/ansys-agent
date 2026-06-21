@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+from urllib.parse import quote
 
 from aedt_agent.agent.web import dispatch_agent_request
 from aedt_agent.agent.approvals import ApprovalService
 from aedt_agent.agent.graph_runner import graph_status
+from aedt_agent.agent.mission import GraphRunRecord, NodeRunRecord, NodeRunStatus
 from aedt_agent.agent.orchestrator import AgentRuntime
 from aedt_agent.agent.workers import (
     BRD_LOCAL_CUT_BUILD_CAPABILITY,
@@ -96,6 +98,135 @@ def test_web_decide_uses_approval_service_and_updates_mission_state(tmp_path):
     assert data["decision"] == "approved"
     assert runtime.store.get_approval(approval.approval_id).selected_option_id == "approve"
     assert runtime.get_mission(mission.mission_id).state.value == "waiting_worker"
+
+
+def test_web_dashboard_summarizes_brd_loop_progress(tmp_path):
+    runtime = _runtime(tmp_path)
+    mission = runtime.create_mission("optimize reviewed BRD model", [], [])
+    graph_run = runtime.store.create_graph_run(
+        GraphRunRecord.create(
+            "graph-1",
+            mission.mission_id,
+            "brd_reviewed_model_optimize_loop",
+            1,
+            mission.plan_version,
+            template_snapshot={
+                "id": "brd_reviewed_model_optimize_loop",
+                "version": 1,
+                "nodes": [],
+                "edges": [],
+                "handoffs": {},
+            },
+        )
+    )
+    report_html = tmp_path / "optimization_progress.html"
+    report_html.write_text("<html><body>report</body></html>", encoding="utf-8")
+    tdr_plot = tmp_path / "tdr_plot.svg"
+    tdr_plot.write_text("<svg></svg>", encoding="utf-8")
+    history_csv = tmp_path / "optimization_history.csv"
+    history_csv.write_text(
+        "\n".join(
+            [
+                "round_index,round_status,score_status,rl_worst_db,insertion_worst_db_in_band,tdr_observation_port,tdr_peak_deviation_ohm,objective_total_cost,artifact_refs",
+                "1,scored,fail,-16.8,-1.2,Diff1,10.5,42.0,",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    node_run = runtime.store.create_node_run(
+        NodeRunRecord.create(
+            "node-1",
+            graph_run.graph_run_id,
+            mission.mission_id,
+            "score_channel",
+            "worker",
+            "worker",
+            1,
+            {},
+        )
+    )
+    runtime.store.complete_node_run(
+        node_run.node_run_id,
+        NodeRunStatus.SUCCEEDED,
+        {
+            "loop_context": {
+                "optimization_history_csv": str(history_csv),
+                "report_html": str(report_html),
+            },
+            "score": {
+                "touchstone_kind": "s4p",
+                "return_loss_trace": "SDD11",
+                "insertion_loss_trace": "SDD21",
+                "plot_artifacts": {"tdr": str(tdr_plot)},
+            },
+        },
+        [str(tdr_plot)],
+        edge_decision="succeeded",
+    )
+
+    status, data = _dispatch("GET", f"/api/missions/{mission.mission_id}/dashboard", b"", runtime)
+
+    assert status == 200
+    assert data["node_runs"][0]["node_id"] == "score_channel"
+    assert data["latest_metrics"]["rl_worst_db"] == "-16.8"
+    assert data["latest_metrics"]["tdr_observation_port"] == "Diff1"
+    paths = {artifact["path"] for artifact in data["artifacts"]}
+    assert str(history_csv) in paths
+    assert str(report_html) in paths
+    assert str(tdr_plot) in paths
+    assert any(artifact["view_url"] for artifact in data["artifacts"])
+
+
+def test_web_serves_registered_artifact_file(tmp_path):
+    runtime = _runtime(tmp_path)
+    mission = runtime.create_mission("artifact view", [], [])
+    graph_run = runtime.store.create_graph_run(
+        GraphRunRecord.create(
+            "graph-1",
+            mission.mission_id,
+            "brd_reviewed_model_optimize_loop",
+            1,
+            mission.plan_version,
+            template_snapshot={
+                "id": "brd_reviewed_model_optimize_loop",
+                "version": 1,
+                "nodes": [],
+                "edges": [],
+                "handoffs": {},
+            },
+        )
+    )
+    report_html = tmp_path / "optimization_progress.html"
+    report_html.write_text("<html><body>report</body></html>", encoding="utf-8")
+    node_run = runtime.store.create_node_run(
+        NodeRunRecord.create(
+            "node-1",
+            graph_run.graph_run_id,
+            mission.mission_id,
+            "progress_report",
+            "worker",
+            "worker",
+            1,
+            {},
+        )
+    )
+    runtime.store.complete_node_run(
+        node_run.node_run_id,
+        NodeRunStatus.SUCCEEDED,
+        {"report_html": str(report_html)},
+        [str(report_html)],
+    )
+
+    status, headers, body = dispatch_agent_request(
+        "GET",
+        f"/api/artifacts/file?mission_id={mission.mission_id}&path={quote(str(report_html), safe='')}",
+        b"",
+        runtime,
+    )
+
+    assert status == 200
+    assert headers["content-type"].startswith("text/html")
+    assert b"report" in body
 
 
 def test_web_orchestrator_stops_at_approval_without_auto_approving(tmp_path):

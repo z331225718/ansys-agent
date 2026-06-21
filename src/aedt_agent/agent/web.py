@@ -6,7 +6,7 @@ import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from aedt_agent.agent.graph_runner import advance_graph, graph_status, resume_graph, run_graph
 from aedt_agent.agent.graph_template import load_graph_template, resolve_template_path
@@ -83,6 +83,19 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
 .template-card{padding:10px;border:1px solid var(--line);border-radius:6px;cursor:pointer;font-size:12px}
 .template-card:hover{border-color:var(--accent)}.template-card b{display:block;color:var(--accent)}
 .quick-actions{display:grid;gap:6px}
+.dashboard{display:grid;gap:12px;margin-top:12px}
+.dashboard-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.dash-panel{border:1px solid var(--line);border-radius:6px;background:#181a25;padding:10px;overflow:hidden}
+.dash-panel h3{font-size:13px;margin:0 0 8px;color:var(--accent)}
+.metric-row{display:grid;grid-template-columns:1fr auto;gap:8px;font-size:12px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)}
+.metric-row:last-child{border-bottom:0}.metric-row span:first-child{color:var(--muted)}
+.data-table{width:100%;border-collapse:collapse;background:#181a25;border:1px solid var(--line);font-size:12px}
+.data-table th,.data-table td{text-align:left;border-bottom:1px solid var(--line);padding:6px 8px;vertical-align:top}
+.data-table th{color:var(--muted);font-size:11px;text-transform:uppercase}
+.artifact-list{display:grid;gap:6px}.artifact-item{display:grid;gap:2px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05)}
+.artifact-item:last-child{border-bottom:0}.artifact-kind{font-size:11px;color:var(--yellow);font-weight:700}
+.artifact-path{font:11px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--muted);word-break:break-all}
+.artifact-item a{color:var(--blue);font-size:12px;text-decoration:none}.artifact-item a:hover{text-decoration:underline}
 </style>
 </head>
 <body>
@@ -161,6 +174,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
       <div id="graphView">
         <h2>DAG 状态</h2>
         <div class="mermaid" id="mermaidGraph">选择 Mission 后显示</div>
+        <div id="runDashboard" class="dashboard"></div>
         <div id="optimizationProgress" style="margin-top:12px"></div>
         <details style="margin-top:12px">
           <summary style="cursor:pointer;color:var(--muted);font-size:12px">📋 Orchestrator CLI 参考 (Claude Code / Codex)</summary>
@@ -250,22 +264,80 @@ async function refreshGraph(){
       log.scrollTop=log.scrollHeight;
     }
     try{
-      const progress=await api('/api/missions/'+activeMission+'/optimization-progress');
-      const panel=document.getElementById('optimizationProgress');
-      if(progress.optimization_history_csv){
-        const rows=(progress.history_rows||[]).slice(-6);
-        panel.innerHTML='<h2>优化历史</h2><div class="muted" style="font-size:11px;margin-bottom:6px">'+progress.optimization_history_csv+'</div>'+
-          '<table style="width:100%;border-collapse:collapse;background:#181a25;border:1px solid var(--line);font-size:12px">'+
-          '<tr><th>Round</th><th>Status</th><th>Action</th><th>RL</th><th>TDR</th><th>Next</th></tr>'+
-          rows.map(r=>'<tr><td>'+esc(r.round_index)+'</td><td>'+esc(r.round_status)+'</td><td>'+esc(r.action_type||'')+'</td><td>'+esc(r.rl_worst_db||'')+'</td><td>'+esc(r.tdr_peak_deviation_ohm||'')+'</td><td>'+esc(r.continue_recommendation||'')+'</td></tr>').join('')+
-          '</table>';
-      }else{panel.innerHTML=''}
-    }catch(e){}
+      const dashboard=await api('/api/missions/'+activeMission+'/dashboard');
+      renderDashboard(dashboard);
+    }catch(e){
+      document.getElementById('runDashboard').innerHTML='';
+      document.getElementById('optimizationProgress').innerHTML='';
+    }
   }catch(e){console.error(e)}
 }
 
 function esc(v){
   return String(v==null?'':v).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+function shortId(v){
+  const s=String(v||'');
+  return s.length>18?s.slice(0,18)+'…':s;
+}
+
+function metricRows(items){
+  return items.map(([k,v])=>'<div class="metric-row"><span>'+esc(k)+'</span><b>'+esc(v==null||v===''?'--':v)+'</b></div>').join('');
+}
+
+function renderDashboard(data){
+  const latest=data.latest_metrics||{};
+  const pending=(data.approvals||[]).filter(a=>a.decision==='pending');
+  const artifacts=(data.artifacts||[]).slice(0,18);
+  const nodes=(data.node_runs||[]).slice(-12);
+  const dash=document.getElementById('runDashboard');
+  dash.innerHTML=
+    '<div class="dashboard-grid">'+
+      '<div class="dash-panel"><h3>最新指标</h3>'+
+        metricRows([
+          ['Round', latest.round_index],
+          ['Score', latest.score_status],
+          ['SDD11 worst', latest.rl_worst_db],
+          ['SDD21 worst', latest.insertion_worst_db_in_band],
+          ['TDR peak dev', latest.tdr_peak_deviation_ohm],
+          ['Objective', latest.objective_total_cost],
+          ['TDR port', latest.tdr_observation_port]
+        ])+
+      '</div>'+
+      '<div class="dash-panel"><h3>审批</h3>'+
+        (pending.length?pending.map(a=>'<div class="artifact-item"><div class="artifact-kind">pending · '+esc(shortId(a.approval_id))+'</div><div class="artifact-path">'+esc(a.reason)+'</div></div>').join(''):'<div class="muted">没有待审批项</div>')+
+      '</div>'+
+      '<div class="dash-panel"><h3>关键文件</h3>'+
+        (artifacts.length?'<div class="artifact-list">'+artifacts.map(renderArtifact).join('')+'</div>':'<div class="muted">暂无 artifact</div>')+
+      '</div>'+
+    '</div>'+
+    '<div class="dash-panel"><h3>节点运行</h3>'+
+      (nodes.length?'<table class="data-table"><tr><th>#</th><th>Node</th><th>Kind</th><th>Status</th><th>Decision</th></tr>'+
+      nodes.map(n=>'<tr><td>'+esc(n.sequence)+'</td><td>'+esc(n.node_id)+'</td><td>'+esc(n.node_kind)+'</td><td>'+badge(n.status)+'</td><td>'+esc(n.edge_decision||'')+'</td></tr>').join('')+
+      '</table>':'<div class="muted">暂无节点运行记录</div>')+
+    '</div>';
+  renderOptimizationProgress(data.progress||{});
+}
+
+function renderArtifact(a){
+  const link=a.view_url?'<a target="_blank" href="'+esc(a.view_url)+'">打开</a> ':'';
+  const exists=a.exists?'local':'path';
+  return '<div class="artifact-item"><div><span class="artifact-kind">'+esc(a.kind||'artifact')+'</span> <span class="muted">'+exists+'</span></div><div>'+link+'<span class="artifact-path">'+esc(a.path)+'</span></div></div>';
+}
+
+function renderOptimizationProgress(progress){
+  const panel=document.getElementById('optimizationProgress');
+  if(progress.optimization_history_csv){
+    const rows=(progress.history_rows||[]).slice(-8);
+    panel.innerHTML='<h2>优化历史</h2><div class="muted" style="font-size:11px;margin-bottom:6px">'+esc(progress.optimization_history_csv)+'</div>'+
+      '<table class="data-table">'+
+      '<tr><th>Round</th><th>Status</th><th>Action</th><th>RL</th><th>TDR</th><th>Next</th></tr>'+
+      rows.map(r=>'<tr><td>'+esc(r.round_index)+'</td><td>'+esc(r.round_status)+'</td><td>'+esc(r.action_type||'')+'</td><td>'+esc(r.rl_worst_db||'')+'</td><td>'+esc(r.tdr_peak_deviation_ohm||'')+'</td><td>'+esc(r.continue_recommendation||'')+'</td></tr>').join('')+
+      '</table>';
+  }else{
+    panel.innerHTML='';
+  }
 }
 
 async function stepGraph(){
@@ -470,6 +542,9 @@ def dispatch_agent_request(
         if method == "GET" and route == "/":
             return _html(AGENT_PAGE)
 
+        if method == "GET" and route == "/api/artifacts/file":
+            return _artifact_file_response(runtime, parsed.query)
+
         # --- Missions ---
         if method == "GET" and route == "/api/missions":
             missions = [
@@ -528,6 +603,11 @@ def dispatch_agent_request(
             parts = route.rstrip("/").split("/")
             mission_id = parts[3]  # /api/missions/{id}/optimization-progress
             return _json(_optimization_progress(runtime, mission_id))
+
+        if method == "GET" and route.endswith("/dashboard"):
+            parts = route.rstrip("/").split("/")
+            mission_id = parts[3]  # /api/missions/{id}/dashboard
+            return _json(_mission_dashboard(runtime, mission_id))
 
         if method == "GET" and route.startswith("/api/missions/"):
             mission_id = route.rsplit("/", 1)[-1]
@@ -818,6 +898,36 @@ def _html(html_str):
     return 200, {"content-type": "text/html; charset=utf-8"}, html_str.encode("utf-8")
 
 
+def _file_response(path: Path):
+    suffix = path.suffix.casefold()
+    content_type = {
+        ".csv": "text/csv; charset=utf-8",
+        ".html": "text/html; charset=utf-8",
+        ".json": "application/json; charset=utf-8",
+        ".svg": "image/svg+xml; charset=utf-8",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".txt": "text/plain; charset=utf-8",
+    }.get(suffix, "application/octet-stream")
+    return 200, {"content-type": content_type}, path.read_bytes()
+
+
+def _artifact_file_response(runtime: AgentRuntime, query: str):
+    params = parse_qs(query)
+    mission_id = str(params.get("mission_id", [""])[0])
+    artifact_path = unquote(str(params.get("path", [""])[0]))
+    if not mission_id or not artifact_path:
+        return _json({"error": "mission_id and path are required"}, status=400)
+    known_paths = {item["path"] for item in _collect_mission_artifacts(runtime, mission_id)}
+    if artifact_path not in known_paths:
+        return _json({"error": "artifact path is not registered for this mission"}, status=403)
+    path = Path(artifact_path)
+    if not path.is_file():
+        return _json({"error": "artifact file is not available on this host"}, status=404)
+    return _file_response(path)
+
+
 def _json_body(body):
     if not body:
         return {}
@@ -911,6 +1021,251 @@ def _merge_web_llm_config(config: Any) -> Any:
         temperature=config.temperature,
         max_tokens=config.max_tokens,
     )
+
+
+def _mission_dashboard(runtime: AgentRuntime, mission_id: str) -> dict[str, Any]:
+    runtime.get_mission(mission_id)
+    graph_runs = runtime.store.list_graph_runs(mission_id)
+    latest_status: dict[str, Any] = {}
+    if graph_runs:
+        latest_status = graph_status(runtime, graph_runs[-1].graph_run_id)
+    progress = _optimization_progress(runtime, mission_id)
+    node_runs = list(latest_status.get("node_runs") or [])
+    approvals = [
+        approval.to_json_dict()
+        for approval in runtime.store.list_approvals(mission_id)
+    ]
+    return {
+        "mission_id": mission_id,
+        "graph_run": latest_status.get("graph_run"),
+        "node_runs": [_node_run_dashboard_summary(item) for item in node_runs],
+        "handoffs": latest_status.get("handoffs") or [],
+        "approvals": approvals,
+        "artifacts": _collect_mission_artifacts(runtime, mission_id),
+        "latest_metrics": _latest_metrics(node_runs, progress.get("history_rows") or []),
+        "progress": progress,
+    }
+
+
+def _node_run_dashboard_summary(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "node_run_id": item.get("node_run_id"),
+        "node_id": item.get("node_id"),
+        "node_role": item.get("node_role"),
+        "node_kind": item.get("node_kind"),
+        "sequence": item.get("sequence"),
+        "status": item.get("status"),
+        "edge_decision": item.get("edge_decision"),
+        "artifact_count": len(item.get("artifact_refs") or []),
+        "error": item.get("error"),
+        "completed_at": item.get("completed_at"),
+    }
+
+
+def _latest_metrics(
+    node_runs: list[dict[str, Any]],
+    history_rows: list[dict[str, str]],
+) -> dict[str, Any]:
+    keys = [
+        "round_index",
+        "round_status",
+        "score_status",
+        "touchstone_kind",
+        "return_loss_trace",
+        "insertion_loss_trace",
+        "rl_worst_db",
+        "sdd11_worst_db",
+        "insertion_worst_db_in_band",
+        "sdd21_worst_db_in_band",
+        "tdr_observation_port",
+        "tdr_peak_deviation_ohm",
+        "objective_total_cost",
+        "pass_fail_reason",
+        "continue_recommendation",
+    ]
+    if history_rows:
+        row = dict(history_rows[-1])
+        return {key: row.get(key, "") for key in keys}
+    for node_run in reversed(node_runs):
+        payload = node_run.get("output_payload") or {}
+        values = {
+            key: _find_nested_value(payload, key)
+            for key in keys
+        }
+        if any(value not in (None, "", []) for value in values.values()):
+            return values
+    return {key: "" for key in keys}
+
+
+def _find_nested_value(value: Any, key: str) -> Any:
+    if isinstance(value, dict):
+        if key in value:
+            return value[key]
+        for child in value.values():
+            found = _find_nested_value(child, key)
+            if found not in (None, "", []):
+                return found
+    elif isinstance(value, list):
+        for child in value:
+            found = _find_nested_value(child, key)
+            if found not in (None, "", []):
+                return found
+    return None
+
+
+def _collect_mission_artifacts(runtime: AgentRuntime, mission_id: str) -> list[dict[str, Any]]:
+    paths: list[str] = []
+    for manifest in runtime.store.list_artifact_manifests(mission_id):
+        paths.append(manifest.path)
+    for graph_run in runtime.store.list_graph_runs(mission_id):
+        for node_run in runtime.store.list_node_runs(graph_run.graph_run_id):
+            paths.extend(str(item) for item in node_run.artifact_refs)
+            paths.extend(_artifact_paths_from_payload(node_run.output_payload))
+    progress = _optimization_progress(runtime, mission_id)
+    for key in ("optimization_history_csv", "report_html", "report_json"):
+        value = progress.get(key)
+        if value:
+            paths.append(str(value))
+    for row in progress.get("history_rows") or []:
+        for key in (
+            "touchstone_path",
+            "tdr_path",
+            "edit_manifest_path",
+            "solve_result_path",
+            "solve_manifest_path",
+            "score_evidence_path",
+            "artifact_refs",
+        ):
+            paths.extend(_coerce_artifact_strings(row.get(key)))
+    unique_paths = _unique_strings(paths)
+    return [_artifact_descriptor(mission_id, path) for path in unique_paths]
+
+
+_ARTIFACT_KEYS = {
+    "artifact_refs",
+    "plot_artifacts",
+    "optimization_history_csv",
+    "optimization_report_html",
+    "report_html",
+    "report_json",
+    "touchstone_path",
+    "tdr_path",
+    "edit_manifest_path",
+    "solve_result_path",
+    "solve_manifest_path",
+    "score_evidence_path",
+}
+
+
+def _artifact_paths_from_payload(value: Any, *, field_name: str = "") -> list[str]:
+    if isinstance(value, dict):
+        paths: list[str] = []
+        for key, child in value.items():
+            key_text = str(key)
+            key_lower = key_text.casefold()
+            if (
+                key_lower in _ARTIFACT_KEYS
+                or key_lower.endswith("_path")
+                or "artifact" in key_lower
+            ):
+                paths.extend(_coerce_artifact_strings(child))
+            else:
+                paths.extend(_artifact_paths_from_payload(child, field_name=key_text))
+        return paths
+    if isinstance(value, list):
+        paths: list[str] = []
+        for child in value:
+            paths.extend(_artifact_paths_from_payload(child, field_name=field_name))
+        return paths
+    if field_name.casefold() in _ARTIFACT_KEYS:
+        return _coerce_artifact_strings(value)
+    return []
+
+
+def _coerce_artifact_strings(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return []
+        if text.startswith("[") or text.startswith("{"):
+            try:
+                return _coerce_artifact_strings(json.loads(text))
+            except Exception:
+                pass
+        if "\n" in text or ";" in text:
+            parts = [part.strip() for part in text.replace("\n", ";").split(";")]
+            return [part for part in parts if part]
+        return [text]
+    if isinstance(value, dict):
+        paths: list[str] = []
+        for child in value.values():
+            paths.extend(_coerce_artifact_strings(child))
+        return paths
+    if isinstance(value, list):
+        paths: list[str] = []
+        for child in value:
+            paths.extend(_coerce_artifact_strings(child))
+        return paths
+    return []
+
+
+def _artifact_descriptor(mission_id: str, path: str) -> dict[str, Any]:
+    exists = Path(path).is_file()
+    return {
+        "path": path,
+        "kind": _artifact_kind(path),
+        "exists": exists,
+        "view_url": (
+            f"/api/artifacts/file?mission_id={quote(mission_id, safe='')}"
+            f"&path={quote(path, safe='')}"
+            if exists
+            else ""
+        ),
+    }
+
+
+def _artifact_kind(path: str) -> str:
+    name = Path(path).name.casefold()
+    suffix = Path(path).suffix.casefold()
+    if suffix in {".s4p", ".s2p", ".snp"}:
+        return "touchstone"
+    if suffix == ".html":
+        return "report_html"
+    if suffix == ".csv" and "history" in name:
+        return "history_csv"
+    if suffix == ".csv" and "tdr" in name:
+        return "tdr_csv"
+    if suffix in {".svg", ".png", ".jpg", ".jpeg"}:
+        if "sdd11" in name:
+            return "plot_sdd11"
+        if "sdd21" in name:
+            return "plot_sdd21"
+        if "tdr" in name:
+            return "plot_tdr"
+        return "plot"
+    if suffix == ".json" and "evidence" in name:
+        return "score_evidence"
+    if suffix == ".json" and "manifest" in name:
+        return "manifest"
+    if suffix == ".json":
+        return "json"
+    if suffix == ".aedt":
+        return "aedt_model"
+    return "artifact"
+
+
+def _unique_strings(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for value in values:
+        text = str(value).strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        unique.append(text)
+    return unique
 
 
 def _web_orchestrator_signature(report: dict[str, Any]) -> tuple[Any, ...]:
