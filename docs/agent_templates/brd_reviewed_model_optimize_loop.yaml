@@ -56,6 +56,14 @@ nodes:
     output_schema: score_result
     max_runs: 5
 
+  - id: progress_report_worker
+    role: scorecard
+    kind: worker
+    capability: brd.optimization.progress
+    input_schema: score_result
+    output_schema: score_result
+    max_runs: 5
+
   - id: optimization_decider
     role: decision_maker
     kind: agent
@@ -127,8 +135,8 @@ nodes:
 
   - id: optimization_report
     role: scorecard
-    kind: program
-    handler: brd.optimization.write_report
+    kind: worker
+    capability: brd.optimization.report
     input_schema: next_action
     output_schema: scorecard_report
     max_runs: 1
@@ -161,7 +169,7 @@ edges:
     max_traversals: 5
   - id: qualify-to-decide
     from: iteration_qualifier_worker
-    to: optimization_decider
+    to: progress_report_worker
     on: succeeded
     max_traversals: 5
   - id: qualify-to-approval
@@ -169,10 +177,15 @@ edges:
     to: iteration_qualification_approval_gate
     on: approval_required
     max_traversals: 5
-  - id: qualification-approval-to-decide
+  - id: qualification-approval-to-progress
     from: iteration_qualification_approval_gate
-    to: optimization_decider
+    to: progress_report_worker
     on: approved
+    max_traversals: 5
+  - id: progress-to-decide
+    from: progress_report_worker
+    to: optimization_decider
+    on: succeeded
     max_traversals: 5
   - id: decide-to-report
     from: optimization_decider

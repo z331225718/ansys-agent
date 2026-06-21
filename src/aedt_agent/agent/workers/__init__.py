@@ -43,6 +43,12 @@ from aedt_agent.agent.workers.brd_model_edit import (
     build_brd_model_edit_job_input,
     run_brd_model_edit_worker,
 )
+from aedt_agent.agent.workers.brd_progress_report import (
+    BRD_OPTIMIZATION_PROGRESS_CAPABILITY,
+    BRD_OPTIMIZATION_REPORT_CAPABILITY,
+    run_brd_optimization_progress_worker,
+    run_brd_optimization_report_worker,
+)
 from aedt_agent.agent.workers.brd_recorded_void_action import (
     BRD_RECORDED_VOID_ACTION_CAPABILITY,
     build_brd_recorded_void_action_job_input,
@@ -70,6 +76,8 @@ __all__ = [
     "BRD_ITERATION_QUALIFY_CAPABILITY",
     "BRD_LOCAL_CUT_BUILD_CAPABILITY",
     "BRD_MODEL_EDIT_CAPABILITY",
+    "BRD_OPTIMIZATION_PROGRESS_CAPABILITY",
+    "BRD_OPTIMIZATION_REPORT_CAPABILITY",
     "BRD_RECORDED_VOID_ACTION_CAPABILITY",
     "BRD_REAL_SOLVE_CAPABILITY",
     "BRD_TDR_EXPORT_CAPABILITY",
@@ -97,6 +105,8 @@ __all__ = [
     "run_brd_iteration_qualify_worker",
     "run_brd_local_cut_worker",
     "run_brd_model_edit_worker",
+    "run_brd_optimization_progress_worker",
+    "run_brd_optimization_report_worker",
     "run_brd_recorded_void_action_worker",
     "run_brd_real_solve_worker",
     "run_brd_tdr_export_worker",

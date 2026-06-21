@@ -96,7 +96,6 @@ def decide_next_action(
     loop_context = _loop_context(payload)
     score = dict(payload.get("score") or {})
     evidence = dict(payload.get("evidence_summary") or {})
-    _refresh_progress_report(loop_context)
 
     current_round = int(loop_context.get("round_index") or 1)
     max_rounds = int(loop_context.get("max_rounds") or payload.get("max_rounds") or 3)

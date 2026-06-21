@@ -711,6 +711,8 @@ def _runtime_with_workers(db_path: Path, profile=None) -> AgentRuntime:
         BRD_ITERATION_QUALIFY_CAPABILITY,
         BRD_LOCAL_CUT_BUILD_CAPABILITY,
         BRD_MODEL_EDIT_CAPABILITY,
+        BRD_OPTIMIZATION_PROGRESS_CAPABILITY,
+        BRD_OPTIMIZATION_REPORT_CAPABILITY,
         BRD_RECORDED_VOID_ACTION_CAPABILITY,
         BRD_REAL_SOLVE_CAPABILITY,
         BRD_TDR_EXPORT_CAPABILITY,
@@ -792,6 +794,22 @@ def _runtime_with_workers(db_path: Path, profile=None) -> AgentRuntime:
         (
             "aedt_agent.agent.workers.brd_iteration_qualify:"
             "run_brd_iteration_qualify_worker"
+        ),
+        resource_classes=("cpu",),
+    )
+    registry.register_process(
+        BRD_OPTIMIZATION_PROGRESS_CAPABILITY,
+        (
+            "aedt_agent.agent.workers.brd_progress_report:"
+            "run_brd_optimization_progress_worker"
+        ),
+        resource_classes=("cpu",),
+    )
+    registry.register_process(
+        BRD_OPTIMIZATION_REPORT_CAPABILITY,
+        (
+            "aedt_agent.agent.workers.brd_progress_report:"
+            "run_brd_optimization_report_worker"
         ),
         resource_classes=("cpu",),
     )
