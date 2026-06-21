@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from aedt_agent.pi_agent.chat import classify_intent, handle_message, run_chat
+from aedt_agent.ansys_agent.chat import classify_intent, handle_message, run_chat
 
 
-def test_pi_agent_chat_classifies_chinese_operator_intents():
+def test_ansys_agent_chat_classifies_chinese_operator_intents():
     assert classify_intent("开始优化这个case") == "run"
     assert classify_intent("看一下当前进度") == "status"
     assert classify_intent("批准并继续") == "approve_resume"
@@ -11,7 +11,7 @@ def test_pi_agent_chat_classifies_chinese_operator_intents():
     assert classify_intent("停止任务") == "stop"
 
 
-def test_pi_agent_chat_approve_resume_uses_pending_approval_and_graph():
+def test_ansys_agent_chat_approve_resume_uses_pending_approval_and_graph():
     class FakeSupervisor:
         def __init__(self):
             self.calls = []
@@ -43,7 +43,7 @@ def test_pi_agent_chat_approve_resume_uses_pending_approval_and_graph():
             )
             return {
                 "status": "succeeded",
-                "pi_status": {
+                "agent_status": {
                     "status": "succeeded",
                     "next_safe_action": "report",
                 },
@@ -59,20 +59,20 @@ def test_pi_agent_chat_approve_resume_uses_pending_approval_and_graph():
         {
             "approval_id": "approval-1",
             "option_id": "approve",
-            "comment": "approved from Pi Agent chat",
+            "comment": "approved from ansys-agent chat",
             "resume": True,
             "graph_run_id": "graph-1",
         }
     ]
 
 
-def test_pi_agent_chat_once_prints_status():
+def test_ansys_agent_chat_once_prints_status():
     class FakeSupervisor:
         def status(self):
             return {
                 "status": "not_started",
                 "next_safe_action": "preflight",
-                "recommended_command": "python -m aedt_agent.pi_agent preflight --case case.json",
+                "recommended_command": "python -m aedt_agent.ansys_agent preflight --case case.json",
             }
 
     output = []
@@ -87,5 +87,5 @@ def test_pi_agent_chat_once_prints_status():
     assert output == [
         "状态：not_started\n"
         "下一步：preflight\n"
-        "建议命令：python -m aedt_agent.pi_agent preflight --case case.json"
+        "建议命令：python -m aedt_agent.ansys_agent preflight --case case.json"
     ]

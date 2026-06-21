@@ -1,6 +1,6 @@
-# ansys-agent Pi Agent
+# ansys-agent
 
-Pi Agent 是 ansys-agent 内置的轻量专属工程编排器。它不是通用 coding agent，
+ansys-agent 是本项目内置的轻量专属工程编排器。它不是通用 coding agent，
 也不是 Claude Code/Codex 的包装层。它只负责 reviewed BRD/AEDT 优化闭环的
 受控推进：
 
@@ -10,7 +10,7 @@ case config -> preflight -> graph run-loop -> status summary -> approval/report
 
 ## 边界
 
-Pi Agent 可以：
+ansys-agent 可以：
 
 - 读取一个 case config；
 - 校验 reviewed loop config 和 execution profile；
@@ -18,7 +18,7 @@ Pi Agent 可以：
 - 输出紧凑 JSON 状态；
 - 在 `waiting_approval`、`failed`、`canceled`、`succeeded` 停止。
 
-Pi Agent 不可以：
+ansys-agent 不可以：
 
 - 默认启动 SSH；
 - 绕过 YAML graph 直接调用 worker 内部脚本；
@@ -48,23 +48,23 @@ Copy-Item config\cases\reviewed_brd.example.json config\cases\reviewed_brd.local
 然后运行：
 
 ```powershell
-.\.venv\Scripts\python.exe -m aedt_agent.pi_agent init `
+.\.venv\Scripts\python.exe -m aedt_agent.ansys_agent init `
   --case config\cases\reviewed_brd.example.json
 
-.\.venv\Scripts\python.exe -m aedt_agent.pi_agent preflight `
+.\.venv\Scripts\python.exe -m aedt_agent.ansys_agent preflight `
   --case config\cases\reviewed_brd.local.json
 
-.\.venv\Scripts\python.exe -m aedt_agent.pi_agent run `
+.\.venv\Scripts\python.exe -m aedt_agent.ansys_agent run `
   --case config\cases\reviewed_brd.local.json
 
-.\.venv\Scripts\python.exe -m aedt_agent.pi_agent status `
+.\.venv\Scripts\python.exe -m aedt_agent.ansys_agent status `
   --case config\cases\reviewed_brd.local.json
 ```
 
-也可以进入交互式 Pi CLI，让 Pi 按自然语言意图调用受控命令：
+也可以进入交互式 ansys-agent CLI，让 ansys-agent 按自然语言意图调用受控命令：
 
 ```powershell
-.\.venv\Scripts\python.exe -m aedt_agent.pi_agent cli `
+.\.venv\Scripts\python.exe -m aedt_agent.ansys_agent cli `
   --case config\cases\reviewed_brd.local.json
 ```
 
@@ -83,7 +83,7 @@ Copy-Item config\cases\reviewed_brd.example.json config\cases\reviewed_brd.local
 `chat` 和 `cli` 是同一个入口；`--once` 可用于脚本化验证：
 
 ```powershell
-.\.venv\Scripts\python.exe -m aedt_agent.pi_agent cli `
+.\.venv\Scripts\python.exe -m aedt_agent.ansys_agent cli `
   --case config\cases\reviewed_brd.local.json `
   --once "看状态"
 ```
@@ -91,7 +91,7 @@ Copy-Item config\cases\reviewed_brd.example.json config\cases\reviewed_brd.local
 如果只想验证仓库里的 example contract，不检查本机 AEDT 路径：
 
 ```powershell
-.\.venv\Scripts\python.exe -m aedt_agent.pi_agent preflight `
+.\.venv\Scripts\python.exe -m aedt_agent.ansys_agent preflight `
   --case config\cases\reviewed_brd.example.json `
   --no-check-paths
 ```
@@ -106,7 +106,7 @@ Copy-Item config\cases\reviewed_brd.example.json config\cases\reviewed_brd.local
   "db_path": "D:\\aedt-agent-runs\\reviewed-loop\\missions.db",
   "loop_config": "config\\optimization_loops\\reviewed_brd_remote.json",
   "execution_profile": "config\\execution_profiles\\local_real_aedt.json",
-  "worker_id": "pi-agent",
+  "worker_id": "ansys-agent",
   "max_workers": 1,
   "poll_interval_seconds": 30,
   "check_paths": true,
@@ -133,13 +133,13 @@ MVP 固定 `max_workers=1`，避免多个 AEDT worker 同时争用模型和 lice
     "objective_total_cost": "123.4"
   },
   "next_safe_action": "ask_user",
-  "recommended_command": "python -m aedt_agent.pi_agent status --case config\\cases\\reviewed_brd.local.json",
+  "recommended_command": "python -m aedt_agent.ansys_agent status --case config\\cases\\reviewed_brd.local.json",
   "available_commands": {
-    "approve": "python -m aedt_agent.pi_agent approve --case config\\cases\\reviewed_brd.local.json --approval-id <approval_id> --option-id approve",
-    "approve_and_resume": "python -m aedt_agent.pi_agent approve --case config\\cases\\reviewed_brd.local.json --approval-id <approval_id> --option-id approve --resume --graph-run-id <graph_run_id>",
-    "reject": "python -m aedt_agent.pi_agent reject --case config\\cases\\reviewed_brd.local.json --approval-id <approval_id>",
-    "status": "python -m aedt_agent.pi_agent status --case config\\cases\\reviewed_brd.local.json",
-    "web": "python -m aedt_agent.pi_agent web --case config\\cases\\reviewed_brd.local.json"
+    "approve": "python -m aedt_agent.ansys_agent approve --case config\\cases\\reviewed_brd.local.json --approval-id <approval_id> --option-id approve",
+    "approve_and_resume": "python -m aedt_agent.ansys_agent approve --case config\\cases\\reviewed_brd.local.json --approval-id <approval_id> --option-id approve --resume --graph-run-id <graph_run_id>",
+    "reject": "python -m aedt_agent.ansys_agent reject --case config\\cases\\reviewed_brd.local.json --approval-id <approval_id>",
+    "status": "python -m aedt_agent.ansys_agent status --case config\\cases\\reviewed_brd.local.json",
+    "web": "python -m aedt_agent.ansys_agent web --case config\\cases\\reviewed_brd.local.json"
   },
   "pending_approvals": [
     {
@@ -165,21 +165,21 @@ metrics 和 artifact refs；raw Touchstone/TDR 仍然是 artifact-only。
 
 ## 控制命令
 
-Phase 2 起 Pi Agent 还提供受控操作命令：
+Phase 2 起 ansys-agent 还提供受控操作命令：
 
 ```powershell
 # 继续一个已存在或最新 graph_run
-.\.venv\Scripts\python.exe -m aedt_agent.pi_agent resume `
+.\.venv\Scripts\python.exe -m aedt_agent.ansys_agent resume `
   --case config\cases\reviewed_brd.local.json
 
 # 批准 graph/human gate 审批项
-.\.venv\Scripts\python.exe -m aedt_agent.pi_agent approve `
+.\.venv\Scripts\python.exe -m aedt_agent.ansys_agent approve `
   --case config\cases\reviewed_brd.local.json `
   --approval-id <approval_id> `
   --option-id approve
 
 # 批准后明确恢复同一个 graph_run
-.\.venv\Scripts\python.exe -m aedt_agent.pi_agent approve `
+.\.venv\Scripts\python.exe -m aedt_agent.ansys_agent approve `
   --case config\cases\reviewed_brd.local.json `
   --approval-id <approval_id> `
   --option-id approve `
@@ -187,17 +187,17 @@ Phase 2 起 Pi Agent 还提供受控操作命令：
   --graph-run-id <graph_run_id>
 
 # 拒绝审批项
-.\.venv\Scripts\python.exe -m aedt_agent.pi_agent reject `
+.\.venv\Scripts\python.exe -m aedt_agent.ansys_agent reject `
   --case config\cases\reviewed_brd.local.json `
   --approval-id <approval_id>
 
 # 停止当前或指定 graph_run
-.\.venv\Scripts\python.exe -m aedt_agent.pi_agent stop `
+.\.venv\Scripts\python.exe -m aedt_agent.ansys_agent stop `
   --case config\cases\reviewed_brd.local.json `
   --reason "manual stop"
 
-# 启动 Pi operator panel
-.\.venv\Scripts\python.exe -m aedt_agent.pi_agent web `
+# 启动 ansys-agent operator panel
+.\.venv\Scripts\python.exe -m aedt_agent.ansys_agent web `
   --case config\cases\reviewed_brd.local.json
 ```
 
@@ -207,9 +207,9 @@ Phase 2 起 Pi Agent 还提供受控操作命令：
 不会重新启动 worker；需要先 `approve` 或 `reject`。
 
 `web` 会启动一个轻量 operator panel，默认按 case 的 `poll_interval_seconds`
-低频刷新。页面只通过 Pi Agent 的受控命令操作 graph：查看状态、批准并恢复、
+低频刷新。页面只通过 ansys-agent 的受控命令操作 graph：查看状态、批准并恢复、
 拒绝、恢复、停止；页面展示 bounded metrics、pending approvals、latest artifact
 refs 和 failure summary，不读取 raw Touchstone/TDR 内容。
 
-交互式 `cli/chat` 也是同样的安全边界：它只把自然语言映射到 Pi Agent
+交互式 `cli/chat` 也是同样的安全边界：它只把自然语言映射到 ansys-agent
 已有受控命令，不直接调用 worker 内部脚本，不绕过 approval gate。

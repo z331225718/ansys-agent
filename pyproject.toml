@@ -21,7 +21,7 @@ mcp = [
 
 [project.scripts]
 aedt-agent = "aedt_agent.agent.cli:main"
-aedt-pi-agent = "aedt_agent.pi_agent.__main__:main"
+ansys-agent = "aedt_agent.ansys_agent.__main__:main"
 aedt-agent-v0 = "aedt_agent.v0.cli:main"
 
 [tool.setuptools.packages.find]

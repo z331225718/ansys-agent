@@ -1,13 +1,13 @@
-# Pi Agent Specialized Orchestrator Plan
+# ansys-agent Specialized Orchestrator Plan
 
 ## 目标
 
-在 `codex/pi-agent-ansys-agent` 分支实现一个最小可运行的 Pi Agent MVP：
+在当前特性分支实现一个最小可运行的 ansys-agent MVP：
 
 ```text
-python -m aedt_agent.pi_agent preflight --case ...
-python -m aedt_agent.pi_agent run --case ...
-python -m aedt_agent.pi_agent status --case ...
+python -m aedt_agent.ansys_agent preflight --case ...
+python -m aedt_agent.ansys_agent run --case ...
+python -m aedt_agent.ansys_agent status --case ...
 ```
 
 MVP 只做专属编排壳，不重写 worker，不做通用 coding agent。
@@ -16,11 +16,8 @@ MVP 只做专属编排壳，不重写 worker，不做通用 coding agent。
 
 - [x] 新增 spec/plan 文档，固定设计边界。
 - [x] 新增 `config/cases/reviewed_brd.example.json`。
-- [x] 新增 `src/aedt_agent/pi_agent/` 包：
-  - `case_config.py`：读取和校验 case config。
-  - `supervisor.py`：构建 runtime，调用 loop runner。
-  - `status.py`：从 graph/status/history/report artifact 生成紧凑状态。
-  - `__main__.py`：CLI 入口。
+- [x] 新增 `src/aedt_agent/ansys_agent/` 对外入口包。
+- [x] 保留已有受控编排实现作为兼容层，避免破坏已验证的 loop。
 - [x] 安全策略：
   - 默认拒绝 `ssh_remote`。
   - 默认 `max_workers=1`。
@@ -32,7 +29,7 @@ MVP 只做专属编排壳，不重写 worker，不做通用 coding agent。
   - preflight 调用 reviewed loop 校验。
   - status 从 graph report / history CSV 中抽取紧凑字段。
   - CLI 输出 JSON。
-- [x] 更新 README 和架构说明，说明 Pi Agent 是内置轻量专属编排器。
+- [x] 更新 README 和架构说明，说明 ansys-agent 是内置轻量专属编排器。
 - [x] 运行 targeted tests。
 
 ## MVP 不做
@@ -68,9 +65,9 @@ MVP 只做专属编排壳，不重写 worker，不做通用 coding agent。
 - [x] `status.available_commands` 暴露 `approve_and_resume`，并携带 graph run id。
 - [x] 新增测试覆盖 pending gate 保护和 approve+resume 一步恢复。
 
-## Phase 5 Pi Operator Panel
+## Phase 5 ansys-agent Operator Panel
 
-- [x] `pi_agent web` 启动轻量 operator panel，而不是只代理通用 dashboard。
+- [x] `ansys_agent web` 启动轻量 operator panel，而不是只代理通用 dashboard。
 - [x] Panel 提供 `/api/status` 和受控 POST action：resume / approve / reject / stop。
 - [x] 页面展示 status、recommended command、pending approvals、bounded metrics、artifact refs、failure summary。
 - [x] 页面按 case `poll_interval_seconds` 低频刷新，最小 10s。
@@ -79,7 +76,7 @@ MVP 只做专属编排壳，不重写 worker，不做通用 coding agent。
 
 ## Phase 6 Interactive CLI
 
-- [x] 新增 `pi_agent cli` / `pi_agent chat` 交互入口。
+- [x] 新增 `ansys_agent cli` / `ansys_agent chat` 交互入口。
 - [x] 支持中文/英文自然语言意图：开始优化、看状态、预检、继续、批准、批准并继续、拒绝、停止、打开页面、退出。
 - [x] 交互入口只路由到已有受控命令，不直接调用 worker 内部脚本，不绕过 approval gate。
 - [x] 支持 `--once`，方便远端 smoke 和脚本化验证。
@@ -89,12 +86,12 @@ MVP 只做专属编排壳，不重写 worker，不做通用 coding agent。
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest `
-  tests\test_pi_agent_case_config.py `
-  tests\test_pi_agent_status.py `
-  tests\test_pi_agent_cli.py `
+  tests\test_ansys_agent_case_config.py `
+  tests\test_ansys_agent_status.py `
+  tests\test_ansys_agent_cli.py `
   -q
 
-.\.venv\Scripts\python.exe -m aedt_agent.pi_agent preflight `
+.\.venv\Scripts\python.exe -m aedt_agent.ansys_agent preflight `
   --case config\cases\reviewed_brd.example.json `
   --no-check-paths
 ```

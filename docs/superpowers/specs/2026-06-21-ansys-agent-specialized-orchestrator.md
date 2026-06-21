@@ -1,4 +1,4 @@
-# Pi Agent Specialized Orchestrator Spec
+# ansys-agent Specialized Orchestrator Spec
 
 ## 背景
 
@@ -12,11 +12,11 @@ YAML graph -> worker solve/export/score/edit -> bounded evidence -> LLM decider 
 优化并不需要通用 coding agent 的完整能力。通用 agent 动作空间太大、上下文太重，
 容易误用 SSH、绕过 graph、频繁轮询，或把原始 S 参数/TDR 放入上下文。
 
-本 spec 定义一个项目内置的轻量专属 agent：Pi Agent。
+本 spec 定义一个项目内置的轻量专属 agent：ansys-agent。
 
 ## 目标
 
-Pi Agent 是 ansys-agent 的专属工程编排器：
+ansys-agent 是本项目的专属工程编排器：
 
 ```text
 case config
@@ -52,7 +52,7 @@ simulation_runner = local_cli
 
 ## Case Config
 
-Pi Agent 只读取一个 case config：
+ansys-agent 只读取一个 case config：
 
 ```json
 {
@@ -60,7 +60,7 @@ Pi Agent 只读取一个 case config：
   "db_path": "D:\\aedt-agent-runs\\reviewed-loop\\missions.db",
   "loop_config": "config\\optimization_loops\\reviewed_brd_remote.json",
   "execution_profile": "config\\execution_profiles\\local_real_aedt.json",
-  "worker_id": "pi-agent",
+  "worker_id": "ansys-agent",
   "max_workers": 1,
   "poll_interval_seconds": 30,
   "check_paths": true,
@@ -80,16 +80,16 @@ working AEDT、report_dir、S4P/TDR 设置、几何约束和候选动作。
 MVP 新增模块入口：
 
 ```powershell
-python -m aedt_agent.pi_agent preflight --case config\cases\reviewed_brd.example.json
-python -m aedt_agent.pi_agent run --case config\cases\reviewed_brd.example.json
-python -m aedt_agent.pi_agent status --case config\cases\reviewed_brd.example.json
+python -m aedt_agent.ansys_agent preflight --case config\cases\reviewed_brd.example.json
+python -m aedt_agent.ansys_agent run --case config\cases\reviewed_brd.example.json
+python -m aedt_agent.ansys_agent status --case config\cases\reviewed_brd.example.json
 ```
 
 输出全部为 JSON，方便其它轻量 harness 或 Web UI 使用。
 
 ## 状态摘要
 
-`status` 返回 Pi 视角的紧凑状态：
+`status` 返回 ansys-agent 视角的紧凑状态：
 
 ```json
 {
@@ -124,11 +124,11 @@ python -m aedt_agent.pi_agent status --case config\cases\reviewed_brd.example.js
 4. differential contract 必须是四端口 `s4p`、`SDD11`、`SDD21`、`Diff1`。
 5. 几何约束必须满足 anti-pad <= 22mil、NFP radius in [7.875mil, 10mil]。
 6. `run` 遇到 `waiting_approval`、`failed`、`canceled` 或 `succeeded` 停止。
-7. Pi Agent 只输出 bounded metrics 和 artifact refs，不输出 raw 曲线。
+7. ansys-agent 只输出 bounded metrics 和 artifact refs，不输出 raw 曲线。
 
 ## 后续扩展
 
-- Web 页面增加 Pi 视角状态卡片。
+- Web 页面增加 ansys-agent 视角状态卡片。
 - 增加 `resume`、`approve`、`stop` 子命令。
-- 增加专属 `PiOptimizationDecider`，只接受 bounded evidence，输出强 schema JSON。
-- 将 status 写入 `pi_agent_state.json`，用于外部轻量守护进程。
+- 增加专属 `AnsysOptimizationDecider`，只接受 bounded evidence，输出强 schema JSON。
+- 将 status 写入 `ansys_agent_state.json`，用于外部轻量守护进程。

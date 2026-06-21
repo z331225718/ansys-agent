@@ -2,17 +2,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from aedt_agent.pi_agent.case_config import PiAgentCase
-from aedt_agent.pi_agent.status import summarize_graph_report
+from aedt_agent.ansys_agent.case_config import AnsysAgentCase
+from aedt_agent.ansys_agent.status import summarize_graph_report
 
 
-def _case(tmp_path: Path) -> PiAgentCase:
+def _case(tmp_path: Path) -> AnsysAgentCase:
     loop_config = tmp_path / "loop.json"
     loop_config.write_text(
         '{"report_dir": "' + str((tmp_path / "progress")).replace("\\", "\\\\") + '"}',
         encoding="utf-8",
     )
-    return PiAgentCase(
+    return AnsysAgentCase(
         case_id="case-1",
         db_path=tmp_path / "missions.db",
         loop_config=loop_config,
@@ -23,7 +23,7 @@ def _case(tmp_path: Path) -> PiAgentCase:
     )
 
 
-def test_pi_status_extracts_bounded_metrics_from_history_csv(tmp_path: Path):
+def test_agent_status_extracts_bounded_metrics_from_history_csv(tmp_path: Path):
     history = tmp_path / "progress" / "optimization_history.csv"
     history.parent.mkdir()
     history.write_text(
@@ -92,7 +92,7 @@ def test_pi_status_extracts_bounded_metrics_from_history_csv(tmp_path: Path):
     assert {"history_csv", "touchstone", "plot"}.issubset(artifact_kinds)
 
 
-def test_pi_status_reports_failure_summary(tmp_path: Path):
+def test_agent_status_reports_failure_summary(tmp_path: Path):
     report = {
         "status": "failed",
         "graph_run": {

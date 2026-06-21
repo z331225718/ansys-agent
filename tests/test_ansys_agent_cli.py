@@ -6,12 +6,12 @@ import sys
 from pathlib import Path
 
 
-def test_pi_agent_cli_preflight_outputs_json():
+def test_ansys_agent_cli_preflight_outputs_json():
     result = subprocess.run(
         [
             sys.executable,
             "-m",
-            "aedt_agent.pi_agent",
+            "aedt_agent.ansys_agent",
             "preflight",
             "--case",
             "config/cases/reviewed_brd.example.json",
@@ -29,7 +29,7 @@ def test_pi_agent_cli_preflight_outputs_json():
     assert payload["execution_profile"]["simulation_runner"] == "local_cli"
 
 
-def test_pi_agent_cli_status_handles_missing_database(tmp_path: Path):
+def test_ansys_agent_cli_status_handles_missing_database(tmp_path: Path):
     case_file = tmp_path / "case.json"
     case_file.write_text(
         json.dumps(
@@ -48,7 +48,7 @@ def test_pi_agent_cli_status_handles_missing_database(tmp_path: Path):
         [
             sys.executable,
             "-m",
-            "aedt_agent.pi_agent",
+            "aedt_agent.ansys_agent",
             "status",
             "--case",
             str(case_file),
@@ -64,7 +64,7 @@ def test_pi_agent_cli_status_handles_missing_database(tmp_path: Path):
     assert payload["status"] == "not_started"
 
 
-def test_pi_agent_cli_once_status_is_human_readable(tmp_path: Path):
+def test_ansys_agent_cli_once_status_is_human_readable(tmp_path: Path):
     case_file = tmp_path / "case.json"
     case_file.write_text(
         json.dumps(
@@ -83,7 +83,7 @@ def test_pi_agent_cli_once_status_is_human_readable(tmp_path: Path):
         [
             sys.executable,
             "-m",
-            "aedt_agent.pi_agent",
+            "aedt_agent.ansys_agent",
             "cli",
             "--case",
             str(case_file),
@@ -101,7 +101,7 @@ def test_pi_agent_cli_once_status_is_human_readable(tmp_path: Path):
     assert "建议命令：" in result.stdout
 
 
-def test_pi_agent_cli_init_outputs_created_files(tmp_path: Path):
+def test_ansys_agent_cli_init_outputs_created_files(tmp_path: Path):
     profile = tmp_path / "local_real_aedt.example.json"
     profile.write_text(
         Path("config/execution_profiles/local_real_aedt.example.json").read_text(encoding="utf-8"),
@@ -131,7 +131,7 @@ def test_pi_agent_cli_init_outputs_created_files(tmp_path: Path):
         [
             sys.executable,
             "-m",
-            "aedt_agent.pi_agent",
+            "aedt_agent.ansys_agent",
             "init",
             "--case",
             str(case_file),

@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from aedt_agent.pi_agent import PiAgentSupervisor, load_case_config
-from aedt_agent.pi_agent.initializer import initialize_local_case
+from aedt_agent.ansys_agent import AnsysAgentSupervisor, load_case_config
+from aedt_agent.ansys_agent.initializer import initialize_local_case
+from aedt_agent.pi_agent import PiAgentSupervisor
 
 
 def test_example_case_defaults_to_local_real_profile_without_path_checks():
@@ -22,13 +23,13 @@ def test_example_case_defaults_to_local_real_profile_without_path_checks():
     assert case.allow_ssh_remote is False
 
 
-def test_pi_agent_preflight_example_passes_without_machine_paths():
+def test_ansys_agent_preflight_example_passes_without_machine_paths():
     case = load_case_config(
         "config/cases/reviewed_brd.example.json",
         no_check_paths=True,
     )
 
-    report = PiAgentSupervisor(case).preflight()
+    report = AnsysAgentSupervisor(case).preflight()
 
     assert report["status"] == "passed"
     check_status = {item["id"]: item["status"] for item in report["checks"]}
@@ -37,7 +38,11 @@ def test_pi_agent_preflight_example_passes_without_machine_paths():
     assert check_status["profile_local_cli"] == "passed"
 
 
-def test_pi_agent_preflight_rejects_ssh_profile_by_default(tmp_path: Path):
+def test_legacy_pi_agent_entrypoint_aliases_supervisor():
+    assert PiAgentSupervisor is AnsysAgentSupervisor
+
+
+def test_ansys_agent_preflight_rejects_ssh_profile_by_default(tmp_path: Path):
     case_file = tmp_path / "case.json"
     case_file.write_text(
         json.dumps(
@@ -46,7 +51,7 @@ def test_pi_agent_preflight_rejects_ssh_profile_by_default(tmp_path: Path):
                 "db_path": str(tmp_path / "missions.db"),
                 "loop_config": "config/optimization_loops/reviewed_brd_remote.example.json",
                 "execution_profile": "config/execution_profiles/ssh_remote.example.json",
-                "worker_id": "pi-agent",
+                "worker_id": "ansys-agent",
                 "max_workers": 1,
                 "poll_interval_seconds": 30,
                 "check_paths": False,
@@ -56,13 +61,13 @@ def test_pi_agent_preflight_rejects_ssh_profile_by_default(tmp_path: Path):
     )
     case = load_case_config(case_file)
 
-    report = PiAgentSupervisor(case).preflight()
+    report = AnsysAgentSupervisor(case).preflight()
 
     assert report["status"] == "failed"
     assert "profile_local_cli" in report["failed_checks"]
 
 
-def test_pi_agent_init_creates_local_files_and_rewrites_case(tmp_path: Path):
+def test_ansys_agent_init_creates_local_files_and_rewrites_case(tmp_path: Path):
     profile = tmp_path / "local_real_aedt.example.json"
     profile.write_text(
         Path("config/execution_profiles/local_real_aedt.example.json").read_text(encoding="utf-8"),

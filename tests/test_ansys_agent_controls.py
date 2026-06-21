@@ -10,12 +10,12 @@ from aedt_agent.agent.graph_template import graph_template_from_mapping, load_gr
 from aedt_agent.agent.mission import ApprovalDecision, GraphRunStatus
 from aedt_agent.agent.orchestrator import AgentRuntime
 from aedt_agent.infrastructure import SQLiteMissionStore
-from aedt_agent.pi_agent.case_config import PiAgentCase, PiAgentCaseError
-from aedt_agent.pi_agent.supervisor import PiAgentSupervisor
+from aedt_agent.ansys_agent.case_config import AnsysAgentCase, AnsysAgentCaseError
+from aedt_agent.ansys_agent.supervisor import AnsysAgentSupervisor
 
 
-def _case(tmp_path: Path) -> PiAgentCase:
-    return PiAgentCase(
+def _case(tmp_path: Path) -> AnsysAgentCase:
+    return AnsysAgentCase(
         case_id="control-case",
         db_path=tmp_path / "missions.db",
         loop_config=Path("config/optimization_loops/reviewed_brd_remote.example.json"),
@@ -59,37 +59,37 @@ def _waiting_local_cut_graph(tmp_path: Path):
     return runtime, report, approval_id
 
 
-def test_pi_agent_resume_stops_at_pending_approval_without_advancing(tmp_path: Path):
+def test_ansys_agent_resume_stops_at_pending_approval_without_advancing(tmp_path: Path):
     runtime, report, approval_id = _waiting_local_cut_graph(tmp_path)
-    supervisor = PiAgentSupervisor(_case(tmp_path))
+    supervisor = AnsysAgentSupervisor(_case(tmp_path))
     node_count_before = len(runtime.store.list_node_runs(report["graph_run"]["graph_run_id"]))
 
     blocked = supervisor.resume(graph_run_id=report["graph_run"]["graph_run_id"])
 
     assert blocked["status"] == "waiting_approval"
     assert blocked["pending_approvals"][0]["approval_id"] == approval_id
-    assert blocked["pi_status"]["available_commands"]["approve_and_resume"].endswith(
+    assert blocked["agent_status"]["available_commands"]["approve_and_resume"].endswith(
         "--option-id approve --resume --graph-run-id "
         + report["graph_run"]["graph_run_id"]
     )
     assert len(runtime.store.list_node_runs(report["graph_run"]["graph_run_id"])) == node_count_before
 
 
-def test_pi_agent_status_without_db_includes_operator_fields(tmp_path: Path):
-    status = PiAgentSupervisor(_case(tmp_path)).status()
+def test_ansys_agent_status_without_db_includes_operator_fields(tmp_path: Path):
+    status = AnsysAgentSupervisor(_case(tmp_path)).status()
 
     assert status["status"] == "not_started"
     assert status["reason"].startswith("mission db does not exist")
     assert status["available_commands"]["preflight"].startswith(
-        "python -m aedt_agent.pi_agent preflight"
+        "python -m aedt_agent.ansys_agent preflight"
     )
-    assert status["recommended_command"].startswith("python -m aedt_agent.pi_agent preflight")
+    assert status["recommended_command"].startswith("python -m aedt_agent.ansys_agent preflight")
     assert status["pending_approvals"] == []
 
 
-def test_pi_agent_approve_with_resume_finishes_waiting_graph(tmp_path: Path):
+def test_ansys_agent_approve_with_resume_finishes_waiting_graph(tmp_path: Path):
     _, report, approval_id = _waiting_local_cut_graph(tmp_path)
-    supervisor = PiAgentSupervisor(_case(tmp_path))
+    supervisor = AnsysAgentSupervisor(_case(tmp_path))
 
     resumed = supervisor.approve(
         approval_id=approval_id,
@@ -101,10 +101,10 @@ def test_pi_agent_approve_with_resume_finishes_waiting_graph(tmp_path: Path):
     assert resumed["status"] == "succeeded"
     assert resumed["approval"]["selected_option_id"] == "approve"
     assert resumed["graph_run_id"] == report["graph_run"]["graph_run_id"]
-    assert resumed["pi_status"]["next_safe_action"] == "report"
+    assert resumed["agent_status"]["next_safe_action"] == "report"
 
 
-def test_pi_agent_approve_resume_rejects_mismatched_graph_run(tmp_path: Path):
+def test_ansys_agent_approve_resume_rejects_mismatched_graph_run(tmp_path: Path):
     runtime, _, approval_id = _waiting_local_cut_graph(tmp_path)
     other_mission = runtime.create_mission("other mission", [], [])
     other_template = graph_template_from_mapping(
@@ -117,9 +117,9 @@ def test_pi_agent_approve_resume_rejects_mismatched_graph_run(tmp_path: Path):
         }
     )
     other_graph = create_graph_run(runtime, other_mission.mission_id, other_template)
-    supervisor = PiAgentSupervisor(_case(tmp_path))
+    supervisor = AnsysAgentSupervisor(_case(tmp_path))
 
-    with pytest.raises(PiAgentCaseError, match="approval mission does not match"):
+    with pytest.raises(AnsysAgentCaseError, match="approval mission does not match"):
         supervisor.approve(
             approval_id=approval_id,
             resume=True,
@@ -129,7 +129,7 @@ def test_pi_agent_approve_resume_rejects_mismatched_graph_run(tmp_path: Path):
     assert runtime.store.get_approval(approval_id).decision == ApprovalDecision.PENDING
 
 
-def test_pi_agent_stop_cancels_running_graph_and_mission(tmp_path: Path):
+def test_ansys_agent_stop_cancels_running_graph_and_mission(tmp_path: Path):
     runtime = AgentRuntime(SQLiteMissionStore(tmp_path / "missions.db"))
     mission = runtime.create_mission("stop me", [], [])
     template = graph_template_from_mapping(
@@ -142,16 +142,16 @@ def test_pi_agent_stop_cancels_running_graph_and_mission(tmp_path: Path):
         }
     )
     graph_run = create_graph_run(runtime, mission.mission_id, template)
-    supervisor = PiAgentSupervisor(_case(tmp_path))
+    supervisor = AnsysAgentSupervisor(_case(tmp_path))
 
     stopped = supervisor.stop(graph_run_id=graph_run.graph_run_id, reason="test stop")
 
     assert stopped["status"] == "canceled"
-    assert stopped["pi_status"]["status"] == "canceled"
+    assert stopped["agent_status"]["status"] == "canceled"
     assert runtime.store.get_graph_run(graph_run.graph_run_id).status == GraphRunStatus.CANCELED
 
 
-def test_pi_agent_resume_rejects_ssh_profile_by_default(tmp_path: Path):
+def test_ansys_agent_resume_rejects_ssh_profile_by_default(tmp_path: Path):
     runtime = AgentRuntime(SQLiteMissionStore(tmp_path / "missions.db"))
     mission = runtime.create_mission("ssh resume blocked", [], [])
     template = graph_template_from_mapping(
@@ -164,7 +164,7 @@ def test_pi_agent_resume_rejects_ssh_profile_by_default(tmp_path: Path):
         }
     )
     graph_run = create_graph_run(runtime, mission.mission_id, template)
-    case = PiAgentCase(
+    case = AnsysAgentCase(
         case_id="ssh-blocked",
         db_path=tmp_path / "missions.db",
         loop_config=Path("config/optimization_loops/reviewed_brd_remote.example.json"),
@@ -174,5 +174,5 @@ def test_pi_agent_resume_rejects_ssh_profile_by_default(tmp_path: Path):
         check_paths=False,
     )
 
-    with pytest.raises(PiAgentCaseError, match="profile_local_cli"):
-        PiAgentSupervisor(case).resume(graph_run_id=graph_run.graph_run_id)
+    with pytest.raises(AnsysAgentCaseError, match="profile_local_cli"):
+        AnsysAgentSupervisor(case).resume(graph_run_id=graph_run.graph_run_id)

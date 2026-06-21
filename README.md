@@ -153,33 +153,33 @@ worker artifacts 和 optimization_history.csv，再问我。
 
 Claude Code 的职责是外层监督和接管，不是替代 graph 里的 worker。
 
-## 使用内置 Pi Agent
+## 使用内置 ansys-agent
 
-Pi Agent 是项目内置的轻量专属工程编排器，比通用商业 coding agent 更窄：
+ansys-agent 是项目内置的轻量专属工程编排器，比通用商业 coding agent 更窄：
 它只读取 case config、做 preflight、推进 reviewed YAML graph、输出紧凑状态。
 
 ```powershell
-.\.venv\Scripts\python.exe -m aedt_agent.pi_agent init `
+.\.venv\Scripts\python.exe -m aedt_agent.ansys_agent init `
   --case config\cases\reviewed_brd.example.json
 
-.\.venv\Scripts\python.exe -m aedt_agent.pi_agent preflight `
+.\.venv\Scripts\python.exe -m aedt_agent.ansys_agent preflight `
   --case config\cases\reviewed_brd.local.json
 
-.\.venv\Scripts\python.exe -m aedt_agent.pi_agent run `
+.\.venv\Scripts\python.exe -m aedt_agent.ansys_agent run `
   --case config\cases\reviewed_brd.local.json
 
-.\.venv\Scripts\python.exe -m aedt_agent.pi_agent status `
+.\.venv\Scripts\python.exe -m aedt_agent.ansys_agent status `
   --case config\cases\reviewed_brd.local.json
 ```
 
 想要更像 agent 的终端体验，可以直接进交互式 CLI：
 
 ```powershell
-.\.venv\Scripts\python.exe -m aedt_agent.pi_agent cli `
+.\.venv\Scripts\python.exe -m aedt_agent.ansys_agent cli `
   --case config\cases\reviewed_brd.local.json
 ```
 
-然后输入“开始优化”“看状态”“批准并继续”“停止”等需求，Pi 会映射到
+然后输入“开始优化”“看状态”“批准并继续”“停止”等需求，ansys-agent 会映射到
 已有受控命令执行。`chat` 是同一入口的别名。
 
 后续可以用 `resume`、`approve`、`reject`、`stop`、`web` 继续托管同一个 case。
@@ -188,7 +188,7 @@ Pi Agent 是项目内置的轻量专属工程编排器，比通用商业 coding 
 曲线塞进 JSON，也不会默认建议自动批准审批。
 `resume` 遇到未决审批会停在 `waiting_approval`；审完后可以用
 `approve --resume --graph-run-id <id>` 明确恢复同一个 graph run。
-`web` 会启动 Pi operator panel，用同一组受控命令查看状态、审批、恢复和停止。
+`web` 会启动 ansys-agent operator panel，用同一组受控命令查看状态、审批、恢复和停止。
 
 首次使用可从 example 复制：
 
@@ -196,7 +196,7 @@ Pi Agent 是项目内置的轻量专属工程编排器，比通用商业 coding 
 Copy-Item config\cases\reviewed_brd.example.json config\cases\reviewed_brd.local.json
 ```
 
-详细说明见 `PI_AGENT.md`。
+详细说明见 `ANSYS_AGENT.md`。
 
 ## 手动等价命令
 
