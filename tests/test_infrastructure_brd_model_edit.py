@@ -497,6 +497,10 @@ def test_model_edit_can_parameterize_antipad_void_radius(tmp_path):
     assert change["created_voids"][2]["parameters"]["length"]["scope"] == "project"
     assert change["created_voids"][2]["length_factor"] == 0.5
     assert change["created_voids"][2]["rectangle"]["parameterized"] is True
+    assert (
+        change["created_voids"][2]["rectangle"]["representation_type"]
+        == "lower_left_upper_right"
+    )
 
 
 def test_model_edit_uses_explicit_bridge_centers_for_multi_center_antipad(tmp_path):
