@@ -105,6 +105,32 @@ $env:PYTHONUTF8 = "1"
 $env:PYTHONUTF8 = "1"
 ```
 
+### 注意事项：不要在 Git Bash 里裸写 Windows 反斜杠路径
+
+下面涉及 `--db`、AEDT project、report/output 的命令默认按 PowerShell 写法。
+不要把 `D:\aedt-agent-runs\reviewed-loop\missions.db` 这类路径原样粘到
+Git Bash / bash / zsh。反斜杠会被 shell 当成转义符，实际传给 Python 的路径会变成：
+
+```text
+D:aedt-agent-runsreviewed-loopmissions.db
+```
+
+这会创建或读取另一个 SQLite DB。典型症状是：`run-loop` 已经启动或写入了
+node run，但 `http://127.0.0.1:8766/` 的 web dashboard 什么都没有，因为
+web 和 loop 不在看同一个 `missions.db`。
+
+推荐做法是在 PowerShell 里定义一次变量，并让 web、run-loop、审计命令都使用它：
+
+```powershell
+$db = "D:\aedt-agent-runs\reviewed-loop\missions.db"
+```
+
+如果必须使用 Git Bash，请改用带引号的正斜杠路径：
+
+```bash
+--db 'D:/aedt-agent-runs/reviewed-loop/missions.db'
+```
+
 ### 1. 初始化本机配置
 
 先复制并编辑真实本机配置：

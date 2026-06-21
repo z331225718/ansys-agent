@@ -58,6 +58,39 @@ Use `--no-check-paths` only when reviewing a config on a machine that does not
 have the AEDT project files mounted. On the AEDT machine, path checks should
 pass before the loop starts.
 
+## 1.1 Windows shell path warning
+
+Run the commands in PowerShell by default. Do not paste the Windows path
+examples into Git Bash, bash, or zsh with raw backslashes. In those shells,
+backslashes are escape characters, so:
+
+```text
+D:\aedt-agent-runs\reviewed-loop\missions.db
+```
+
+can become:
+
+```text
+D:aedt-agent-runsreviewed-loopmissions.db
+```
+
+That creates or reads a different SQLite database. The common symptom is that
+`mission run-loop` is active, but the web dashboard at port `8766` shows no
+missions or nodes because `mission web` is connected to another DB path.
+
+If Git Bash must be used, quote forward-slash paths instead:
+
+```bash
+--db 'D:/aedt-agent-runs/reviewed-loop/missions.db'
+```
+
+For long runs, define one PowerShell variable and use it for both `mission web`
+and `mission run-loop`:
+
+```powershell
+$db = "D:\aedt-agent-runs\reviewed-loop\missions.db"
+```
+
 ## 2. LLM profiles
 
 The graph can use different model profiles by node. Small planner/utility
@@ -86,8 +119,9 @@ AEDT_AGENT_LLM_HIGH_REASONING_BASE_URL
 
 ```powershell
 $env:PYTHONUTF8 = "1"
+$db = "D:\aedt-agent-runs\reviewed-loop\missions.db"
 .\.venv\Scripts\python.exe -m aedt_agent.agent `
-  --db D:\aedt-agent-runs\reviewed-loop\missions.db `
+  --db $db `
   mission web `
   --host 0.0.0.0 `
   --port 8766 `
@@ -111,8 +145,9 @@ putting raw S-parameter or TDR data into LLM context.
 
 ```powershell
 $env:PYTHONUTF8 = "1"
+$db = "D:\aedt-agent-runs\reviewed-loop\missions.db"
 .\.venv\Scripts\python.exe -m aedt_agent.agent `
-  --db D:\aedt-agent-runs\reviewed-loop\missions.db `
+  --db $db `
   mission run-loop `
   --config config\optimization_loops\reviewed_brd_remote.json `
   --profile config\execution_profiles\local_real_aedt.json `
@@ -133,17 +168,19 @@ canceled, or waits for approval. To resume an existing graph run, add
 Claude Code or another orchestrator can run the same flow manually:
 
 ```powershell
-.\.venv\Scripts\python.exe -m aedt_agent.agent --db D:\aedt-agent-runs\reviewed-loop\missions.db `
+$db = "D:\aedt-agent-runs\reviewed-loop\missions.db"
+
+.\.venv\Scripts\python.exe -m aedt_agent.agent --db $db `
   mission create --goal "Reviewed BRD optimization"
 
-.\.venv\Scripts\python.exe -m aedt_agent.agent --db D:\aedt-agent-runs\reviewed-loop\missions.db `
+.\.venv\Scripts\python.exe -m aedt_agent.agent --db $db `
   mission run-graph --mission-id <mission_id> --template brd_reviewed_model_optimize_loop `
   --initial-payload config\optimization_loops\reviewed_brd_remote.json --max-workers 1
 
-.\.venv\Scripts\python.exe -m aedt_agent.agent --db D:\aedt-agent-runs\reviewed-loop\missions.db `
+.\.venv\Scripts\python.exe -m aedt_agent.agent --db $db `
   mission graph-status --graph-run-id <graph_run_id>
 
-.\.venv\Scripts\python.exe -m aedt_agent.agent --db D:\aedt-agent-runs\reviewed-loop\missions.db `
+.\.venv\Scripts\python.exe -m aedt_agent.agent --db $db `
   mission advance-graph --graph-run-id <graph_run_id> --max-workers 1
 ```
 

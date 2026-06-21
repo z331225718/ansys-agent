@@ -198,6 +198,18 @@ config\execution_profiles\local_real_aedt.local.json
 $env:PYTHONUTF8 = "1"
 ```
 
+路径参数请优先在 PowerShell 里运行。不要把下面的 Windows 路径命令原样粘到
+Git Bash / bash / zsh：反斜杠会被当成转义符，导致
+`D:\aedt-agent-runs\reviewed-loop\missions.db` 变成
+`D:aedt-agent-runsreviewed-loopmissions.db`。这会让 web dashboard 和
+run-loop 读到不同的 SQLite DB，典型现象是 loop 已经启动但
+`http://127.0.0.1:8766/` 没有 mission/node。若必须用 Git Bash，请使用带引号的
+正斜杠路径，例如：
+
+```bash
+--db 'D:/aedt-agent-runs/reviewed-loop/missions.db'
+```
+
 ```powershell
 .\.venv\Scripts\python.exe -m aedt_agent.ansys_agent preflight `
   --case config\cases\reviewed_brd.local.json
@@ -249,8 +261,9 @@ Copy-Item config\cases\reviewed_brd.example.json config\cases\reviewed_brd.local
 
 ```powershell
 $env:PYTHONUTF8 = "1"
+$db = "D:\aedt-agent-runs\reviewed-loop\missions.db"
 .\.venv\Scripts\python.exe -m aedt_agent.agent `
-  --db D:\aedt-agent-runs\reviewed-loop\missions.db `
+  --db $db `
   mission web `
   --host 0.0.0.0 `
   --port 8766 `
@@ -267,8 +280,9 @@ http://<aedt-machine-ip>:8766
 
 ```powershell
 $env:PYTHONUTF8 = "1"
+$db = "D:\aedt-agent-runs\reviewed-loop\missions.db"
 .\.venv\Scripts\python.exe -m aedt_agent.agent `
-  --db D:\aedt-agent-runs\reviewed-loop\missions.db `
+  --db $db `
   mission run-loop `
   --config config\optimization_loops\reviewed_brd_remote.json `
   --profile config\execution_profiles\local_real_aedt.json `
@@ -300,16 +314,17 @@ optimization_progress.json
 ## 常用审计命令
 
 ```powershell
+$db = "D:\aedt-agent-runs\reviewed-loop\missions.db"
 .\.venv\Scripts\python.exe -m aedt_agent.agent `
-  --db D:\aedt-agent-runs\reviewed-loop\missions.db `
+  --db $db `
   mission graph-status --graph-run-id <graph_run_id>
 
 .\.venv\Scripts\python.exe -m aedt_agent.agent `
-  --db D:\aedt-agent-runs\reviewed-loop\missions.db `
+  --db $db `
   mission graph-visualize --graph-run-id <graph_run_id>
 
 .\.venv\Scripts\python.exe -m aedt_agent.agent `
-  --db D:\aedt-agent-runs\reviewed-loop\missions.db `
+  --db $db `
   mission advance-graph --graph-run-id <graph_run_id> --max-workers 1
 ```
 
