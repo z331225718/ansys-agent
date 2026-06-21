@@ -34,7 +34,7 @@ ansys-agent 不可以：
 ```powershell
 cd D:\ansys-agent
 $env:PYTHONUTF8 = "1"
-.\.venv\Scripts\python.exe -m pip install -e .
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 ```
 
 验证 example case 的 contract。这里用 `--no-check-paths`，所以不会要求本机真实存在

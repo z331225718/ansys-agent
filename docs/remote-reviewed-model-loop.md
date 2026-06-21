@@ -23,7 +23,7 @@ default.
 cd D:\ansys-agent
 git pull
 $env:PYTHONUTF8 = "1"
-.\.venv\Scripts\python.exe -m pip install -e .
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 ```
 
 Copy and edit these files for the machine:

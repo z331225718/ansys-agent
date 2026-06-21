@@ -102,7 +102,7 @@ optimization_report              worker  brd.optimization.report
 cd D:\ansys-agent
 git pull origin main
 $env:PYTHONUTF8 = "1"
-.\.venv\Scripts\python.exe -m pip install -e .
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 ```
 
 复制本机配置：
