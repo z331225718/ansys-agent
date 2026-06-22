@@ -115,9 +115,10 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
 .monitor-counts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 .monitor-count{border:1px solid #343d55;border-radius:6px;padding:4px 7px;background:#141925;font:11px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;color:#aeb9d6}
 .monitor-count.ok{color:#8ee6a1;border-color:#2e6040}.monitor-count.err{color:#ff9ca8;border-color:#6b3340}.monitor-count.wait{color:#f8d56a;border-color:#6d5b25}.monitor-count.run{color:#9fc7ff;border-color:#315b8a}
-.node-map-wrap{overflow-x:auto;padding:6px 0 2px}
-.node-map{position:relative;margin:0 auto;min-width:920px;height:126px}
-.node-map.looped{height:236px}
+.node-map-wrap{overflow:auto;padding:6px 0 2px;display:grid;justify-content:center}
+.node-map{position:relative;min-width:520px;height:126px}
+.node-map.looped{height:auto}
+.node-map.vertical{min-width:560px}
 .node-map-lines{position:absolute;inset:0;pointer-events:none;overflow:visible}
 .flow-line{fill:none;stroke:#343d55;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
 .flow-line.ok{stroke:#3e7c52}
@@ -136,6 +137,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
 .flow-step.err .flow-arrow::after{background:#7a3745}.flow-step.err .arrow-head{border-color:#7a3745}
 .node-pill{position:relative;border:1px solid #30384e;border-radius:7px;padding:8px 34px 8px 12px;background:#121722;font-size:11px;min-height:58px;width:178px;display:grid;align-content:center;gap:3px;overflow:hidden}
 .node-map .node-pill{position:absolute}
+.node-map.vertical .node-pill{width:220px}
 .node-pill.loop-hub{box-shadow:0 14px 34px rgba(0,0,0,.28),0 0 0 1px rgba(110,168,255,.10)}
 .node-pill::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:#4b556f}
 .node-pill.ok{background:#121d19;border-color:#2e6040}.node-pill.ok::before{background:#6fcf97}
@@ -500,38 +502,92 @@ function renderMonitorNodes(nodes){
 }
 
 function renderLoopMonitorNodes(nodes,solveIndex,nextSolveIndex){
-  const nodeW=178,nodeH=58,step=226,pad=16,topY=18,loopY=122;
+  const nodeW=220,nodeH=58,row=80,padX=28,padY=18,laneGap=78;
+  const mainX=padX,sideX=padX+nodeW+laneGap;
+  const logicalMain=[
+    'prepare_working_project',
+    'real_solve_worker',
+    'touchstone_export_worker',
+    'tdr_export_worker',
+    'channel_score_worker',
+    'iteration_qualifier_worker',
+    'progress_report_worker',
+    'optimization_decider',
+    'geometry_validator_worker',
+    'model_edit_worker',
+  ];
+  const byId=new Map(nodes.map((node,index)=>[node.node_id||'',{node,index}]));
   const main=[];
-  for(let i=0;i<nodes.length;i++)if(i!==nextSolveIndex)main.push({node:nodes[i],index:i});
-  const width=Math.max(920,pad*2+Math.max(main.length,4)*step-(step-nodeW));
-  const height=236;
+  const placed=new Set();
+  for(const id of logicalMain){
+    const item=byId.get(id);
+    if(item){main.push(item);placed.add(item.index);}
+  }
+  for(let i=0;i<nodes.length;i++){
+    const id=nodes[i].node_id||'';
+    if(!placed.has(i)&&id!==''&&id!=='prepare_next_solve'&&id!=='iteration_qualification_approval_gate'&&id!=='action_approval_gate'&&id!=='optimization_report'){
+      main.push({node:nodes[i],index:i});
+      placed.add(i);
+    }
+  }
+  const width=sideX+nodeW+40;
+  const height=Math.max(420,padY+Math.max(main.length,5)*row+nodeH+24);
   const positions=new Map();
-  main.forEach((item,i)=>positions.set(item.index,{x:pad+i*step,y:topY}));
-  positions.set(nextSolveIndex,{x:width-nodeW-pad,y:loopY});
+  main.forEach((item,i)=>positions.set(item.index,{x:mainX,y:padY+i*row}));
+  placeSideNode('iteration_qualification_approval_gate','iteration_qualifier_worker');
+  placeSideNode('optimization_report','optimization_decider');
+  placeSideNode('action_approval_gate','geometry_validator_worker');
+  placeSideNode('prepare_next_solve','model_edit_worker');
   const markerId='arrow'+Math.random().toString(36).slice(2,8);
   let svg='<svg class="node-map-lines" viewBox="0 0 '+width+' '+height+'" preserveAspectRatio="none">'+
     '<defs>'+renderArrowMarker(markerId,'Neutral','#343d55')+renderArrowMarker(markerId,'Ok','#3e7c52')+renderArrowMarker(markerId,'Run','#74b7ff')+renderArrowMarker(markerId,'Wait','#7c6929')+renderArrowMarker(markerId,'Err','#7a3745')+'</defs>';
   for(let i=0;i<main.length-1;i++){
     const from=main[i],to=main[i+1],a=positions.get(from.index),b=positions.get(to.index);
-    svg+=renderSvgEdge('M '+(a.x+nodeW)+' '+(a.y+nodeH/2)+' L '+(b.x-12)+' '+(b.y+nodeH/2),edgeClass(from.node),markerId);
+    svg+=renderSvgEdge('M '+(a.x+nodeW/2)+' '+(a.y+nodeH)+' L '+(b.x+nodeW/2)+' '+(b.y-10),edgeClass(from.node),markerId);
   }
-  const last=main[main.length-1],lastPos=positions.get(last.index),nextPos=positions.get(nextSolveIndex),solvePos=positions.get(solveIndex);
-  if(last&&lastPos&&nextPos){
-    const x=nextPos.x+nodeW/2;
-    svg+=renderSvgEdge('M '+(lastPos.x+nodeW/2)+' '+(lastPos.y+nodeH)+' L '+x+' '+(nextPos.y-14),edgeClass(last.node),markerId);
-  }
+  svg+=renderBranchEdge('iteration_qualifier_worker','iteration_qualification_approval_gate',markerId);
+  svg+=renderBranchEdge('iteration_qualification_approval_gate','progress_report_worker',markerId);
+  svg+=renderBranchEdge('optimization_decider','optimization_report',markerId);
+  svg+=renderBranchEdge('geometry_validator_worker','action_approval_gate',markerId);
+  svg+=renderBranchEdge('action_approval_gate','model_edit_worker',markerId);
+  svg+=renderBranchEdge('model_edit_worker','prepare_next_solve',markerId);
+  const nextPos=positions.get(nextSolveIndex),solvePos=positions.get(solveIndex);
   if(nextPos&&solvePos){
-    const startX=nextPos.x+nodeW/2,startY=nextPos.y+nodeH,endX=solvePos.x+nodeW/2,endY=solvePos.y+nodeH+5,bottomY=height-20;
-    svg+=renderSvgEdge('M '+startX+' '+startY+' L '+startX+' '+bottomY+' L '+endX+' '+bottomY+' L '+endX+' '+endY,edgeClass(nodes[nextSolveIndex]),markerId);
+    const loopX=sideX+nodeW+24;
+    const startX=nextPos.x+nodeW/2,startY=nextPos.y;
+    const endX=solvePos.x+nodeW,endY=solvePos.y+nodeH/2;
+    svg+=renderSvgEdge('M '+startX+' '+startY+' L '+loopX+' '+startY+' L '+loopX+' '+endY+' L '+endX+' '+endY,edgeClass(nodes[nextSolveIndex]),markerId);
   }
   svg+='</svg>';
-  let html='<div class="node-map-wrap"><div class="node-map looped" style="width:'+width+'px">'+svg;
+  let html='<div class="node-map-wrap"><div class="node-map looped vertical" style="width:'+width+'px;height:'+height+'px">'+svg;
   for(let i=0;i<nodes.length;i++){
     const p=positions.get(i);
     if(!p)continue;
     html+=renderNodePill(nodes[i],i,'left:'+p.x+'px;top:'+p.y+'px',i===nextSolveIndex?'loop-hub':'');
   }
   return html+'</div></div>';
+
+  function placeSideNode(id,anchorId){
+    const item=byId.get(id),anchor=byId.get(anchorId);
+    if(!item||!anchor)return;
+    const anchorPos=positions.get(anchor.index);
+    if(!anchorPos)return;
+    positions.set(item.index,{x:sideX,y:anchorPos.y});
+    placed.add(item.index);
+  }
+
+  function renderBranchEdge(fromId,toId,marker){
+    const from=byId.get(fromId),to=byId.get(toId);
+    if(!from||!to)return '';
+    const a=positions.get(from.index),b=positions.get(to.index);
+    if(!a||!b)return '';
+    const cls=edgeClass(from.node);
+    if(a.x===b.x){
+      return renderSvgEdge('M '+(a.x+nodeW/2)+' '+(a.y+nodeH)+' L '+(b.x+nodeW/2)+' '+(b.y-10),cls,marker);
+    }
+    const startX=a.x+nodeW,startY=a.y+nodeH/2,endX=b.x,endY=b.y+nodeH/2,midX=startX+(endX-startX)/2;
+    return renderSvgEdge('M '+startX+' '+startY+' C '+midX+' '+startY+' '+midX+' '+endY+' '+endX+' '+endY,cls,marker);
+  }
 }
 
 function renderNodePill(n,i,style,extraClass){
