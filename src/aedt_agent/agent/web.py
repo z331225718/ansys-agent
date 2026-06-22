@@ -115,7 +115,16 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
 .monitor-counts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 .monitor-count{border:1px solid #343d55;border-radius:6px;padding:4px 7px;background:#141925;font:11px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;color:#aeb9d6}
 .monitor-count.ok{color:#8ee6a1;border-color:#2e6040}.monitor-count.err{color:#ff9ca8;border-color:#6b3340}.monitor-count.wait{color:#f8d56a;border-color:#6d5b25}.monitor-count.run{color:#9fc7ff;border-color:#315b8a}
-.node-flow{display:flex;flex-wrap:wrap;gap:10px 0;align-items:center;padding:2px 0}
+.node-map-wrap{overflow-x:auto;padding:6px 0 2px}
+.node-map{position:relative;margin:0 auto;min-width:920px;height:126px}
+.node-map.looped{height:236px}
+.node-map-lines{position:absolute;inset:0;pointer-events:none;overflow:visible}
+.flow-line{fill:none;stroke:#343d55;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.flow-line.ok{stroke:#3e7c52}
+.flow-line.run{stroke:#74b7ff;stroke-dasharray:8 8;animation:flowDash 1.1s linear infinite;filter:drop-shadow(0 0 5px rgba(116,183,255,.65))}
+.flow-line.wait{stroke:#7c6929}
+.flow-line.err{stroke:#7a3745}
+.node-flow{display:flex;flex-wrap:wrap;gap:10px 0;align-items:center;justify-content:center;padding:2px 0}
 .flow-step{display:flex;align-items:center;min-width:0}
 .flow-arrow{position:relative;width:48px;height:18px;margin:0 8px;flex:0 0 48px}
 .flow-arrow::after{content:"";position:absolute;left:0;right:7px;top:8px;height:2px;background:#343d55}
@@ -126,6 +135,8 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
 .flow-step.wait .flow-arrow::after{background:#7c6929}.flow-step.wait .arrow-head{border-color:#7c6929}
 .flow-step.err .flow-arrow::after{background:#7a3745}.flow-step.err .arrow-head{border-color:#7a3745}
 .node-pill{position:relative;border:1px solid #30384e;border-radius:7px;padding:8px 34px 8px 12px;background:#121722;font-size:11px;min-height:58px;width:178px;display:grid;align-content:center;gap:3px;overflow:hidden}
+.node-map .node-pill{position:absolute}
+.node-pill.loop-hub{box-shadow:0 14px 34px rgba(0,0,0,.28),0 0 0 1px rgba(110,168,255,.10)}
 .node-pill::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:#4b556f}
 .node-pill.ok{background:#121d19;border-color:#2e6040}.node-pill.ok::before{background:#6fcf97}
 .node-pill.err{background:#24161b;border-color:#6b3340}.node-pill.err::before{background:#f07178}
@@ -140,6 +151,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
 .node-pill .node-index{position:absolute;right:8px;top:6px;color:#59627d;font:10px/1 ui-monospace,SFMono-Regular,Consolas,monospace}
 @keyframes nodeSheen{0%{left:-55%;opacity:0}18%{opacity:1}58%{opacity:1}100%{left:108%;opacity:0}}
 @keyframes flowLine{0%{background-position:200% 0}100%{background-position:0 0}}
+@keyframes flowDash{to{stroke-dashoffset:-32}}
 </style>
 </head>
 <body>
@@ -220,26 +232,6 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
         <div class="mermaid" id="mermaidGraph">选择 Mission 后显示</div>
         <div id="runDashboard" class="dashboard"></div>
         <div id="optimizationProgress" style="margin-top:12px"></div>
-        <details style="margin-top:12px">
-          <summary style="cursor:pointer;color:var(--muted);font-size:12px">📋 Orchestrator CLI 参考 (Claude Code / Codex)</summary>
-          <pre style="font-size:11px;line-height:1.6;background:#111;padding:10px;border-radius:6px;overflow:auto;max-height:200px"># 创建 mission + graph_run
-python -m aedt_agent.agent mission create --goal "..." --brd-local-cut-model-review ...
-
-# 推进 graph（Orchestrator 轮询调用）
-python -m aedt_agent.agent mission advance-graph --graph-run-id &lt;id&gt;
-
-# 查看状态
-python -m aedt_agent.agent mission graph-status --graph-run-id &lt;id&gt;
-
-# 可视化
-python -m aedt_agent.agent mission graph-visualize --graph-run-id &lt;id&gt;
-
-# 审批
-python -m aedt_agent.agent mission approve --approval-id &lt;id&gt; --option-id approve
-
-# 接管
-python -m aedt_agent.agent mission takeover --graph-run-id &lt;id&gt; --reason "..."</pre>
-        </details>
       </div>
     </div>
     <div class="log-panel">
@@ -496,12 +488,69 @@ async function monitorAll(){
 }
 
 function renderMonitorNodes(nodes){
+  const solveIndex=nodes.findIndex(n=>(n.node_id||'')==='real_solve_worker');
+  const nextSolveIndex=nodes.findIndex(n=>(n.node_id||'')==='prepare_next_solve');
+  if(solveIndex>=0&&nextSolveIndex>=0)return renderLoopMonitorNodes(nodes,solveIndex,nextSolveIndex);
   return '<div class="node-flow">'+nodes.map((n,i)=>{
     const status=n.status||'pending';
     const cls=statusClass(status)||'pending';
     const connector=i<nodes.length-1?'<div class="flow-arrow" aria-hidden="true"><span class="arrow-head"></span></div>':'';
     return '<div class="flow-step '+cls+'"><div class="node-pill '+cls+'"><span class="node-index">'+String(i+1).padStart(2,'0')+'</span><b>'+esc(n.node_id||'node')+'</b><span><span class="node-kind">'+esc(n.node_kind||'')+'</span> · <span class="node-status">'+esc(statusLabel(status))+'</span>'+(n.edge_decision?' · '+esc(n.edge_decision):'')+'</span></div>'+connector+'</div>';
   }).join('')+'</div>';
+}
+
+function renderLoopMonitorNodes(nodes,solveIndex,nextSolveIndex){
+  const nodeW=178,nodeH=58,step=226,pad=16,topY=18,loopY=122;
+  const main=[];
+  for(let i=0;i<nodes.length;i++)if(i!==nextSolveIndex)main.push({node:nodes[i],index:i});
+  const width=Math.max(920,pad*2+Math.max(main.length,4)*step-(step-nodeW));
+  const height=236;
+  const positions=new Map();
+  main.forEach((item,i)=>positions.set(item.index,{x:pad+i*step,y:topY}));
+  positions.set(nextSolveIndex,{x:width-nodeW-pad,y:loopY});
+  const markerId='arrow'+Math.random().toString(36).slice(2,8);
+  let svg='<svg class="node-map-lines" viewBox="0 0 '+width+' '+height+'" preserveAspectRatio="none">'+
+    '<defs>'+renderArrowMarker(markerId,'Neutral','#343d55')+renderArrowMarker(markerId,'Ok','#3e7c52')+renderArrowMarker(markerId,'Run','#74b7ff')+renderArrowMarker(markerId,'Wait','#7c6929')+renderArrowMarker(markerId,'Err','#7a3745')+'</defs>';
+  for(let i=0;i<main.length-1;i++){
+    const from=main[i],to=main[i+1],a=positions.get(from.index),b=positions.get(to.index);
+    svg+=renderSvgEdge('M '+(a.x+nodeW)+' '+(a.y+nodeH/2)+' L '+(b.x-12)+' '+(b.y+nodeH/2),edgeClass(from.node),markerId);
+  }
+  const last=main[main.length-1],lastPos=positions.get(last.index),nextPos=positions.get(nextSolveIndex),solvePos=positions.get(solveIndex);
+  if(last&&lastPos&&nextPos){
+    const x=nextPos.x+nodeW/2;
+    svg+=renderSvgEdge('M '+(lastPos.x+nodeW/2)+' '+(lastPos.y+nodeH)+' L '+x+' '+(nextPos.y-14),edgeClass(last.node),markerId);
+  }
+  if(nextPos&&solvePos){
+    const startX=nextPos.x+nodeW/2,startY=nextPos.y+nodeH,endX=solvePos.x+nodeW/2,endY=solvePos.y+nodeH+5,bottomY=height-20;
+    svg+=renderSvgEdge('M '+startX+' '+startY+' L '+startX+' '+bottomY+' L '+endX+' '+bottomY+' L '+endX+' '+endY,edgeClass(nodes[nextSolveIndex]),markerId);
+  }
+  svg+='</svg>';
+  let html='<div class="node-map-wrap"><div class="node-map looped" style="width:'+width+'px">'+svg;
+  for(let i=0;i<nodes.length;i++){
+    const p=positions.get(i);
+    if(!p)continue;
+    html+=renderNodePill(nodes[i],i,'left:'+p.x+'px;top:'+p.y+'px',i===nextSolveIndex?'loop-hub':'');
+  }
+  return html+'</div></div>';
+}
+
+function renderNodePill(n,i,style,extraClass){
+  const status=n.status||'pending';
+  const cls=statusClass(status)||'pending';
+  return '<div class="node-pill '+cls+' '+(extraClass||'')+'" style="'+style+'"><span class="node-index">'+String(i+1).padStart(2,'0')+'</span><b>'+esc(n.node_id||'node')+'</b><span><span class="node-kind">'+esc(n.node_kind||'')+'</span> · <span class="node-status">'+esc(statusLabel(status))+'</span>'+(n.edge_decision?' · '+esc(n.edge_decision):'')+'</span></div>';
+}
+
+function renderArrowMarker(base,name,color){
+  return '<marker id="'+base+name+'" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="'+color+'"></path></marker>';
+}
+
+function renderSvgEdge(path,cls,markerId){
+  const key=cls==='ok'?'Ok':cls==='run'?'Run':cls==='wait'?'Wait':cls==='err'?'Err':'Neutral';
+  return '<path class="flow-line '+cls+'" marker-end="url(#'+markerId+key+')" d="'+path+'"></path>';
+}
+
+function edgeClass(node){
+  return statusClass((node&&node.status)||'pending')||'pending';
 }
 
 function monitorCounts(nodes){
