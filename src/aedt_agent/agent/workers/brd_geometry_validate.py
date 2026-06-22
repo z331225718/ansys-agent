@@ -238,26 +238,18 @@ def _validate_antipad_action(
             checks,
             issues,
             f"{prefix}_layers_present",
-            "anti-pad action must name target reference/power layers",
+            "anti-pad action must name target layers",
         )
     for layer in layers:
-        if _is_reference_or_power_layer(layer) or bool(action.get("allow_non_plane_antipad", False)):
-            _add_check(
-                checks,
-                f"{prefix}_layer_{_check_token(layer)}",
-                "passed",
-                f"target layer {layer} is allowed for anti-pad voids",
-            )
-        else:
-            _approval(
-                checks,
-                issues,
-                f"{prefix}_layer_{_check_token(layer)}",
-                (
-                    "anti-pad voids should target plane shapes, not routing "
-                    f"layers without explicit override: {layer}"
-                ),
-            )
+        _add_check(
+            checks,
+            f"{prefix}_layer_{_check_token(layer)}",
+            "passed",
+            (
+                f"target layer {layer} is allowed when selected shape "
+                "evidence is present"
+            ),
+        )
 
     if _has_shape_evidence(action):
         _add_check(
@@ -323,51 +315,19 @@ def _validate_antipad_bridge(
             "bridge rectangle requires exactly two bridge centers",
         )
 
-    factor = action.get("bridge_length_factor")
-    if factor is not None and abs(float(factor) - 0.5) < 1e-9:
-        _add_check(
-            checks,
-            f"{prefix}_length_factor",
-            "passed",
-            "bridge rectangle length is via_pitch/2",
-        )
-    else:
-        _approval(
-            checks,
-            issues,
-            f"{prefix}_length_factor",
-            "bridge rectangle should use bridge_length_factor=0.5 so it is tangent to the circular voids",
-        )
-
-    width_factor = action.get("bridge_width_factor")
-    if width_factor is None or abs(float(width_factor) - 1.0) < 1e-9:
-        _add_check(
-            checks,
-            f"{prefix}_width_factor",
-            "passed",
-            "bridge rectangle width follows the void radius",
-        )
-    else:
-        _approval(
-            checks,
-            issues,
-            f"{prefix}_width_factor",
-            "bridge rectangle width should follow the void radius",
-        )
-
-    if _first_present(action, "bridge_length_parameter_name", "bridge_length_parameter"):
+    if _parameter_name(action):
         _add_check(
             checks,
             f"{prefix}_parameterized",
             "passed",
-            "bridge rectangle length is parameterized",
+            "bridge rectangle follows the parameterized anti-pad radius",
         )
     else:
         _approval(
             checks,
             issues,
             f"{prefix}_parameterized",
-            "bridge rectangle must be parameterized, not only the circular voids",
+            "bridge rectangle requires parameter_name so its +/- radius edges are parameterized",
         )
     return checks, issues
 
@@ -668,14 +628,6 @@ def _parameter_name(action: Mapping[str, Any]) -> str:
         "void_radius_parameter",
     )
     return str(value or "").strip()
-
-
-def _is_reference_or_power_layer(layer: str) -> bool:
-    normalized = layer.upper()
-    return any(
-        token in normalized
-        for token in ("GND", "GROUND", "VCC", "VDD", "VSS", "PWR", "POWER")
-    )
 
 
 def _first_present(action: Mapping[str, Any], *keys: str) -> Any:

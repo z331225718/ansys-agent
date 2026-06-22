@@ -34,12 +34,17 @@
       "max_radius_mil": 10
     }
   },
+  "candidate_action_policy": {
+    "anti_pad_layer_scope": "any_layer_with_selected_shape_around_via",
+    "non_functional_pad_layer_scope": "all_reviewed_mechanical_hole_layers",
+    "note": "candidate_actions below are seed examples, not an L2-only allow list. Real runs should provide all reviewed layer/shape candidates or configure an LLM decider to propose them from bounded inventory evidence."
+  },
   "candidate_actions": [
     {
       "hypothesis": "TDR low-impedance feature is mapped to the reviewed L1 ball and L1-L4 laser-via pad parasitic region; enlarge the existing L2 plane void from 20mil to 22mil to increase local impedance.",
       "evidence_refs": [],
       "tdr_observation_port": "Diff1",
-      "tdr_port_orientation_evidence": "must be confirmed from port map before signoff; this candidate is limited to the already reviewed L02 geometry",
+      "tdr_port_orientation_evidence": "must be confirmed from port map before signoff; this is one reviewed seed candidate, not an L2-only policy",
       "tdr_feature_time": {"value": 32.84, "unit": "ps"},
       "target_region": "solder_ball",
       "action_type": "anti_pad.enlarge",
@@ -60,10 +65,6 @@
       "target_radius": {"value": 22, "unit": "mil"},
       "parameter_name": "l02_void_r",
       "bridge_between_vias": true,
-      "bridge_length_factor": 0.5,
-      "bridge_width_factor": 1.0,
-      "bridge_length_parameter_name": "l02_bridge_len",
-      "bridge_length_parameter_scope": "project",
       "constraints": {"max_diameter": "44mil"},
       "constraints_checked": ["anti_pad_radius <= 22mil"],
       "expected_effect": "increase_impedance",

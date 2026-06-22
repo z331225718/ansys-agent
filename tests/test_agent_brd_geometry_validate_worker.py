@@ -37,8 +37,6 @@ def test_geometry_validator_passes_parameterized_antipad_bridge(tmp_path):
                 "target_radius": {"value": 20, "unit": "mil"},
                 "parameter_name": "l02_void_r",
                 "bridge_between_vias": True,
-                "bridge_length_factor": 0.5,
-                "bridge_length_parameter_name": "l02_bridge_len",
             }
         ],
         loop_context={"round_index": 1},
@@ -80,9 +78,6 @@ def test_geometry_validator_allows_multi_center_antipad_with_explicit_bridge_pai
                 "target_radius": {"value": 22, "unit": "mil"},
                 "parameter_name": "l02_void_r",
                 "bridge_between_vias": True,
-                "bridge_length_factor": 0.5,
-                "bridge_width_factor": 1.0,
-                "bridge_length_parameter_name": "l02_bridge_len",
             }
         ],
     )
@@ -99,6 +94,39 @@ def test_geometry_validator_allows_multi_center_antipad_with_explicit_bridge_pai
     assert output["geometry_validation"]["approval_issue_count"] == 0
 
 
+def test_geometry_validator_allows_antipad_on_any_layer_with_shape_evidence(tmp_path):
+    payload = build_brd_geometry_validate_job_input(
+        project_path=r"D:\models\case.aedt",
+        actions=[
+            {
+                "action_type": "anti_pad.enlarge",
+                "layers": ["L05"],
+                "center_padstack_instance_ids": [501, 502],
+                "plane_shape_ids": [102],
+                "target_radius": {"value": 20, "unit": "mil"},
+                "parameter_name": "l05_void_r",
+                "bridge_between_vias": True,
+            }
+        ],
+    )
+
+    output = run_brd_geometry_validate_worker(
+        _job(payload),
+        WorkerContext(
+            worker_id="worker-1",
+            artifacts_dir=str(tmp_path / "artifacts"),
+        ),
+    )
+
+    assert output["status"] == "succeeded"
+    assert output["geometry_validation"]["approval_issue_count"] == 0
+    messages = [
+        check["message"]
+        for check in output["geometry_validation"]["checks"]
+    ]
+    assert any("selected shape evidence" in message for message in messages)
+
+
 def test_geometry_validator_requires_approval_for_missing_shape_and_radius_limit(tmp_path):
     payload = build_brd_geometry_validate_job_input(
         project_path=r"D:\models\case.aedt",
@@ -110,7 +138,6 @@ def test_geometry_validator_requires_approval_for_missing_shape_and_radius_limit
                 "target_radius": {"value": 23, "unit": "mil"},
                 "parameter_name": "l03_void_r",
                 "bridge_between_vias": True,
-                "bridge_length_factor": 1.0,
             }
         ],
     )
@@ -133,7 +160,6 @@ def test_geometry_validator_requires_approval_for_missing_shape_and_radius_limit
     ]
     assert any("exceeds max 22mil" in message for message in messages)
     assert any("plane_shape_ids" in message for message in messages)
-    assert any("bridge_length_factor=0.5" in message for message in messages)
 
 
 def test_geometry_validator_passes_shape_non_functional_pad(tmp_path):
