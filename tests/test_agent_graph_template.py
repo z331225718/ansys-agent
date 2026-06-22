@@ -69,8 +69,8 @@ def test_reviewed_model_loop_template_uses_real_workers_and_report():
         "progress_report_worker",
         "optimization_decider",
         "iteration_qualification_approval_gate",
-        "action_approval_gate",
         "geometry_validator_worker",
+        "optimization_failure",
         "model_edit_worker",
         "prepare_next_solve",
         "optimization_report",
@@ -82,11 +82,15 @@ def test_reviewed_model_loop_template_uses_real_workers_and_report():
     assert template.node("iteration_qualifier_worker").capability == "brd.iteration.qualify"
     assert template.node("progress_report_worker").capability == "brd.optimization.progress"
     assert template.node("geometry_validator_worker").capability == "brd.geometry.validate"
+    assert template.node("optimization_failure").handler == "brd.optimization.fail_optimization"
     assert template.node("model_edit_worker").capability == "brd.model.edit"
     assert template.node("optimization_report").capability == "brd.optimization.report"
     assert template.node("optimization_decider").kind == "agent"
     assert template.node("optimization_decider").system_prompt == "optimization_decider_prompt"
     assert template.node("optimization_decider").handler == "brd.optimization.decide_next_action"
+    assert "approval_required" not in template.node("optimization_decider").constraints[
+        "allowed_decisions"
+    ]
     assert template.node("channel_score_worker").input_schema == "tdr_export_result"
     assert "tdr_observation_port" in template.handoffs["next_action"].required_fields
     assert template.handoffs["scorecard_report"].required_fields == [

@@ -527,7 +527,7 @@ function renderLoopMonitorNodes(nodes,solveIndex,nextSolveIndex){
   }
   for(let i=0;i<nodes.length;i++){
     const id=nodes[i].node_id||'';
-    if(!placed.has(i)&&id!==''&&id!=='prepare_next_solve'&&id!=='iteration_qualification_approval_gate'&&id!=='action_approval_gate'&&id!=='optimization_report'){
+    if(!placed.has(i)&&id!==''&&id!=='prepare_next_solve'&&id!=='iteration_qualification_approval_gate'&&id!=='optimization_failure'&&id!=='optimization_report'){
       main.push({node:nodes[i],index:i});
       placed.add(i);
     }
@@ -538,7 +538,7 @@ function renderLoopMonitorNodes(nodes,solveIndex,nextSolveIndex){
   main.forEach((item,i)=>positions.set(item.index,{x:mainX,y:padY+i*row}));
   placeSideNode('iteration_qualification_approval_gate','iteration_qualifier_worker');
   placeSideNode('optimization_report','optimization_decider');
-  placeSideNode('action_approval_gate','geometry_validator_worker');
+  placeSideNode('optimization_failure','geometry_validator_worker');
   placeSideNode('prepare_next_solve','model_edit_worker');
   const markerId='arrow'+Math.random().toString(36).slice(2,8);
   let svg='<svg class="node-map-lines" viewBox="0 0 '+width+' '+height+'" preserveAspectRatio="none">'+
@@ -550,8 +550,8 @@ function renderLoopMonitorNodes(nodes,solveIndex,nextSolveIndex){
   svg+=renderBranchEdge('iteration_qualifier_worker','iteration_qualification_approval_gate',markerId);
   svg+=renderBranchEdge('iteration_qualification_approval_gate','progress_report_worker',markerId);
   svg+=renderBranchEdge('optimization_decider','optimization_report',markerId);
-  svg+=renderBranchEdge('geometry_validator_worker','action_approval_gate',markerId);
-  svg+=renderBranchEdge('action_approval_gate','model_edit_worker',markerId);
+  svg+=renderBranchEdge('optimization_decider','optimization_failure',markerId);
+  svg+=renderBranchEdge('geometry_validator_worker','optimization_failure',markerId);
   svg+=renderBranchEdge('model_edit_worker','prepare_next_solve',markerId);
   const nextPos=positions.get(nextSolveIndex),solvePos=positions.get(solveIndex);
   if(nextPos&&solvePos){

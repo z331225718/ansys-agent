@@ -34,6 +34,10 @@ def register_optimization_handlers(
         decide_next_action,
     )
     registry.register(
+        "brd.optimization.fail_optimization",
+        fail_optimization,
+    )
+    registry.register(
         "brd.optimization.write_report",
         write_optimization_report,
     )
@@ -144,6 +148,8 @@ def decide_next_action(
             if selection_decision in {"complete", "approval_required", "failed"}
             else "complete"
         )
+        if not _decision_allowed(context, decision):
+            decision = "failed"
         output = _decision_payload(
             payload,
             loop_context,
@@ -154,14 +160,15 @@ def decide_next_action(
         return _ok(output, outcome=outcome)
 
     if not _action_within_known_limits(selected):
+        decision = "approval_required" if _decision_allowed(context, "approval_required") else "failed"
         output = _decision_payload(
             payload,
             loop_context,
-            decision="approval_required",
+            decision=decision,
             reason="selected candidate violates known geometry limits",
             selected_action=selected,
         )
-        return _ok(output, outcome="approval_required")
+        return _ok(output, outcome=decision)
 
     loop_context["last_decision_source"] = source
     loop_context["last_decision_reason"] = reason
@@ -193,7 +200,16 @@ def decide_next_action(
         }
     )
     if loop_context.get("require_action_approval", False):
-        return _ok(output, outcome="approval_required")
+        if _decision_allowed(context, "approval_required"):
+            return _ok(output, outcome="approval_required")
+        failed = _decision_payload(
+            payload,
+            loop_context,
+            decision="failed",
+            reason="action approval gate is not part of this reviewed-model loop",
+            selected_action=selected,
+        )
+        return _ok(failed, outcome="failed")
     return _ok(output, outcome="continue")
 
 
@@ -230,6 +246,40 @@ def write_optimization_report(
         ],
     }
     return _ok(output, outcome="succeeded")
+
+
+def fail_optimization(
+    context: GraphNodeExecutionContext,
+) -> dict[str, Any]:
+    payload = dict(context.input_payload)
+    approval_required = payload.get("approval_required")
+    approval_reason = (
+        approval_required.get("reason")
+        if isinstance(approval_required, dict)
+        else None
+    )
+    reason = str(
+        payload.get("approval_reason")
+        or approval_reason
+        or payload.get("reason")
+        or "optimization loop failed"
+    )
+    output = {
+        **payload,
+        "status": "failed",
+        "decision": "failed",
+        "reason": reason,
+    }
+    return {
+        "status": NodeRunStatus.FAILED,
+        "outcome": "failed",
+        "output_payload": output,
+        "artifact_refs": list(payload.get("artifact_refs") or []),
+        "error": {
+            "code": "optimization_loop_failed",
+            "message": reason,
+        },
+    }
 
 
 def _initial_loop_context(
@@ -437,12 +487,13 @@ def _select_candidate_action_with_llm(
             "start_index": start_index,
             "constraints": context.node.constraints,
         }
+        allowed = _allowed_decisions(context)
         result = llm_complete_json(
             (
                 "Select the next BRD via optimization action from the provided "
                 "candidate_actions. Use only bounded score evidence. Return JSON "
-                "with decision=continue|complete|approval_required, action_index "
-                "as an absolute index when continuing, and reason."
+                f"with decision in {sorted(allowed)}, action_index as an absolute "
+                "index when continuing, and reason."
             ),
             json.dumps(user_payload, ensure_ascii=False, indent=2),
             config=config,
@@ -453,6 +504,8 @@ def _select_candidate_action_with_llm(
     decision = str(result.get("decision") or "").strip()
     if decision in {"complete", "approval_required", "request_human_review", "failed"}:
         normalized = "approval_required" if decision == "request_human_review" else decision
+        if normalized not in _allowed_decisions(context):
+            return None, f"LLM decision {normalized} is not allowed by this graph", "llm", "failed"
         return None, str(result.get("reason") or normalized), "llm", normalized
     try:
         action_index = int(result.get("action_index"))
@@ -466,6 +519,18 @@ def _select_candidate_action_with_llm(
         "llm",
         "continue",
     )
+
+
+def _allowed_decisions(context: GraphNodeExecutionContext) -> set[str]:
+    constraints = context.node.constraints if isinstance(context.node.constraints, dict) else {}
+    values = constraints.get("allowed_decisions")
+    if isinstance(values, list) and values:
+        return {str(value) for value in values}
+    return {"continue", "complete", "approval_required", "failed"}
+
+
+def _decision_allowed(context: GraphNodeExecutionContext, decision: str) -> bool:
+    return decision in _allowed_decisions(context)
 
 
 def _bounded_score_for_decider(

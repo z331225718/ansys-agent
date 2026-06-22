@@ -79,7 +79,6 @@ nodes:
       allowed_decisions:
         - continue
         - complete
-        - approval_required
         - failed
       geometry_limits:
         anti_pad:
@@ -101,19 +100,18 @@ nodes:
     output_schema: score_result
     max_runs: 5
 
-  - id: action_approval_gate
-    role: approval_gate
-    kind: human_gate
-    input_schema: model_edit_request
-    output_schema: model_edit_request
-    max_runs: 4
-
   - id: geometry_validator_worker
     role: worker
     kind: worker
     capability: brd.geometry.validate
     input_schema: model_edit_request
     output_schema: model_edit_request
+    max_runs: 4
+
+  - id: optimization_failure
+    role: validator
+    kind: program
+    handler: brd.optimization.fail_optimization
     max_runs: 4
 
   - id: model_edit_worker
@@ -197,25 +195,20 @@ edges:
     to: geometry_validator_worker
     on: continue
     max_traversals: 4
+  - id: decide-to-failure
+    from: optimization_decider
+    to: optimization_failure
+    on: failed
+    max_traversals: 1
   - id: validate-to-edit
     from: geometry_validator_worker
     to: model_edit_worker
     on: succeeded
     max_traversals: 4
-  - id: validate-to-approval
+  - id: validate-to-failure
     from: geometry_validator_worker
-    to: action_approval_gate
+    to: optimization_failure
     on: approval_required
-    max_traversals: 4
-  - id: decide-to-approval
-    from: optimization_decider
-    to: action_approval_gate
-    on: approval_required
-    max_traversals: 4
-  - id: approval-to-edit
-    from: action_approval_gate
-    to: model_edit_worker
-    on: approved
     max_traversals: 4
   - id: edit-to-next-solve
     from: model_edit_worker
@@ -252,15 +245,13 @@ prompts:
     return loss is SDD11, insertion loss is SDD21, and the default TDR
     observation port is Diff1. Before mapping a TDR feature to near/far
     geometry, use tdr_observation_port and tdr_port_orientation_evidence; if
-    orientation is unknown, say unknown and request approval rather than
-    inventing a physical location.
+    orientation is unknown, say unknown and fail this optimization decision
+    rather than inventing a physical location.
 
     Choose exactly one decision:
     - continue: select one small, reversible action within constraints.
     - complete: stop because the current evidence is acceptable or no bounded
       action remains.
-    - approval_required: evidence or constraints are insufficient for an
-      executable edit.
     - failed: the graph should fail because the evidence is invalid.
 
     Return a JSON object that satisfies the next_action handoff. Include:
