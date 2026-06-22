@@ -525,18 +525,15 @@ Current placement heuristics:
 
 - Near solder balls, the adjacent two layers often need larger anti-pad
   openings.
-- Around the routed trace layer, the adjacent reference or power plane layers
-  above and below the route often need larger anti-pad openings.
-- Do not apply anti-pad enlargement to route layers such as `L3`, `L5`, or
-  `L7` merely because those layers appear in the padstack. In local-cut models
-  these route layers often have the large copper shapes cut away due to routing
-  geometry, so there is no meaningful plane anti-pad shape to enlarge.
-- Anti-pad edits should usually target large GND/VCC/reference plane layers,
-  such as layers named with `GND`, `VCC`, `VDD`, or other project-confirmed
-  plane roles.
-- Before editing an anti-pad on any layer, confirm that a physical plane shape
-  exists around the via on that layer. If there is no selected GND/VCC/reference
-  shape around the via, anti-pad enlargement on that layer is not meaningful.
+- Around the routed trace layer, inspect all nearby layers, including layers
+  whose names look like route layers. Do not decide from `L3`, `L5`, `L7`, or
+  similar names alone.
+- Anti-pad enlargement is allowed on any layer where worker or human evidence
+  shows a selected physical shape around the intended via/parasitic center. If
+  the layer has no shape around the via, anti-pad enlargement on that layer is
+  still not meaningful.
+- Before editing an anti-pad on any layer, confirm that a physical shape exists
+  around the via on that layer.
 - In normal engineering practice, do not enlarge anti-pads by directly changing
   the padstack `antipad_by_layer`. Select the plane shape that needs clearance,
   then add parametric void geometry to that shape: circular voids centered on
@@ -554,14 +551,12 @@ Current placement heuristics:
   reviewed via centers. Do not rely on directly changing padstack
   non-functional pads, because AEDT can automatically remove unused
   non-functional pad entries during import or cleanup.
-- Non-functional pad additions are primarily for mechanical-hole structures:
-  through vias and buried vias. When middle-layer non-functional pads have been
-  removed, the barrel inductance rises as the hole gets deeper, which can push
-  the local impedance high. Adding explicit signal-net pads on selected
-  internal layers is the first controlled way to lower that impedance. Do not
-  use this as the default fix for shallow laser-via or solder-ball parasitics;
-  those are usually handled by correctly centered anti-pad/void edits unless
-  human review maps the TDR feature to a different mechanism.
+- Non-functional pad additions are allowed on all reviewed mechanical-hole
+  layers when the TDR feature maps to excess via-barrel inductance. When
+  middle-layer non-functional pads have been removed, the barrel inductance
+  rises as the hole gets deeper, which can push the local impedance high.
+  Adding explicit signal-net pads on selected internal layers is the first
+  controlled way to lower that impedance.
 
 The wording "near" must be translated into explicit layer names by the worker or
 by human review using the selected pattern's `route_layer`, `span`, component
@@ -645,9 +640,8 @@ Required fields:
   diameter or bounded radius/delta. The worker should draw signal-net circle
   shapes on the layers. Direct padstack `pad_by_layer` edits are legacy
   diagnostics only and should not be the default optimization action. The
-  proposal must identify the target as a through-via or buried-via
-  mechanical-hole barrel region unless a human reviewer approves another
-  physical mechanism.
+  proposal must identify the reviewed mechanical-hole barrel region or other
+  via-barrel mechanism being addressed.
 - For all executable geometry proposals, include the current user-approved
   radius limits in the worker `constraints`: anti-pad `max_diameter=44mil`;
   non-functional pad `min_diameter=15.75mil` and `max_diameter=20mil`.
@@ -670,8 +664,8 @@ and edits only copied AEDT projects.
 
 Allowed edit targets:
 
-- selected plane/reference shape void geometry for `anti_pad.enlarge`, limited
-  by default to reference or power plane layers;
+- selected physical-shape void geometry for `anti_pad.enlarge` on any layer
+  where the selected shape exists around the via center;
 - explicit signal-net circle shapes for
   `non_functional_pad.add_or_enlarge`, centered on reviewed via centers.
 
@@ -699,11 +693,9 @@ Current implementation details:
   `edited_edb_path`, and bounded change records.
 - If a layer name differs only by zero padding, such as `L5` versus `L05`, the
   worker may resolve it when the match is unique.
-- `anti_pad.enlarge` rejects non-plane-looking layers by default and requires
-  shape presence verification: the via center must be inside a selected plane
-  shape before the void is created. A human can explicitly override the
-  plane-looking layer-name guard only when project evidence proves that the
-  target layer has a meaningful shape.
+- `anti_pad.enlarge` requires shape presence verification: the via center must
+  be inside a selected shape before the void is created. Layer names are not
+  used as a hard allow/deny list.
 - `anti_pad.enlarge` also requires `parasitic_target`. When
   `center_padstack_instance_ids` are supplied, the worker resolves unique
   centers directly from EDB padstack instance positions and records the source
@@ -715,9 +707,9 @@ Current implementation details:
   be explicitly requested and are not considered a valid default optimization
   path for AEDT-reviewed models.
 - Before proposing `non_functional_pad.add_or_enlarge`, confirm that the target
-  padstack instance is a mechanical-hole via barrel such as a through via or
-  buried via. The expected physical effect is to reduce high impedance caused
-  by excess barrel inductance after internal non-functional pads were removed.
+  padstack instance/layer belongs to a reviewed mechanical-hole via barrel. The
+  expected physical effect is to reduce high impedance caused by excess barrel
+  inductance after internal non-functional pads were removed.
 
 For the current reviewed model, a correct parameterized L02/L2 anti-pad edit
 shape is:

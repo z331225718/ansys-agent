@@ -238,26 +238,18 @@ def _validate_antipad_action(
             checks,
             issues,
             f"{prefix}_layers_present",
-            "anti-pad action must name target reference/power layers",
+            "anti-pad action must name target layers",
         )
     for layer in layers:
-        if _is_reference_or_power_layer(layer) or bool(action.get("allow_non_plane_antipad", False)):
-            _add_check(
-                checks,
-                f"{prefix}_layer_{_check_token(layer)}",
-                "passed",
-                f"target layer {layer} is allowed for anti-pad voids",
-            )
-        else:
-            _approval(
-                checks,
-                issues,
-                f"{prefix}_layer_{_check_token(layer)}",
-                (
-                    "anti-pad voids should target plane shapes, not routing "
-                    f"layers without explicit override: {layer}"
-                ),
-            )
+        _add_check(
+            checks,
+            f"{prefix}_layer_{_check_token(layer)}",
+            "passed",
+            (
+                f"target layer {layer} is allowed when selected shape "
+                "evidence is present"
+            ),
+        )
 
     if _has_shape_evidence(action):
         _add_check(
@@ -636,14 +628,6 @@ def _parameter_name(action: Mapping[str, Any]) -> str:
         "void_radius_parameter",
     )
     return str(value or "").strip()
-
-
-def _is_reference_or_power_layer(layer: str) -> bool:
-    normalized = layer.upper()
-    return any(
-        token in normalized
-        for token in ("GND", "GROUND", "VCC", "VDD", "VSS", "PWR", "POWER")
-    )
 
 
 def _first_present(action: Mapping[str, Any], *keys: str) -> Any:

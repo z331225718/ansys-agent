@@ -111,16 +111,16 @@ Use TDR as the primary physical diagnostic:
 - TDR low means local impedance is low. First consider enlarging anti-pad
   openings in the mapped local region.
 - Near solder balls, check the adjacent two layers for anti-pad enlargement.
-- Around a route layer, map the issue to the adjacent reference/power plane
-  layers above and below the route. Do not apply anti-pad enlargement to route
-  layers such as `L3`, `L5`, or `L7` just because they appear in the padstack;
-  these layers often have trace copper cut away and no large plane shape for an
-  anti-pad to act on.
-- Anti-pad enlargement is a selected plane-shape void operation, not a default
+- Around a route layer, inspect every layer near the relevant via, including
+  layers whose names look like route layers. Do not decide from the layer name
+  alone. Anti-pad enlargement is allowed on any layer where the worker or human
+  evidence shows a selected physical shape around the intended via/parasitic
+  center.
+- Anti-pad enlargement is a selected shape void operation, not a default
   padstack `antipad_by_layer` operation. First confirm that the chosen layer has
-  a GND/VCC/reference shape around the via. Then create circular voids centered
-  on the via centers; when enlarging between a differential via pair, add the
-  usual bridge rectangle between the two centers.
+  a physical shape around the via. Then create circular voids centered on the
+  via centers; when enlarging between a differential via pair, add the usual
+  bridge rectangle between the two centers.
 - The void center must be the center of the parasitic structure being fixed,
   not merely any via center on the same signal. For L1/L2 regions, this may be
   the solder ball or L1-L4/L1-L2 laser-via pad center. For deeper layers, it may
@@ -131,13 +131,12 @@ Use TDR as the primary physical diagnostic:
   do this by drawing explicit signal-net circle shapes on the target layers at
   the reviewed via centers; do not rely on changing padstack non-functional
   pads because AEDT can remove them during import/cleanup.
-- Non-functional pads are mainly for mechanical-hole structures such as
-  through vias and buried vias. When middle-layer non-functional pads have been
-  removed, deeper mechanical holes have higher barrel inductance, which raises
-  local impedance; adding explicit signal-net pads on selected internal layers
-  is the small first-pass way to lower that impedance. Do not apply this rule
-  to shallow laser-via or solder-ball parasitics unless human review explicitly
-  maps the TDR feature there.
+- Non-functional pads are allowed on all reviewed mechanical-hole layers when
+  the TDR feature maps to excess via-barrel inductance. When middle-layer
+  non-functional pads have been removed, deeper mechanical holes have higher
+  barrel inductance, which raises local impedance; adding explicit signal-net
+  pads on selected internal layers is the small first-pass way to lower that
+  impedance.
 
 The initial action set is intentionally narrow:
 
@@ -199,9 +198,8 @@ source, signal nets or `center_padstack_instance_ids`, bounded circle diameter
 or radius, and limits checked. Otherwise it is not ready for worker execution.
 The worker creates explicit signal-net circle shapes on those layers. Direct
 padstack `pad_by_layer` edits are legacy diagnostics only, not the default
-engineering path. The proposal must identify the target as a through-via or
-buried-via mechanical-hole barrel region unless a human reviewer approves a
-different physical mechanism.
+engineering path. The proposal must identify the reviewed mechanical-hole
+barrel region or other via-barrel mechanism being addressed.
 
 Every TDR-driven proposal must also name `tdr_observation_port` and the feature
 time/window used for mapping. Do not infer "near" or "far" from time alone

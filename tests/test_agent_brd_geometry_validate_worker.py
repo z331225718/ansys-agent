@@ -94,6 +94,39 @@ def test_geometry_validator_allows_multi_center_antipad_with_explicit_bridge_pai
     assert output["geometry_validation"]["approval_issue_count"] == 0
 
 
+def test_geometry_validator_allows_antipad_on_any_layer_with_shape_evidence(tmp_path):
+    payload = build_brd_geometry_validate_job_input(
+        project_path=r"D:\models\case.aedt",
+        actions=[
+            {
+                "action_type": "anti_pad.enlarge",
+                "layers": ["L05"],
+                "center_padstack_instance_ids": [501, 502],
+                "plane_shape_ids": [102],
+                "target_radius": {"value": 20, "unit": "mil"},
+                "parameter_name": "l05_void_r",
+                "bridge_between_vias": True,
+            }
+        ],
+    )
+
+    output = run_brd_geometry_validate_worker(
+        _job(payload),
+        WorkerContext(
+            worker_id="worker-1",
+            artifacts_dir=str(tmp_path / "artifacts"),
+        ),
+    )
+
+    assert output["status"] == "succeeded"
+    assert output["geometry_validation"]["approval_issue_count"] == 0
+    messages = [
+        check["message"]
+        for check in output["geometry_validation"]["checks"]
+    ]
+    assert any("selected shape evidence" in message for message in messages)
+
+
 def test_geometry_validator_requires_approval_for_missing_shape_and_radius_limit(tmp_path):
     payload = build_brd_geometry_validate_job_input(
         project_path=r"D:\models\case.aedt",

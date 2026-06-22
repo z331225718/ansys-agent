@@ -1892,30 +1892,7 @@ def _normalize_layer_name(value: str) -> str:
 
 
 def _validate_antipad_layer(layer: str, action: dict[str, Any]) -> None:
-    if _is_reference_or_power_layer(layer):
-        return
-    if bool(action.get("allow_non_plane_antipad", False)):
-        return
-    raise ValueError(
-        "anti_pad.enlarge must target a reference/power plane layer by "
-        f"default, not routing layer: {layer}"
-    )
-
-
-def _is_reference_or_power_layer(layer: str) -> bool:
-    normalized = layer.upper()
-    return any(
-        token in normalized
-        for token in (
-            "GND",
-            "GROUND",
-            "VCC",
-            "VDD",
-            "VSS",
-            "PWR",
-            "POWER",
-        )
-    )
+    return
 
 
 def _pad_snapshot(pad: Any) -> dict[str, Any]:

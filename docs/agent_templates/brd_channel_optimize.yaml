@@ -172,10 +172,11 @@ prompts:
       or model evidence
     - Every TDR-driven action must name the TDR observation port and feature time/window
     - If TDR indicates local low impedance, propose anti_pad.enlarge only when the
-      physical target, layer, selected plane shape, and center source are known
-    - If TDR indicates local high impedance through a through-via or buried-via
+      physical target, layer, selected physical shape, and center source are known.
+      Any layer is eligible when shape evidence confirms copper exists around the via.
+    - If TDR indicates local high impedance through a reviewed mechanical-hole
       barrel, propose non_functional_pad.add_or_enlarge using explicit signal-net
-      circle shapes
+      circle shapes on the selected mechanical-hole layers.
     - Do not propose trace width, stackup, or route edits in this workflow
     - Anti-pad radius must be <= 22mil; worker constraints must include max_diameter=44mil
     - Non-functional pad radius, once added, must be in [7.875mil, 10mil]; worker

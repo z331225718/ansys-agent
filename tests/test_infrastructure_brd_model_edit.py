@@ -803,7 +803,7 @@ def test_model_edit_rejects_constraint_violation(tmp_path):
         BrdModelEditAdapter(edb_factory=FakeEdb).run(request)
 
 
-def test_model_edit_rejects_antipad_on_routing_layer_by_default(tmp_path):
+def test_model_edit_allows_antipad_on_any_layer_with_selected_shape(tmp_path):
     request = _request(
         tmp_path,
         actions=[
@@ -818,11 +818,12 @@ def test_model_edit_rejects_antipad_on_routing_layer_by_default(tmp_path):
         ],
     )
 
-    with pytest.raises(ValueError, match="routing layer"):
-        BrdModelEditAdapter(edb_factory=FakeEdb).run(request)
+    result = BrdModelEditAdapter(edb_factory=FakeEdb).run(request)
+
+    assert result.summary["changes"][0]["layer"] == "L05"
 
 
-def test_model_edit_allows_explicit_antipad_layer_override(tmp_path):
+def test_model_edit_keeps_legacy_antipad_layer_override_compatible(tmp_path):
     request = _request(
         tmp_path,
         actions=[

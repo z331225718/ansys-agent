@@ -262,9 +262,10 @@ prompts:
     For continue, selected_action must be directly executable by the geometry
     validator:
     - anti_pad.enlarge: include target_radius or target_diameter, parameter_name,
-      target reference/power layers, center_padstack_instance_ids or via_centers,
-      plane_shape_ids or equivalent shape_evidence, and bridge_between_vias only
-      when the intended bridge centers are clear. If circular voids list more than two centers, include exactly two
+      target layers with selected physical shape evidence,
+      center_padstack_instance_ids or via_centers, plane_shape_ids or equivalent
+      shape_evidence, and bridge_between_vias only when the intended bridge
+      centers are clear. If circular voids list more than two centers, include exactly two
       bridge_center_padstack_instance_ids or bridge_via_centers for the bridge.
     - non_functional_pad.add_or_enlarge: use shape/circle_shape implementation,
       include target_radius in [7.875mil, 10mil], parameter_name, target layers,
