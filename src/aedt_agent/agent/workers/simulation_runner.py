@@ -141,7 +141,10 @@ class OpenSshTransport:
         lines: list[str] = []
         for name, value in (env or {}).items():
             _validate_env_name(name)
-            lines.append(f"$env:{name} = '{_ps_quote(value)}'")
+            lines.append(
+                "[Environment]::SetEnvironmentVariable("
+                f"'{_ps_quote(name)}', '{_ps_quote(value)}', 'Process')"
+            )
         if cwd:
             lines.append(f"Set-Location -LiteralPath '{_ps_quote(cwd)}'")
         executable = command[0]
@@ -311,18 +314,62 @@ def _remote_join(root: str, *parts: str) -> str:
     return value
 
 
+_BASE_ENV_NAMES = (
+    "PATH",
+    "PATHEXT",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "ALLUSERSPROFILE",
+    "PROGRAMDATA",
+    "SYSTEMROOT",
+    "SYSTEMDRIVE",
+    "WINDIR",
+    "TEMP",
+    "TMP",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "HOME",
+    "USERPROFILE",
+    "USERNAME",
+    "USERDOMAIN",
+    "USERDOMAIN_ROAMINGPROFILE",
+    "LOGONSERVER",
+    "SESSIONNAME",
+    "PUBLIC",
+    "COMPUTERNAME",
+    "COMSPEC",
+    "ComSpec",
+    "OS",
+    "ProgramFiles",
+    "ProgramFiles(x86)",
+    "ProgramW6432",
+    "CommonProgramFiles",
+    "CommonProgramFiles(x86)",
+    "CommonProgramW6432",
+    "PROCESSOR_ARCHITECTURE",
+    "PROCESSOR_ARCHITEW6432",
+    "PROCESSOR_IDENTIFIER",
+    "PROCESSOR_LEVEL",
+    "PROCESSOR_REVISION",
+    "NUMBER_OF_PROCESSORS",
+    "PSModulePath",
+    "DriverData",
+    "PYTHONPATH",
+)
+
+
 def _validate_env_name(name: str) -> None:
     if (
         not name
-        or not name.replace("_", "A").isalnum()
-        or name[0].isdigit()
+        or not (name[0].isalpha() or name[0] == "_")
+        or any(not (char.isalnum() or char in "_()") for char in name)
     ):
         raise HarnessProtocolError(f"invalid remote environment name: {name}")
 
 
 def _selected_environment(allowed_env: tuple[str, ...] | list[str]) -> dict[str, str]:
     result: dict[str, str] = {}
-    for name in allowed_env:
+    for name in (*_BASE_ENV_NAMES, *allowed_env):
         if name in os.environ:
             result[str(name)] = str(os.environ[name])
     return result

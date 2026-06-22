@@ -92,6 +92,15 @@ def test_execution_profile_accepts_ssh_remote_runner_when_fields_are_set():
     assert profile.ssh_remote_root == r"D:\aedt-agent-runs"
 
 
+def test_execution_profile_accepts_windows_environment_names_with_parentheses():
+    payload = ExecutionProfile.safe_recorded().to_json_dict()
+    payload["allowed_env"] = ["ProgramFiles(x86)", "CommonProgramFiles(x86)"]
+
+    profile = ExecutionProfile.from_json_dict(payload)
+
+    assert profile.allowed_env == ["ProgramFiles(x86)", "CommonProgramFiles(x86)"]
+
+
 def test_ssh_remote_example_profile_loads():
     path = Path("config/execution_profiles/ssh_remote.example.json")
     payload = json.loads(path.read_text(encoding="utf-8"))

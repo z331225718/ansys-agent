@@ -143,6 +143,8 @@ def test_ssh_cli_runner_forwards_allowed_environment_to_remote_command(tmp_path,
     monkeypatch.setenv("PYTHONPATH", "src")
     monkeypatch.setenv("APPDATA", r"C:\Users\local\AppData\Roaming")
     monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\local\AppData\Local")
+    monkeypatch.setenv("COMSPEC", r"C:\Windows\System32\cmd.exe")
+    monkeypatch.setenv("ProgramFiles(x86)", r"C:\Program Files (x86)")
     workspace = tmp_path / "local" / "mission-1" / "job-1" / "attempt-1"
     workspace.mkdir(parents=True)
     transport = FakeSshTransport()
@@ -165,4 +167,36 @@ def test_ssh_cli_runner_forwards_allowed_environment_to_remote_command(tmp_path,
         cancel_requested=None,
     )
 
-    assert transport.commands[0]["env"] == {"PYTHONPATH": "src"}
+    forwarded_env = transport.commands[0]["env"]
+    assert forwarded_env["PYTHONPATH"] == "src"
+    assert forwarded_env["APPDATA"] == r"C:\Users\local\AppData\Roaming"
+    assert forwarded_env["LOCALAPPDATA"] == r"C:\Users\local\AppData\Local"
+    assert forwarded_env["COMSPEC"] == r"C:\Windows\System32\cmd.exe"
+    assert forwarded_env["ProgramFiles(x86)"] == r"C:\Program Files (x86)"
+
+
+def test_open_ssh_transport_sets_special_environment_names_with_dotnet(monkeypatch):
+    from aedt_agent.agent.workers.simulation_runner import (
+        OpenSshTransport,
+        SshCliRunnerConfig,
+    )
+
+    scripts: list[str] = []
+    transport = OpenSshTransport(
+        SshCliRunnerConfig(host="192.168.71.51", user="z3312", remote_root=r"D:\runs")
+    )
+    monkeypatch.setattr(
+        transport,
+        "_run_powershell",
+        lambda script, *, timeout_seconds: scripts.append(script),
+    )
+
+    transport.run(
+        ["python", "-c", "pass"],
+        cwd=None,
+        timeout_seconds=30,
+        env={"ProgramFiles(x86)": r"C:\Program Files (x86)"},
+    )
+
+    assert "[Environment]::SetEnvironmentVariable('ProgramFiles(x86)'" in scripts[0]
+    assert "$env:ProgramFiles(x86)" not in scripts[0]

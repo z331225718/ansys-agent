@@ -51,6 +51,9 @@ def test_child_environment_contains_only_base_and_allowed_names(monkeypatch):
     monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\z3312\AppData\Local")
     monkeypatch.setenv("USERPROFILE", r"C:\Users\z3312")
     monkeypatch.setenv("TEMP", r"C:\Users\z3312\AppData\Local\Temp")
+    monkeypatch.setenv("COMSPEC", r"C:\Windows\System32\cmd.exe")
+    monkeypatch.setenv("ProgramFiles(x86)", r"C:\Program Files (x86)")
+    monkeypatch.setenv("NUMBER_OF_PROCESSORS", "32")
     monkeypatch.setenv("AWP_ROOT261", r"C:\Ansys")
     monkeypatch.setenv("SECRET_TOKEN", "do-not-copy")
 
@@ -62,6 +65,9 @@ def test_child_environment_contains_only_base_and_allowed_names(monkeypatch):
     assert env["LOCALAPPDATA"] == r"C:\Users\z3312\AppData\Local"
     assert env["USERPROFILE"] == r"C:\Users\z3312"
     assert env["TEMP"] == r"C:\Users\z3312\AppData\Local\Temp"
+    assert env["COMSPEC"] == r"C:\Windows\System32\cmd.exe"
+    assert env["ProgramFiles(x86)"] == r"C:\Program Files (x86)"
+    assert env["NUMBER_OF_PROCESSORS"] == "32"
     assert env["AWP_ROOT261"] == r"C:\Ansys"
     assert "SECRET_TOKEN" not in env
 
