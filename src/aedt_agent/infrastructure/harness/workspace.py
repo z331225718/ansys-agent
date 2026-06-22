@@ -23,10 +23,32 @@ _BASE_ENV_NAMES = (
     "HOME",
     "USERPROFILE",
     "USERNAME",
+    "USERDOMAIN",
+    "USERDOMAIN_ROAMINGPROFILE",
+    "LOGONSERVER",
+    "SESSIONNAME",
+    "PUBLIC",
     "COMPUTERNAME",
+    "COMSPEC",
+    "ComSpec",
+    "OS",
+    "ProgramFiles",
+    "ProgramFiles(x86)",
+    "ProgramW6432",
+    "CommonProgramFiles",
+    "CommonProgramFiles(x86)",
+    "CommonProgramW6432",
+    "PROCESSOR_ARCHITECTURE",
+    "PROCESSOR_ARCHITEW6432",
+    "PROCESSOR_IDENTIFIER",
+    "PROCESSOR_LEVEL",
+    "PROCESSOR_REVISION",
+    "NUMBER_OF_PROCESSORS",
+    "PSModulePath",
+    "DriverData",
     "PYTHONPATH",
 )
-_ENV_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_ENV_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_()]*$")
 
 
 class HarnessWorkspaceError(ValueError):

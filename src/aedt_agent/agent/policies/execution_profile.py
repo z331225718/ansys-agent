@@ -102,7 +102,7 @@ class ExecutionProfile:
             )
         if not isinstance(self.allowed_env, list):
             raise ExecutionProfileError("allowed_env must be a list")
-        pattern = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+        pattern = re.compile(r"^[A-Za-z_][A-Za-z0-9_()]*$")
         if any(not isinstance(name, str) or not pattern.fullmatch(name) for name in self.allowed_env):
             raise ExecutionProfileError("allowed_env must contain valid environment variable names")
 
