@@ -167,9 +167,7 @@ def run_brd_real_solve_worker(
     ]
     loop_context = _loop_context(payload)
     _append_unique(loop_context, "solve_manifest_paths", result.solve_manifest_path)
-    loop_context["last_solved_project_path"] = result.solved_project
-    if result.summary.get("project_copy_mode") == "working_project":
-        loop_context["latest_project_path"] = result.solved_project
+    loop_context["latest_project_path"] = result.solved_project
     loop_context["last_solve_manifest_path"] = result.solve_manifest_path
     loop_context["last_touchstone_path"] = result.touchstone_path
     loop_context["last_tdr_path"] = result.tdr_path

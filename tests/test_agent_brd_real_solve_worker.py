@@ -70,7 +70,6 @@ class FakeSolveAdapter:
             summary={
                 "touchstone_sample_count": 1341,
                 "tdr_sample_count": 10001,
-                "project_copy_mode": request.project_copy_mode,
             },
         )
 
@@ -110,8 +109,6 @@ def test_real_solve_worker_uses_context_artifacts_and_returns_only_refs(
     assert output["status"] == "succeeded"
     assert output["solve_summary"]["raw_sparameters"] == "artifact_only"
     assert output["solve_summary"]["raw_tdr"] == "artifact_only"
-    assert output["loop_context"]["last_solved_project_path"].endswith("solved.aedt")
-    assert "latest_project_path" not in output["loop_context"]
     assert "frequency_ghz" not in json.dumps(output)
     assert len(output["artifact_refs"]) == 5
 

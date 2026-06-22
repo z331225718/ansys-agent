@@ -239,13 +239,11 @@ for every slow solve/edit iteration. The orchestration policy is:
 
 1. copy the human-reviewed source `.aedt/.aedb` once into a controlled remote
    working project;
-2. apply model edits in-place to that controlled working project;
-3. run each AEDT solve on a harness `checkpoint_copy` of the current working
-   project, so a COM engine hang or invalid `.aedtresults` directory cannot
-   poison the editable working copy;
-4. keep only the working AEDT bundle, manifests, score evidence, curve plots,
+2. use `project_copy_mode=working_project` for repeated solve/edit jobs against
+   that copy;
+3. keep only the working AEDT bundle, manifests, score evidence, curve plots,
    and optional explicit accepted checkpoints;
-5. never pass the original human model as a `working_project` unless the human
+4. never pass the original human model as a `working_project` unless the human
    explicitly approves modifying it.
 
 This is a process-control requirement, not just disk cleanup: too many

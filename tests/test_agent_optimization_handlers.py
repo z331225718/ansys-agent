@@ -78,13 +78,8 @@ def test_prepare_working_project_copies_reviewed_bundle(tmp_path):
     assert result.output_payload["touchstone_name"] == "channel.s4p"
     assert result.output_payload["sparameter_mode"] == "differential"
     assert result.output_payload["solution_name"] == "Setup1 : Sweep1"
-    assert result.output_payload["project_copy_mode"] == "checkpoint_copy"
     assert result.output_payload["loop_context"]["solve"]["setup_name"] == "Setup1"
     assert result.output_payload["loop_context"]["solve"]["sweep_name"] == "Sweep1"
-    assert (
-        result.output_payload["loop_context"]["solve"]["project_copy_mode"]
-        == "checkpoint_copy"
-    )
 
 
 def test_prepare_working_project_removes_reused_working_project_lock(tmp_path):
