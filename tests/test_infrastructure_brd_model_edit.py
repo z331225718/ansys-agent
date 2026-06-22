@@ -312,6 +312,55 @@ class FakeEdb:
         FakeEdb.calls.append(("close", {}))
 
 
+class FakeHfss3dLayout:
+    calls: list[tuple[str, dict]] = []
+    events: list[str] = []
+
+    def __init__(
+        self,
+        *,
+        project: str,
+        version: str,
+        non_graphical: bool,
+        new_desktop: bool,
+        close_on_exit: bool,
+        remove_lock: bool,
+    ) -> None:
+        self.project = project
+        self.variables: dict[str, str] = {}
+        self.variable_manager = self
+        self.calls.append(
+            (
+                "init",
+                {
+                    "project": project,
+                    "version": version,
+                    "non_graphical": non_graphical,
+                    "new_desktop": new_desktop,
+                    "close_on_exit": close_on_exit,
+                    "remove_lock": remove_lock,
+                },
+            )
+        )
+        self.events.append("aedt_init")
+
+    def __setitem__(self, name: str, value: str) -> None:
+        self.variables[name] = value
+        self.calls.append(("set_variable", {"name": name, "value": value}))
+        self.events.append(f"aedt_set:{name}")
+
+    def __getitem__(self, name: str) -> str:
+        return self.variables[name]
+
+    def save_project(self) -> None:
+        self.calls.append(("save_project", {"project": self.project}))
+        self.events.append("aedt_save")
+
+    def release_desktop(self, **kwargs) -> None:
+        self.calls.append(("release_desktop", dict(kwargs)))
+        self.events.append("aedt_release")
+
+
 def test_model_edit_copies_project_bundle_and_adds_antipad_voids(tmp_path):
     FakeEdb.calls = []
     request = _request(tmp_path)
@@ -501,6 +550,66 @@ def test_model_edit_can_parameterize_antipad_void_radius(tmp_path):
         change["created_voids"][2]["rectangle"]["representation_type"]
         == "lower_left_upper_right"
     )
+
+
+def test_model_edit_defines_aedt_variable_before_edb_geometry(tmp_path):
+    events: list[str] = []
+
+    class TrackingFakeEdb(FakeEdb):
+        def __init__(self, *, edbpath: str, version: str, grpc: bool | None):
+            events.append("edb_init")
+            super().__init__(edbpath=edbpath, version=version, grpc=grpc)
+
+    class TrackingFakeHfss3dLayout(FakeHfss3dLayout):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            events.append("aedt_init")
+
+        def __setitem__(self, name: str, value: str) -> None:
+            super().__setitem__(name, value)
+            events.append(f"aedt_set:{name}:{value}")
+
+        def save_project(self) -> None:
+            super().save_project()
+            events.append("aedt_save")
+
+        def release_desktop(self, **kwargs) -> None:
+            super().release_desktop(**kwargs)
+            events.append("aedt_release")
+
+    FakeEdb.calls = []
+    FakeHfss3dLayout.calls = []
+    request = _request(
+        tmp_path,
+        actions=[
+            {
+                "action_type": "anti_pad.enlarge",
+                "parasitic_target": "l2_laser_via_pad_parasitic",
+                "center_padstack_instance_ids": [501, 502],
+                "layers": ["L06_GND"],
+                "plane_shape_ids": [101],
+                "target_radius": {"value": 20, "unit": "mil"},
+                "parameter_name": "l02_void_r",
+                "bridge_between_vias": True,
+            }
+        ],
+    )
+
+    BrdModelEditAdapter(
+        edb_factory=TrackingFakeEdb,
+        hfss3dlayout_factory=TrackingFakeHfss3dLayout,
+    ).run(request)
+
+    assert events[:4] == [
+        "aedt_init",
+        "aedt_set:l02_void_r:20mil",
+        "aedt_save",
+        "aedt_release",
+    ]
+    assert events.index("aedt_release") < events.index("edb_init")
+    init_call = dict(FakeHfss3dLayout.calls[0][1])
+    assert init_call["project"].endswith("case.edited.aedt")
+    assert init_call["remove_lock"] is True
 
 
 def test_model_edit_uses_explicit_bridge_centers_for_multi_center_antipad(tmp_path):

@@ -43,8 +43,10 @@ class BrdModelEditAdapter:
         self,
         *,
         edb_factory: Callable[..., Any] | None = None,
+        hfss3dlayout_factory: Callable[..., Any] | None = None,
     ) -> None:
         self._edb_factory = edb_factory
+        self._hfss3dlayout_factory = hfss3dlayout_factory
 
     def run(self, request: BrdModelEditRequest) -> BrdModelEditResult:
         _validate_request(request)
@@ -62,6 +64,15 @@ class BrdModelEditAdapter:
             edited_edb = edited_project.with_suffix(".aedb")
             _prepare_project_bundle(project_path, edited_project)
             check_source_unchanged = True
+
+        aedt_variables = _aedt_design_variables_for_actions(request.actions)
+        if aedt_variables and self._should_sync_aedt_variables():
+            _set_aedt_design_variables(
+                edited_project,
+                request.environment,
+                aedt_variables,
+                hfss3dlayout_class=self._hfss3dlayout_class(),
+            )
 
         pre_edit_digest = _project_bundle_digest(edited_project, edited_edb)
         changes: list[dict[str, Any]] = []
@@ -131,6 +142,19 @@ class BrdModelEditAdapter:
         from pyedb import Edb
 
         return Edb
+
+    def _hfss3dlayout_class(self) -> Callable[..., Any]:
+        if self._hfss3dlayout_factory is not None:
+            return self._hfss3dlayout_factory
+        from ansys.aedt.core import Hfss3dLayout
+
+        return Hfss3dLayout
+
+    def _should_sync_aedt_variables(self) -> bool:
+        return (
+            self._edb_factory is None
+            or self._hfss3dlayout_factory is not None
+        )
 
     def _verify_persisted_edit(
         self,
@@ -909,6 +933,73 @@ def _parameter_name(action: dict[str, Any]) -> str:
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
         raise ValueError(f"invalid parameter_name: {name}")
     return name
+
+
+def _aedt_design_variables_for_actions(
+    actions: list[dict[str, Any]],
+) -> dict[str, str]:
+    variables: dict[str, str] = {}
+    for action in actions:
+        parameter_name = _parameter_name(action)
+        if not parameter_name:
+            continue
+        value = _target_radius_edb_string(action)
+        existing = variables.get(parameter_name)
+        if existing is not None and existing != value:
+            raise ValueError(
+                "conflicting target values for parameter_name: "
+                f"{parameter_name}"
+            )
+        variables[parameter_name] = value
+    return variables
+
+
+def _set_aedt_design_variables(
+    project_path: Path,
+    environment: RealAedtEnvironment,
+    variables: dict[str, str],
+    *,
+    hfss3dlayout_class: Callable[..., Any],
+) -> None:
+    app = hfss3dlayout_class(
+        project=str(project_path),
+        version=environment.version,
+        non_graphical=environment.non_graphical,
+        new_desktop=True,
+        close_on_exit=True,
+        remove_lock=True,
+    )
+    try:
+        for name, value in variables.items():
+            app[name] = value
+            if not _aedt_variable_resolves(app, name, value):
+                raise RuntimeError(
+                    "failed to define AEDT design variable before EDB edit: "
+                    f"{name}"
+                )
+        save_project = getattr(app, "save_project", None)
+        if not callable(save_project):
+            raise ValueError("Hfss3dLayout.save_project is required")
+        save_project()
+    finally:
+        release = getattr(app, "release_desktop", None)
+        if callable(release):
+            release(close_projects=True, close_desktop=True)
+
+
+def _aedt_variable_resolves(app: Any, name: str, value: str) -> bool:
+    try:
+        expression = app[name]
+    except Exception:
+        variables = getattr(
+            getattr(app, "variable_manager", None),
+            "variables",
+            None,
+        )
+        if isinstance(variables, dict) and name in variables:
+            return True
+        return False
+    return str(expression) == value or bool(str(expression).strip())
 
 
 def _set_design_variable(edb: Any, name: str, value: str) -> None:
