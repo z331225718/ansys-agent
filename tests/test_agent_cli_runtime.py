@@ -129,6 +129,37 @@ def test_resume_graph_parser_accepts_profile():
     assert args.profile == "config/execution_profiles/local_real_aedt.json"
 
 
+def test_web_parser_preserves_global_db_when_subcommand_db_is_omitted():
+    from aedt_agent.agent.cli import build_parser
+
+    args = build_parser().parse_args([
+        "--db",
+        "D:/aedt-agent-runs/reviewed-loop/missions.db",
+        "mission",
+        "web",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8766",
+    ])
+
+    assert args.db == Path("D:/aedt-agent-runs/reviewed-loop/missions.db")
+    assert args.web_db is None
+
+
+def test_web_parser_accepts_subcommand_db_override():
+    from aedt_agent.agent.cli import build_parser
+
+    args = build_parser().parse_args([
+        "mission",
+        "web",
+        "--db",
+        "D:/aedt-agent-runs/reviewed-loop/missions.db",
+    ])
+
+    assert args.web_db == Path("D:/aedt-agent-runs/reviewed-loop/missions.db")
+
+
 def test_runtime_registers_model_edit_process_worker(tmp_path):
     from aedt_agent.agent.cli import _runtime_with_workers
     from aedt_agent.agent.workers import (

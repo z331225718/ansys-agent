@@ -103,7 +103,7 @@ def build_parser() -> argparse.ArgumentParser:
     web_parser = mission_commands.add_parser("web")
     web_parser.add_argument("--host", default="127.0.0.1")
     web_parser.add_argument("--port", type=int, default=8766)
-    web_parser.add_argument("--db", type=_db_path_arg, default=Path(".aedt-agent/missions.db"))
+    web_parser.add_argument("--db", dest="web_db", type=_db_path_arg, default=None)
     web_parser.add_argument("--profile", default="safe-recorded")
 
     run_loop_parser = mission_commands.add_parser(
@@ -236,6 +236,12 @@ def _db_path_arg(value: str) -> Path:
 def run(argv: Sequence[str] | None = None) -> int:
     _configure_console_encoding()
     args = build_parser().parse_args(argv)
+    if (
+        args.group == "mission"
+        and args.mission_command == "web"
+        and getattr(args, "web_db", None) is not None
+    ):
+        args.db = args.web_db
     runtime = AgentRuntime(SQLiteMissionStore(args.db))
 
     if args.group == "mission" and args.mission_command == "create":
