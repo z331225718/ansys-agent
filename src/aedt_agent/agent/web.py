@@ -508,6 +508,7 @@ function renderLoopMonitorNodes(nodes,solveIndex,nextSolveIndex){
   const mainX=padX,sideX=padX+nodeW+laneGap;
   const logicalMain=[
     'prepare_working_project',
+    'candidate_inventory_builder',
     'real_solve_worker',
     'touchstone_export_worker',
     'tdr_export_worker',
