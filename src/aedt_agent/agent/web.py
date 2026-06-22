@@ -119,7 +119,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
 .node-map{position:relative;min-width:520px;height:126px}
 .node-map.looped{height:auto}
 .node-map.vertical{min-width:560px}
-.node-map-lines{position:absolute;inset:0;pointer-events:none;overflow:visible}
+.node-map-lines{position:absolute;inset:0;pointer-events:none;overflow:visible;z-index:0}
 .flow-line{fill:none;stroke:#343d55;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
 .flow-line.ok{stroke:#3e7c52}
 .flow-line.run{stroke:#74b7ff;stroke-dasharray:8 8;animation:flowDash 1.1s linear infinite;filter:drop-shadow(0 0 5px rgba(116,183,255,.65))}
@@ -136,8 +136,9 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
 .flow-step.wait .flow-arrow::after{background:#7c6929}.flow-step.wait .arrow-head{border-color:#7c6929}
 .flow-step.err .flow-arrow::after{background:#7a3745}.flow-step.err .arrow-head{border-color:#7a3745}
 .node-pill{position:relative;border:1px solid #30384e;border-radius:7px;padding:8px 34px 8px 12px;background:#121722;font-size:11px;min-height:58px;width:178px;display:grid;align-content:center;gap:3px;overflow:hidden}
-.node-map .node-pill{position:absolute}
-.node-map.vertical .node-pill{width:220px}
+.node-map .node-pill{position:absolute;z-index:1}
+.node-map.vertical .node-pill{width:250px;height:64px;min-height:64px}
+.node-map.vertical .node-pill b{white-space:normal;overflow-wrap:anywhere;line-height:1.15}
 .node-pill.loop-hub{box-shadow:0 14px 34px rgba(0,0,0,.28),0 0 0 1px rgba(110,168,255,.10)}
 .node-pill::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:#4b556f}
 .node-pill.ok{background:#121d19;border-color:#2e6040}.node-pill.ok::before{background:#6fcf97}
@@ -145,7 +146,8 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
 .node-pill.wait{background:#241f13;border-color:#6d5b25}.node-pill.wait::before{background:#f2c94c}
 .node-pill.run{background:#121b2a;border-color:#315b8a;box-shadow:0 0 0 1px rgba(110,168,255,.16),0 0 30px rgba(110,168,255,.18)}.node-pill.run::before{background:#6ea8ff}
 .node-pill.run::after{content:"";position:absolute;inset:-40% auto -40% -55%;width:46%;background:linear-gradient(90deg,transparent,rgba(133,195,255,.28),transparent);transform:skewX(-18deg);animation:nodeSheen 1.8s ease-in-out infinite}
-.node-pill.pending{opacity:.72}
+.node-pill.pending{background:#111722;border-color:#2d3448}
+.node-pill.pending b,.node-pill.pending span{opacity:.72}
 .node-pill b{display:block;color:#f4f7ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;letter-spacing:0}
 .node-pill span{color:#8f9bb7}
 .node-pill .node-kind{color:#c5cee8;text-transform:lowercase}.node-pill .node-status{font-weight:700}
@@ -502,7 +504,7 @@ function renderMonitorNodes(nodes){
 }
 
 function renderLoopMonitorNodes(nodes,solveIndex,nextSolveIndex){
-  const nodeW=220,nodeH=58,row=80,padX=28,padY=18,laneGap=78;
+  const nodeW=250,nodeH=64,row=88,padX=28,padY=18,laneGap=86;
   const mainX=padX,sideX=padX+nodeW+laneGap;
   const logicalMain=[
     'prepare_working_project',
@@ -553,8 +555,8 @@ function renderLoopMonitorNodes(nodes,solveIndex,nextSolveIndex){
   svg+=renderBranchEdge('model_edit_worker','prepare_next_solve',markerId);
   const nextPos=positions.get(nextSolveIndex),solvePos=positions.get(solveIndex);
   if(nextPos&&solvePos){
-    const loopX=sideX+nodeW+24;
-    const startX=nextPos.x+nodeW/2,startY=nextPos.y;
+    const loopX=sideX+nodeW+28;
+    const startX=nextPos.x+nodeW,startY=nextPos.y+nodeH/2;
     const endX=solvePos.x+nodeW,endY=solvePos.y+nodeH/2;
     svg+=renderSvgEdge('M '+startX+' '+startY+' L '+loopX+' '+startY+' L '+loopX+' '+endY+' L '+endX+' '+endY,edgeClass(nodes[nextSolveIndex]),markerId);
   }
@@ -585,7 +587,10 @@ function renderLoopMonitorNodes(nodes,solveIndex,nextSolveIndex){
     if(a.x===b.x){
       return renderSvgEdge('M '+(a.x+nodeW/2)+' '+(a.y+nodeH)+' L '+(b.x+nodeW/2)+' '+(b.y-10),cls,marker);
     }
-    const startX=a.x+nodeW,startY=a.y+nodeH/2,endX=b.x,endY=b.y+nodeH/2,midX=startX+(endX-startX)/2;
+    const forward=a.x<b.x;
+    const startX=forward?a.x+nodeW:a.x;
+    const endX=forward?b.x:b.x+nodeW;
+    const startY=a.y+nodeH/2,endY=b.y+nodeH/2,midX=startX+(endX-startX)/2;
     return renderSvgEdge('M '+startX+' '+startY+' C '+midX+' '+startY+' '+midX+' '+endY+' '+endX+' '+endY,cls,marker);
   }
 }
