@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 from urllib.parse import quote
 
-from aedt_agent.agent.web import _dashboard_startup_message, dispatch_agent_request
+from aedt_agent.agent.web import AGENT_PAGE, _dashboard_startup_message, dispatch_agent_request
 from aedt_agent.agent.approvals import ApprovalService
 from aedt_agent.agent.graph_runner import graph_status
 from aedt_agent.agent.mission import GraphRunRecord, NodeRunRecord, NodeRunStatus
@@ -45,10 +45,37 @@ def test_web_dashboard_startup_message_is_ascii_safe():
     assert message == "[ansys-agent] dashboard: http://??:8766"
 
 
+def test_web_dashboard_startup_message_can_include_db_path(tmp_path):
+    message = _dashboard_startup_message("127.0.0.1", 8766, tmp_path / "missions.db")
+
+    assert "http://127.0.0.1:8766" in message
+    assert "db=" in message
+
+
 def test_web_list_missions_empty(tmp_path):
     runtime = _runtime(tmp_path)
     _, data = _dispatch("GET", "/api/missions", b"", runtime)
     assert data["missions"] == []
+
+
+def test_web_system_status_reports_connected_db_and_counts(tmp_path):
+    runtime = _runtime(tmp_path)
+    runtime.create_mission("visible in dashboard", [], [])
+
+    status, data = _dispatch("GET", "/api/system", b"", runtime)
+
+    assert status == 200
+    assert data["db_exists"] is True
+    assert data["db_path"].endswith("m.db")
+    assert data["counts"]["missions"] == 1
+    assert data["counts"]["graph_runs"] == 0
+
+
+def test_web_monitor_all_page_contains_dag_node_renderer():
+    assert "All Graph DAGs" in AGENT_PAGE
+    assert "renderMonitorNodes" in AGENT_PAGE
+    assert "graph_nodes" in AGENT_PAGE
+    assert "DB: checking" in AGENT_PAGE
 
 
 def test_web_list_templates(tmp_path):

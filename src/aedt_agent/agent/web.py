@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -96,6 +97,15 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
 .artifact-item:last-child{border-bottom:0}.artifact-kind{font-size:11px;color:var(--yellow);font-weight:700}
 .artifact-path{font:11px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--muted);word-break:break-all}
 .artifact-item a{color:var(--blue);font-size:12px;text-decoration:none}.artifact-item a:hover{text-decoration:underline}
+.monitor-card{border:1px solid var(--line);border-radius:6px;padding:12px;background:#1e2030;display:grid;gap:8px}
+.monitor-head{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.monitor-title{cursor:pointer;color:var(--accent);font-weight:700}.monitor-title:hover{text-decoration:underline}
+.monitor-meta{font-size:11px;color:var(--muted)}
+.node-pipeline{display:flex;flex-wrap:wrap;gap:6px}
+.node-pill{border:1px solid var(--line);border-radius:4px;padding:4px 6px;background:#181a25;font-size:11px;max-width:220px}
+.node-pill.ok{border-color:#2d6a35}.node-pill.err{border-color:#7a2d38}.node-pill.wait{border-color:#765f1d}.node-pill.run{border-color:#2e4c78}
+.node-pill b{display:block;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.node-pill span{color:var(--muted)}
 </style>
 </head>
 <body>
@@ -205,6 +215,7 @@ python -m aedt_agent.agent mission takeover --graph-run-id &lt;id&gt; --reason "
   </div>
   <div class="status-bar">
     <span id="connStatus">● 就绪</span>
+    <span id="dbStatus" style="color:var(--muted)">DB: checking...</span>
     <span style="color:var(--muted);margin-left:auto">ansys-agent · agent-first runtime</span>
   </div>
 </main>
@@ -220,8 +231,12 @@ async function api(p,o={}){
 }
 
 function badge(status){
-  const m={succeeded:'ok',failed:'err',waiting_approval:'wait',running:'run',canceled:'err'};
-  return `<span class="badge ${m[status]||''}">${status}</span>`;
+  return `<span class="badge ${statusClass(status)}">${esc(status||'unknown')}</span>`;
+}
+
+function statusClass(status){
+  const m={succeeded:'ok',failed:'err',waiting_approval:'wait',running:'run',canceled:'err',created:'run',pending:''};
+  return m[status]||'';
 }
 
 async function refreshMissions(){
@@ -393,33 +408,60 @@ function toggleAutoRefresh(){
 }
 
 async function monitorAll(){
-  // Show all missions with their graph runs in a compact view
-  const missions=await api('/api/missions');
+  const [missions, system]=await Promise.all([
+    api('/api/missions'),
+    api('/api/system').catch(()=>null)
+  ]);
+  renderSystemStatus(system);
   const el=document.getElementById('mermaidGraph');
-  let html='<h2>📡 All Active Graphs</h2><div style="display:grid;gap:10px">';
+  let html='<h2>📡 All Graph DAGs</h2>';
+  if(system){
+    html+='<div class="monitor-meta" style="margin-bottom:8px">DB: '+esc(system.db_path)+' · missions '+esc(system.counts.missions||0)+' · graph_runs '+esc(system.counts.graph_runs||0)+' · node_runs '+esc(system.counts.node_runs||0)+'</div>';
+  }
+  html+='<div style="display:grid;gap:10px">';
   let hasCards=false;
   for(const m of missions.missions){
     try{
-      const detail=await api('/api/missions/'+m.mission_id);
-      const gr=detail.graph_run;
+      const [detail,dashboard]=await Promise.all([
+        api('/api/missions/'+m.mission_id),
+        api('/api/missions/'+m.mission_id+'/dashboard').catch(()=>({}))
+      ]);
+      const gr=dashboard.graph_run||detail.graph_run;
       if(!gr)continue;
       hasCards=true;
       const st=gr.status||'unknown';
-      const cls={succeeded:'ok',failed:'err',waiting_approval:'wait',running:'run',canceled:'err'}[st]||'';
-      html+='<div style="border:1px solid var(--line);border-radius:8px;padding:12px;background:#1e2030">';
-      html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
-      html+='<b style="cursor:pointer;color:var(--accent)" onclick="selectMission(\''+m.mission_id+'\')">'+m.goal+'</b>';
-      html+='<span class="badge '+cls+'">'+st+'</span></div>';
-      html+='<div style="font-size:11px;color:var(--muted)">Step '+gr.step_count+' | '+m.mission_id.slice(0,16)+'…</div>';
+      const nodes=(dashboard.graph_nodes||dashboard.node_runs||[]).slice(-20);
+      html+='<div class="monitor-card">';
+      html+='<div class="monitor-head">';
+      html+='<div><div class="monitor-title" onclick="selectMission(\''+m.mission_id+'\')">'+esc(m.goal||'Untitled')+'</div>';
+      html+='<div class="monitor-meta">mission '+esc(m.mission_id.slice(0,16))+'… · graph '+esc((gr.graph_run_id||'').slice(0,16))+'… · step '+esc(gr.step_count||0)+' · current '+esc(gr.current_node_id||'--')+'</div></div>';
+      html+=badge(st)+'</div>';
+      html+=nodes.length?renderMonitorNodes(nodes):'<div class="muted">暂无节点运行记录</div>';
       html+='</div>';
     }catch(e){console.error('monitorAll fetch failed for '+m.mission_id,e)}
   }
   html+='</div>';
-  if(!hasCards)html+='<div class="muted">暂无活跃 Graph。用 CLI 创建: python -m aedt_agent.agent mission create ...</div>';
+  if(!hasCards)html+='<div class="muted">暂无 Graph。请确认 dashboard 和 run-loop 使用同一个 --db；当前 DB 见上方状态。</div>';
   el.innerHTML=html;
+  document.getElementById('runDashboard').innerHTML='';
+  document.getElementById('optimizationProgress').innerHTML='';
+}
+
+function renderMonitorNodes(nodes){
+  return '<div class="node-pipeline">'+nodes.map(n=>{
+    const status=n.status||'pending';
+    return '<div class="node-pill '+statusClass(status)+'"><b>'+esc(n.node_id||'node')+'</b><span>'+esc(n.node_kind||'')+' · '+esc(status)+(n.edge_decision?' · '+esc(n.edge_decision):'')+'</span></div>';
+  }).join('')+'</div>';
+}
+
+function renderSystemStatus(system){
+  if(!system)return;
+  document.getElementById('dbStatus').textContent='DB: '+system.db_path+' · missions '+(system.counts.missions||0)+' · nodes '+(system.counts.node_runs||0);
+  document.getElementById('connStatus').textContent=system.db_exists?'● DB connected':'● DB missing';
 }
 
 refreshMissions();
+api('/api/system').then(renderSystemStatus).catch(()=>{});
 toggleAutoRefresh();
 (async function checkLlm(){
   try{
@@ -544,6 +586,9 @@ def dispatch_agent_request(
 
         if method == "GET" and route == "/api/artifacts/file":
             return _artifact_file_response(runtime, parsed.query)
+
+        if method == "GET" and route == "/api/system":
+            return _json(_runtime_system_status(runtime))
 
         # --- Missions ---
         if method == "GET" and route == "/api/missions":
@@ -879,7 +924,7 @@ def run_agent_window(
         def log_message(self, *args):
             pass
 
-    print(_dashboard_startup_message(host, port))
+    print(_dashboard_startup_message(host, port, db))
     ThreadingHTTPServer((host, port), Handler).serve_forever()
 
 
@@ -888,8 +933,10 @@ def run_agent_window(
 # ---------------------------------------------------------------------------
 
 
-def _dashboard_startup_message(host: str, port: int) -> str:
+def _dashboard_startup_message(host: str, port: int, db_path: str | Path | None = None) -> str:
     message = f"[ansys-agent] dashboard: http://{host}:{port}"
+    if db_path is not None:
+        message += f" db={Path(db_path)}"
     return message.encode("ascii", errors="replace").decode("ascii")
 
 
@@ -1026,6 +1073,37 @@ def _merge_web_llm_config(config: Any) -> Any:
         temperature=config.temperature,
         max_tokens=config.max_tokens,
     )
+
+
+def _runtime_system_status(runtime: AgentRuntime) -> dict[str, Any]:
+    db_path_value = getattr(runtime.store, "db_path", None)
+    db_path = Path(db_path_value) if db_path_value is not None else None
+    counts = {
+        "missions": 0,
+        "graph_runs": 0,
+        "node_runs": 0,
+        "approvals": 0,
+        "events": 0,
+    }
+    if db_path is not None and db_path.exists():
+        with sqlite3.connect(db_path) as db:
+            table_names = {
+                row[0]
+                for row in db.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ).fetchall()
+            }
+            for table in counts:
+                if table in table_names:
+                    counts[table] = int(
+                        db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                    )
+    return {
+        "db_path": str(db_path) if db_path is not None else "",
+        "db_exists": bool(db_path and db_path.exists()),
+        "db_size_bytes": db_path.stat().st_size if db_path and db_path.exists() else 0,
+        "counts": counts,
+    }
 
 
 def _mission_dashboard(runtime: AgentRuntime, mission_id: str) -> dict[str, Any]:
