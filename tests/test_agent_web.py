@@ -77,6 +77,7 @@ def test_web_monitor_all_page_contains_dag_node_renderer():
     assert "monitor-counts" in AGENT_PAGE
     assert "node-flow" in AGENT_PAGE
     assert "node-map" in AGENT_PAGE
+    assert "node-map looped vertical" in AGENT_PAGE
     assert "renderLoopMonitorNodes" in AGENT_PAGE
     assert "prepare_next_solve" in AGENT_PAGE
     assert "flow-arrow" in AGENT_PAGE
