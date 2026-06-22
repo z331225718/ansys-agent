@@ -115,19 +115,31 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
 .monitor-counts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 .monitor-count{border:1px solid #343d55;border-radius:6px;padding:4px 7px;background:#141925;font:11px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;color:#aeb9d6}
 .monitor-count.ok{color:#8ee6a1;border-color:#2e6040}.monitor-count.err{color:#ff9ca8;border-color:#6b3340}.monitor-count.wait{color:#f8d56a;border-color:#6d5b25}.monitor-count.run{color:#9fc7ff;border-color:#315b8a}
-.node-pipeline{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px}
-.node-pill{position:relative;border:1px solid #30384e;border-radius:7px;padding:8px 10px 8px 12px;background:#121722;font-size:11px;min-height:58px;display:grid;align-content:center;gap:3px;overflow:hidden}
+.node-flow{display:flex;flex-wrap:wrap;gap:10px 0;align-items:center;padding:2px 0}
+.flow-step{display:flex;align-items:center;min-width:0}
+.flow-arrow{position:relative;width:48px;height:18px;margin:0 8px;flex:0 0 48px}
+.flow-arrow::after{content:"";position:absolute;left:0;right:7px;top:8px;height:2px;background:#343d55}
+.flow-arrow .arrow-head{position:absolute;right:0;top:4px;width:10px;height:10px;border-top:2px solid #343d55;border-right:2px solid #343d55;transform:rotate(45deg)}
+.flow-step.ok .flow-arrow::after{background:#3e7c52}.flow-step.ok .arrow-head{border-color:#3e7c52}
+.flow-step.run .flow-arrow::after{background:linear-gradient(90deg,#315b8a,#74b7ff,#315b8a);background-size:200% 100%;animation:flowLine 1.4s linear infinite}
+.flow-step.run .arrow-head{border-color:#74b7ff;filter:drop-shadow(0 0 6px rgba(116,183,255,.7))}
+.flow-step.wait .flow-arrow::after{background:#7c6929}.flow-step.wait .arrow-head{border-color:#7c6929}
+.flow-step.err .flow-arrow::after{background:#7a3745}.flow-step.err .arrow-head{border-color:#7a3745}
+.node-pill{position:relative;border:1px solid #30384e;border-radius:7px;padding:8px 34px 8px 12px;background:#121722;font-size:11px;min-height:58px;width:178px;display:grid;align-content:center;gap:3px;overflow:hidden}
 .node-pill::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:#4b556f}
 .node-pill.ok{background:#121d19;border-color:#2e6040}.node-pill.ok::before{background:#6fcf97}
 .node-pill.err{background:#24161b;border-color:#6b3340}.node-pill.err::before{background:#f07178}
 .node-pill.wait{background:#241f13;border-color:#6d5b25}.node-pill.wait::before{background:#f2c94c}
-.node-pill.run{background:#121b2a;border-color:#315b8a;box-shadow:0 0 0 1px rgba(110,168,255,.12),0 0 24px rgba(110,168,255,.12)}.node-pill.run::before{background:#6ea8ff}
+.node-pill.run{background:#121b2a;border-color:#315b8a;box-shadow:0 0 0 1px rgba(110,168,255,.16),0 0 30px rgba(110,168,255,.18)}.node-pill.run::before{background:#6ea8ff}
+.node-pill.run::after{content:"";position:absolute;inset:-40% auto -40% -55%;width:46%;background:linear-gradient(90deg,transparent,rgba(133,195,255,.28),transparent);transform:skewX(-18deg);animation:nodeSheen 1.8s ease-in-out infinite}
 .node-pill.pending{opacity:.72}
 .node-pill b{display:block;color:#f4f7ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;letter-spacing:0}
 .node-pill span{color:#8f9bb7}
 .node-pill .node-kind{color:#c5cee8;text-transform:lowercase}.node-pill .node-status{font-weight:700}
 .node-pill.run .node-status{color:#9fc7ff}.node-pill.ok .node-status{color:#8ee6a1}.node-pill.err .node-status{color:#ff9ca8}.node-pill.wait .node-status{color:#f8d56a}
 .node-pill .node-index{position:absolute;right:8px;top:6px;color:#59627d;font:10px/1 ui-monospace,SFMono-Regular,Consolas,monospace}
+@keyframes nodeSheen{0%{left:-55%;opacity:0}18%{opacity:1}58%{opacity:1}100%{left:108%;opacity:0}}
+@keyframes flowLine{0%{background-position:200% 0}100%{background-position:0 0}}
 </style>
 </head>
 <body>
@@ -484,10 +496,11 @@ async function monitorAll(){
 }
 
 function renderMonitorNodes(nodes){
-  return '<div class="node-pipeline">'+nodes.map((n,i)=>{
+  return '<div class="node-flow">'+nodes.map((n,i)=>{
     const status=n.status||'pending';
     const cls=statusClass(status)||'pending';
-    return '<div class="node-pill '+cls+'"><span class="node-index">'+String(i+1).padStart(2,'0')+'</span><b>'+esc(n.node_id||'node')+'</b><span><span class="node-kind">'+esc(n.node_kind||'')+'</span> · <span class="node-status">'+esc(statusLabel(status))+'</span>'+(n.edge_decision?' · '+esc(n.edge_decision):'')+'</span></div>';
+    const connector=i<nodes.length-1?'<div class="flow-arrow" aria-hidden="true"><span class="arrow-head"></span></div>':'';
+    return '<div class="flow-step '+cls+'"><div class="node-pill '+cls+'"><span class="node-index">'+String(i+1).padStart(2,'0')+'</span><b>'+esc(n.node_id||'node')+'</b><span><span class="node-kind">'+esc(n.node_kind||'')+'</span> · <span class="node-status">'+esc(statusLabel(status))+'</span>'+(n.edge_decision?' · '+esc(n.edge_decision):'')+'</span></div>'+connector+'</div>';
   }).join('')+'</div>';
 }
 
