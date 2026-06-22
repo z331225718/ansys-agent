@@ -148,13 +148,19 @@ worker 的规则：
 | `channel_score_worker` | `worker` | 否 | 读取 artifact，计算 bounded SDD11/SDD21/TDR evidence |
 | `iteration_qualifier_worker` | `worker` | 否 | 审计本轮 raw policy、S4P/differential 合约和 artifact 存在性 |
 | `progress_report_worker` | `worker` | 否 | 写 `optimization_history.csv` 和进度报告 |
-| `optimization_decider` | `agent` | 是 | 基于 bounded evidence 选择下一步或结束/审批 |
+| `optimization_decider` | `agent` | 是 | 基于 bounded evidence 选择下一步、结束或失败 |
 | `iteration_qualification_approval_gate` | `human_gate` | 否 | qualification 失败或证据不足时等人工确认 |
-| `action_approval_gate` | `human_gate` | 否 | 几何动作需要人工批准时停止 |
 | `geometry_validator_worker` | `worker` | 否 | 校验反焊盘/NFP 层、中心、shape、半径和约束 |
+| `optimization_failure` | `program` | 否 | 当前 loop 不做人审；decider/几何校验不可执行时 fail-closed |
 | `model_edit_worker` | `worker` | 否 | 对 working AEDT 模型执行已验证几何修改 |
 | `prepare_next_solve` | `program` | 否 | 生成下一轮 solve request |
 | `optimization_report` | `worker` | 否 | 生成最终报告和审计输出 |
+
+`action_approval_gate` 不属于当前 reviewed-model optimization loop。它属于
+BRD/local-cut 第一版模型生成前的人审阶段；当前 loop 的输入前提是 AEDT
+模型已经人工检查过。几何动作如果不能通过 `geometry_validator_worker`
+的确定性约束，应 fail-closed 并报告原因，而不是在优化迭代中等待 action
+approval。
 
 所以这条真实闭环不是“一堆 LLM worker 串起来”，而是：
 

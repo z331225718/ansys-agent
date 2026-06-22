@@ -351,7 +351,7 @@ MVP 固定 `max_workers=1`，避免多个 AEDT worker 同时争用模型和 lice
 ```json
 {
   "status": "waiting_approval",
-  "active_node": "action_approval_gate",
+  "active_node": "iteration_qualification_approval_gate",
   "latest_round": "1",
   "latest_action": "anti_pad.enlarge",
   "metrics": {

@@ -44,7 +44,7 @@ def test_agent_status_extracts_bounded_metrics_from_history_csv(tmp_path: Path):
         "graph_run": {
             "graph_run_id": "graph-1",
             "mission_id": "mission-1",
-            "current_node_id": "action_approval_gate",
+            "current_node_id": "iteration_qualification_approval_gate",
         },
         "node_runs": [
             {
@@ -59,7 +59,7 @@ def test_agent_status_extracts_bounded_metrics_from_history_csv(tmp_path: Path):
                 },
             },
             {
-                "node_id": "action_approval_gate",
+                "node_id": "iteration_qualification_approval_gate",
                 "sequence": 2,
                 "status": "waiting_approval",
                 "output_payload": {

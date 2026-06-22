@@ -80,12 +80,14 @@ def test_web_monitor_all_page_contains_dag_node_renderer():
     assert "node-map looped vertical" in AGENT_PAGE
     assert "renderLoopMonitorNodes" in AGENT_PAGE
     assert "prepare_next_solve" in AGENT_PAGE
+    assert "optimization_failure" in AGENT_PAGE
     assert "flow-arrow" in AGENT_PAGE
     assert "nodeSheen" in AGENT_PAGE
     assert "renderMonitorNodes" in AGENT_PAGE
     assert "graph_nodes" in AGENT_PAGE
     assert "DB: checking" in AGENT_PAGE
     assert "Orchestrator CLI 参考" not in AGENT_PAGE
+    assert "action_approval_gate" not in AGENT_PAGE
 
 
 def test_web_list_templates(tmp_path):
