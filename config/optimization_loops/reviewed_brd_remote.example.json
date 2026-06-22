@@ -39,16 +39,17 @@
     "non_functional_pad_layer_scope": "all_reviewed_mechanical_hole_layers",
     "note": "candidate_actions below are seed examples, not an L2-only allow list. Real runs should provide all reviewed layer/shape candidates or configure an LLM decider to propose them from bounded inventory evidence."
   },
-  "candidate_actions": [
-    {
+  "candidate_action_inventory": {
+    "source": "human_reviewed_shape_inventory",
+    "tdr_observation_port": "Diff1",
+    "tdr_port_orientation_evidence": "must be confirmed from port map before signoff; candidates are reviewed inventory, not an L2-only policy",
+    "tdr_feature_time": {"value": 32.84, "unit": "ps"},
+    "anti_pad_shape_layers": [
+      {
       "hypothesis": "TDR low-impedance feature is mapped to the reviewed L1 ball and L1-L4 laser-via pad parasitic region; enlarge the existing L2 plane void from 20mil to 22mil to increase local impedance.",
       "evidence_refs": [],
-      "tdr_observation_port": "Diff1",
-      "tdr_port_orientation_evidence": "must be confirmed from port map before signoff; this is one reviewed seed candidate, not an L2-only policy",
-      "tdr_feature_time": {"value": 32.84, "unit": "ps"},
       "target_region": "solder_ball",
-      "action_type": "anti_pad.enlarge",
-      "layers": ["L2_GND"],
+      "layer": "L2_GND",
       "plane_shape_ids": [173575],
       "parasitic_target": "l1_ball_and_l1_l4_laser_via_pad",
       "center_source": "padstack_instances",
@@ -65,11 +66,13 @@
       "target_radius": {"value": 22, "unit": "mil"},
       "parameter_name": "l02_void_r",
       "bridge_between_vias": true,
-      "constraints": {"max_diameter": "44mil"},
       "constraints_checked": ["anti_pad_radius <= 22mil"],
       "expected_effect": "increase_impedance",
       "risk": "May over-raise the local impedance if the TDR feature maps to a deeper via section instead of the L02 parasitic.",
       "rollback": "restore l02_void_r to 20mil or restore the working project checkpoint"
-    }
-  ]
+      }
+    ],
+    "non_functional_pad_layers": []
+  },
+  "candidate_actions": []
 }

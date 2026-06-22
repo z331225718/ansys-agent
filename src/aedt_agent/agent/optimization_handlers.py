@@ -30,6 +30,10 @@ def register_optimization_handlers(
         prepare_next_solve,
     )
     registry.register(
+        "brd.optimization.build_candidate_actions",
+        build_candidate_actions,
+    )
+    registry.register(
         "brd.optimization.decide_next_action",
         decide_next_action,
     )
@@ -98,6 +102,39 @@ def prepare_next_solve(
         loop_context["latest_project_path"] = project_path
         loop_context["working_project_path"] = project_path
     output = _solve_input(payload, loop_context, round_index=next_round)
+    return _ok(output)
+
+
+def build_candidate_actions(
+    context: GraphNodeExecutionContext,
+) -> dict[str, Any]:
+    payload = dict(context.input_payload)
+    loop_context = _loop_context(payload)
+    explicit_actions = [
+        item for item in loop_context.get("candidate_actions", [])
+        if isinstance(item, dict)
+    ]
+    generated_actions = _candidate_actions_from_inventory(payload, loop_context)
+    merged_actions = _merge_candidate_actions(explicit_actions, generated_actions)
+    loop_context["candidate_actions"] = merged_actions
+    loop_context["candidate_action_inventory_summary"] = {
+        "explicit_action_count": len(explicit_actions),
+        "generated_action_count": len(generated_actions),
+        "candidate_action_count": len(merged_actions),
+        "inventory_source": str(
+            _candidate_inventory(loop_context).get("source")
+            or "candidate_action_inventory"
+        ),
+    }
+    output = _solve_input(
+        payload,
+        loop_context,
+        round_index=int(loop_context.get("round_index") or 1),
+    )
+    output["candidate_action_count"] = len(merged_actions)
+    output["candidate_action_inventory_summary"] = dict(
+        loop_context["candidate_action_inventory_summary"]
+    )
     return _ok(output)
 
 
@@ -300,6 +337,13 @@ def _initial_loop_context(
         "report_dir": str(report_dir),
         "max_rounds": int(payload.get("max_rounds") or 3),
         "candidate_actions": list(payload.get("candidate_actions") or []),
+        "candidate_action_inventory": dict(
+            payload.get("candidate_action_inventory")
+            or payload.get("geometry_candidate_inventory")
+            or {}
+        ),
+        "candidate_action_policy": dict(payload.get("candidate_action_policy") or {}),
+        "geometry_constraints": dict(payload.get("geometry_constraints") or {}),
         "require_action_approval": bool(payload.get("require_action_approval", False)),
         "continue_after_pass": bool(payload.get("continue_after_pass", False)),
         "solve_manifest_paths": [],
@@ -560,6 +604,294 @@ def _bounded_score_for_decider(
         field: score.get(field) if field in score else evidence.get(field)
         for field in fields
     }
+
+
+def _candidate_actions_from_inventory(
+    payload: Mapping[str, Any],
+    loop_context: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    inventory = _candidate_inventory(loop_context)
+    if not inventory:
+        return []
+    actions: list[dict[str, Any]] = []
+    geometry_constraints = dict(loop_context.get("geometry_constraints") or {})
+    tdr_observation_port = str(
+        inventory.get("tdr_observation_port")
+        or loop_context.get("tdr_observation_port")
+        or payload.get("tdr_observation_port")
+        or "Diff1"
+    )
+    orientation_evidence = str(
+        inventory.get("tdr_port_orientation_evidence")
+        or payload.get("tdr_port_orientation_evidence")
+        or "unknown"
+    )
+    tdr_feature_time = inventory.get("tdr_feature_time")
+
+    for item in _inventory_items(
+        inventory,
+        "anti_pad_shape_layers",
+        "anti_pad_candidates",
+        "shape_backed_layers",
+    ):
+        if not isinstance(item, Mapping):
+            continue
+        for layer in _candidate_layers(item):
+            plane_shape_ids = _layer_values(
+                item,
+                layer,
+                "plane_shape_ids",
+                "shape_ids",
+                "selected_shape_ids",
+                by_layer_keys=("plane_shape_ids_by_layer", "shape_ids_by_layer"),
+            )
+            action = {
+                "hypothesis": str(
+                    item.get("hypothesis")
+                    or f"Reviewed shape-backed anti-pad candidate on {layer}"
+                ),
+                "evidence_refs": list(item.get("evidence_refs") or []),
+                "tdr_observation_port": tdr_observation_port,
+                "tdr_port_orientation_evidence": str(
+                    item.get("tdr_port_orientation_evidence")
+                    or orientation_evidence
+                ),
+                "target_region": str(item.get("target_region") or "reviewed_other"),
+                "action_type": "anti_pad.enlarge",
+                "layers": [layer],
+                "plane_shape_ids": plane_shape_ids,
+                "parasitic_target": str(
+                    item.get("parasitic_target")
+                    or f"reviewed_shape_on_{_safe_parameter_stem(layer)}"
+                ),
+                "center_source": str(item.get("center_source") or "padstack_instances"),
+                "center_padstack_instance_ids": _layer_values(
+                    item,
+                    layer,
+                    "center_padstack_instance_ids",
+                    "padstack_instance_ids",
+                    by_layer_keys=(
+                        "center_padstack_instance_ids_by_layer",
+                        "padstack_instance_ids_by_layer",
+                    ),
+                ),
+                "bridge_center_padstack_instance_ids": _layer_values(
+                    item,
+                    layer,
+                    "bridge_center_padstack_instance_ids",
+                    by_layer_keys=("bridge_center_padstack_instance_ids_by_layer",),
+                ),
+                "target_radius": _target_radius(
+                    item,
+                    geometry_constraints,
+                    constraint_key="anti_pad",
+                    default_value=22.0,
+                ),
+                "parameter_name": str(
+                    item.get("parameter_name")
+                    or f"{_safe_parameter_stem(layer)}_void_r"
+                ),
+                "bridge_between_vias": bool(item.get("bridge_between_vias", True)),
+                "constraints": {"max_diameter": "44mil"},
+                "constraints_checked": list(
+                    item.get("constraints_checked")
+                    or ["anti_pad_radius <= 22mil"]
+                ),
+                "expected_effect": str(
+                    item.get("expected_effect") or "increase_impedance"
+                ),
+                "risk": str(
+                    item.get("risk")
+                    or "May over-raise impedance or affect adjacent return current."
+                ),
+                "rollback": str(
+                    item.get("rollback")
+                    or f"restore {_safe_parameter_stem(layer)}_void_r or working checkpoint"
+                ),
+                "candidate_source": "candidate_action_inventory",
+            }
+            if tdr_feature_time is not None:
+                action["tdr_feature_time"] = tdr_feature_time
+            if item.get("bridge_via_centers") is not None:
+                action["bridge_via_centers"] = item.get("bridge_via_centers")
+            if item.get("via_centers") is not None:
+                action["via_centers"] = item.get("via_centers")
+            actions.append(action)
+
+    for item in _inventory_items(
+        inventory,
+        "non_functional_pad_layers",
+        "non_functional_pad_candidates",
+        "mechanical_hole_layers",
+    ):
+        if not isinstance(item, Mapping):
+            continue
+        for layer in _candidate_layers(item):
+            action = {
+                "hypothesis": str(
+                    item.get("hypothesis")
+                    or f"Reviewed via-barrel NFP candidate on {layer}"
+                ),
+                "evidence_refs": list(item.get("evidence_refs") or []),
+                "tdr_observation_port": tdr_observation_port,
+                "tdr_port_orientation_evidence": str(
+                    item.get("tdr_port_orientation_evidence")
+                    or orientation_evidence
+                ),
+                "target_region": str(item.get("target_region") or "via_barrel"),
+                "action_type": "non_functional_pad.add_or_enlarge",
+                "implementation": str(item.get("implementation") or "shape"),
+                "layers": [layer],
+                "parasitic_target": str(
+                    item.get("parasitic_target")
+                    or f"reviewed_mechanical_hole_on_{_safe_parameter_stem(layer)}"
+                ),
+                "center_source": str(item.get("center_source") or "padstack_instances"),
+                "center_padstack_instance_ids": _layer_values(
+                    item,
+                    layer,
+                    "center_padstack_instance_ids",
+                    "padstack_instance_ids",
+                    by_layer_keys=(
+                        "center_padstack_instance_ids_by_layer",
+                        "padstack_instance_ids_by_layer",
+                    ),
+                ),
+                "signal_nets": list(item.get("signal_nets") or []),
+                "target_radius": _target_radius(
+                    item,
+                    geometry_constraints,
+                    constraint_key="non_functional_pad",
+                    default_value=7.875,
+                ),
+                "parameter_name": str(
+                    item.get("parameter_name")
+                    or f"{_safe_parameter_stem(layer)}_nfp_r"
+                ),
+                "constraints": {
+                    "min_diameter": "15.75mil",
+                    "max_diameter": "20mil",
+                },
+                "constraints_checked": list(
+                    item.get("constraints_checked")
+                    or ["non_functional_pad_radius in [7.875mil, 10mil]"]
+                ),
+                "expected_effect": str(
+                    item.get("expected_effect") or "decrease_impedance"
+                ),
+                "risk": str(
+                    item.get("risk")
+                    or "May over-lower impedance or couple to adjacent structures."
+                ),
+                "rollback": str(
+                    item.get("rollback")
+                    or f"remove {_safe_parameter_stem(layer)} NFP circle shapes or restore checkpoint"
+                ),
+                "candidate_source": "candidate_action_inventory",
+            }
+            if tdr_feature_time is not None:
+                action["tdr_feature_time"] = tdr_feature_time
+            if item.get("via_centers") is not None:
+                action["via_centers"] = item.get("via_centers")
+            actions.append(action)
+    return actions
+
+
+def _candidate_inventory(loop_context: Mapping[str, Any]) -> dict[str, Any]:
+    value = loop_context.get("candidate_action_inventory")
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _inventory_items(inventory: Mapping[str, Any], *keys: str) -> list[Any]:
+    for key in keys:
+        value = inventory.get(key)
+        if isinstance(value, list):
+            return value
+    return []
+
+
+def _candidate_layers(item: Mapping[str, Any]) -> list[str]:
+    raw_layers = item.get("layers")
+    if raw_layers is None:
+        raw_layers = item.get("layer")
+    if isinstance(raw_layers, list):
+        return [str(layer) for layer in raw_layers if str(layer).strip()]
+    if raw_layers is not None and str(raw_layers).strip():
+        return [str(raw_layers)]
+    return []
+
+
+def _layer_values(
+    item: Mapping[str, Any],
+    layer: str,
+    *keys: str,
+    by_layer_keys: tuple[str, ...] = (),
+) -> list[Any]:
+    for key in by_layer_keys:
+        values_by_layer = item.get(key)
+        if isinstance(values_by_layer, Mapping):
+            values = values_by_layer.get(layer)
+            if values is not None:
+                return _as_list(values)
+    for key in keys:
+        values = item.get(key)
+        if values is not None:
+            return _as_list(values)
+    return []
+
+
+def _as_list(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return list(value)
+    return [value]
+
+
+def _target_radius(
+    item: Mapping[str, Any],
+    geometry_constraints: Mapping[str, Any],
+    *,
+    constraint_key: str,
+    default_value: float,
+) -> dict[str, Any]:
+    radius = item.get("target_radius")
+    if isinstance(radius, Mapping):
+        return dict(radius)
+    if radius is not None:
+        return {"value": float(radius), "unit": "mil"}
+    constraints = geometry_constraints.get(constraint_key)
+    if isinstance(constraints, Mapping):
+        if constraint_key == "anti_pad":
+            value = constraints.get("max_radius_mil")
+        else:
+            value = constraints.get("min_radius_mil")
+        if value is not None:
+            return {"value": float(value), "unit": "mil"}
+    return {"value": default_value, "unit": "mil"}
+
+
+def _safe_parameter_stem(layer: str) -> str:
+    stem = "".join(
+        char.lower() if char.isalnum() else "_"
+        for char in str(layer).strip()
+    ).strip("_")
+    return stem or "layer"
+
+
+def _merge_candidate_actions(
+    explicit_actions: list[dict[str, Any]],
+    generated_actions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for action in [*explicit_actions, *generated_actions]:
+        key = json.dumps(action, ensure_ascii=False, sort_keys=True, default=str)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(dict(action))
+    return merged
 
 
 def _refresh_progress_report(loop_context: dict[str, Any]) -> dict[str, Any]:

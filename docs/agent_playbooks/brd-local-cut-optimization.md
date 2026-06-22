@@ -593,6 +593,54 @@ Current user-approved geometry limits for the first optimization pass:
 - Any proposal outside these radius limits is not executable and must return to
   a human approval gate before worker execution.
 
+## Candidate Action Inventory Contract
+
+The reviewed optimization loop must not infer editable layers from the example
+L02 action. Before the first solve, `candidate_inventory_builder` expands
+`candidate_action_inventory` into bounded `candidate_actions`; the decider then
+chooses only from that list.
+
+Use `anti_pad_shape_layers` for every reviewed layer where a selected physical
+shape exists around the intended via or parasitic center. Use
+`non_functional_pad_layers` for every reviewed mechanical-hole layer where an
+explicit signal-net circle pad is allowed. A layer can be L2, L5, L7, a route
+named layer, or any other layer; eligibility comes from selected shape or
+mechanical-hole evidence, not the layer name.
+
+Minimal inventory example:
+
+```json
+{
+  "candidate_action_inventory": {
+    "source": "human_reviewed_shape_inventory",
+    "tdr_observation_port": "Diff1",
+    "tdr_port_orientation_evidence": "reviewed port map",
+    "anti_pad_shape_layers": [
+      {
+        "layer": "L5",
+        "plane_shape_ids": [123],
+        "center_padstack_instance_ids": [501, 502],
+        "bridge_center_padstack_instance_ids": [501, 502],
+        "parasitic_target": "reviewed buried-via pad parasitic",
+        "target_radius": {"value": 22, "unit": "mil"}
+      }
+    ],
+    "non_functional_pad_layers": [
+      {
+        "layer": "L7",
+        "center_padstack_instance_ids": [701, 702],
+        "signal_nets": ["TX_P", "TX_N"],
+        "parasitic_target": "reviewed mechanical-hole barrel inductance",
+        "target_radius": {"value": 7.875, "unit": "mil"}
+      }
+    ]
+  }
+}
+```
+
+Explicit `candidate_actions` are still accepted for hand-authored cases, but
+they are seed actions, not a layer allow list.
+
 ## Optimization Proposal Contract
 
 Each proposal must be small, structured, and reversible.

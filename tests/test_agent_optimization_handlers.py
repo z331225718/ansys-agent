@@ -160,6 +160,113 @@ def test_prepare_working_project_removes_reused_working_project_lock(tmp_path):
     ]
 
 
+def test_candidate_inventory_builder_expands_shape_backed_layers(tmp_path):
+    node = GraphNode(
+        "candidate_inventory",
+        "prepare",
+        "program",
+        handler="brd.optimization.build_candidate_actions",
+        input_schema="real_solve_request",
+        output_schema="real_solve_request",
+    )
+    template = GraphTemplate(
+        "test",
+        1,
+        "",
+        [node],
+        [],
+        {
+            "real_solve_request": HandoffSchema(
+                "real_solve_request",
+                [
+                    "project_path",
+                    "setup_name",
+                    "sweep_name",
+                    "tdr_expression",
+                    "expected_port_count",
+                    "loop_context",
+                ],
+            )
+        },
+    )
+    graph_run = GraphRunRecord.create("graph-1", "mission-1", "test", 1, 1)
+    node_run = NodeRunRecord.create(
+        "node-run-1",
+        graph_run.graph_run_id,
+        graph_run.mission_id,
+        node.node_id,
+        node.role,
+        node.kind,
+        1,
+        {},
+    )
+    context = GraphNodeExecutionContext(
+        runtime=None,
+        graph_run=graph_run,
+        node_run=node_run,
+        node=node,
+        template=template,
+        input_payload={
+            "project_path": str(tmp_path / "working" / "case.aedt"),
+            "setup_name": "Setup1",
+            "sweep_name": "Sweep1",
+            "tdr_expression": "TDRZ(Diff1)",
+            "expected_port_count": 4,
+            "loop_context": {
+                "round_index": 1,
+                "working_project_path": str(tmp_path / "working" / "case.aedt"),
+                "latest_project_path": str(tmp_path / "working" / "case.aedt"),
+                "report_dir": str(tmp_path / "progress"),
+                "geometry_constraints": {
+                    "anti_pad": {"max_radius_mil": 22},
+                    "non_functional_pad": {
+                        "min_radius_mil": 7.875,
+                        "max_radius_mil": 10,
+                    },
+                },
+                "candidate_action_inventory": {
+                    "source": "unit_test_inventory",
+                    "tdr_observation_port": "Diff1",
+                    "tdr_port_orientation_evidence": "reviewed port map",
+                    "anti_pad_shape_layers": [
+                        {
+                            "layer": "L5",
+                            "plane_shape_ids": [105],
+                            "center_padstack_instance_ids": [501, 502],
+                            "bridge_center_padstack_instance_ids": [501, 502],
+                            "parasitic_target": "reviewed buried-via pad",
+                        }
+                    ],
+                    "non_functional_pad_layers": [
+                        {
+                            "layer": "L7",
+                            "center_padstack_instance_ids": [701, 702],
+                            "signal_nets": ["TX_P", "TX_N"],
+                            "parasitic_target": "reviewed via barrel",
+                        }
+                    ],
+                },
+            },
+        },
+        run_index=1,
+        worker_id="test",
+    )
+
+    result = execute_graph_node(context)
+
+    assert result.status == NodeRunStatus.SUCCEEDED
+    actions = result.output_payload["loop_context"]["candidate_actions"]
+    assert [action["layers"] for action in actions] == [["L5"], ["L7"]]
+    assert actions[0]["action_type"] == "anti_pad.enlarge"
+    assert actions[0]["plane_shape_ids"] == [105]
+    assert actions[0]["parameter_name"] == "l5_void_r"
+    assert actions[1]["action_type"] == "non_functional_pad.add_or_enlarge"
+    assert actions[1]["parameter_name"] == "l7_nfp_r"
+    summary = result.output_payload["candidate_action_inventory_summary"]
+    assert summary["generated_action_count"] == 2
+    assert summary["candidate_action_count"] == 2
+
+
 def test_agent_decider_falls_back_to_deterministic_handler_without_llm(
     tmp_path,
     monkeypatch,

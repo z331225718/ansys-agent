@@ -36,8 +36,11 @@ Before planning or proposing geometry changes, read the project playbook:
 6. Run AEDT solve workers and channel score workers only after required gates
    are approved. Keep raw Touchstone/TDR data as artifacts; send only bounded
    evidence to the LLM.
-7. Optimize from TDR-driven hypotheses under user-provided geometry limits.
-8. For the current reviewed differential local-cut loop, treat the primary
+7. Build a bounded candidate action inventory before the first solve. This
+   inventory, not layer names or LLM guesses, defines which anti-pad/NFP edits
+   can be selected by the decider.
+8. Optimize from TDR-driven hypotheses under user-provided geometry limits.
+9. For the current reviewed differential local-cut loop, treat the primary
    Touchstone artifact as four-port `s4p`, not `s2p`. Score return loss on
    `SDD11`, insertion on `SDD21`, and use `Diff1` as the default TDR
    observation port unless model evidence shows a different differential port.
@@ -59,6 +62,9 @@ Before planning or proposing geometry changes, read the project playbook:
   CSV so the user can judge current progress and whether to continue.
 - Do not let the LLM invent route layers, component families, stackup values,
   anti-pad limits, non-functional-pad limits, or manufacturability clearances.
+- Do not treat the example L2 candidate as a hardcoded allow list. The reviewed
+  loop must use `candidate_action_inventory` or explicit `candidate_actions` to
+  enumerate every reviewed shape-backed layer and mechanical-hole NFP layer.
 - Do not advance from the first build to solve for a component group without
   human model review in AEDT/layout context.
 - Do not optimize route traces in the first loop. The layout traces are treated
@@ -152,6 +158,47 @@ Current user-approved geometry constraints for this first optimization pass:
   use radius in [`7.875mil`, `10mil`].
 - Proposals outside these radius limits are not executable; they must request
   human approval before any worker handoff.
+
+## Candidate Inventory Contract
+
+Before `optimization_decider`, the reviewed loop runs
+`candidate_inventory_builder`. It expands the config's
+`candidate_action_inventory` into worker-ready `candidate_actions`.
+
+Use:
+
+```json
+{
+  "candidate_action_inventory": {
+    "source": "human_reviewed_shape_inventory",
+    "tdr_observation_port": "Diff1",
+    "tdr_port_orientation_evidence": "reviewed port map",
+    "anti_pad_shape_layers": [
+      {
+        "layer": "L5",
+        "plane_shape_ids": [123],
+        "center_padstack_instance_ids": [501, 502],
+        "bridge_center_padstack_instance_ids": [501, 502],
+        "parasitic_target": "reviewed buried-via pad parasitic",
+        "target_radius": {"value": 22, "unit": "mil"}
+      }
+    ],
+    "non_functional_pad_layers": [
+      {
+        "layer": "L7",
+        "center_padstack_instance_ids": [701, 702],
+        "signal_nets": ["TX_P", "TX_N"],
+        "parasitic_target": "reviewed mechanical-hole barrel inductance",
+        "target_radius": {"value": 7.875, "unit": "mil"}
+      }
+    ]
+  }
+}
+```
+
+List all reviewed layers that have selected shape evidence near the intended
+via/parasitic center. The builder may generate L2, L5, L7, or any other layer;
+the decider only chooses from the bounded generated list.
 
 ## Proposal Contract
 

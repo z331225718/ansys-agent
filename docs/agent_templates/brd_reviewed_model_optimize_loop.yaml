@@ -10,6 +10,14 @@ nodes:
     output_schema: real_solve_request
     max_runs: 1
 
+  - id: candidate_inventory_builder
+    role: prepare
+    kind: program
+    handler: brd.optimization.build_candidate_actions
+    input_schema: real_solve_request
+    output_schema: real_solve_request
+    max_runs: 1
+
   - id: real_solve_worker
     role: worker
     kind: worker
@@ -140,8 +148,13 @@ nodes:
     max_runs: 1
 
 edges:
-  - id: prepare-to-solve
+  - id: prepare-to-candidate-inventory
     from: prepare_working_project
+    to: candidate_inventory_builder
+    on: succeeded
+    max_traversals: 1
+  - id: candidate-inventory-to-solve
+    from: candidate_inventory_builder
     to: real_solve_worker
     on: succeeded
     max_traversals: 1
@@ -240,6 +253,9 @@ prompts:
     You are the reviewed BRD optimization decider. Use only bounded evidence
     and candidate actions from the handoff. Do not read or request raw
     S-parameter or TDR arrays.
+    Candidate actions are produced by the candidate_inventory_builder from
+    reviewed shape/mechanical-hole inventory plus any explicit seed actions;
+    do not invent layers or shape ids outside that bounded list.
 
     The current workflow is differential: Touchstone must be treated as s4p,
     return loss is SDD11, insertion loss is SDD21, and the default TDR
