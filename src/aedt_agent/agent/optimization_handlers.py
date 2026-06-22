@@ -264,7 +264,11 @@ def _initial_loop_context(
             "tdr_report_name": str(payload.get("tdr_report_name") or "ChannelTDR"),
             "tdr_differential_pairs": bool(payload.get("tdr_differential_pairs", True)),
             "tdr_observation_port": str(payload.get("tdr_observation_port") or "Diff1"),
-            "project_copy_mode": "working_project",
+            "project_copy_mode": str(
+                payload.get("solve_project_copy_mode")
+                or payload.get("project_copy_mode")
+                or "checkpoint_copy"
+            ),
             "run_analyze": bool(payload.get("run_analyze", True)),
             "export_tdr": bool(payload.get("export_tdr", True)),
             "sparameter_mode": str(payload.get("sparameter_mode") or "differential"),
@@ -308,7 +312,7 @@ def _solve_input(
         "export_tdr": bool(solve.get("export_tdr", True)),
         "tdr_differential_pairs": bool(solve.get("tdr_differential_pairs", True)),
         "tdr_observation_port": solve.get("tdr_observation_port", "Diff1"),
-        "project_copy_mode": "working_project",
+        "project_copy_mode": solve.get("project_copy_mode", "checkpoint_copy"),
         "frequency_start_ghz": float(score.get("frequency_start_ghz", 0.0)),
         "frequency_stop_ghz": float(score.get("frequency_stop_ghz", 28.0)),
         "rl_target_db": float(score.get("rl_target_db", -17.0)),

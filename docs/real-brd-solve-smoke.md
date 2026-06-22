@@ -8,8 +8,9 @@ solved project、Touchstone、TDR CSV 和求解 manifest。
 
 - 输入工程必须是已经人工审批的 BRD local-cut 副本。
 - 不得把 `ANSYS_AGENT_REAL_AEDT_PROJECT` 指向生产原件。
-- pytest adapter 默认会把输入复制到临时目录后再求解，但真实远端闭环应先复制一份
-  受控 working project，然后用 `project_copy_mode=working_project` 反复修改/求解这一份。
+- pytest adapter 默认会把输入复制到临时目录后再求解。真实远端闭环也应保留这个隔离：
+  model edit 修改受控 working project，solve worker 使用 `checkpoint_copy` 求解副本，
+  避免 COM engine 挂起或无效 `.aedtresults` 污染 working project。
 - 首次运行建议确认 AEDT 版本、setup、sweep、端口数量和 TDR 表达式均与工程一致。
 
 ## 前置条件
@@ -66,7 +67,7 @@ $env:ANSYS_AGENT_REAL_AEDT_VERSION = "2026.1"
   --expected-port-count 4 `
   --touchstone-name channel.s4p `
   --sparameter-mode differential `
-  --project-copy-mode working_project `
+  --project-copy-mode checkpoint_copy `
   --aedt-version 2026.1 `
   --keep-local-temp
 ```
