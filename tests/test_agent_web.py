@@ -72,7 +72,9 @@ def test_web_system_status_reports_connected_db_and_counts(tmp_path):
 
 
 def test_web_monitor_all_page_contains_dag_node_renderer():
-    assert "All Graph DAGs" in AGENT_PAGE
+    assert "Graph Monitor" in AGENT_PAGE
+    assert "monitor-board" in AGENT_PAGE
+    assert "monitor-counts" in AGENT_PAGE
     assert "renderMonitorNodes" in AGENT_PAGE
     assert "graph_nodes" in AGENT_PAGE
     assert "DB: checking" in AGENT_PAGE

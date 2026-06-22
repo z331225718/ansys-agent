@@ -60,6 +60,7 @@ AGENT_PAGE = r"""<!doctype html>
 .content{display:grid;grid-template-columns:1fr 360px;overflow:hidden}
 .graph-panel{padding:16px;overflow:auto;background:var(--bg)}
 .graph-panel h2{font-size:16px;margin:0 0 10px}.graph-panel .mermaid{background:#181a25;border-radius:8px;padding:16px}
+.graph-panel .mermaid.monitor-board{background:transparent;border-radius:0;padding:0}
 .log-panel{background:var(--panel);border-left:1px solid var(--line);padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:8px}
 .log-panel h2{font-size:16px;margin:0}.log-panel .muted{font-size:12px}
 .log-entry{padding:8px 10px;border-radius:6px;font-size:12px;line-height:1.4;background:#1e2030;border-left:3px solid var(--line)}
@@ -97,15 +98,36 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
 .artifact-item:last-child{border-bottom:0}.artifact-kind{font-size:11px;color:var(--yellow);font-weight:700}
 .artifact-path{font:11px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--muted);word-break:break-all}
 .artifact-item a{color:var(--blue);font-size:12px;text-decoration:none}.artifact-item a:hover{text-decoration:underline}
-.monitor-card{border:1px solid var(--line);border-radius:6px;padding:12px;background:#1e2030;display:grid;gap:8px}
-.monitor-head{display:flex;justify-content:space-between;align-items:center;gap:10px}
-.monitor-title{cursor:pointer;color:var(--accent);font-weight:700}.monitor-title:hover{text-decoration:underline}
-.monitor-meta{font-size:11px;color:var(--muted)}
-.node-pipeline{display:flex;flex-wrap:wrap;gap:6px}
-.node-pill{border:1px solid var(--line);border-radius:4px;padding:4px 6px;background:#181a25;font-size:11px;max-width:220px}
-.node-pill.ok{border-color:#2d6a35}.node-pill.err{border-color:#7a2d38}.node-pill.wait{border-color:#765f1d}.node-pill.run{border-color:#2e4c78}
-.node-pill b{display:block;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.node-pill span{color:var(--muted)}
+.monitor-shell{display:grid;gap:14px}
+.monitor-topline{display:flex;justify-content:space-between;gap:16px;align-items:flex-end;margin-bottom:2px}
+.monitor-topline h2{font-size:18px;margin:0;color:#edf4ff;letter-spacing:0}
+.monitor-db{font:11px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;color:#8f9bb7;text-align:right;word-break:break-all;max-width:760px}
+.monitor-card{position:relative;border:1px solid #2b3246;border-left:4px solid #6ea8ff;border-radius:8px;padding:14px 16px;background:linear-gradient(180deg,#1d2130 0%,#171b28 100%);box-shadow:0 12px 30px rgba(0,0,0,.22);display:grid;gap:12px;overflow:hidden}
+.monitor-card::before{content:"";position:absolute;inset:0 0 auto 0;height:1px;background:linear-gradient(90deg,rgba(137,180,250,.7),rgba(166,227,161,.35),transparent);pointer-events:none}
+.monitor-card.ok{border-left-color:#6fcf97}.monitor-card.err{border-left-color:#f07178}.monitor-card.wait{border-left-color:#f2c94c}.monitor-card.run{border-left-color:#6ea8ff}
+.monitor-head{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:start}
+.monitor-title{cursor:pointer;color:#f5f8ff;font-weight:800;font-size:14px;line-height:1.35;max-width:960px}.monitor-title:hover{color:#9dc4ff;text-decoration:none}
+.monitor-meta{font-size:11px;color:#8f9bb7}
+.monitor-submeta{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+.monitor-chip{border:1px solid #343d55;border-radius:999px;background:#151a26;color:#aeb9d6;padding:3px 8px;font:11px/1.3 ui-monospace,SFMono-Regular,Consolas,monospace}
+.monitor-chip.current{border-color:#6ea8ff;color:#d7e7ff;background:#132033}
+.monitor-actions{display:grid;justify-items:end;gap:8px}
+.monitor-counts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.monitor-count{border:1px solid #343d55;border-radius:6px;padding:4px 7px;background:#141925;font:11px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;color:#aeb9d6}
+.monitor-count.ok{color:#8ee6a1;border-color:#2e6040}.monitor-count.err{color:#ff9ca8;border-color:#6b3340}.monitor-count.wait{color:#f8d56a;border-color:#6d5b25}.monitor-count.run{color:#9fc7ff;border-color:#315b8a}
+.node-pipeline{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px}
+.node-pill{position:relative;border:1px solid #30384e;border-radius:7px;padding:8px 10px 8px 12px;background:#121722;font-size:11px;min-height:58px;display:grid;align-content:center;gap:3px;overflow:hidden}
+.node-pill::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:#4b556f}
+.node-pill.ok{background:#121d19;border-color:#2e6040}.node-pill.ok::before{background:#6fcf97}
+.node-pill.err{background:#24161b;border-color:#6b3340}.node-pill.err::before{background:#f07178}
+.node-pill.wait{background:#241f13;border-color:#6d5b25}.node-pill.wait::before{background:#f2c94c}
+.node-pill.run{background:#121b2a;border-color:#315b8a;box-shadow:0 0 0 1px rgba(110,168,255,.12),0 0 24px rgba(110,168,255,.12)}.node-pill.run::before{background:#6ea8ff}
+.node-pill.pending{opacity:.72}
+.node-pill b{display:block;color:#f4f7ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;letter-spacing:0}
+.node-pill span{color:#8f9bb7}
+.node-pill .node-kind{color:#c5cee8;text-transform:lowercase}.node-pill .node-status{font-weight:700}
+.node-pill.run .node-status{color:#9fc7ff}.node-pill.ok .node-status{color:#8ee6a1}.node-pill.err .node-status{color:#ff9ca8}.node-pill.wait .node-status{color:#f8d56a}
+.node-pill .node-index{position:absolute;right:8px;top:6px;color:#59627d;font:10px/1 ui-monospace,SFMono-Regular,Consolas,monospace}
 </style>
 </head>
 <body>
@@ -266,6 +288,7 @@ async function refreshGraph(){
       document.getElementById('stepCount').textContent=data.graph_run.step_count||0;
       const viz=await api('/api/graph-runs/'+activeGraphRun+'/mermaid');
       const el=document.getElementById('mermaidGraph');
+      el.classList.remove('monitor-board');
       el.innerHTML=viz.mermaid;el.removeAttribute('data-processed');
       await mermaid.run({nodes:[el]});
       // Show approval actions
@@ -414,11 +437,12 @@ async function monitorAll(){
   ]);
   renderSystemStatus(system);
   const el=document.getElementById('mermaidGraph');
-  let html='<h2>📡 All Graph DAGs</h2>';
+  el.classList.add('monitor-board');
+  let html='<div class="monitor-shell"><div class="monitor-topline"><h2>Graph Monitor</h2>';
   if(system){
-    html+='<div class="monitor-meta" style="margin-bottom:8px">DB: '+esc(system.db_path)+' · missions '+esc(system.counts.missions||0)+' · graph_runs '+esc(system.counts.graph_runs||0)+' · node_runs '+esc(system.counts.node_runs||0)+'</div>';
+    html+='<div class="monitor-db">DB '+esc(system.db_path)+'<br>missions '+esc(system.counts.missions||0)+' · graph runs '+esc(system.counts.graph_runs||0)+' · node runs '+esc(system.counts.node_runs||0)+'</div>';
   }
-  html+='<div style="display:grid;gap:10px">';
+  html+='</div>';
   let hasCards=false;
   for(const m of missions.missions){
     try{
@@ -431,27 +455,62 @@ async function monitorAll(){
       hasCards=true;
       const st=gr.status||'unknown';
       const nodes=(dashboard.graph_nodes||dashboard.node_runs||[]).slice(-20);
-      html+='<div class="monitor-card">';
+      const counts=monitorCounts(nodes);
+      html+='<div class="monitor-card '+statusClass(st)+'">';
       html+='<div class="monitor-head">';
       html+='<div><div class="monitor-title" onclick="selectMission(\''+m.mission_id+'\')">'+esc(m.goal||'Untitled')+'</div>';
-      html+='<div class="monitor-meta">mission '+esc(m.mission_id.slice(0,16))+'… · graph '+esc((gr.graph_run_id||'').slice(0,16))+'… · step '+esc(gr.step_count||0)+' · current '+esc(gr.current_node_id||'--')+'</div></div>';
-      html+=badge(st)+'</div>';
+      html+='<div class="monitor-submeta">'+
+        '<span class="monitor-chip">mission '+esc(shortId(m.mission_id))+'</span>'+
+        '<span class="monitor-chip">graph '+esc(shortId(gr.graph_run_id))+'</span>'+
+        '<span class="monitor-chip">step '+esc(gr.step_count||0)+'</span>'+
+        '<span class="monitor-chip current">current '+esc(gr.current_node_id||'--')+'</span>'+
+      '</div></div>';
+      html+='<div class="monitor-actions">'+badge(st)+'<div class="monitor-counts">'+
+        renderMonitorCount('ok',counts.succeeded)+
+        renderMonitorCount('run',counts.running)+
+        renderMonitorCount('wait',counts.waiting_approval)+
+        renderMonitorCount('err',counts.failed)+
+        renderMonitorCount('',counts.pending,'pending')+
+      '</div></div></div>';
       html+=nodes.length?renderMonitorNodes(nodes):'<div class="muted">暂无节点运行记录</div>';
       html+='</div>';
     }catch(e){console.error('monitorAll fetch failed for '+m.mission_id,e)}
   }
-  html+='</div>';
   if(!hasCards)html+='<div class="muted">暂无 Graph。请确认 dashboard 和 run-loop 使用同一个 --db；当前 DB 见上方状态。</div>';
+  html+='</div>';
   el.innerHTML=html;
   document.getElementById('runDashboard').innerHTML='';
   document.getElementById('optimizationProgress').innerHTML='';
 }
 
 function renderMonitorNodes(nodes){
-  return '<div class="node-pipeline">'+nodes.map(n=>{
+  return '<div class="node-pipeline">'+nodes.map((n,i)=>{
     const status=n.status||'pending';
-    return '<div class="node-pill '+statusClass(status)+'"><b>'+esc(n.node_id||'node')+'</b><span>'+esc(n.node_kind||'')+' · '+esc(status)+(n.edge_decision?' · '+esc(n.edge_decision):'')+'</span></div>';
+    const cls=statusClass(status)||'pending';
+    return '<div class="node-pill '+cls+'"><span class="node-index">'+String(i+1).padStart(2,'0')+'</span><b>'+esc(n.node_id||'node')+'</b><span><span class="node-kind">'+esc(n.node_kind||'')+'</span> · <span class="node-status">'+esc(statusLabel(status))+'</span>'+(n.edge_decision?' · '+esc(n.edge_decision):'')+'</span></div>';
   }).join('')+'</div>';
+}
+
+function monitorCounts(nodes){
+  const counts={succeeded:0,running:0,waiting_approval:0,failed:0,pending:0};
+  for(const n of nodes){
+    const s=n.status||'pending';
+    if(s==='succeeded')counts.succeeded++;
+    else if(s==='running'||s==='created')counts.running++;
+    else if(s==='waiting_approval')counts.waiting_approval++;
+    else if(s==='failed'||s==='canceled')counts.failed++;
+    else counts.pending++;
+  }
+  return counts;
+}
+
+function renderMonitorCount(cls,value,label){
+  return '<span class="monitor-count '+cls+'">'+esc(label||cls||'other')+' '+esc(value||0)+'</span>';
+}
+
+function statusLabel(status){
+  const labels={succeeded:'done',running:'running',created:'queued',waiting_approval:'approval',failed:'failed',canceled:'canceled',pending:'pending'};
+  return labels[status]||status||'pending';
 }
 
 function renderSystemStatus(system){
