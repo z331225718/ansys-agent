@@ -50,10 +50,12 @@ class BrdModelEditAdapter:
 
     def run(self, request: BrdModelEditRequest) -> BrdModelEditResult:
         _validate_request(request)
+        _preflight_actions(request.actions)
         project_path = request.project_path.resolve()
         artifact_dir = request.artifact_dir.resolve()
         artifact_dir.mkdir(parents=True, exist_ok=True)
         source_digest = _sha256_file(project_path)
+        manifest_path = artifact_dir / "model_edit_manifest.json"
 
         if request.project_copy_mode == "working_project":
             edited_project = project_path
@@ -62,33 +64,42 @@ class BrdModelEditAdapter:
         else:
             edited_project = _edited_project_path(request)
             edited_edb = edited_project.with_suffix(".aedb")
-            _prepare_project_bundle(project_path, edited_project)
             check_source_unchanged = True
 
-        aedt_variables = _aedt_design_variables_for_actions(request.actions)
-        if aedt_variables and self._should_sync_aedt_variables():
-            _set_aedt_design_variables(
-                edited_project,
-                request.environment,
-                aedt_variables,
-                hfss3dlayout_class=self._hfss3dlayout_class(),
-            )
-
-        pre_edit_digest = _project_bundle_digest(edited_project, edited_edb)
-        changes: list[dict[str, Any]] = []
-        edb = self._edb_class()(
-            edbpath=str(edited_edb),
-            version=request.environment.version,
-            grpc=_grpc_mode(request.environment.edb_backend),
-        )
         try:
-            for index, action in enumerate(request.actions):
-                changes.extend(_apply_action(edb, action, index=index))
-            save = getattr(edb, "save", None)
-            if callable(save):
-                save()
-        finally:
-            _close_edb(edb)
+            if request.project_copy_mode != "working_project":
+                _prepare_project_bundle(project_path, edited_project)
+
+            aedt_variables = _aedt_project_variables_for_actions(
+                request.actions
+            )
+            if aedt_variables and self._should_sync_aedt_variables():
+                _set_aedt_project_variables(
+                    edited_project,
+                    request.environment,
+                    aedt_variables,
+                    hfss3dlayout_class=self._hfss3dlayout_class(),
+                )
+
+            pre_edit_digest = _project_bundle_digest(edited_project, edited_edb)
+            changes: list[dict[str, Any]] = []
+            edb = self._edb_class()(
+                edbpath=str(edited_edb),
+                version=request.environment.version,
+                grpc=_grpc_mode(request.environment.edb_backend),
+            )
+            try:
+                for index, action in enumerate(request.actions):
+                    changes.extend(_apply_action(edb, action, index=index))
+                save = getattr(edb, "save", None)
+                if callable(save):
+                    save()
+            finally:
+                _close_edb(edb)
+        except Exception:
+            if check_source_unchanged:
+                _remove_project_bundle(edited_project)
+            raise
 
         if check_source_unchanged and _sha256_file(project_path) != source_digest:
             raise RuntimeError("source AEDT project changed during model edit")
@@ -113,7 +124,6 @@ class BrdModelEditAdapter:
             "persistence_check": persistence_check,
             "changes": changes,
         }
-        manifest_path = artifact_dir / "model_edit_manifest.json"
         manifest = {
             "version": 1,
             "input": {
@@ -223,6 +233,83 @@ def _validate_request(request: BrdModelEditRequest) -> None:
         )
 
 
+def _preflight_actions(actions: list[dict[str, Any]]) -> None:
+    for index, action in enumerate(actions):
+        if not isinstance(action, dict):
+            raise ValueError(f"model edit action {index} must be an object")
+        action_type = str(action.get("action_type") or "")
+        if action_type not in SUPPORTED_ACTIONS:
+            raise ValueError(f"unsupported model edit action_type: {action_type}")
+        _layers(action)
+        _parameter_name(action)
+        if action_type == "anti_pad.enlarge":
+            _preflight_antipad_action(action)
+        else:
+            _preflight_non_functional_pad_action(action)
+
+
+def _preflight_antipad_action(action: dict[str, Any]) -> None:
+    _parasitic_target(action)
+    _target_void_diameter_m(action)
+    center_ids = _center_padstack_instance_ids(action)
+    manual_centers: list[tuple[float, float]] = []
+    if not center_ids:
+        manual_centers = _via_centers(action)
+    if not _truthy(action.get("allow_auto_shape_select", False)):
+        shape_ids = _shape_ids(action)
+        if not shape_ids:
+            raise ValueError(
+                "plane_shape_ids are required for anti_pad.enlarge unless "
+                "allow_auto_shape_select is true"
+            )
+    if not _bridge_requested(action):
+        return
+    bridge_ids = _bridge_center_padstack_instance_ids(action)
+    bridge_centers = _bridge_via_centers(action)
+    if bridge_ids and bridge_centers:
+        raise ValueError(
+            "bridge_between_vias must use either "
+            "bridge_center_padstack_instance_ids or bridge_via_centers, not both"
+        )
+    if bridge_ids and len(bridge_ids) != 2:
+        raise ValueError(
+            "bridge_between_vias requires exactly two "
+            "bridge_center_padstack_instance_ids"
+        )
+    if bridge_centers and len(bridge_centers) != 2:
+        raise ValueError(
+            "bridge_between_vias requires exactly two bridge_via_centers"
+        )
+    if bridge_ids or bridge_centers:
+        return
+    center_count = len(center_ids) if center_ids else len(manual_centers)
+    if center_count != 2:
+        raise ValueError(
+            "bridge_between_vias requires exactly two via centers or explicit "
+            "bridge_center_padstack_instance_ids"
+        )
+
+
+def _preflight_non_functional_pad_action(action: dict[str, Any]) -> None:
+    implementation = str(
+        _first_present(action, "implementation", "edit_mode") or "shape"
+    ).casefold()
+    if implementation in {"padstack", "pad_by_layer", "legacy_padstack"}:
+        _required_string(action, "padstack")
+        return
+    if implementation not in {"shape", "circle_shape", "primitive"}:
+        raise ValueError(
+            "non_functional_pad.add_or_enlarge implementation must be shape "
+            "or legacy_padstack"
+        )
+    _target_void_diameter_m(action)
+    center_ids = _center_padstack_instance_ids(action)
+    if center_ids:
+        return
+    centers = _via_centers(action)
+    _non_functional_pad_nets(action, len(centers))
+
+
 def _edited_project_path(request: BrdModelEditRequest) -> Path:
     name = (
         request.edited_project_name
@@ -234,15 +321,21 @@ def _edited_project_path(request: BrdModelEditRequest) -> Path:
 
 def _prepare_project_bundle(source_project: Path, edited_project: Path) -> None:
     edited_project.parent.mkdir(parents=True, exist_ok=True)
+    _remove_project_bundle(edited_project)
     edited_edb = edited_project.with_suffix(".aedb")
-    edited_results = Path(f"{edited_project}results")
-    for path in (edited_project, edited_edb, edited_results):
-        if path.is_dir():
-            shutil.rmtree(path)
-        elif path.exists():
-            path.unlink()
     shutil.copy2(source_project, edited_project)
     shutil.copytree(_sidecar_edb(source_project), edited_edb)
+
+
+def _remove_project_bundle(project_path: Path) -> None:
+    edited_edb = project_path.with_suffix(".aedb")
+    edited_results = Path(f"{project_path}results")
+    lock = Path(f"{project_path}.lock")
+    for path in (project_path, edited_edb, edited_results, lock):
+        if path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
+        elif path.exists():
+            path.unlink(missing_ok=True)
 
 
 def _apply_action(
@@ -870,15 +963,17 @@ def _target_void_radius(edb: Any, action: dict[str, Any]) -> dict[str, Any]:
             "expression": radius_m,
         }
     radius_value = _target_radius_edb_string(action)
-    _set_design_variable(edb, parameter_name, radius_value)
+    variable_name = _project_variable_name(parameter_name)
+    _set_project_variable(edb, variable_name, radius_value)
     return {
         "radius_m": radius_m,
         "diameter_m": diameter_m,
-        "expression": parameter_name,
+        "expression": variable_name,
         "parameter": {
             "name": parameter_name,
             "value": radius_value,
-            "scope": "design",
+            "scope": "project",
+            "expression": variable_name,
         },
     }
 
@@ -935,7 +1030,11 @@ def _parameter_name(action: dict[str, Any]) -> str:
     return name
 
 
-def _aedt_design_variables_for_actions(
+def _project_variable_name(name: str) -> str:
+    return name if name.startswith("$") else f"${name}"
+
+
+def _aedt_project_variables_for_actions(
     actions: list[dict[str, Any]],
 ) -> dict[str, str]:
     variables: dict[str, str] = {}
@@ -944,17 +1043,18 @@ def _aedt_design_variables_for_actions(
         if not parameter_name:
             continue
         value = _target_radius_edb_string(action)
-        existing = variables.get(parameter_name)
+        variable_name = _project_variable_name(parameter_name)
+        existing = variables.get(variable_name)
         if existing is not None and existing != value:
             raise ValueError(
                 "conflicting target values for parameter_name: "
                 f"{parameter_name}"
             )
-        variables[parameter_name] = value
+        variables[variable_name] = value
     return variables
 
 
-def _set_aedt_design_variables(
+def _set_aedt_project_variables(
     project_path: Path,
     environment: RealAedtEnvironment,
     variables: dict[str, str],
@@ -974,7 +1074,7 @@ def _set_aedt_design_variables(
             app[name] = value
             if not _aedt_variable_resolves(app, name, value):
                 raise RuntimeError(
-                    "failed to define AEDT design variable before EDB edit: "
+                    "failed to define AEDT project variable before EDB edit: "
                     f"{name}"
                 )
         save_project = getattr(app, "save_project", None)

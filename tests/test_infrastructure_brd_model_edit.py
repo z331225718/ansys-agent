@@ -445,7 +445,7 @@ def test_model_edit_can_add_non_functional_pad_circle_shapes(tmp_path):
     result = BrdModelEditAdapter(edb_factory=FakeEdb).run(request)
 
     edb = FakeEdb.last_instance
-    assert edb.design_variables["l05_nfp_r"] == "0.25mm"
+    assert edb.project_variables["$l05_nfp_r"] == "0.25mm"
     change = result.summary["changes"][0]
     assert change["property"] == "signal_circle_shape"
     assert change["implementation"] == "shape"
@@ -453,14 +453,15 @@ def test_model_edit_can_add_non_functional_pad_circle_shapes(tmp_path):
     assert change["parameters"] == {
         "name": "l05_nfp_r",
         "value": "0.25mm",
-        "scope": "design",
+        "scope": "project",
+        "expression": "$l05_nfp_r",
     }
     assert [shape["net"] for shape in change["created_shapes"]] == [
         "DP0",
         "DN0",
     ]
     assert change["created_shapes"][0]["diameter_m"] == pytest.approx(0.0005)
-    assert change["created_shapes"][0]["radius_expression"] == "l05_nfp_r"
+    assert change["created_shapes"][0]["radius_expression"] == "$l05_nfp_r"
     primitives = edb.modeler.primitives[-2:]
     assert [(primitive.net_name, primitive.is_void) for primitive in primitives] == [
         ("DP0", False),
@@ -503,6 +504,7 @@ def test_model_edit_can_parameterize_antipad_void_radius(tmp_path):
                 "action_type": "anti_pad.enlarge",
                 "parasitic_target": "l2_laser_via_pad_parasitic",
                 "center_padstack_instance_ids": [501, 502, 503],
+                "bridge_center_padstack_instance_ids": [501, 502],
                 "layers": ["L06_GND"],
                 "plane_shape_ids": [101],
                 "target_radius": {"value": 20, "unit": "mil"},
@@ -515,20 +517,21 @@ def test_model_edit_can_parameterize_antipad_void_radius(tmp_path):
     result = BrdModelEditAdapter(edb_factory=FakeEdb).run(request)
 
     edb = FakeEdb.last_instance
-    assert edb.design_variables["l02_void_r"] == "20mil"
+    assert edb.project_variables["$l02_void_r"] == "20mil"
     shape = edb.modeler.primitives[0]
     circle = shape.voids[0]
     bridge = shape.voids[2]
-    assert circle.radius == "l02_void_r"
+    assert circle.radius == "$l02_void_r"
     assert circle.center == (0.001, 0.002)
-    assert bridge.lower_left_point == ["1.0mm", "2.0mm-1.0*l02_void_r"]
-    assert bridge.upper_right_point == ["1.9mm", "2.0mm+1.0*l02_void_r"]
+    assert bridge.lower_left_point == ["1.0mm", "2.0mm-1.0*$l02_void_r"]
+    assert bridge.upper_right_point == ["1.9mm", "2.0mm+1.0*$l02_void_r"]
     assert "l02_void_r" in bridge.lower_left_point[1]
     change = result.summary["changes"][0]
     assert change["parameters"] == {
         "name": "l02_void_r",
         "value": "20mil",
-        "scope": "design",
+        "scope": "project",
+        "expression": "$l02_void_r",
     }
     assert change["parasitic_target"] == "l2_laser_via_pad_parasitic"
     assert change["center_source"] == "padstack_instances"
@@ -538,8 +541,8 @@ def test_model_edit_can_parameterize_antipad_void_radius(tmp_path):
         {"x": 0.001, "y": 0.002, "unit": "m"},
         {"x": 0.0019, "y": 0.002, "unit": "m"},
     ]
-    assert change["created_voids"][0]["radius_expression"] == "l02_void_r"
-    assert change["created_voids"][2]["width_expression"] == "2.0*l02_void_r"
+    assert change["created_voids"][0]["radius_expression"] == "$l02_void_r"
+    assert change["created_voids"][2]["width_expression"] == "2.0*$l02_void_r"
     assert change["created_voids"][2]["length_m"] == pytest.approx(0.0009)
     assert change["created_voids"][2]["length_factor"] == 1.0
     assert change["created_voids"][2]["width_factor"] == 2.0
@@ -547,11 +550,11 @@ def test_model_edit_can_parameterize_antipad_void_radius(tmp_path):
     assert change["created_voids"][2]["rectangle"]["parameterized"] is True
     assert change["created_voids"][2]["rectangle"]["engineering_start_point"] == [
         "1.0mm",
-        "2.0mm+1.0*l02_void_r",
+        "2.0mm+1.0*$l02_void_r",
     ]
     assert change["created_voids"][2]["rectangle"]["engineering_end_point"] == [
         "1.9mm",
-        "2.0mm-1.0*l02_void_r",
+        "2.0mm-1.0*$l02_void_r",
     ]
     assert (
         change["created_voids"][2]["rectangle"]["representation_type"]
@@ -609,7 +612,7 @@ def test_model_edit_defines_aedt_variable_before_edb_geometry(tmp_path):
 
     assert events[:4] == [
         "aedt_init",
-        "aedt_set:l02_void_r:20mil",
+        "aedt_set:$l02_void_r:20mil",
         "aedt_save",
         "aedt_release",
     ]
@@ -617,6 +620,38 @@ def test_model_edit_defines_aedt_variable_before_edb_geometry(tmp_path):
     init_call = dict(FakeHfss3dLayout.calls[0][1])
     assert init_call["project"].endswith("case.edited.aedt")
     assert init_call["remove_lock"] is True
+
+
+def test_model_edit_rejects_multi_center_bridge_before_opening_aedt(tmp_path):
+    FakeEdb.calls = []
+    FakeHfss3dLayout.calls = []
+    request = _request(
+        tmp_path,
+        edited_project_name="bad_bridge.aedt",
+        actions=[
+            {
+                "action_type": "anti_pad.enlarge",
+                "parasitic_target": "ambiguous_bridge",
+                "center_padstack_instance_ids": [501, 502, 503],
+                "layers": ["L06_GND"],
+                "plane_shape_ids": [101],
+                "target_radius": {"value": 20, "unit": "mil"},
+                "parameter_name": "bad_bridge_r",
+                "bridge_between_vias": True,
+            }
+        ],
+    )
+
+    with pytest.raises(ValueError, match="bridge_between_vias"):
+        BrdModelEditAdapter(
+            edb_factory=FakeEdb,
+            hfss3dlayout_factory=FakeHfss3dLayout,
+        ).run(request)
+
+    assert FakeEdb.calls == []
+    assert FakeHfss3dLayout.calls == []
+    assert not (tmp_path / "artifacts" / "bad_bridge.aedt").exists()
+    assert not (tmp_path / "artifacts" / "bad_bridge.aedb").exists()
 
 
 def test_model_edit_uses_explicit_bridge_centers_for_multi_center_antipad(tmp_path):
@@ -659,11 +694,11 @@ def test_model_edit_uses_explicit_bridge_centers_for_multi_center_antipad(tmp_pa
     assert [ref["id"] for ref in bridge["center_refs"]] == [501, 502]
     assert bridge["rectangle"]["engineering_start_point"] == [
         "1.0mm",
-        "2.0mm+1.0*l02_void_r",
+        "2.0mm+1.0*$l02_void_r",
     ]
     assert bridge["rectangle"]["engineering_end_point"] == [
         "1.9mm",
-        "2.0mm-1.0*l02_void_r",
+        "2.0mm-1.0*$l02_void_r",
     ]
 
 
@@ -693,19 +728,19 @@ def test_model_edit_flips_xy_for_vertical_antipad_bridge(tmp_path):
     bridge = change["created_voids"][2]
     assert bridge["rectangle"]["orientation"] == "vertical"
     assert bridge["rectangle"]["lower_left_point"] == [
-        "1.0mm-1.0*void_r",
+        "1.0mm-1.0*$void_r",
         "2.0mm",
     ]
     assert bridge["rectangle"]["upper_right_point"] == [
-        "1.0mm+1.0*void_r",
+        "1.0mm+1.0*$void_r",
         "2.9mm",
     ]
     assert bridge["rectangle"]["engineering_start_point"] == [
-        "1.0mm-1.0*void_r",
+        "1.0mm-1.0*$void_r",
         "2.0mm",
     ]
     assert bridge["rectangle"]["engineering_end_point"] == [
-        "1.0mm+1.0*void_r",
+        "1.0mm+1.0*$void_r",
         "2.9mm",
     ]
 
@@ -758,8 +793,8 @@ def test_model_edit_handles_tuple_variable_api(tmp_path):
     BrdModelEditAdapter(edb_factory=TupleVariableFakeEdb).run(request)
 
     edb = FakeEdb.last_instance
-    assert edb.design_variables["l02_void_r"] == "20mil"
-    assert edb.project_variables == {}
+    assert edb.project_variables["$l02_void_r"] == "20mil"
+    assert edb.design_variables == {}
 
 
 def test_model_edit_rejects_delta_only_for_antipad_void(tmp_path):
