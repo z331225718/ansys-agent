@@ -647,6 +647,22 @@ The inventory file contains reviewed facts:
 }
 ```
 
+The fields above are not layer allow lists. Do not write:
+
+```json
+{
+  "anti_pad_shape_layers": ["L2_GND", "L4_GND"],
+  "non_functional_pad_layers": ["L5", "L7"]
+}
+```
+
+That shape contains no selected plane shapes, padstack centers, signal nets, or
+physical parasitic target, so the loop cannot make a worker-safe geometry
+handoff. `candidate_inventory_builder` must fail fast with
+`invalid_candidate_action_inventory` when the path is missing, the JSON is not
+an object, entries are plain strings, required reviewed facts are missing, or
+the inventory produces zero executable candidate actions.
+
 Explicit `candidate_actions` are still accepted for hand-authored cases, but
 they are seed/fallback actions, not a layer allow list. LLM proposals must stay
 inside reviewed inventory facts; the geometry validator remains the executable

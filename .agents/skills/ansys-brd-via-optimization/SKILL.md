@@ -206,6 +206,15 @@ The inventory file contains reviewed facts:
 }
 ```
 
+Do not write these fields as plain layer-name lists such as
+`"anti_pad_shape_layers": ["L2_GND", "L4_GND"]`. A layer list is only a scope
+hint and is not executable. Each entry must be an object containing reviewed
+geometry facts: layer name, selected shape ids for anti-pad actions, reviewed
+padstack centers or reviewed coordinates, parasitic target, and bounded radius
+information. If the inventory path is missing, invalid JSON, or produces zero
+executable actions, the loop must fail at `candidate_inventory_builder` before
+running another slow AEDT solve.
+
 List all reviewed layers that have selected shape evidence near the intended
 via/parasitic center. The LLM may choose L2, L5, L7, or any other reviewed
 layer and set the action size/type from the playbook, but it must not invent

@@ -146,6 +146,19 @@ candidate_action_inventory_path  reviewed layer/shape/center 清单 JSON 路径
 该选择 anti-pad 还是 NFP、哪一层、半径多少；validator/worker 会继续检查它没有
 引用 inventory 之外的 layer、shape id 或 padstack id。
 
+不要把 inventory 写成单纯的层名列表，例如：
+
+```json
+{
+  "anti_pad_shape_layers": ["L2_GND", "L4_GND"],
+  "non_functional_pad_layers": ["L5", "L7"]
+}
+```
+
+这只说明“可能的层范围”，不包含 worker 能执行的 shape/center 事实。现在
+`candidate_inventory_builder` 会直接报
+`invalid_candidate_action_inventory`，而不是生成 0 个动作后继续跑慢仿真。
+
 示例结构：
 
 ```json
