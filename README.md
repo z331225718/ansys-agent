@@ -110,6 +110,9 @@ $env:PYTHONUTF8 = "1"
 ```powershell
 Copy-Item config\execution_profiles\local_real_aedt.example.json config\execution_profiles\local_real_aedt.json
 Copy-Item config\optimization_loops\reviewed_brd_remote.example.json config\optimization_loops\reviewed_brd_remote.json
+New-Item -ItemType Directory -Force D:\aedt-agent-runs\reviewed-loop | Out-Null
+Copy-Item config\optimization_loops\candidate_action_inventory.example.json `
+  D:\aedt-agent-runs\reviewed-loop\candidate_action_inventory.json
 ```
 
 检查并修改：
@@ -117,6 +120,7 @@ Copy-Item config\optimization_loops\reviewed_brd_remote.example.json config\opti
 ```text
 config\execution_profiles\local_real_aedt.json
 config\optimization_loops\reviewed_brd_remote.json
+D:\aedt-agent-runs\reviewed-loop\candidate_action_inventory.json
 ```
 
 重点确认：
@@ -130,7 +134,51 @@ touchstone_name       channel.s4p
 tdr_expression        TDRZ(Diff1)
 tdr_observation_port  Diff1
 geometry_constraints  anti-pad <= 22mil; NFP radius 7.875-10mil
+candidate_action_inventory_path  reviewed layer/shape/center 清单 JSON 路径
 ```
+
+`reviewed_brd_remote.json` 不应写死某一层。它只通过
+`candidate_action_inventory_path` 指向候选事实清单；真实可编辑层写在
+`candidate_action_inventory.json`，由人工检查或后续 inventory 工具生成。
+
+`candidate_action_inventory.json` 的作用是给 LLM 决策节点提供事实边界，不是让
+用户预写完整动作。LLM 会根据 playbook、TDR/RL bounded evidence 和这份清单判断
+该选择 anti-pad 还是 NFP、哪一层、半径多少；validator/worker 会继续检查它没有
+引用 inventory 之外的 layer、shape id 或 padstack id。
+
+示例结构：
+
+```json
+{
+  "source": "human_reviewed_shape_inventory",
+  "tdr_observation_port": "Diff1",
+  "tdr_port_orientation_evidence": "reviewed port map: Diff1 starts from <near/far end>",
+  "tdr_feature_time": {"value": 32.84, "unit": "ps"},
+  "anti_pad_shape_layers": [
+    {
+      "layer": "<reviewed_shape_backed_layer>",
+      "plane_shape_ids": [123456],
+      "center_padstack_instance_ids": [501, 502],
+      "bridge_center_padstack_instance_ids": [501, 502],
+      "parasitic_target": "<ball_or_laser_or_buried_via_parasitic>",
+      "target_region": "solder_ball"
+    }
+  ],
+  "non_functional_pad_layers": [
+    {
+      "layer": "<reviewed_mechanical_hole_layer>",
+      "center_padstack_instance_ids": [701, 702],
+      "signal_nets": ["<P_NET>", "<N_NET>"],
+      "parasitic_target": "<via_barrel_inductance_region>",
+      "target_region": "via_barrel"
+    }
+  ]
+}
+```
+
+`anti_pad_shape_layers` 可以列任意已检查且 via 附近有 selected shape 的层；
+`non_functional_pad_layers` 可以列任意已检查的机械孔/NFP 目标层。清单为空时，
+LLM 没有几何事实边界，只能结束或回退到显式 `candidate_actions`。
 
 本地 `local_cli` harness 会自动保留 AEDT/PyAEDT 需要的 Windows 基础环境，
 包括 `APPDATA`、`LOCALAPPDATA`、`USERPROFILE`、`TEMP`、`TMP`、`SYSTEMROOT`、
@@ -192,10 +240,14 @@ ansys-agent 是项目内置的轻量专属工程编排器，比通用商业 codi
 config\cases\reviewed_brd.local.json
 config\optimization_loops\reviewed_brd_remote.local.json
 config\execution_profiles\local_real_aedt.local.json
+D:\aedt-agent-runs\reviewed-loop\candidate_action_inventory.json
 ```
 
 确认真实 AEDT 路径、`working_project_path`、`report_dir`、`channel.s4p`、
-`TDRZ(Diff1)`、`simulation_runner=local_cli` 和几何约束都正确后，再运行：
+`TDRZ(Diff1)`、`simulation_runner=local_cli`、几何约束和
+`candidate_action_inventory_path` 都正确后，再运行。inventory 文件必须包含本轮
+reviewed 模型中允许 LLM 选择的 layer、shape id、center padstack id；不要把
+某个具体层写死在 loop config 里。
 
 旧 Windows 控制台建议先设置 UTF-8，避免 dashboard/run-loop 日志输出触发编码错误：
 
