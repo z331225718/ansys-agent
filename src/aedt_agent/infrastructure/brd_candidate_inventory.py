@@ -202,42 +202,42 @@ def _discover_anti_pad_entries(
     requested = _seed_items(seed, "anti_pad_shape_layers", "anti_pad_candidates", "shape_backed_layers")
     requested_layers = [layer for item in requested for layer in _item_layers(item)]
     layers = requested_layers or _primitive_layers_with_signal_centers(edb, instances)
+    layer_order = _edb_layer_names(edb)
     entries = []
     for layer in layers:
         seed_item = _seed_item_for_layer(requested, layer)
-        centers = [_padstack_instance_center(instance) for instance in instances]
-        shapes = _plane_shapes_containing_centers(edb, layer, centers)
-        if not shapes:
-            continue
-        center_instances = [
-            instance
-            for instance in instances
-            if any(_point_inside_shape(shape, _padstack_instance_center(instance)) for shape in shapes)
-        ]
-        if not center_instances:
-            continue
-        bridge_ids = _nearest_pair_instance_ids(center_instances)
-        entry = {
-            "layer": layer,
-            "plane_shape_ids": [str(_primitive_id(shape)) for shape in shapes],
-            "center_padstack_instance_ids": [_instance_id(instance) for instance in center_instances],
-            "bridge_center_padstack_instance_ids": bridge_ids,
-            "parasitic_target": str(
-                seed_item.get("parasitic_target")
-                or f"auto_discovered_shape_backed_parasitic_on_{layer}"
-            ),
-            "target_radius": _target_radius(
-                seed_item,
-                geometry_constraints,
-                "anti_pad",
-                default_value=22.0,
-            ),
-            "target_region": str(seed_item.get("target_region") or "reviewed_other"),
-            "center_source": "padstack_instances",
-            "bridge_between_vias": True,
-            "discovery_method": "plane_shapes_containing_signal_padstack_centers",
-        }
-        entries.append(entry)
+        for group in _center_groups_for_layer(instances, layer, layer_order):
+            group_centers = [_padstack_instance_center(instance) for instance in group]
+            shapes = _plane_shapes_containing_centers(edb, layer, group_centers)
+            if not shapes:
+                continue
+            bridge_ids = _nearest_pair_instance_ids(group)
+            if len(bridge_ids) != 2:
+                continue
+            segment = _group_segment_label(group)
+            entry = {
+                "layer": layer,
+                "plane_shape_ids": [str(_primitive_id(shape)) for shape in shapes],
+                "center_padstack_instance_ids": [_instance_id(instance) for instance in group],
+                "bridge_center_padstack_instance_ids": bridge_ids,
+                "parasitic_target": str(
+                    seed_item.get("parasitic_target")
+                    or f"auto_discovered_{segment}_shape_backed_parasitic_on_{layer}"
+                ),
+                "target_radius": _target_radius(
+                    seed_item,
+                    geometry_constraints,
+                    "anti_pad",
+                    default_value=22.0,
+                ),
+                "target_region": str(seed_item.get("target_region") or "reviewed_other"),
+                "center_source": "padstack_instances",
+                "bridge_between_vias": True,
+                "parameter_name": f"{_safe_parameter_stem(layer)}_{_safe_parameter_stem(segment)}_void_r",
+                "discovery_method": "plane_shapes_containing_segment_padstack_centers",
+                "center_group": _group_summary(group),
+            }
+            entries.append(entry)
     return entries
 
 
@@ -259,22 +259,31 @@ def _discover_nfp_entries(
     entries = []
     for layer in layers:
         seed_item = _seed_item_for_layer(requested, layer)
-        if not instances:
+        group_entries = _center_groups_for_layer(instances, layer, layer_order)
+        if not group_entries:
             continue
+        layer_instances = [
+            instance
+            for group in group_entries
+            for instance in group
+        ]
+        segment = "_".join(
+            sorted({_group_segment_label(group) for group in group_entries})
+        )
         entries.append(
             {
                 "layer": layer,
-                "center_padstack_instance_ids": [_instance_id(instance) for instance in instances],
+                "center_padstack_instance_ids": [_instance_id(instance) for instance in layer_instances],
                 "signal_nets": sorted(
                     {
                         str(getattr(instance, "net_name", "") or "")
-                        for instance in instances
+                        for instance in layer_instances
                         if str(getattr(instance, "net_name", "") or "")
                     }
                 ),
                 "parasitic_target": str(
                     seed_item.get("parasitic_target")
-                    or f"auto_discovered_mechanical_hole_barrel_on_{layer}"
+                    or f"auto_discovered_{segment}_mechanical_hole_barrel_on_{layer}"
                 ),
                 "target_radius": _target_radius(
                     seed_item,
@@ -284,7 +293,9 @@ def _discover_nfp_entries(
                 ),
                 "target_region": str(seed_item.get("target_region") or "via_barrel"),
                 "center_source": "padstack_instances",
-                "discovery_method": "signal_padstack_instances_spanning_layer",
+                "parameter_name": f"{_safe_parameter_stem(layer)}_{_safe_parameter_stem(segment)}_nfp_r",
+                "discovery_method": "signal_padstack_segment_spanning_layer",
+                "center_groups": [_group_summary(group) for group in group_entries],
             }
         )
     return entries
@@ -339,6 +350,31 @@ def _layers_spanned_by_instances(instances: list[Any], layer_order: list[str]) -
     return layers
 
 
+def _center_groups_for_layer(
+    instances: list[Any],
+    layer: str,
+    layer_order: list[str],
+) -> list[list[Any]]:
+    groups: dict[tuple[str, str], list[Any]] = {}
+    for instance in instances:
+        if layer not in _layers_for_instance(instance, layer_order):
+            continue
+        start = str(getattr(instance, "start_layer", "") or "")
+        stop = str(getattr(instance, "stop_layer", "") or "")
+        if _normalize_layer_name(start) == _normalize_layer_name(stop):
+            continue
+        key = (_normalize_layer_name(start), _normalize_layer_name(stop))
+        groups.setdefault(key, []).append(instance)
+    result = []
+    for group in groups.values():
+        if len({str(getattr(item, "net_name", "") or "") for item in group}) < 2:
+            continue
+        result.append(
+            sorted(group, key=lambda item: str(getattr(item, "id", getattr(item, "name", ""))))
+        )
+    return sorted(result, key=_group_segment_label)
+
+
 def _layers_for_instance(instance: Any, layer_order: list[str]) -> list[str]:
     start = str(getattr(instance, "start_layer", "") or "")
     stop = str(getattr(instance, "stop_layer", "") or "")
@@ -356,6 +392,35 @@ def _layers_for_instance(instance: Any, layer_order: list[str]) -> list[str]:
         return [layer for layer in (start, stop) if layer]
     low, high = sorted((start_index, stop_index))
     return layer_order[low : high + 1]
+
+
+def _group_segment_label(group: list[Any]) -> str:
+    if not group:
+        return "unknown_segment"
+    start = str(getattr(group[0], "start_layer", "") or "unknown")
+    stop = str(getattr(group[0], "stop_layer", "") or "unknown")
+    return f"{start}_to_{stop}"
+
+
+def _group_summary(group: list[Any]) -> dict[str, Any]:
+    return {
+        "segment": _group_segment_label(group),
+        "center_padstack_instance_ids": [_instance_id(instance) for instance in group],
+        "nets": sorted(
+            {
+                str(getattr(instance, "net_name", "") or "")
+                for instance in group
+                if str(getattr(instance, "net_name", "") or "")
+            }
+        ),
+        "padstacks": sorted(
+            {
+                str(getattr(instance, "padstack_definition", "") or "")
+                for instance in group
+                if str(getattr(instance, "padstack_definition", "") or "")
+            }
+        ),
+    }
 
 
 def _seed_items(seed: Mapping[str, Any], *keys: str) -> list[dict[str, Any]]:
@@ -424,6 +489,14 @@ def _instance_center_record(instance: Any) -> dict[str, Any]:
         "stop_layer": str(getattr(instance, "stop_layer", "") or ""),
         "position": {"x": x, "y": y, "unit": "m"},
     }
+
+
+def _safe_parameter_stem(value: str) -> str:
+    stem = "".join(
+        char.lower() if char.isalnum() else "_"
+        for char in str(value).strip()
+    ).strip("_")
+    return stem or "candidate"
 
 
 def _target_radius(
