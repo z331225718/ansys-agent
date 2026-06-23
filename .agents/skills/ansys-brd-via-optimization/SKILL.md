@@ -37,8 +37,9 @@ Before planning or proposing geometry changes, read the project playbook:
    are approved. Keep raw Touchstone/TDR data as artifacts; send only bounded
    evidence to the LLM.
 7. Build a bounded candidate action inventory before the first solve. This
-   inventory, not layer names or LLM guesses, defines which anti-pad/NFP edits
-   can be selected by the decider.
+   inventory provides reviewed layer/shape/center facts and fallback actions;
+   the LLM decider should still use the playbook and bounded evidence to judge
+   which executable anti-pad/NFP proposal to make.
 8. Optimize from TDR-driven hypotheses under user-provided geometry limits.
 9. For the current reviewed differential local-cut loop, treat the primary
    Touchstone artifact as four-port `s4p`, not `s2p`. Score return loss on
@@ -162,8 +163,11 @@ Current user-approved geometry constraints for this first optimization pass:
 ## Candidate Inventory Contract
 
 Before `optimization_decider`, the reviewed loop runs
-`candidate_inventory_builder`. It expands the config's
-`candidate_action_inventory` into worker-ready `candidate_actions`.
+`candidate_inventory_builder`. It keeps the config's
+`candidate_action_inventory` as reviewed facts and also expands it into
+deterministic fallback `candidate_actions`. When LLM is configured, the decider
+may propose a fresh `selected_action` from those facts instead of merely
+choosing a fallback action index.
 
 Use:
 
@@ -197,8 +201,10 @@ Use:
 ```
 
 List all reviewed layers that have selected shape evidence near the intended
-via/parasitic center. The builder may generate L2, L5, L7, or any other layer;
-the decider only chooses from the bounded generated list.
+via/parasitic center. The LLM may choose L2, L5, L7, or any other reviewed
+layer and set the action size/type from the playbook, but it must not invent
+layer names, shape ids, padstack ids, ports, or geometry limits outside this
+inventory. The validator and worker remain the execution gate.
 
 ## Proposal Contract
 
