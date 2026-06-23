@@ -595,12 +595,13 @@ Current user-approved geometry limits for the first optimization pass:
 
 ## Candidate Action Inventory Contract
 
-The reviewed optimization loop must not infer editable layers from the example
-L02 action. Before the first solve, `candidate_inventory_builder` preserves
-`candidate_action_inventory` as reviewed facts and also builds deterministic
-fallback actions. With LLM configured, the decider should use this inventory,
-the playbook, and bounded score evidence to propose the next `selected_action`
-itself instead of blindly choosing a prewritten action.
+The reviewed optimization loop must not infer editable layers from any example
+action. Before the first solve, `candidate_inventory_builder` preserves
+`candidate_action_inventory` or `candidate_action_inventory_path` as reviewed
+facts and also builds deterministic fallback actions. With LLM configured, the
+decider should use this inventory, the playbook, and bounded score evidence to
+propose the next `selected_action` itself instead of blindly choosing a
+prewritten action.
 
 Use `anti_pad_shape_layers` for every reviewed layer where a selected physical
 shape exists around the intended via or parasitic center. Use
@@ -609,34 +610,40 @@ explicit signal-net circle pad is allowed. A layer can be L2, L5, L7, a route
 named layer, or any other layer; eligibility comes from selected shape or
 mechanical-hole evidence, not the layer name.
 
-Minimal inventory example:
+In the run config, prefer a path rather than layer-specific inline data:
 
 ```json
 {
-  "candidate_action_inventory": {
-    "source": "human_reviewed_shape_inventory",
-    "tdr_observation_port": "Diff1",
-    "tdr_port_orientation_evidence": "reviewed port map",
-    "anti_pad_shape_layers": [
-      {
-        "layer": "L5",
-        "plane_shape_ids": [123],
-        "center_padstack_instance_ids": [501, 502],
-        "bridge_center_padstack_instance_ids": [501, 502],
-        "parasitic_target": "reviewed buried-via pad parasitic",
-        "target_radius": {"value": 22, "unit": "mil"}
-      }
-    ],
-    "non_functional_pad_layers": [
-      {
-        "layer": "L7",
-        "center_padstack_instance_ids": [701, 702],
-        "signal_nets": ["TX_P", "TX_N"],
-        "parasitic_target": "reviewed mechanical-hole barrel inductance",
-        "target_radius": {"value": 7.875, "unit": "mil"}
-      }
-    ]
-  }
+  "candidate_action_inventory_path": "D:/aedt-agent-runs/reviewed-loop/candidate_action_inventory.json"
+}
+```
+
+The inventory file contains reviewed facts:
+
+```json
+{
+  "source": "human_reviewed_shape_inventory",
+  "tdr_observation_port": "Diff1",
+  "tdr_port_orientation_evidence": "reviewed port map",
+  "anti_pad_shape_layers": [
+    {
+      "layer": "L5",
+      "plane_shape_ids": [123],
+      "center_padstack_instance_ids": [501, 502],
+      "bridge_center_padstack_instance_ids": [501, 502],
+      "parasitic_target": "reviewed buried-via pad parasitic",
+      "target_radius": {"value": 22, "unit": "mil"}
+    }
+  ],
+  "non_functional_pad_layers": [
+    {
+      "layer": "L7",
+      "center_padstack_instance_ids": [701, 702],
+      "signal_nets": ["TX_P", "TX_N"],
+      "parasitic_target": "reviewed mechanical-hole barrel inductance",
+      "target_radius": {"value": 7.875, "unit": "mil"}
+    }
+  ]
 }
 ```
 

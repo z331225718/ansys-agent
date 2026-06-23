@@ -267,6 +267,110 @@ def test_candidate_inventory_builder_expands_shape_backed_layers(tmp_path):
     assert summary["candidate_action_count"] == 2
 
 
+def test_candidate_inventory_builder_loads_reviewed_inventory_file(tmp_path):
+    inventory_path = tmp_path / "candidate_action_inventory.json"
+    inventory_path.write_text(
+        """
+{
+  "source": "unit_test_inventory_file",
+  "tdr_observation_port": "Diff1",
+  "tdr_port_orientation_evidence": "reviewed port map",
+  "anti_pad_shape_layers": [
+    {
+      "layer": "L6",
+      "plane_shape_ids": [106],
+      "center_padstack_instance_ids": [601, 602],
+      "bridge_center_padstack_instance_ids": [601, 602],
+      "parasitic_target": "reviewed shape-backed layer"
+    }
+  ],
+  "non_functional_pad_layers": []
+}
+""".strip(),
+        encoding="utf-8",
+    )
+    node = GraphNode(
+        "candidate_inventory",
+        "prepare",
+        "program",
+        handler="brd.optimization.build_candidate_actions",
+        input_schema="real_solve_request",
+        output_schema="real_solve_request",
+    )
+    template = GraphTemplate(
+        "test",
+        1,
+        "",
+        [node],
+        [],
+        {
+            "real_solve_request": HandoffSchema(
+                "real_solve_request",
+                [
+                    "project_path",
+                    "setup_name",
+                    "sweep_name",
+                    "tdr_expression",
+                    "expected_port_count",
+                    "loop_context",
+                ],
+            )
+        },
+    )
+    graph_run = GraphRunRecord.create("graph-1", "mission-1", "test", 1, 1)
+    node_run = NodeRunRecord.create(
+        "node-run-1",
+        graph_run.graph_run_id,
+        graph_run.mission_id,
+        node.node_id,
+        node.role,
+        node.kind,
+        1,
+        {},
+    )
+    context = GraphNodeExecutionContext(
+        runtime=None,
+        graph_run=graph_run,
+        node_run=node_run,
+        node=node,
+        template=template,
+        input_payload={
+            "project_path": str(tmp_path / "working" / "case.aedt"),
+            "setup_name": "Setup1",
+            "sweep_name": "Sweep1",
+            "tdr_expression": "TDRZ(Diff1)",
+            "expected_port_count": 4,
+            "loop_context": {
+                "round_index": 1,
+                "working_project_path": str(tmp_path / "working" / "case.aedt"),
+                "latest_project_path": str(tmp_path / "working" / "case.aedt"),
+                "report_dir": str(tmp_path / "progress"),
+                "candidate_action_inventory_path": str(inventory_path),
+                "geometry_constraints": {
+                    "anti_pad": {"max_radius_mil": 22},
+                    "non_functional_pad": {
+                        "min_radius_mil": 7.875,
+                        "max_radius_mil": 10,
+                    },
+                },
+            },
+        },
+        run_index=1,
+        worker_id="test",
+    )
+
+    result = execute_graph_node(context)
+
+    actions = result.output_payload["loop_context"]["candidate_actions"]
+    assert result.status == NodeRunStatus.SUCCEEDED
+    assert len(actions) == 1
+    assert actions[0]["layers"] == ["L6"]
+    assert actions[0]["plane_shape_ids"] == [106]
+    assert result.output_payload["candidate_action_inventory_summary"][
+        "inventory_source"
+    ] == "unit_test_inventory_file"
+
+
 def test_agent_decider_falls_back_to_deterministic_handler_without_llm(
     tmp_path,
     monkeypatch,
