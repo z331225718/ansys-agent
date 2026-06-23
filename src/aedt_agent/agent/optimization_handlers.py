@@ -114,15 +114,54 @@ def build_candidate_actions(
         item for item in loop_context.get("candidate_actions", [])
         if isinstance(item, dict)
     ]
+    inventory_load_issues = _candidate_inventory_load_issues(loop_context)
+    if inventory_load_issues:
+        return _failed(
+            {
+                **payload,
+                "loop_context": loop_context,
+                "candidate_action_inventory_errors": inventory_load_issues,
+            },
+            code="invalid_candidate_action_inventory",
+            message="; ".join(inventory_load_issues),
+        )
+    inventory = _candidate_inventory(loop_context)
+    inventory_issues = _candidate_inventory_issues(inventory)
+    if inventory_issues:
+        return _failed(
+            {
+                **payload,
+                "loop_context": loop_context,
+                "candidate_action_inventory_errors": inventory_issues,
+            },
+            code="invalid_candidate_action_inventory",
+            message="; ".join(inventory_issues),
+        )
     generated_actions = _candidate_actions_from_inventory(payload, loop_context)
     merged_actions = _merge_candidate_actions(explicit_actions, generated_actions)
+    if inventory and not merged_actions:
+        issue = (
+            "candidate_action_inventory produced zero executable actions; "
+            "fill anti_pad_shape_layers/non_functional_pad_layers with reviewed "
+            "object entries that include layer, shape or center evidence, and "
+            "parasitic_target"
+        )
+        return _failed(
+            {
+                **payload,
+                "loop_context": loop_context,
+                "candidate_action_inventory_errors": [issue],
+            },
+            code="invalid_candidate_action_inventory",
+            message=issue,
+        )
     loop_context["candidate_actions"] = merged_actions
     loop_context["candidate_action_inventory_summary"] = {
         "explicit_action_count": len(explicit_actions),
         "generated_action_count": len(generated_actions),
         "candidate_action_count": len(merged_actions),
         "inventory_source": str(
-            _candidate_inventory(loop_context).get("source")
+            inventory.get("source")
             or "candidate_action_inventory"
         ),
     }
@@ -826,6 +865,29 @@ def _candidate_actions_from_inventory(
     return actions
 
 
+def _candidate_inventory_load_issues(loop_context: Mapping[str, Any]) -> list[str]:
+    inventory_path = str(
+        loop_context.get("candidate_action_inventory_path")
+        or loop_context.get("candidate_action_inventory_file")
+        or ""
+    ).strip()
+    if not inventory_path:
+        return []
+    path = Path(inventory_path)
+    if not path.is_file():
+        return [f"candidate_action_inventory_path not found: {inventory_path}"]
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return [f"candidate_action_inventory_path is not valid JSON: {exc}"]
+    if not isinstance(loaded, Mapping):
+        return ["candidate_action_inventory_path must contain a JSON object"]
+    nested = loaded.get("candidate_action_inventory")
+    if nested is not None and not isinstance(nested, Mapping):
+        return ["candidate_action_inventory must be a JSON object when nested"]
+    return []
+
+
 def _candidate_inventory(loop_context: Mapping[str, Any]) -> dict[str, Any]:
     value = loop_context.get("candidate_action_inventory")
     if isinstance(value, Mapping) and value:
@@ -847,6 +909,138 @@ def _candidate_inventory(loop_context: Mapping[str, Any]) -> dict[str, Any]:
     if isinstance(nested, Mapping):
         return dict(nested)
     return dict(loaded)
+
+
+def _candidate_inventory_issues(inventory: Mapping[str, Any]) -> list[str]:
+    if not inventory:
+        return []
+    issues: list[str] = []
+    issues.extend(
+        _inventory_group_issues(
+            inventory,
+            keys=(
+                "anti_pad_shape_layers",
+                "anti_pad_candidates",
+                "shape_backed_layers",
+            ),
+            required_value_keys=(
+                ("plane_shape_ids", "shape_ids", "selected_shape_ids"),
+                ("center_padstack_instance_ids", "padstack_instance_ids"),
+            ),
+            by_layer_value_keys=(
+                ("plane_shape_ids_by_layer", "shape_ids_by_layer"),
+                (
+                    "center_padstack_instance_ids_by_layer",
+                    "padstack_instance_ids_by_layer",
+                ),
+            ),
+            allow_via_centers=True,
+            require_bridge_disambiguation=True,
+        )
+    )
+    issues.extend(
+        _inventory_group_issues(
+            inventory,
+            keys=(
+                "non_functional_pad_layers",
+                "non_functional_pad_candidates",
+                "mechanical_hole_layers",
+            ),
+            required_value_keys=(
+                ("center_padstack_instance_ids", "padstack_instance_ids"),
+            ),
+            by_layer_value_keys=(
+                (
+                    "center_padstack_instance_ids_by_layer",
+                    "padstack_instance_ids_by_layer",
+                ),
+            ),
+            allow_via_centers=True,
+            require_bridge_disambiguation=False,
+        )
+    )
+    return issues
+
+
+def _inventory_group_issues(
+    inventory: Mapping[str, Any],
+    *,
+    keys: tuple[str, ...],
+    required_value_keys: tuple[tuple[str, ...], ...],
+    by_layer_value_keys: tuple[tuple[str, ...], ...],
+    allow_via_centers: bool,
+    require_bridge_disambiguation: bool,
+) -> list[str]:
+    issues: list[str] = []
+    key, items = _inventory_items_with_key(inventory, *keys)
+    if key is None:
+        return issues
+    if not isinstance(items, list):
+        return [f"{key} must be a list of reviewed object entries"]
+    for index, item in enumerate(items):
+        label = f"{key}[{index}]"
+        if not isinstance(item, Mapping):
+            issues.append(
+                f"{label} must be an object with reviewed geometry facts; "
+                f"got {type(item).__name__}"
+            )
+            continue
+        layers = _candidate_layers(item)
+        if not layers:
+            issues.append(f"{label} must include layer or layers")
+            continue
+        if not str(item.get("parasitic_target") or "").strip():
+            issues.append(f"{label} must include parasitic_target")
+        for layer in layers:
+            for value_keys, by_layer_keys in zip(required_value_keys, by_layer_value_keys):
+                values = _layer_values(
+                    item,
+                    layer,
+                    *value_keys,
+                    by_layer_keys=by_layer_keys,
+                )
+                has_centers = set(value_keys) & {
+                    "center_padstack_instance_ids",
+                    "padstack_instance_ids",
+                }
+                if values:
+                    continue
+                if has_centers and allow_via_centers and item.get("via_centers"):
+                    continue
+                keys_text = " or ".join(value_keys)
+                issues.append(f"{label} layer {layer} must include {keys_text}")
+            if not require_bridge_disambiguation:
+                continue
+            bridge_enabled = bool(item.get("bridge_between_vias", True))
+            centers = _layer_values(
+                item,
+                layer,
+                "center_padstack_instance_ids",
+                "padstack_instance_ids",
+                by_layer_keys=(
+                    "center_padstack_instance_ids_by_layer",
+                    "padstack_instance_ids_by_layer",
+                ),
+            )
+            bridge_centers = _layer_values(
+                item,
+                layer,
+                "bridge_center_padstack_instance_ids",
+                by_layer_keys=("bridge_center_padstack_instance_ids_by_layer",),
+            )
+            bridge_via_centers = _as_list(item.get("bridge_via_centers"))
+            if (
+                bridge_enabled
+                and len(centers) > 2
+                and not bridge_centers
+                and not bridge_via_centers
+            ):
+                issues.append(
+                    f"{label} layer {layer} lists more than two centers with "
+                    "bridge_between_vias enabled; include "
+                    "bridge_center_padstack_instance_ids or bridge_via_centers"
+                )
+    return issues
 
 
 def _llm_selected_action_within_inventory(
@@ -962,6 +1156,16 @@ def _inventory_items(inventory: Mapping[str, Any], *keys: str) -> list[Any]:
         if isinstance(value, list):
             return value
     return []
+
+
+def _inventory_items_with_key(
+    inventory: Mapping[str, Any],
+    *keys: str,
+) -> tuple[str | None, Any]:
+    for key in keys:
+        if key in inventory:
+            return key, inventory.get(key)
+    return None, None
 
 
 def _candidate_layers(item: Mapping[str, Any]) -> list[str]:
@@ -1191,4 +1395,22 @@ def _ok(payload: dict[str, Any], *, outcome: str = "succeeded") -> dict[str, Any
         "outcome": outcome,
         "output_payload": payload,
         "artifact_refs": list(payload.get("artifact_refs") or []),
+    }
+
+
+def _failed(
+    payload: dict[str, Any],
+    *,
+    code: str,
+    message: str,
+) -> dict[str, Any]:
+    return {
+        "status": NodeRunStatus.FAILED,
+        "outcome": "failed",
+        "output_payload": payload,
+        "artifact_refs": list(payload.get("artifact_refs") or []),
+        "error": {
+            "code": code,
+            "message": message,
+        },
     }

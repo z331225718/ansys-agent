@@ -371,6 +371,155 @@ def test_candidate_inventory_builder_loads_reviewed_inventory_file(tmp_path):
     ] == "unit_test_inventory_file"
 
 
+def test_candidate_inventory_builder_fails_for_layer_name_only_inventory(tmp_path):
+    node = GraphNode(
+        "candidate_inventory",
+        "prepare",
+        "program",
+        handler="brd.optimization.build_candidate_actions",
+        input_schema="real_solve_request",
+        output_schema="real_solve_request",
+    )
+    template = GraphTemplate(
+        "test",
+        1,
+        "",
+        [node],
+        [],
+        {
+            "real_solve_request": HandoffSchema(
+                "real_solve_request",
+                [
+                    "project_path",
+                    "setup_name",
+                    "sweep_name",
+                    "tdr_expression",
+                    "expected_port_count",
+                    "loop_context",
+                ],
+            )
+        },
+    )
+    graph_run = GraphRunRecord.create("graph-1", "mission-1", "test", 1, 1)
+    node_run = NodeRunRecord.create(
+        "node-run-1",
+        graph_run.graph_run_id,
+        graph_run.mission_id,
+        node.node_id,
+        node.role,
+        node.kind,
+        1,
+        {},
+    )
+    context = GraphNodeExecutionContext(
+        runtime=None,
+        graph_run=graph_run,
+        node_run=node_run,
+        node=node,
+        template=template,
+        input_payload={
+            "project_path": str(tmp_path / "working" / "case.aedt"),
+            "setup_name": "Setup1",
+            "sweep_name": "Sweep1",
+            "tdr_expression": "TDRZ(Diff1)",
+            "expected_port_count": 4,
+            "loop_context": {
+                "round_index": 1,
+                "working_project_path": str(tmp_path / "working" / "case.aedt"),
+                "latest_project_path": str(tmp_path / "working" / "case.aedt"),
+                "report_dir": str(tmp_path / "progress"),
+                "candidate_action_inventory": {
+                    "source": "bad_layer_only_inventory",
+                    "anti_pad_shape_layers": ["L2_GND"],
+                    "non_functional_pad_layers": ["L5"],
+                },
+            },
+        },
+        run_index=1,
+        worker_id="test",
+    )
+
+    result = execute_graph_node(context)
+
+    assert result.status == NodeRunStatus.FAILED
+    assert result.error["code"] == "invalid_candidate_action_inventory"
+    assert "anti_pad_shape_layers[0] must be an object" in result.error["message"]
+    assert "non_functional_pad_layers[0] must be an object" in result.error["message"]
+    assert result.output_payload["candidate_action_inventory_errors"]
+
+
+def test_candidate_inventory_builder_fails_for_missing_inventory_file(tmp_path):
+    node = GraphNode(
+        "candidate_inventory",
+        "prepare",
+        "program",
+        handler="brd.optimization.build_candidate_actions",
+        input_schema="real_solve_request",
+        output_schema="real_solve_request",
+    )
+    template = GraphTemplate(
+        "test",
+        1,
+        "",
+        [node],
+        [],
+        {
+            "real_solve_request": HandoffSchema(
+                "real_solve_request",
+                [
+                    "project_path",
+                    "setup_name",
+                    "sweep_name",
+                    "tdr_expression",
+                    "expected_port_count",
+                    "loop_context",
+                ],
+            )
+        },
+    )
+    graph_run = GraphRunRecord.create("graph-1", "mission-1", "test", 1, 1)
+    node_run = NodeRunRecord.create(
+        "node-run-1",
+        graph_run.graph_run_id,
+        graph_run.mission_id,
+        node.node_id,
+        node.role,
+        node.kind,
+        1,
+        {},
+    )
+    missing_inventory = tmp_path / "missing_candidate_action_inventory.json"
+    context = GraphNodeExecutionContext(
+        runtime=None,
+        graph_run=graph_run,
+        node_run=node_run,
+        node=node,
+        template=template,
+        input_payload={
+            "project_path": str(tmp_path / "working" / "case.aedt"),
+            "setup_name": "Setup1",
+            "sweep_name": "Sweep1",
+            "tdr_expression": "TDRZ(Diff1)",
+            "expected_port_count": 4,
+            "loop_context": {
+                "round_index": 1,
+                "working_project_path": str(tmp_path / "working" / "case.aedt"),
+                "latest_project_path": str(tmp_path / "working" / "case.aedt"),
+                "report_dir": str(tmp_path / "progress"),
+                "candidate_action_inventory_path": str(missing_inventory),
+            },
+        },
+        run_index=1,
+        worker_id="test",
+    )
+
+    result = execute_graph_node(context)
+
+    assert result.status == NodeRunStatus.FAILED
+    assert result.error["code"] == "invalid_candidate_action_inventory"
+    assert "candidate_action_inventory_path not found" in result.error["message"]
+
+
 def test_agent_decider_falls_back_to_deterministic_handler_without_llm(
     tmp_path,
     monkeypatch,
