@@ -12,6 +12,14 @@ nodes:
 
   - id: candidate_inventory_builder
     role: prepare
+    kind: worker
+    capability: brd.candidate_inventory.discover
+    input_schema: real_solve_request
+    output_schema: real_solve_request
+    max_runs: 1
+
+  - id: candidate_action_builder
+    role: prepare
     kind: program
     handler: brd.optimization.build_candidate_actions
     input_schema: real_solve_request
@@ -155,6 +163,11 @@ edges:
     max_traversals: 1
   - id: candidate-inventory-to-solve
     from: candidate_inventory_builder
+    to: candidate_action_builder
+    on: succeeded
+    max_traversals: 1
+  - id: candidate-actions-to-solve
+    from: candidate_action_builder
     to: real_solve_worker
     on: succeeded
     max_traversals: 1
@@ -253,11 +266,13 @@ prompts:
     You are the reviewed BRD optimization decider. Use only bounded evidence
     and candidate actions from the handoff. Do not read or request raw
     S-parameter or TDR arrays.
-    candidate_inventory_builder provides reviewed shape/mechanical-hole
-    inventory facts plus deterministic fallback actions. Use the playbook and
-    bounded score evidence to judge the physical cause and propose
+    candidate_inventory_builder opens the reviewed working AEDB and discovers
+    shape/mechanical-hole inventory facts such as plane shape ids, padstack
+    instance centers, signal nets, and bridge-center pairs. candidate_action_builder
+    expands those facts into deterministic fallback actions. Use the playbook
+    and bounded score evidence to judge the physical cause and propose
     selected_action yourself when useful. Do not invent layers, shape ids,
-    padstack ids, ports, or geometry limits outside the reviewed inventory.
+    padstack ids, ports, or geometry limits outside the discovered inventory.
 
     The current workflow is differential: Touchstone must be treated as s4p,
     return loss is SDD11, insertion loss is SDD21, and the default TDR

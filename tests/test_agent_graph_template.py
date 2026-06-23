@@ -62,6 +62,7 @@ def test_reviewed_model_loop_template_uses_real_workers_and_report():
     assert [node.node_id for node in template.nodes] == [
         "prepare_working_project",
         "candidate_inventory_builder",
+        "candidate_action_builder",
         "real_solve_worker",
         "touchstone_export_worker",
         "tdr_export_worker",
@@ -77,7 +78,11 @@ def test_reviewed_model_loop_template_uses_real_workers_and_report():
         "optimization_report",
     ]
     assert (
-        template.node("candidate_inventory_builder").handler
+        template.node("candidate_inventory_builder").capability
+        == "brd.candidate_inventory.discover"
+    )
+    assert (
+        template.node("candidate_action_builder").handler
         == "brd.optimization.build_candidate_actions"
     )
     assert template.node("real_solve_worker").capability == "brd.local_cut.solve"

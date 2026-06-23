@@ -1,5 +1,5 @@
 {
-  "source": "human_or_tool_reviewed_shape_inventory",
+  "source": "human_scope_seed_for_aedt_model_discovery",
   "tdr_observation_port": "Diff1",
   "tdr_port_orientation_evidence": "fill from reviewed port map before signoff",
   "tdr_feature_time": {"value": 0.0, "unit": "ps"},

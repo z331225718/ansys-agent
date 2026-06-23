@@ -759,6 +759,7 @@ def run(argv: Sequence[str] | None = None) -> int:
 
 def _runtime_with_workers(db_path: Path, profile=None) -> AgentRuntime:
     from aedt_agent.agent.workers import (
+        BRD_CANDIDATE_INVENTORY_CAPABILITY,
         BRD_CHANNEL_SCORE_CAPABILITY,
         BRD_GEOMETRY_VALIDATE_CAPABILITY,
         BRD_ITERATION_QUALIFY_CAPABILITY,
@@ -831,6 +832,21 @@ def _runtime_with_workers(db_path: Path, profile=None) -> AgentRuntime:
     registry.register(
         BRD_RECORDED_VOID_ACTION_CAPABILITY,
         lambda job, context: run_brd_recorded_void_action_worker(job, context, store=store),
+    )
+    registry.register_process(
+        BRD_CANDIDATE_INVENTORY_CAPABILITY,
+        (
+            "aedt_agent.agent.workers.brd_candidate_inventory:"
+            "run_brd_candidate_inventory_worker"
+        ),
+        resource_classes=("license", "aedt"),
+        requires_real_aedt=True,
+        input_overrides={
+            "aedt": {
+                "version": profile.aedt_version,
+                "non_graphical": profile.aedt_non_graphical,
+            }
+        },
     )
     registry.register_process(
         BRD_CHANNEL_SCORE_CAPABILITY,

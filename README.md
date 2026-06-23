@@ -134,19 +134,21 @@ touchstone_name       channel.s4p
 tdr_expression        TDRZ(Diff1)
 tdr_observation_port  Diff1
 geometry_constraints  anti-pad <= 22mil; NFP radius 7.875-10mil
-candidate_action_inventory_path  reviewed layer/shape/center 清单 JSON 路径
+candidate_action_inventory_path  discovery worker 生成/更新的候选事实清单路径
 ```
 
-`reviewed_brd_remote.json` 不应写死某一层。它只通过
-`candidate_action_inventory_path` 指向候选事实清单；真实可编辑层写在
-`candidate_action_inventory.json`，由人工检查或后续 inventory 工具生成。
+`reviewed_brd_remote.json` 不应写死某一层或某个动作。它只通过
+`candidate_action_inventory_path` 指向候选事实清单；真实可编辑层、shape id、
+padstack instance id 和 via center 由 `candidate_inventory_builder` worker 打开
+working AEDB 后自动发现并写入这份 JSON。人工可以提供层范围、signal/ref nets、
+TDR 观察口和约束，但不应该逐个手抄 shape id 或 via center。
 
-`candidate_action_inventory.json` 的作用是给 LLM 决策节点提供事实边界，不是让
-用户预写完整动作。LLM 会根据 playbook、TDR/RL bounded evidence 和这份清单判断
-该选择 anti-pad 还是 NFP、哪一层、半径多少；validator/worker 会继续检查它没有
-引用 inventory 之外的 layer、shape id 或 padstack id。
+`candidate_action_inventory.json` 的作用是给 LLM 决策节点提供事实边界，不是让用户
+预写完整动作。LLM 会根据 playbook、TDR/RL bounded evidence 和这份清单判断该选择
+anti-pad 还是 NFP、哪一层、半径多少；validator/worker 会继续检查它没有引用
+inventory 之外的 layer、shape id 或 padstack id。
 
-不要把 inventory 写成单纯的层名列表，例如：
+如果文件里只有层名列表，例如：
 
 ```json
 {
@@ -155,9 +157,11 @@ candidate_action_inventory_path  reviewed layer/shape/center 清单 JSON 路径
 }
 ```
 
-这只说明“可能的层范围”，不包含 worker 能执行的 shape/center 事实。现在
-`candidate_inventory_builder` 会直接报
-`invalid_candidate_action_inventory`，而不是生成 0 个动作后继续跑慢仿真。
+它只会被视为 discovery seed，表示“优先检查这些层”。它不是最终可执行
+inventory。`candidate_inventory_builder` 会扫描 AEDB 并补齐
+`plane_shape_ids`、`center_padstack_instance_ids`、`bridge_center_padstack_instance_ids`
+和 signal-net 证据；后面的 `candidate_action_builder` 如果仍然拿到没有这些事实的
+最终 inventory，会直接报 `invalid_candidate_action_inventory`，不会继续跑慢仿真。
 
 示例结构：
 
@@ -258,9 +262,11 @@ D:\aedt-agent-runs\reviewed-loop\candidate_action_inventory.json
 
 确认真实 AEDT 路径、`working_project_path`、`report_dir`、`channel.s4p`、
 `TDRZ(Diff1)`、`simulation_runner=local_cli`、几何约束和
-`candidate_action_inventory_path` 都正确后，再运行。inventory 文件必须包含本轮
-reviewed 模型中允许 LLM 选择的 layer、shape id、center padstack id；不要把
-某个具体层写死在 loop config 里。
+`candidate_action_inventory_path` 都正确后，再运行。inventory 文件可以不存在，
+也可以只包含少量人工 scope seed；`candidate_inventory_builder` 会打开 working
+AEDB 自动写入本轮 reviewed 模型中允许 LLM 选择的 layer、shape id、center
+padstack id 和 bridge center pair。不要把某个具体可执行动作写死在 loop config
+里。
 
 旧 Windows 控制台建议先设置 UTF-8，避免 dashboard/run-loop 日志输出触发编码错误：
 

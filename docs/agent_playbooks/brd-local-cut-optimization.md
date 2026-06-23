@@ -596,11 +596,13 @@ Current user-approved geometry limits for the first optimization pass:
 ## Candidate Action Inventory Contract
 
 The reviewed optimization loop must not infer editable layers from any example
-action. Before the first solve, `candidate_inventory_builder` preserves
-`candidate_action_inventory` or `candidate_action_inventory_path` as reviewed
-facts and also builds deterministic fallback actions. With LLM configured, the
-decider should use this inventory, the playbook, and bounded score evidence to
-propose the next `selected_action` itself instead of blindly choosing a
+action. Before the first solve, `candidate_inventory_builder` runs as an AEDB
+discovery worker: it opens the reviewed working model and writes shape ids,
+padstack instance ids, via centers, bridge-center pairs, and signal nets into
+`candidate_action_inventory_path`. `candidate_action_builder` then expands this
+discovered inventory into deterministic fallback actions. With LLM configured,
+the decider should use this inventory, the playbook, and bounded score evidence
+to propose the next `selected_action` itself instead of blindly choosing a
 prewritten action.
 
 Use `anti_pad_shape_layers` for every reviewed layer where a selected physical
@@ -618,7 +620,19 @@ In the run config, prefer a path rather than layer-specific inline data:
 }
 ```
 
-The inventory file contains reviewed facts:
+The inventory path may start as a small human scope seed:
+
+```json
+{
+  "source": "human_scope_seed_for_aedt_model_discovery",
+  "tdr_observation_port": "Diff1",
+  "tdr_port_orientation_evidence": "reviewed port map",
+  "anti_pad_shape_layers": ["L2_GND", "L4_GND"],
+  "non_functional_pad_layers": ["L5", "L7"]
+}
+```
+
+The discovery worker turns that seed into reviewed executable facts:
 
 ```json
 {
@@ -647,7 +661,9 @@ The inventory file contains reviewed facts:
 }
 ```
 
-The fields above are not layer allow lists. Do not write:
+Plain layer-name lists are only discovery scope hints. They are not final
+executable inventory. Do not hand `candidate_action_builder` a final inventory
+that only contains:
 
 ```json
 {
@@ -658,10 +674,11 @@ The fields above are not layer allow lists. Do not write:
 
 That shape contains no selected plane shapes, padstack centers, signal nets, or
 physical parasitic target, so the loop cannot make a worker-safe geometry
-handoff. `candidate_inventory_builder` must fail fast with
-`invalid_candidate_action_inventory` when the path is missing, the JSON is not
-an object, entries are plain strings, required reviewed facts are missing, or
-the inventory produces zero executable candidate actions.
+handoff until AEDB discovery has filled those facts. `candidate_action_builder`
+must fail fast with `invalid_candidate_action_inventory` when the final
+inventory is missing, the JSON is not an object, entries are still plain
+strings, required reviewed facts are missing, or the inventory produces zero
+executable candidate actions.
 
 Explicit `candidate_actions` are still accepted for hand-authored cases, but
 they are seed/fallback actions, not a layer allow list. LLM proposals must stay

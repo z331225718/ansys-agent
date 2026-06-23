@@ -10,6 +10,11 @@ from aedt_agent.agent.workers.brd_channel_score import (
     build_brd_channel_score_job_input,
     run_brd_channel_score_worker,
 )
+from aedt_agent.agent.workers.brd_candidate_inventory import (
+    BRD_CANDIDATE_INVENTORY_CAPABILITY,
+    build_brd_candidate_inventory_job_input,
+    run_brd_candidate_inventory_worker,
+)
 from aedt_agent.agent.workers.brd_evidence_compare import (
     BRD_EVIDENCE_COMPARE_CAPABILITY,
     build_evidence_compare_job_input,
@@ -70,6 +75,7 @@ from aedt_agent.agent.workers.registry import (
 
 __all__ = [
     "BRD_ACTION_PROPOSE_CAPABILITY",
+    "BRD_CANDIDATE_INVENTORY_CAPABILITY",
     "BRD_CHANNEL_SCORE_CAPABILITY",
     "BRD_EVIDENCE_COMPARE_CAPABILITY",
     "BRD_GEOMETRY_VALIDATE_CAPABILITY",
@@ -88,6 +94,7 @@ __all__ = [
     "WorkerReportedError",
     "WorkerRegistration",
     "build_action_propose_job_input",
+    "build_brd_candidate_inventory_job_input",
     "build_brd_channel_score_job_input",
     "build_brd_geometry_validate_job_input",
     "build_brd_iteration_qualify_job_input",
@@ -100,6 +107,7 @@ __all__ = [
     "build_evidence_compare_job_input",
     "classify_worker_error",
     "run_action_propose_worker",
+    "run_brd_candidate_inventory_worker",
     "run_brd_channel_score_worker",
     "run_brd_geometry_validate_worker",
     "run_brd_iteration_qualify_worker",
