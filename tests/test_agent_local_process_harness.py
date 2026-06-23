@@ -25,6 +25,7 @@ def _execute(
     entrypoint: str,
     *,
     input_payload: dict | None = None,
+    capability: str = "fake.worker",
     timeout_seconds: int = 10,
     cancel_requested=None,
     resource_classes: tuple[str, ...] | None = None,
@@ -37,7 +38,7 @@ def _execute(
         job_id="job-1",
         attempt_id="attempt-1",
         worker_id="worker-1",
-        capability="fake.worker",
+        capability=capability,
         entrypoint=entrypoint,
         timeout_seconds=timeout_seconds,
         heartbeat_interval_seconds=1,
@@ -127,6 +128,38 @@ def test_local_process_harness_fails_closed_when_child_exits_without_result(tmp_
     assert result.error.error_class == "worker_crash"
     assert result.exit_code == 7
     assert result.termination_reason == "missing_result"
+
+
+def test_local_process_salvages_brd_solve_when_artifacts_exist(tmp_path):
+    result = _execute(
+        tmp_path,
+        "tests.fixtures.process_workers:brd_solve_artifacts_then_abrupt_exit_worker",
+        capability="brd.local_cut.solve",
+        input_payload={
+            "project_path": str(tmp_path / "case.aedt"),
+            "touchstone_name": "channel.s4p",
+            "tdr_report_name": "ChannelTDR",
+            "export_tdr": True,
+            "frequency_start_ghz": 0.0,
+            "frequency_stop_ghz": 28.0,
+            "rl_target_db": -17.0,
+            "tdr_target_ohm": 90.0,
+            "tdr_observation_port": "Diff1",
+            "sparameter_mode": "differential",
+            "loop_context": {},
+        },
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert result.exit_code == 5
+    assert result.termination_reason == "missing_result_salvaged_from_solve_manifest"
+    assert result.output_payload["status"] == "succeeded"
+    assert result.output_payload["touchstone_path"].endswith("channel.s4p")
+    assert result.output_payload["tdr_path"].endswith("ChannelTDR.csv")
+    assert result.output_payload["solve_summary"][
+        "harness_salvaged_after_missing_result"
+    ] is True
+    assert result.metadata["salvaged_after_missing_result"] is True
 
 
 def test_local_process_harness_rejects_corrupt_result(tmp_path):

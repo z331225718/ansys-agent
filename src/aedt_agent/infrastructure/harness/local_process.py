@@ -173,6 +173,22 @@ class LocalProcessHarness:
                 metadata=metadata,
             )
         if not workspace.result_path.exists():
+            salvaged = _salvage_brd_real_solve_result(
+                request,
+                workspace,
+                started_at=started_at,
+                exit_code=exit_code,
+                metadata=metadata,
+            )
+            if salvaged is not None:
+                _atomic_write_json(workspace.result_path, salvaged.to_json_dict())
+                return replace(
+                    salvaged,
+                    artifact_refs=_unique(
+                        [*salvaged.artifact_refs, *workspace.protocol_artifacts()]
+                    ),
+                    metadata={**salvaged.metadata, **metadata},
+                )
             return self._failure_result(
                 request,
                 workspace,
@@ -354,6 +370,130 @@ class ProcessTreeController:
 
 def _unique(values: list[str]) -> list[str]:
     return list(dict.fromkeys(values))
+
+
+def _salvage_brd_real_solve_result(
+    request: HarnessRequest,
+    workspace: HarnessWorkspace,
+    *,
+    started_at: str,
+    exit_code: int | None,
+    metadata: dict,
+) -> HarnessResult | None:
+    if request.capability != "brd.local_cut.solve":
+        return None
+    artifacts_dir = workspace.artifacts_dir
+    manifest_path = artifacts_dir / "solve_manifest.json"
+    if not manifest_path.is_file():
+        return None
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(manifest, dict):
+        return None
+    outputs = manifest.get("outputs")
+    summary = manifest.get("summary")
+    inputs = manifest.get("input")
+    if not isinstance(outputs, dict) or not isinstance(summary, dict):
+        return None
+    touchstone_path = _artifact_path(outputs.get("touchstone"))
+    tdr_path = _artifact_path(outputs.get("tdr"))
+    solved_project = _artifact_path(outputs.get("solved_project"))
+    project_checkpoint = _artifact_path(
+        inputs.get("project_checkpoint") if isinstance(inputs, dict) else None
+    )
+    if not _non_empty_file(touchstone_path):
+        return None
+    if request.input_payload.get("export_tdr", True) and not _non_empty_file(tdr_path):
+        return None
+    payload = dict(request.input_payload)
+    refs = [
+        value
+        for value in (
+            project_checkpoint,
+            solved_project,
+            touchstone_path,
+            tdr_path or "",
+            str(manifest_path),
+        )
+        if value
+    ]
+    loop_context = dict(payload.get("loop_context") or {})
+    _append_unique(loop_context, "solve_manifest_paths", str(manifest_path))
+    if solved_project:
+        loop_context["latest_project_path"] = solved_project
+    loop_context["last_solve_manifest_path"] = str(manifest_path)
+    loop_context["last_touchstone_path"] = touchstone_path
+    if tdr_path:
+        loop_context["last_tdr_path"] = tdr_path
+    output_payload = {
+        "status": "succeeded",
+        "project_path": solved_project or str(payload.get("project_path") or ""),
+        "source_project_path": str(payload.get("project_path") or ""),
+        "project_checkpoint": project_checkpoint or "",
+        "solved_project": solved_project or "",
+        "solve_summary": {
+            **summary,
+            "raw_sparameters": "artifact_only",
+            "raw_tdr": "artifact_only",
+            "harness_salvaged_after_missing_result": True,
+        },
+        "touchstone_path": touchstone_path,
+        "tdr_path": tdr_path or "",
+        "solve_manifest": str(manifest_path),
+        "artifact_dir": str(artifacts_dir),
+        "frequency_start_ghz": float(payload.get("frequency_start_ghz", 0.0)),
+        "frequency_stop_ghz": float(payload.get("frequency_stop_ghz", 67.0)),
+        "rl_target_db": float(payload.get("rl_target_db", -20.0)),
+        "tdr_target_ohm": float(payload.get("tdr_target_ohm", 100.0)),
+        "tdr_observation_port": str(payload.get("tdr_observation_port") or ""),
+        "sparameter_mode": str(payload.get("sparameter_mode") or "auto"),
+        "loop_context": loop_context,
+        "evidence_summary": {
+            "status": "solve_completed",
+            "raw_sparameters": "artifact_only",
+            "raw_tdr": "artifact_only",
+            "tdr_observation_port": str(payload.get("tdr_observation_port") or ""),
+            "sparameter_mode": str(payload.get("sparameter_mode") or "auto"),
+            "artifact_refs": refs,
+            "harness_salvaged_after_missing_result": True,
+        },
+    }
+    return HarnessResult.create(
+        harness_run_id=request.harness_run_id,
+        job_id=request.job_id,
+        status=HarnessStatus.SUCCEEDED,
+        output_payload=output_payload,
+        artifact_refs=refs,
+        started_at=started_at,
+        completed_at=_utc_now(),
+        exit_code=exit_code,
+        termination_reason="missing_result_salvaged_from_solve_manifest",
+        metadata={
+            **metadata,
+            "salvaged_after_missing_result": True,
+            "salvage_source": str(manifest_path),
+        },
+    )
+
+
+def _artifact_path(value: object) -> str:
+    if isinstance(value, dict):
+        path = value.get("path")
+        return str(path) if path else ""
+    return ""
+
+
+def _non_empty_file(path: str) -> bool:
+    return bool(path) and Path(path).is_file() and Path(path).stat().st_size > 0
+
+
+def _append_unique(payload: dict, key: str, value: str) -> None:
+    values = list(payload.get(key) or [])
+    if value and value not in values:
+        values.append(value)
+    payload[key] = values
 
 
 def _atomic_write_json(path: Path, payload: dict) -> None:

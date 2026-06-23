@@ -197,13 +197,12 @@ class BrdRealSolveAdapter:
                 tdr_samples = []
                 if raw_tdr_dir.exists():
                     shutil.rmtree(raw_tdr_dir, ignore_errors=True)
-        finally:
-            app.release_desktop(
-                close_projects=request.environment.non_graphical,
-                close_desktop=request.environment.non_graphical,
-            )
+        except Exception:
+            _release_desktop_best_effort(app, request)
+            raise
 
         if check_source_unchanged and _sha256(project_path) != source_digest:
+            _release_desktop_best_effort(app, request)
             raise ArtifactValidationError(
                 "source AEDT project changed during solve"
             )
@@ -255,6 +254,11 @@ class BrdRealSolveAdapter:
             if solved_edb.exists():
                 manifest["outputs"]["solved_edb"] = _artifact_record(solved_edb)
         _atomic_write_json(manifest_path, manifest)
+        release_warning = _release_desktop_best_effort(app, request)
+        if release_warning:
+            summary["aedt_exit_warning"] = release_warning
+            manifest["summary"] = summary
+            _atomic_write_json(manifest_path, manifest)
         return BrdRealSolveResult(
             project_checkpoint=str(project_checkpoint),
             solved_project=str(solved_project),
@@ -270,6 +274,30 @@ class BrdRealSolveAdapter:
         from ansys.aedt.core import Hfss3dLayout
 
         return Hfss3dLayout
+
+
+def _release_desktop_best_effort(
+    app: Any,
+    request: BrdRealSolveRequest,
+) -> dict[str, Any] | None:
+    release = getattr(app, "release_desktop", None)
+    if not callable(release):
+        return {
+            "status": "skipped",
+            "reason": "release_desktop is not callable",
+        }
+    try:
+        release(
+            close_projects=request.environment.non_graphical,
+            close_desktop=request.environment.non_graphical,
+        )
+    except Exception as exc:
+        return {
+            "status": "failed_after_artifacts",
+            "error_type": type(exc).__name__,
+            "message": str(exc),
+        }
+    return None
 
 
 def _validate_request(request: BrdRealSolveRequest) -> None:

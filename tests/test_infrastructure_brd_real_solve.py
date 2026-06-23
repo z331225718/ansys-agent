@@ -236,6 +236,7 @@ class FakeHfss3dLayout:
     use_native_report = False
     use_solution_data_report = False
     use_expression_data_report = False
+    release_raises = False
     touchstone_text = (
         "# GHz S MA R 50\n"
         "0 0.05 0 0.9 0 0.9 0 0.05 0\n"
@@ -258,6 +259,7 @@ class FakeHfss3dLayout:
         cls.use_native_report = False
         cls.use_solution_data_report = False
         cls.use_expression_data_report = False
+        cls.release_raises = False
         cls.touchstone_text = (
             "# GHz S MA R 50\n"
             "0 0.05 0 0.9 0 0.9 0 0.05 0\n"
@@ -340,6 +342,8 @@ class FakeHfss3dLayout:
                 },
             )
         )
+        if self.release_raises:
+            raise RuntimeError("AEDT access violation after artifact export")
 
 
 def _adapter() -> BrdRealSolveAdapter:
@@ -378,6 +382,21 @@ def test_real_solve_copies_checkpoint_solves_and_exports_artifacts(
     assert manifest["outputs"]["tdr"]["sha256"]
     assert result.summary["touchstone_sample_count"] == 2
     assert result.summary["tdr_sample_count"] == 2
+
+
+def test_real_solve_treats_release_crash_as_warning_after_artifacts(tmp_path):
+    adapter = _adapter()
+    FakeHfss3dLayout.release_raises = True
+
+    result = adapter.run(_request(tmp_path))
+
+    assert Path(result.touchstone_path).stat().st_size > 0
+    assert Path(result.tdr_path).stat().st_size > 0
+    assert result.summary["aedt_exit_warning"]["status"] == "failed_after_artifacts"
+    manifest = json.loads(
+        Path(result.solve_manifest_path).read_text(encoding="utf-8")
+    )
+    assert manifest["summary"]["aedt_exit_warning"]["error_type"] == "RuntimeError"
     assert [name for name, _ in FakeHfss3dLayout.calls] == [
         "init",
         "analyze_setup",
