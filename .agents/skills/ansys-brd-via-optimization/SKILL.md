@@ -164,39 +164,45 @@ Current user-approved geometry constraints for this first optimization pass:
 
 Before `optimization_decider`, the reviewed loop runs
 `candidate_inventory_builder`. It keeps the config's
-`candidate_action_inventory` as reviewed facts and also expands it into
-deterministic fallback `candidate_actions`. When LLM is configured, the decider
-may propose a fresh `selected_action` from those facts instead of merely
-choosing a fallback action index.
+`candidate_action_inventory` or `candidate_action_inventory_path` as reviewed
+facts and also expands them into deterministic fallback `candidate_actions`.
+When LLM is configured, the decider may propose a fresh `selected_action` from
+those facts instead of merely choosing a fallback action index.
 
-Use:
+In the run config, prefer a path rather than layer-specific inline data:
 
 ```json
 {
-  "candidate_action_inventory": {
-    "source": "human_reviewed_shape_inventory",
-    "tdr_observation_port": "Diff1",
-    "tdr_port_orientation_evidence": "reviewed port map",
-    "anti_pad_shape_layers": [
-      {
-        "layer": "L5",
-        "plane_shape_ids": [123],
-        "center_padstack_instance_ids": [501, 502],
-        "bridge_center_padstack_instance_ids": [501, 502],
-        "parasitic_target": "reviewed buried-via pad parasitic",
-        "target_radius": {"value": 22, "unit": "mil"}
-      }
-    ],
-    "non_functional_pad_layers": [
-      {
-        "layer": "L7",
-        "center_padstack_instance_ids": [701, 702],
-        "signal_nets": ["TX_P", "TX_N"],
-        "parasitic_target": "reviewed mechanical-hole barrel inductance",
-        "target_radius": {"value": 7.875, "unit": "mil"}
-      }
-    ]
-  }
+  "candidate_action_inventory_path": "D:/aedt-agent-runs/reviewed-loop/candidate_action_inventory.json"
+}
+```
+
+The inventory file contains reviewed facts:
+
+```json
+{
+  "source": "human_reviewed_shape_inventory",
+  "tdr_observation_port": "Diff1",
+  "tdr_port_orientation_evidence": "reviewed port map",
+  "anti_pad_shape_layers": [
+    {
+      "layer": "L5",
+      "plane_shape_ids": [123],
+      "center_padstack_instance_ids": [501, 502],
+      "bridge_center_padstack_instance_ids": [501, 502],
+      "parasitic_target": "reviewed buried-via pad parasitic",
+      "target_radius": {"value": 22, "unit": "mil"}
+    }
+  ],
+  "non_functional_pad_layers": [
+    {
+      "layer": "L7",
+      "center_padstack_instance_ids": [701, 702],
+      "signal_nets": ["TX_P", "TX_N"],
+      "parasitic_target": "reviewed mechanical-hole barrel inductance",
+      "target_radius": {"value": 7.875, "unit": "mil"}
+    }
+  ]
 }
 ```
 

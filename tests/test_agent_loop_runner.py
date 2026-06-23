@@ -119,9 +119,9 @@ def test_run_loop_from_config_can_resume_existing_graph(monkeypatch):
 
 
 def test_validate_reviewed_loop_example_without_machine_paths():
-    config = loop_runner.load_loop_config(
-        Path("config/optimization_loops/reviewed_brd_remote.example.json")
-    )
+    config_path = Path("config/optimization_loops/reviewed_brd_remote.example.json")
+    config_text = config_path.read_text(encoding="utf-8")
+    config = loop_runner.load_loop_config(config_path)
 
     report = loop_runner.validate_loop_config_for_run(config, check_paths=False)
 
@@ -134,6 +134,9 @@ def test_validate_reviewed_loop_example_without_machine_paths():
     assert check_status["differential_traces"] == "passed"
     assert check_status["tdr_diff1"] == "passed"
     assert check_status["geometry_constraints"] == "passed"
+    assert "candidate_action_inventory_path" in config
+    assert "L2_GND" not in config_text
+    assert "l02_void_r" not in config_text
 
 
 def test_validate_loop_config_rejects_single_ended_contract():

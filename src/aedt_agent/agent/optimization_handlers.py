@@ -343,6 +343,11 @@ def _initial_loop_context(
             or payload.get("geometry_candidate_inventory")
             or {}
         ),
+        "candidate_action_inventory_path": str(
+            payload.get("candidate_action_inventory_path")
+            or payload.get("candidate_action_inventory_file")
+            or ""
+        ),
         "candidate_action_policy": dict(payload.get("candidate_action_policy") or {}),
         "geometry_constraints": dict(payload.get("geometry_constraints") or {}),
         "require_action_approval": bool(payload.get("require_action_approval", False)),
@@ -823,7 +828,25 @@ def _candidate_actions_from_inventory(
 
 def _candidate_inventory(loop_context: Mapping[str, Any]) -> dict[str, Any]:
     value = loop_context.get("candidate_action_inventory")
-    return dict(value) if isinstance(value, Mapping) else {}
+    if isinstance(value, Mapping) and value:
+        return dict(value)
+    inventory_path = str(
+        loop_context.get("candidate_action_inventory_path")
+        or loop_context.get("candidate_action_inventory_file")
+        or ""
+    ).strip()
+    if not inventory_path:
+        return {}
+    path = Path(inventory_path)
+    if not path.is_file():
+        return {}
+    loaded = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(loaded, Mapping):
+        return {}
+    nested = loaded.get("candidate_action_inventory")
+    if isinstance(nested, Mapping):
+        return dict(nested)
+    return dict(loaded)
 
 
 def _llm_selected_action_within_inventory(
