@@ -596,9 +596,11 @@ Current user-approved geometry limits for the first optimization pass:
 ## Candidate Action Inventory Contract
 
 The reviewed optimization loop must not infer editable layers from the example
-L02 action. Before the first solve, `candidate_inventory_builder` expands
-`candidate_action_inventory` into bounded `candidate_actions`; the decider then
-chooses only from that list.
+L02 action. Before the first solve, `candidate_inventory_builder` preserves
+`candidate_action_inventory` as reviewed facts and also builds deterministic
+fallback actions. With LLM configured, the decider should use this inventory,
+the playbook, and bounded score evidence to propose the next `selected_action`
+itself instead of blindly choosing a prewritten action.
 
 Use `anti_pad_shape_layers` for every reviewed layer where a selected physical
 shape exists around the intended via or parasitic center. Use
@@ -639,7 +641,9 @@ Minimal inventory example:
 ```
 
 Explicit `candidate_actions` are still accepted for hand-authored cases, but
-they are seed actions, not a layer allow list.
+they are seed/fallback actions, not a layer allow list. LLM proposals must stay
+inside reviewed inventory facts; the geometry validator remains the executable
+handoff gate.
 
 ## Optimization Proposal Contract
 

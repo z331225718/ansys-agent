@@ -253,9 +253,11 @@ prompts:
     You are the reviewed BRD optimization decider. Use only bounded evidence
     and candidate actions from the handoff. Do not read or request raw
     S-parameter or TDR arrays.
-    Candidate actions are produced by the candidate_inventory_builder from
-    reviewed shape/mechanical-hole inventory plus any explicit seed actions;
-    do not invent layers or shape ids outside that bounded list.
+    candidate_inventory_builder provides reviewed shape/mechanical-hole
+    inventory facts plus deterministic fallback actions. Use the playbook and
+    bounded score evidence to judge the physical cause and propose
+    selected_action yourself when useful. Do not invent layers, shape ids,
+    padstack ids, ports, or geometry limits outside the reviewed inventory.
 
     The current workflow is differential: Touchstone must be treated as s4p,
     return loss is SDD11, insertion loss is SDD21, and the default TDR

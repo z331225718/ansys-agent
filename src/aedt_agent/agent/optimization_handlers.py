@@ -176,6 +176,7 @@ def decide_next_action(
         context,
         score=score,
         evidence=evidence,
+        loop_context=loop_context,
         candidate_actions=candidate_actions,
         start_index=used_actions,
     )
@@ -463,6 +464,7 @@ def _select_candidate_action(
     *,
     score: Mapping[str, Any],
     evidence: Mapping[str, Any],
+    loop_context: Mapping[str, Any],
     candidate_actions: list[dict[str, Any]],
     start_index: int,
 ) -> tuple[dict[str, Any] | None, str, str, str]:
@@ -470,6 +472,7 @@ def _select_candidate_action(
         context,
         score=score,
         evidence=evidence,
+        loop_context=loop_context,
         candidate_actions=candidate_actions,
         start_index=start_index,
     )
@@ -514,10 +517,13 @@ def _select_candidate_action_with_llm(
     *,
     score: Mapping[str, Any],
     evidence: Mapping[str, Any],
+    loop_context: Mapping[str, Any],
     candidate_actions: list[dict[str, Any]],
     start_index: int,
 ) -> tuple[dict[str, Any] | None, str, str, str]:
-    if start_index >= len(candidate_actions):
+    remaining_actions = candidate_actions[start_index:]
+    inventory = _candidate_inventory(loop_context)
+    if not remaining_actions and not inventory:
         return None, "no candidate action remains", "llm", "complete"
     try:
         from aedt_agent.agent.llm import LlmConfig, llm_complete_json
@@ -527,17 +533,20 @@ def _select_candidate_action_with_llm(
             return None, "LLM not configured", "llm", ""
         user_payload = {
             "bounded_score": _bounded_score_for_decider(score, evidence),
-            "candidate_actions": candidate_actions[start_index:],
+            "candidate_action_inventory": inventory,
+            "deterministic_fallback_actions": remaining_actions,
             "start_index": start_index,
             "constraints": context.node.constraints,
         }
         allowed = _allowed_decisions(context)
         result = llm_complete_json(
             (
-                "Select the next BRD via optimization action from the provided "
-                "candidate_actions. Use only bounded score evidence. Return JSON "
-                f"with decision in {sorted(allowed)}, action_index as an absolute "
-                "index when continuing, and reason."
+                "Propose the next BRD via optimization action from the reviewed "
+                "candidate_action_inventory and playbook rules. Use only bounded "
+                "score evidence. You may either return selected_action directly "
+                "using only inventory layer/shape/center facts, or choose an "
+                "absolute action_index from deterministic_fallback_actions. "
+                f"Return JSON with decision in {sorted(allowed)} and reason."
             ),
             json.dumps(user_payload, ensure_ascii=False, indent=2),
             config=config,
@@ -551,6 +560,21 @@ def _select_candidate_action_with_llm(
         if normalized not in _allowed_decisions(context):
             return None, f"LLM decision {normalized} is not allowed by this graph", "llm", "failed"
         return None, str(result.get("reason") or normalized), "llm", normalized
+    selected_action = result.get("selected_action") or result.get("action")
+    if isinstance(selected_action, Mapping):
+        action = dict(selected_action)
+        valid, validation_reason = _llm_selected_action_within_inventory(
+            action,
+            inventory,
+        )
+        if valid:
+            return (
+                action,
+                str(result.get("reason") or validation_reason or "LLM proposed bounded action"),
+                "llm_proposed",
+                "continue",
+            )
+        return None, f"LLM selected_action outside candidate inventory: {validation_reason}", "llm", ""
     try:
         action_index = int(result.get("action_index"))
     except (TypeError, ValueError):
@@ -800,6 +824,113 @@ def _candidate_actions_from_inventory(
 def _candidate_inventory(loop_context: Mapping[str, Any]) -> dict[str, Any]:
     value = loop_context.get("candidate_action_inventory")
     return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _llm_selected_action_within_inventory(
+    action: Mapping[str, Any],
+    inventory: Mapping[str, Any],
+) -> tuple[bool, str]:
+    if not inventory:
+        return False, "candidate_action_inventory is empty"
+    action_type = str(action.get("action_type") or "")
+    if action_type == "anti_pad.enlarge":
+        items = _inventory_items(
+            inventory,
+            "anti_pad_shape_layers",
+            "anti_pad_candidates",
+            "shape_backed_layers",
+        )
+        required_shape_keys = (
+            "plane_shape_ids",
+            "shape_ids",
+            "selected_shape_ids",
+        )
+    elif action_type == "non_functional_pad.add_or_enlarge":
+        items = _inventory_items(
+            inventory,
+            "non_functional_pad_layers",
+            "non_functional_pad_candidates",
+            "mechanical_hole_layers",
+        )
+        required_shape_keys = ()
+    else:
+        return False, f"unsupported action_type: {action_type or '<missing>'}"
+
+    layers = _candidate_layers(action)
+    if not layers:
+        return False, "selected_action must name layers"
+    for layer in layers:
+        match = _inventory_item_for_layer(items, layer)
+        if match is None:
+            return False, f"layer {layer} is not in reviewed inventory"
+        if required_shape_keys:
+            action_shape_ids = set(
+                _layer_values(action, layer, *required_shape_keys)
+            )
+            inventory_shape_ids = set(
+                _layer_values(
+                    match,
+                    layer,
+                    *required_shape_keys,
+                    by_layer_keys=("plane_shape_ids_by_layer", "shape_ids_by_layer"),
+                )
+            )
+            if not action_shape_ids:
+                return False, f"anti-pad layer {layer} must include plane_shape_ids"
+            if inventory_shape_ids and not action_shape_ids.issubset(inventory_shape_ids):
+                return False, f"plane_shape_ids for {layer} are outside inventory"
+        action_centers = set(
+            _layer_values(
+                action,
+                layer,
+                "center_padstack_instance_ids",
+                "padstack_instance_ids",
+            )
+        )
+        inventory_centers = set(
+            _layer_values(
+                match,
+                layer,
+                "center_padstack_instance_ids",
+                "padstack_instance_ids",
+                by_layer_keys=(
+                    "center_padstack_instance_ids_by_layer",
+                    "padstack_instance_ids_by_layer",
+                ),
+            )
+        )
+        if action_centers and inventory_centers and not action_centers.issubset(inventory_centers):
+            return False, f"center_padstack_instance_ids for {layer} are outside inventory"
+        bridge_centers = set(
+            _layer_values(action, layer, "bridge_center_padstack_instance_ids")
+        )
+        inventory_bridge_centers = set(
+            _layer_values(
+                match,
+                layer,
+                "bridge_center_padstack_instance_ids",
+                by_layer_keys=("bridge_center_padstack_instance_ids_by_layer",),
+            )
+        )
+        if (
+            bridge_centers
+            and inventory_bridge_centers
+            and not bridge_centers.issubset(inventory_bridge_centers)
+        ):
+            return False, f"bridge_center_padstack_instance_ids for {layer} are outside inventory"
+    return True, "selected_action is bounded by reviewed inventory"
+
+
+def _inventory_item_for_layer(
+    items: list[Any],
+    layer: str,
+) -> Mapping[str, Any] | None:
+    for item in items:
+        if not isinstance(item, Mapping):
+            continue
+        if layer in _candidate_layers(item):
+            return item
+    return None
 
 
 def _inventory_items(inventory: Mapping[str, Any], *keys: str) -> list[Any]:
