@@ -162,12 +162,14 @@ Current user-approved geometry constraints for this first optimization pass:
 
 ## Candidate Inventory Contract
 
-Before `optimization_decider`, the reviewed loop runs
-`candidate_inventory_builder`. It keeps the config's
-`candidate_action_inventory` or `candidate_action_inventory_path` as reviewed
-facts and also expands them into deterministic fallback `candidate_actions`.
-When LLM is configured, the decider may propose a fresh `selected_action` from
-those facts instead of merely choosing a fallback action index.
+Before `optimization_decider`, the reviewed loop first runs
+`candidate_inventory_builder` as an AEDB discovery worker. It opens the working
+model and writes reviewed geometry facts such as shape ids, padstack instance
+ids, via centers, bridge-center pairs, and signal nets into
+`candidate_action_inventory_path`. Then `candidate_action_builder` expands those
+facts into deterministic fallback `candidate_actions`. When LLM is configured,
+the decider may propose a fresh `selected_action` from those discovered facts
+instead of merely choosing a fallback action index.
 
 In the run config, prefer a path rather than layer-specific inline data:
 
@@ -177,7 +179,19 @@ In the run config, prefer a path rather than layer-specific inline data:
 }
 ```
 
-The inventory file contains reviewed facts:
+The inventory path can start as a small human scope seed:
+
+```json
+{
+  "source": "human_scope_seed_for_aedt_model_discovery",
+  "tdr_observation_port": "Diff1",
+  "tdr_port_orientation_evidence": "reviewed port map",
+  "anti_pad_shape_layers": ["L2_GND", "L4_GND"],
+  "non_functional_pad_layers": ["L5", "L7"]
+}
+```
+
+The discovery worker turns that seed into executable reviewed facts:
 
 ```json
 {
@@ -206,14 +220,13 @@ The inventory file contains reviewed facts:
 }
 ```
 
-Do not write these fields as plain layer-name lists such as
-`"anti_pad_shape_layers": ["L2_GND", "L4_GND"]`. A layer list is only a scope
-hint and is not executable. Each entry must be an object containing reviewed
-geometry facts: layer name, selected shape ids for anti-pad actions, reviewed
-padstack centers or reviewed coordinates, parasitic target, and bounded radius
-information. If the inventory path is missing, invalid JSON, or produces zero
-executable actions, the loop must fail at `candidate_inventory_builder` before
-running another slow AEDT solve.
+Do not treat plain layer-name lists as final executable inventory. A layer list
+is only a scope hint for the discovery worker. The final inventory handed to
+`candidate_action_builder` must contain object entries with reviewed geometry
+facts: layer name, selected shape ids for anti-pad actions, reviewed padstack
+centers or reviewed coordinates, parasitic target, and bounded radius
+information. If the final inventory is missing, invalid JSON, or produces zero
+executable actions, the loop must fail before running another slow AEDT solve.
 
 List all reviewed layers that have selected shape evidence near the intended
 via/parasitic center. The LLM may choose L2, L5, L7, or any other reviewed

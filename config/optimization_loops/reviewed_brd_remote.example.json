@@ -37,7 +37,7 @@
   "candidate_action_policy": {
     "anti_pad_layer_scope": "any_layer_with_selected_shape_around_via",
     "non_functional_pad_layer_scope": "all_reviewed_mechanical_hole_layers",
-    "note": "Do not hardcode a layer in this run config. Put reviewed layer/shape/center facts in candidate_action_inventory_path before running optimization."
+    "note": "Do not hardcode executable actions in this run config. candidate_inventory_builder opens the AEDB and writes shape ids, padstack centers, and candidate facts to candidate_action_inventory_path."
   },
   "candidate_action_inventory_path": "D:\\aedt-agent-runs\\reviewed-loop\\candidate_action_inventory.json",
   "candidate_actions": []

@@ -20,6 +20,11 @@ from aedt_agent.infrastructure.brd_model_edit import (
     BrdModelEditRequest,
     BrdModelEditResult,
 )
+from aedt_agent.infrastructure.brd_candidate_inventory import (
+    BrdCandidateInventoryAdapter,
+    BrdCandidateInventoryRequest,
+    BrdCandidateInventoryResult,
+)
 from aedt_agent.infrastructure.brd_real_solve import (
     ArtifactExportError,
     ArtifactValidationError,
@@ -42,6 +47,9 @@ __all__ = [
     "BrdModelEditAdapter",
     "BrdModelEditRequest",
     "BrdModelEditResult",
+    "BrdCandidateInventoryAdapter",
+    "BrdCandidateInventoryRequest",
+    "BrdCandidateInventoryResult",
     "ArtifactExportError",
     "ArtifactValidationError",
     "BrdRealSolveAdapter",
