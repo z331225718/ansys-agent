@@ -153,6 +153,30 @@ class LocalProcessHarness:
             "pid": process.pid,
         }
         if termination_status is not None:
+            if termination_status != HarnessStatus.CANCELED:
+                salvaged = _salvage_brd_real_solve_result(
+                    request,
+                    workspace,
+                    started_at=started_at,
+                    exit_code=exit_code,
+                    metadata=metadata,
+                    termination_reason=termination_reason,
+                )
+                if salvaged is not None:
+                    _atomic_write_json(
+                        workspace.result_path,
+                        salvaged.to_json_dict(),
+                    )
+                    return replace(
+                        salvaged,
+                        artifact_refs=_unique(
+                            [
+                                *salvaged.artifact_refs,
+                                *workspace.protocol_artifacts(),
+                            ]
+                        ),
+                        metadata={**salvaged.metadata, **metadata},
+                    )
             error_class = (
                 "canceled"
                 if termination_status == HarnessStatus.CANCELED
@@ -379,6 +403,7 @@ def _salvage_brd_real_solve_result(
     started_at: str,
     exit_code: int | None,
     metadata: dict,
+    termination_reason: str = "missing_result",
 ) -> HarnessResult | None:
     if request.capability != "brd.local_cut.solve":
         return None
@@ -469,11 +494,12 @@ def _salvage_brd_real_solve_result(
         started_at=started_at,
         completed_at=_utc_now(),
         exit_code=exit_code,
-        termination_reason="missing_result_salvaged_from_solve_manifest",
+        termination_reason=f"{termination_reason}_salvaged_from_solve_manifest",
         metadata={
             **metadata,
             "salvaged_after_missing_result": True,
             "salvage_source": str(manifest_path),
+            "salvage_termination_reason": termination_reason,
         },
     )
 

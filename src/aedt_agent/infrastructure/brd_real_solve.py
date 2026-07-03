@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -124,7 +125,7 @@ class BrdRealSolveAdapter:
             version=request.environment.version,
             non_graphical=request.environment.non_graphical,
             new_desktop=True,
-            close_on_exit=request.environment.non_graphical,
+            close_on_exit=False,
             remove_lock=False,
         )
         try:
@@ -160,38 +161,19 @@ class BrdRealSolveAdapter:
             )
 
             tdr_samples: list[dict[str, float]] = []
+            tdr_export_method = ""
             if request.export_tdr:
-                if not _export_tdr_solution_data(
+                tdr_export_method = _export_tdr_report_or_solution_data(
                     app,
                     request,
                     resolved_solution_name,
+                    raw_tdr_dir,
                     tdr_path,
-                ):
-                    if not _create_tdr_report(
-                        app,
-                        request,
-                        resolved_solution_name,
-                    ):
-                        raise ArtifactExportError(
-                            "AEDT TDR report creation failed"
-                        )
-                    raw_tdr_dir.mkdir(parents=False, exist_ok=False)
-                    try:
-                        raw_tdr_path = _validated_export_path(
-                            _export_tdr_report(
-                                app,
-                                request.tdr_report_name,
-                                raw_tdr_dir,
-                            ),
-                            raw_tdr_dir,
-                        )
-                        _normalize_tdr_report_csv(
-                            raw_tdr_path,
-                            tdr_path,
-                            request.tdr_expression,
-                        )
-                    finally:
-                        shutil.rmtree(raw_tdr_dir, ignore_errors=True)
+                )
+                if not tdr_export_method:
+                    raise ArtifactExportError(
+                        "AEDT TDR report creation failed"
+                    )
                 tdr_samples = _validated_tdr(tdr_path)
             else:
                 tdr_samples = []
@@ -220,6 +202,7 @@ class BrdRealSolveAdapter:
             "expected_port_count": request.expected_port_count,
             "tdr_differential_pairs": request.tdr_differential_pairs,
             "tdr_observation_port": request.tdr_observation_port,
+            "tdr_export_method": tdr_export_method,
             "touchstone_sample_count": len(touchstone_samples),
             "tdr_sample_count": len(tdr_samples),
             "raw_sparameters": "artifact_only",
@@ -280,24 +263,69 @@ def _release_desktop_best_effort(
     app: Any,
     request: BrdRealSolveRequest,
 ) -> dict[str, Any] | None:
+    edb_session_count = _edb_session_count(app)
+    if edb_session_count:
+        return {
+            "status": "skipped_after_artifacts",
+            "reason": "pyaedt_edb_sessions_present",
+            "edb_session_count": edb_session_count,
+        }
     release = getattr(app, "release_desktop", None)
     if not callable(release):
         return {
             "status": "skipped",
             "reason": "release_desktop is not callable",
         }
-    try:
-        release(
-            close_projects=request.environment.non_graphical,
-            close_desktop=request.environment.non_graphical,
-        )
-    except Exception as exc:
+    outcome: dict[str, Any] = {}
+
+    def _release() -> None:
+        try:
+            release(
+                close_projects=request.environment.non_graphical,
+                close_desktop=request.environment.non_graphical,
+            )
+        except Exception as exc:
+            outcome.update(
+                {
+                    "status": "failed_after_artifacts",
+                    "error_type": type(exc).__name__,
+                    "message": str(exc),
+                }
+            )
+
+    timeout_seconds = _release_desktop_timeout_seconds()
+    thread = threading.Thread(
+        target=_release,
+        name="aedt-release-desktop",
+        daemon=True,
+    )
+    thread.start()
+    thread.join(timeout=timeout_seconds)
+    if thread.is_alive():
         return {
-            "status": "failed_after_artifacts",
-            "error_type": type(exc).__name__,
-            "message": str(exc),
+            "status": "timed_out_after_artifacts",
+            "timeout_seconds": timeout_seconds,
         }
-    return None
+    return outcome or None
+
+
+def _release_desktop_timeout_seconds() -> float:
+    raw = os.environ.get("AEDT_AGENT_RELEASE_DESKTOP_TIMEOUT_SECONDS", "30")
+    try:
+        value = float(raw)
+    except ValueError:
+        return 30.0
+    return max(value, 0.1)
+
+
+def _edb_session_count(app: Any) -> int:
+    sessions = getattr(app, "_edb_sessions", None)
+    if sessions is None:
+        return 0
+    try:
+        return len(sessions)
+    except TypeError:
+        return 1
 
 
 def _validate_request(request: BrdRealSolveRequest) -> None:
@@ -441,6 +469,42 @@ def _create_tdr_report(
             },
         )
     )
+
+
+def _export_tdr_report_or_solution_data(
+    app: Any,
+    request: BrdRealSolveRequest,
+    solution_name: str,
+    raw_tdr_dir: Path,
+    output_path: Path,
+) -> str:
+    if _create_tdr_report(app, request, solution_name):
+        raw_tdr_dir.mkdir(parents=False, exist_ok=False)
+        try:
+            raw_tdr_path = _validated_export_path(
+                _export_tdr_report(
+                    app,
+                    request.tdr_report_name,
+                    raw_tdr_dir,
+                ),
+                raw_tdr_dir,
+            )
+            _normalize_tdr_report_csv(
+                raw_tdr_path,
+                output_path,
+                request.tdr_expression,
+            )
+        finally:
+            shutil.rmtree(raw_tdr_dir, ignore_errors=True)
+        return "report_csv"
+    if _export_tdr_solution_data(
+        app,
+        request,
+        solution_name,
+        output_path,
+    ):
+        return "solution_data"
+    return ""
 
 
 def _export_tdr_solution_data(

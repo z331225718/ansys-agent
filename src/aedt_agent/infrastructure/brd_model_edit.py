@@ -55,6 +55,8 @@ class BrdModelEditAdapter:
         artifact_dir = request.artifact_dir.resolve()
         artifact_dir.mkdir(parents=True, exist_ok=True)
         source_digest = _sha256_file(project_path)
+        source_project_record = _artifact_record(project_path)
+        source_edb_record = _artifact_record(_sidecar_edb(project_path))
         manifest_path = artifact_dir / "model_edit_manifest.json"
 
         if request.project_copy_mode == "working_project":
@@ -127,10 +129,8 @@ class BrdModelEditAdapter:
         manifest = {
             "version": 1,
             "input": {
-                "source_project": _artifact_record(project_path),
-                "source_edb": _artifact_record(
-                    _sidecar_edb(project_path)
-                ),
+                "source_project": source_project_record,
+                "source_edb": source_edb_record,
             },
             "outputs": {
                 "edited_project": _artifact_record(edited_project),

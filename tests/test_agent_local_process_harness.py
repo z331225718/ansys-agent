@@ -162,6 +162,29 @@ def test_local_process_salvages_brd_solve_when_artifacts_exist(tmp_path):
     assert result.metadata["salvaged_after_missing_result"] is True
 
 
+def test_local_process_salvages_brd_solve_after_wall_timeout(tmp_path):
+    result = _execute(
+        tmp_path,
+        "tests.fixtures.process_workers:brd_solve_artifacts_then_sleep_worker",
+        capability="brd.local_cut.solve",
+        input_payload={
+            "project_path": str(tmp_path / "case.aedt"),
+            "touchstone_name": "channel.s4p",
+            "tdr_report_name": "ChannelTDR",
+            "export_tdr": True,
+            "sleep_seconds": 60,
+        },
+        timeout_seconds=1,
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert result.termination_reason == "wall_timeout_salvaged_from_solve_manifest"
+    assert result.output_payload["status"] == "succeeded"
+    assert result.output_payload["touchstone_path"].endswith("channel.s4p")
+    assert result.output_payload["tdr_path"].endswith("ChannelTDR.csv")
+    assert result.metadata["salvage_termination_reason"] == "wall_timeout"
+
+
 def test_local_process_harness_rejects_corrupt_result(tmp_path):
     result = _execute(
         tmp_path,

@@ -401,6 +401,9 @@ def test_model_edit_can_modify_existing_working_project(tmp_path):
     request = _request(tmp_path, project_copy_mode="working_project")
 
     result = BrdModelEditAdapter(edb_factory=FakeEdb).run(request)
+    manifest = json.loads(
+        Path(result.manifest_path).read_text(encoding="utf-8")
+    )
 
     assert Path(result.edited_project_path) == request.project_path
     assert Path(result.edited_edb_path) == request.project_path.with_suffix(
@@ -409,6 +412,10 @@ def test_model_edit_can_modify_existing_working_project(tmp_path):
     assert not (request.artifact_dir / "case.edited.aedt").exists()
     assert result.summary["project_copy_mode"] == "working_project"
     assert result.summary["persistence_check"]["status"] == "passed"
+    assert (
+        manifest["input"]["source_edb"]["sha256"]
+        != manifest["outputs"]["edited_edb"]["sha256"]
+    )
 
 
 def test_model_edit_rejects_when_save_does_not_persist_bundle_changes(tmp_path):

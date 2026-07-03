@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -96,6 +97,11 @@ class FakePost:
                 },
             )
         )
+        if (
+            FakeHfss3dLayout.report_create_returns_false
+            and not str(plot_name).endswith("_SolutionData")
+        ):
+            return None
         if FakeHfss3dLayout.use_expression_data_report:
             return FakeExpressionDataReport()
         if FakeHfss3dLayout.use_solution_data_report:
@@ -132,6 +138,8 @@ class FakePost:
 class FakeReport:
     def get_solution_data(self):
         FakeHfss3dLayout.calls.append(("get_solution_data", {}))
+        if FakeHfss3dLayout.solution_data_opens_edb_session:
+            FakeHfss3dLayout.current_app._edb_sessions.append(object())
         return FakeSolutionData()
 
 
@@ -149,6 +157,8 @@ class FakeSolutionData:
 class FakeExpressionDataReport:
     def get_solution_data(self):
         FakeHfss3dLayout.calls.append(("get_solution_data", {}))
+        if FakeHfss3dLayout.solution_data_opens_edb_session:
+            FakeHfss3dLayout.current_app._edb_sessions.append(object())
         return FakeExpressionSolutionData()
 
 
@@ -236,7 +246,11 @@ class FakeHfss3dLayout:
     use_native_report = False
     use_solution_data_report = False
     use_expression_data_report = False
+    report_create_returns_false = False
+    solution_data_opens_edb_session = False
+    current_app = None
     release_raises = False
+    release_sleep_seconds = 0.0
     touchstone_text = (
         "# GHz S MA R 50\n"
         "0 0.05 0 0.9 0 0.9 0 0.05 0\n"
@@ -259,7 +273,11 @@ class FakeHfss3dLayout:
         cls.use_native_report = False
         cls.use_solution_data_report = False
         cls.use_expression_data_report = False
+        cls.report_create_returns_false = False
+        cls.solution_data_opens_edb_session = False
+        cls.current_app = None
         cls.release_raises = False
+        cls.release_sleep_seconds = 0.0
         cls.touchstone_text = (
             "# GHz S MA R 50\n"
             "0 0.05 0 0.9 0 0.9 0 0.05 0\n"
@@ -282,6 +300,8 @@ class FakeHfss3dLayout:
         remove_lock,
     ):
         self.post = FakePost()
+        self._edb_sessions = []
+        FakeHfss3dLayout.current_app = self
         if self.use_native_report:
             self.odesign = FakeDesign()
         self.calls.append(
@@ -342,6 +362,8 @@ class FakeHfss3dLayout:
                 },
             )
         )
+        if self.release_sleep_seconds:
+            time.sleep(self.release_sleep_seconds)
         if self.release_raises:
             raise RuntimeError("AEDT access violation after artifact export")
 
@@ -403,11 +425,30 @@ def test_real_solve_treats_release_crash_as_warning_after_artifacts(tmp_path):
         "save_project",
         "export_touchstone",
         "create_report",
-        "delete_report",
-        "create_report",
         "export_report_to_file",
         "release_desktop",
     ]
+
+
+def test_real_solve_treats_release_hang_as_warning_after_artifacts(
+    tmp_path,
+    monkeypatch,
+):
+    adapter = _adapter()
+    FakeHfss3dLayout.release_sleep_seconds = 1.0
+    monkeypatch.setenv("AEDT_AGENT_RELEASE_DESKTOP_TIMEOUT_SECONDS", "0.1")
+
+    result = adapter.run(_request(tmp_path))
+
+    assert Path(result.touchstone_path).stat().st_size > 0
+    assert Path(result.tdr_path).stat().st_size > 0
+    assert result.summary["aedt_exit_warning"]["status"] == (
+        "timed_out_after_artifacts"
+    )
+    manifest = json.loads(
+        Path(result.solve_manifest_path).read_text(encoding="utf-8")
+    )
+    assert manifest["summary"]["aedt_exit_warning"]["timeout_seconds"] == 0.1
 
 
 def test_real_solve_can_defer_tdr_export_for_manual_recorded_script(
@@ -437,6 +478,7 @@ def test_real_solve_can_export_tdr_from_solution_data_without_csv_report_export(
 ):
     adapter = _adapter()
     FakeHfss3dLayout.use_solution_data_report = True
+    FakeHfss3dLayout.report_create_returns_false = True
 
     result = adapter.run(_request(tmp_path))
 
@@ -452,10 +494,50 @@ def test_real_solve_can_export_tdr_from_solution_data_without_csv_report_export(
         "save_project",
         "export_touchstone",
         "create_report",
+        "create_report",
         "get_solution_data",
         "delete_report",
         "release_desktop",
     ]
+    assert result.summary["tdr_export_method"] == "solution_data"
+
+
+def test_real_solve_prefers_report_csv_over_solution_data(tmp_path):
+    adapter = _adapter()
+    FakeHfss3dLayout.use_solution_data_report = True
+
+    result = adapter.run(_request(tmp_path))
+
+    call_names = [name for name, _ in FakeHfss3dLayout.calls]
+    assert "get_solution_data" not in call_names
+    assert result.summary["tdr_export_method"] == "report_csv"
+    assert Path(result.tdr_path).stat().st_size > 0
+
+
+def test_real_solve_skips_release_when_solution_data_opens_edb_session(
+    tmp_path,
+):
+    adapter = _adapter()
+    FakeHfss3dLayout.use_solution_data_report = True
+    FakeHfss3dLayout.report_create_returns_false = True
+    FakeHfss3dLayout.solution_data_opens_edb_session = True
+
+    result = adapter.run(_request(tmp_path))
+
+    call_names = [name for name, _ in FakeHfss3dLayout.calls]
+    assert "get_solution_data" in call_names
+    assert "release_desktop" not in call_names
+    assert result.summary["aedt_exit_warning"] == {
+        "status": "skipped_after_artifacts",
+        "reason": "pyaedt_edb_sessions_present",
+        "edb_session_count": 1,
+    }
+    manifest = json.loads(
+        Path(result.solve_manifest_path).read_text(encoding="utf-8")
+    )
+    assert manifest["summary"]["aedt_exit_warning"]["reason"] == (
+        "pyaedt_edb_sessions_present"
+    )
 
 
 def test_real_solve_can_export_tdr_from_expression_data_without_data_real(
@@ -463,6 +545,7 @@ def test_real_solve_can_export_tdr_from_expression_data_without_data_real(
 ):
     adapter = _adapter()
     FakeHfss3dLayout.use_expression_data_report = True
+    FakeHfss3dLayout.report_create_returns_false = True
 
     result = adapter.run(
         _request(
@@ -596,8 +679,6 @@ def test_real_solve_can_export_existing_results_without_analyze(
         "init",
         "save_project",
         "export_touchstone",
-        "create_report",
-        "delete_report",
         "create_report",
         "export_report_to_file",
         "release_desktop",

@@ -63,6 +63,16 @@ def abrupt_exit_worker(job, context):
 
 
 def brd_solve_artifacts_then_abrupt_exit_worker(job, context):
+    _write_brd_solve_artifacts(job, context)
+    os._exit(5)
+
+
+def brd_solve_artifacts_then_sleep_worker(job, context):
+    _write_brd_solve_artifacts(job, context)
+    time.sleep(float(job.input_payload.get("sleep_seconds", 60)))
+
+
+def _write_brd_solve_artifacts(job, context):
     artifacts = Path(context.artifacts_dir)
     touchstone = artifacts / str(job.input_payload.get("touchstone_name", "channel.s4p"))
     tdr = artifacts / f"{job.input_payload.get('tdr_report_name', 'ChannelTDR')}.csv"
@@ -112,7 +122,6 @@ def brd_solve_artifacts_then_abrupt_exit_worker(job, context):
         json.dumps(manifest, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    os._exit(5)
 
 
 def corrupt_result_worker(job, context):
