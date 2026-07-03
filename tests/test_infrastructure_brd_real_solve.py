@@ -40,6 +40,22 @@ def _request(tmp_path: Path, **overrides) -> BrdRealSolveRequest:
     return BrdRealSolveRequest(**values)
 
 
+def _touchstone_text(
+    *,
+    port_count: int,
+    diagonal_reflection: float,
+) -> str:
+    lines = ["# GHz S MA R 50"]
+    for frequency in (0.0, 18.0):
+        numbers = [f"{frequency:g}"]
+        for row in range(port_count):
+            for column in range(port_count):
+                magnitude = diagonal_reflection if row == column else 0.0
+                numbers.extend([f"{magnitude:g}", "0"])
+        lines.append(" ".join(numbers))
+    return "\n".join(lines) + "\n"
+
+
 def test_real_solve_rejects_non_aedt_project(tmp_path):
     project = tmp_path / "model.txt"
     project.write_text("not a project", encoding="utf-8")
@@ -403,7 +419,8 @@ def test_real_solve_copies_checkpoint_solves_and_exports_artifacts(
     assert manifest["outputs"]["touchstone"]["sha256"]
     assert manifest["outputs"]["tdr"]["sha256"]
     assert result.summary["touchstone_sample_count"] == 2
-    assert result.summary["tdr_sample_count"] == 2
+    assert result.summary["tdr_sample_count"] > 0
+    assert result.summary["tdr_export_method"] == "skrf_touchstone_step_response"
 
 
 def test_real_solve_treats_release_crash_as_warning_after_artifacts(tmp_path):
@@ -424,8 +441,6 @@ def test_real_solve_treats_release_crash_as_warning_after_artifacts(tmp_path):
         "analyze_setup",
         "save_project",
         "export_touchstone",
-        "create_report",
-        "export_report_to_file",
         "release_desktop",
     ]
 
@@ -473,143 +488,52 @@ def test_real_solve_can_defer_tdr_export_for_manual_recorded_script(
     ]
 
 
-def test_real_solve_can_export_tdr_from_solution_data_without_csv_report_export(
-    tmp_path,
-):
-    adapter = _adapter()
-    FakeHfss3dLayout.use_solution_data_report = True
-    FakeHfss3dLayout.report_create_returns_false = True
-
-    result = adapter.run(_request(tmp_path))
-
-    assert Path(result.tdr_path).read_text(encoding="utf-8").splitlines() == [
-        "time_ps,impedance_ohm",
-        "0.0,100.0",
-        "10.0,105.0",
-    ]
-    assert result.summary["tdr_sample_count"] == 2
-    assert [name for name, _ in FakeHfss3dLayout.calls] == [
-        "init",
-        "analyze_setup",
-        "save_project",
-        "export_touchstone",
-        "create_report",
-        "create_report",
-        "get_solution_data",
-        "delete_report",
-        "release_desktop",
-    ]
-    assert result.summary["tdr_export_method"] == "solution_data"
-
-
-def test_real_solve_prefers_report_csv_over_solution_data(tmp_path):
-    adapter = _adapter()
-    FakeHfss3dLayout.use_solution_data_report = True
-
-    result = adapter.run(_request(tmp_path))
-
-    call_names = [name for name, _ in FakeHfss3dLayout.calls]
-    assert "get_solution_data" not in call_names
-    assert result.summary["tdr_export_method"] == "report_csv"
-    assert Path(result.tdr_path).stat().st_size > 0
-
-
-def test_real_solve_skips_release_when_solution_data_opens_edb_session(
-    tmp_path,
-):
-    adapter = _adapter()
-    FakeHfss3dLayout.use_solution_data_report = True
-    FakeHfss3dLayout.report_create_returns_false = True
-    FakeHfss3dLayout.solution_data_opens_edb_session = True
-
-    result = adapter.run(_request(tmp_path))
-
-    call_names = [name for name, _ in FakeHfss3dLayout.calls]
-    assert "get_solution_data" in call_names
-    assert "release_desktop" not in call_names
-    assert result.summary["aedt_exit_warning"] == {
-        "status": "skipped_after_artifacts",
-        "reason": "pyaedt_edb_sessions_present",
-        "edb_session_count": 1,
-    }
-    manifest = json.loads(
-        Path(result.solve_manifest_path).read_text(encoding="utf-8")
-    )
-    assert manifest["summary"]["aedt_exit_warning"]["reason"] == (
-        "pyaedt_edb_sessions_present"
-    )
-
-
-def test_real_solve_can_export_tdr_from_expression_data_without_data_real(
-    tmp_path,
-):
-    adapter = _adapter()
-    FakeHfss3dLayout.use_expression_data_report = True
-    FakeHfss3dLayout.report_create_returns_false = True
-
-    result = adapter.run(
-        _request(
-            tmp_path,
-            tdr_expression="TDRZ(Diff1)",
-            tdr_differential_pairs=True,
-            tdr_observation_port="Diff1",
-        )
-    )
-
-    assert Path(result.tdr_path).read_text(encoding="utf-8").splitlines() == [
-        "time_ps,impedance_ohm",
-        "0.0,91.175",
-        "32.83582089552237,74.228",
-    ]
-    assert result.summary["tdr_sample_count"] == 2
-    assert (
-        "get_expression_data",
-        {"expression": "TDRZ(Diff1)", "formula": "real"},
-    ) in FakeHfss3dLayout.calls
-
-
-def test_real_solve_uses_native_recorded_tdr_report_when_available(
+def test_real_solve_derives_tdr_from_touchstone_without_aedt_report_api(
     tmp_path,
 ):
     adapter = _adapter()
     FakeHfss3dLayout.use_native_report = True
-    FakeHfss3dLayout.tdr_text = (
-        "Time [ns],TDRZ(Diff1)\n"
-        "0,90\n"
-        "0.01,94\n"
+    FakeHfss3dLayout.use_solution_data_report = True
+    FakeHfss3dLayout.use_expression_data_report = True
+
+    result = adapter.run(_request(tmp_path))
+
+    call_names = [name for name, _ in FakeHfss3dLayout.calls]
+    assert "create_report" not in call_names
+    assert "get_solution_data" not in call_names
+    assert "native_create_report" not in call_names
+    assert result.summary["tdr_export_method"] == "skrf_touchstone_step_response"
+    assert Path(result.tdr_path).stat().st_size > 0
+    assert Path(result.tdr_path).read_text(encoding="utf-8").splitlines()[0] == (
+        "time_ps,impedance_ohm"
+    )
+
+
+def test_real_solve_derives_differential_tdr_from_s4p(
+    tmp_path,
+):
+    adapter = _adapter()
+    FakeHfss3dLayout.port_list = ["P1", "P2", "P3", "P4"]
+    FakeHfss3dLayout.touchstone_text = _touchstone_text(
+        port_count=4,
+        diagonal_reflection=0.05,
     )
 
     result = adapter.run(
         _request(
             tmp_path,
+            touchstone_name="channel.s4p",
+            expected_port_count=4,
             tdr_expression="TDRZ(Diff1)",
             tdr_differential_pairs=True,
             tdr_observation_port="Diff1",
         )
     )
 
-    native_call = next(
-        payload
-        for name, payload in FakeHfss3dLayout.calls
-        if name == "native_create_report"
-    )
-    assert native_call["report_category"] == "Standard"
-    assert native_call["plot_type"] == "Rectangular Plot"
-    assert native_call["context"][:3] == [
-        "NAME:Context",
-        "Domain:=",
-        "Time",
-    ]
-    assert native_call["components"] == [
-        "X Component:=",
-        "Time",
-        "Y Component:=",
-        ["TDRZ(Diff1)"],
-    ]
+    assert result.summary["tdr_export_method"] == "skrf_touchstone_step_response"
     assert result.summary["tdr_observation_port"] == "Diff1"
-    samples = Path(result.tdr_path).read_text(encoding="utf-8").splitlines()
-    assert samples[1].startswith("0.0,")
-    assert samples[2].startswith("10.0,")
+    assert result.summary["tdr_sample_count"] > 0
+    assert Path(result.tdr_path).stat().st_size > 0
 
 
 def test_real_solve_copies_existing_results_directory(tmp_path):
@@ -658,12 +582,7 @@ def test_real_solve_accepts_setup_only_solution_name_from_aedt(
 
     result = adapter.run(_request(tmp_path))
 
-    create_report_call = next(
-        payload
-        for name, payload in FakeHfss3dLayout.calls
-        if name == "create_report"
-    )
-    assert create_report_call["setup_sweep_name"] == "Setup1"
+    assert "create_report" not in [name for name, _ in FakeHfss3dLayout.calls]
     assert result.summary["solution_name"] == "Setup1"
     assert result.summary["requested_solution_name"] == "Setup1 : Sweep1"
 
@@ -679,8 +598,6 @@ def test_real_solve_can_export_existing_results_without_analyze(
         "init",
         "save_project",
         "export_touchstone",
-        "create_report",
-        "export_report_to_file",
         "release_desktop",
     ]
     assert result.summary["analyze_executed"] is False
@@ -705,12 +622,6 @@ def test_real_solve_accepts_differential_tdr_port_from_diff_pairs(
         )
     )
 
-    create_report_call = next(
-        payload
-        for name, payload in FakeHfss3dLayout.calls
-        if name == "create_report"
-    )
-    assert create_report_call["context"]["differential_pairs"] is True
     assert result.summary["tdr_observation_port"] == "Diff1"
     assert result.summary["tdr_differential_pairs"] is True
 
@@ -780,13 +691,16 @@ def test_real_solve_rejects_empty_touchstone(tmp_path):
     assert FakeHfss3dLayout.calls[-1][0] == "release_desktop"
 
 
-def test_real_solve_rejects_tdr_without_samples(tmp_path):
+def test_real_solve_rejects_tdr_when_touchstone_has_too_few_points(tmp_path):
     adapter = _adapter()
-    FakeHfss3dLayout.tdr_text = "Time [ps],TDRZt(P1,P1)\n"
+    FakeHfss3dLayout.touchstone_text = (
+        "# GHz S MA R 50\n"
+        "0 0.05 0 0.9 0 0.9 0 0.05 0\n"
+    )
 
     with pytest.raises(
         ArtifactValidationError,
-        match="no samples",
+        match="two frequency points",
     ):
         adapter.run(_request(tmp_path))
 

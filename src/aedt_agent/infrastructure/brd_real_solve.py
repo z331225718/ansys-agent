@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -163,17 +164,12 @@ class BrdRealSolveAdapter:
             tdr_samples: list[dict[str, float]] = []
             tdr_export_method = ""
             if request.export_tdr:
-                tdr_export_method = _export_tdr_report_or_solution_data(
-                    app,
-                    request,
-                    resolved_solution_name,
-                    raw_tdr_dir,
+                _write_tdr_from_touchstone(
+                    touchstone_path,
                     tdr_path,
+                    request,
                 )
-                if not tdr_export_method:
-                    raise ArtifactExportError(
-                        "AEDT TDR report creation failed"
-                    )
+                tdr_export_method = "skrf_touchstone_step_response"
                 tdr_samples = _validated_tdr(tdr_path)
             else:
                 tdr_samples = []
@@ -442,6 +438,145 @@ def _project_diff_pair_names(project_path: Path) -> set[str]:
     except OSError:
         return set()
     return set(AEDT_DIFF_PAIR_NAME.findall(project_text))
+
+
+def _write_tdr_from_touchstone(
+    touchstone_path: Path,
+    output_path: Path,
+    request: BrdRealSolveRequest,
+) -> None:
+    try:
+        import numpy as np
+        import skrf as rf
+    except ModuleNotFoundError as exc:
+        raise ArtifactExportError(
+            "scikit-rf is required to derive TDR from Touchstone"
+        ) from exc
+
+    try:
+        network = rf.Network(str(touchstone_path))
+    except Exception as exc:
+        raise ArtifactValidationError(
+            f"failed to parse Touchstone with scikit-rf: {touchstone_path}"
+        ) from exc
+    if network.nports < 1 or len(network.f) < 2:
+        raise ArtifactValidationError(
+            "Touchstone must contain at least one port and two frequency points"
+        )
+
+    response_network = network.copy()
+    trace_index = _touchstone_tdr_trace_index(request, response_network.nports)
+    if _touchstone_tdr_uses_mixed_mode(request, response_network.nports):
+        pair_count = response_network.nports // 2
+        response_network.se2gmm(p=pair_count)
+        trace_index = min(trace_index, pair_count - 1)
+
+    if response_network.f[0] > 0:
+        try:
+            response_network = response_network.extrapolate_to_dc(
+                kind="linear"
+            )
+        except Exception:
+            pass
+
+    try:
+        times_seconds, reflection = response_network.step_response(
+            squeeze=False
+        )
+    except Exception as exc:
+        raise ArtifactExportError(
+            "failed to compute TDR step response from Touchstone"
+        ) from exc
+
+    time_values = np.asarray(times_seconds, dtype=float)
+    reflection_values = np.real(
+        np.asarray(reflection)[:, trace_index, trace_index]
+    )
+    if time_values.size == 0 or reflection_values.size == 0:
+        raise ArtifactValidationError(
+            "Touchstone TDR step response produced no samples"
+        )
+    non_negative = time_values >= 0
+    if np.any(non_negative):
+        time_values = time_values[non_negative]
+        reflection_values = reflection_values[non_negative]
+
+    z0 = _touchstone_tdr_reference_impedance(response_network, trace_index)
+    denominator = 1.0 - reflection_values
+    impedance = np.array(
+        [
+            math.nan if abs(float(value)) < 1e-12 else z0 * (1.0 + rho) / value
+            for rho, value in zip(reflection_values, denominator, strict=False)
+        ],
+        dtype=float,
+    )
+    rows = [
+        (float(time_value) * 1e12, float(impedance_value))
+        for time_value, impedance_value in zip(
+            time_values,
+            impedance,
+            strict=False,
+        )
+        if math.isfinite(float(impedance_value))
+    ]
+    if not rows:
+        raise ArtifactValidationError(
+            "Touchstone TDR impedance conversion produced no finite samples"
+        )
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8", newline="") as csv_file:
+        writer = csv.writer(csv_file)
+        writer.writerow(["time_ps", "impedance_ohm"])
+        for time_ps, impedance_ohm in rows:
+            writer.writerow([f"{time_ps:.12g}", f"{impedance_ohm:.12g}"])
+
+
+def _touchstone_tdr_uses_mixed_mode(
+    request: BrdRealSolveRequest,
+    port_count: int,
+) -> bool:
+    if port_count < 2 or port_count % 2:
+        return False
+    port_name = request.tdr_observation_port.strip().casefold()
+    if request.tdr_differential_pairs or port_name.startswith("diff"):
+        return True
+    return any(
+        str(port).casefold().startswith("diff")
+        for port in TDR_EXPRESSION.fullmatch(request.tdr_expression).groups()
+        if port
+    )
+
+
+def _touchstone_tdr_trace_index(
+    request: BrdRealSolveRequest,
+    port_count: int,
+) -> int:
+    expression = TDR_EXPRESSION.fullmatch(request.tdr_expression)
+    expression_ports = [port for port in expression.groups() if port] if expression else []
+    port_name = request.tdr_observation_port.strip() or (
+        expression_ports[0] if expression_ports else ""
+    )
+    match = re.search(r"([0-9]+)$", port_name)
+    if match:
+        index = int(match.group(1)) - 1
+        if 0 <= index < port_count:
+            return index
+    return 0
+
+
+def _touchstone_tdr_reference_impedance(
+    network: Any,
+    trace_index: int,
+) -> float:
+    try:
+        z0 = network.z0[:, trace_index]
+    except Exception:
+        return 50.0
+    real_values = [float(value.real) for value in z0 if float(value.real) > 0]
+    if not real_values:
+        return 50.0
+    return sum(real_values) / len(real_values)
 
 
 def _create_tdr_report(
