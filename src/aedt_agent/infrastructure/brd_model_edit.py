@@ -1480,16 +1480,52 @@ def _create_rectangle_void(
 
 def _add_void(edb: Any, shape: Any, void_shape: Any) -> None:
     modeler = _required_modeler(edb)
+    failures: list[str] = []
     add_void = getattr(modeler, "add_void", None)
     if callable(add_void):
-        result = add_void(shape, void_shape)
-    else:
-        primitive_add_void = getattr(shape, "add_void", None)
-        if not callable(primitive_add_void):
-            raise ValueError("EDB primitive.add_void is required")
-        result = primitive_add_void(void_shape)
-    if result is False:
-        raise RuntimeError("failed to add anti-pad void to plane shape")
+        if _try_add_void(add_void, shape, void_shape, failures, "modeler"):
+            return
+    primitive_add_void = getattr(shape, "add_void", None)
+    if callable(primitive_add_void):
+        if _try_add_void(
+            primitive_add_void,
+            shape,
+            void_shape,
+            failures,
+            "primitive",
+        ):
+            return
+    if not callable(add_void) and not callable(primitive_add_void):
+        raise ValueError("EDB modeler.add_void or primitive.add_void is required")
+    details = "; ".join(failures) if failures else "no add_void API succeeded"
+    raise RuntimeError(f"failed to add anti-pad void to plane shape: {details}")
+
+
+def _try_add_void(
+    add_void: Any,
+    shape: Any,
+    void_shape: Any,
+    failures: list[str],
+    label: str,
+) -> bool:
+    call_shapes = (
+        (shape, void_shape),
+        (void_shape,),
+    )
+    for args in call_shapes:
+        try:
+            result = add_void(*args)
+        except TypeError:
+            continue
+        except Exception as exc:
+            failures.append(f"{label}.add_void raised {type(exc).__name__}: {exc}")
+            return False
+        if result is False:
+            failures.append(f"{label}.add_void returned False")
+            return False
+        return True
+    failures.append(f"{label}.add_void signature did not accept known arguments")
+    return False
 
 
 def _bridge_requested(action: dict[str, Any]) -> bool:

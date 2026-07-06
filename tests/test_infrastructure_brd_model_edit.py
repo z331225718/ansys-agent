@@ -156,6 +156,10 @@ class FakePrimitive:
         self.polygon_data = FakePolygonData(inside)
         self.voids = []
 
+    def add_void(self, void_shape):
+        self.voids.append(void_shape)
+        return True
+
 
 class FakeModeler:
     def __init__(self) -> None:
@@ -394,6 +398,31 @@ def test_model_edit_copies_project_bundle_and_adds_antipad_voids(tmp_path):
         "rectangle_bridge",
     ]
     assert change["created_voids"][0]["diameter_m"] == pytest.approx(0.0006)
+
+
+def test_model_edit_falls_back_to_primitive_add_void_when_modeler_returns_false(
+    tmp_path,
+):
+    class ModelerAddVoidFalse(FakeModeler):
+        def add_void(self, shape, void_shape):
+            return False
+
+    class EdbWithPrimitiveVoidFallback(FakeEdb):
+        def __init__(self, *, edbpath: str, version: str, grpc: bool | None):
+            super().__init__(edbpath=edbpath, version=version, grpc=grpc)
+            self.modeler = ModelerAddVoidFalse()
+
+    request = _request(tmp_path)
+
+    result = BrdModelEditAdapter(
+        edb_factory=EdbWithPrimitiveVoidFallback
+    ).run(request)
+
+    shape = FakeEdb.last_instance.modeler.primitives[0]
+    assert len(shape.voids) == 3
+    assert result.summary["changes"][0]["created_voids"][2][
+        "added_to_shapes"
+    ] == [101]
 
 
 def test_model_edit_can_modify_existing_working_project(tmp_path):
