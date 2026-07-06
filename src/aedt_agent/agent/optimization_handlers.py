@@ -416,6 +416,9 @@ def _initial_loop_context(
             "tdr_tolerance_ohm": float(payload.get("tdr_tolerance_ohm", 9.0)),
             "sparameter_mode": str(payload.get("sparameter_mode") or "differential"),
             "tdr_observation_port": str(payload.get("tdr_observation_port") or "Diff1"),
+            "tdr_plot_time_stop_ps": float(
+                payload.get("tdr_plot_time_stop_ps", 120.0)
+            ),
         },
     }
 
@@ -454,6 +457,7 @@ def _solve_input(
         "tdr_target_ohm": float(score.get("tdr_target_ohm", 90.0)),
         "tdr_tolerance_ohm": float(score.get("tdr_tolerance_ohm", 9.0)),
         "sparameter_mode": score.get("sparameter_mode", "differential"),
+        "tdr_plot_time_stop_ps": float(score.get("tdr_plot_time_stop_ps", 120.0)),
         "loop_context": {**loop_context, "round_index": round_index},
     }
 

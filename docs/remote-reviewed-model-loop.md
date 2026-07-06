@@ -37,6 +37,16 @@ The loop config must point to a human-reviewed source AEDT project and a
 separate working project path. The source project is copied once; the loop then
 edits the working project in place.
 
+The score/report section uses conventional engineering plots by default:
+S-parameter figures show the configured score band, usually `0-28 GHz`, with
+return loss on a `-40 to 0 dB` style axis and the RL target line marked. TDR
+plots default to the early `0-120 ps` window so the near-transition features
+are readable. Override the TDR window with:
+
+```json
+"tdr_plot_time_stop_ps": 120.0
+```
+
 For the current s19 bring-up, the source project is usually:
 
 ```text

@@ -27,6 +27,7 @@ def build_brd_channel_score_job_input(
     sparameter_mode: str = "auto",
     tdr_observation_port: str = "",
     bucket_count: int = 128,
+    tdr_plot_time_stop_ps: float = 120.0,
 ) -> dict[str, Any]:
     return {
         "touchstone_path": str(touchstone_path),
@@ -40,6 +41,7 @@ def build_brd_channel_score_job_input(
         "sparameter_mode": sparameter_mode,
         "tdr_observation_port": tdr_observation_port,
         "bucket_count": bucket_count,
+        "tdr_plot_time_stop_ps": tdr_plot_time_stop_ps,
     }
 
 
@@ -62,6 +64,7 @@ def run_brd_channel_score_worker(job: JobRecord, context: WorkerContext) -> dict
     sparameter_mode = str(payload.get("sparameter_mode") or "auto")
     tdr_observation_port = str(payload.get("tdr_observation_port") or "")
     bucket_count = int(payload.get("bucket_count", 128))
+    tdr_plot_time_stop_ps = float(payload.get("tdr_plot_time_stop_ps", 120.0))
 
     score = score_channel_result(
         touchstone_path,
@@ -95,6 +98,12 @@ def run_brd_channel_score_worker(job: JobRecord, context: WorkerContext) -> dict
         tdr_path=tdr_path,
         artifact_dir=artifact_dir,
         sparameter_mode=str(score["sparameter_mode"]),
+        frequency_start_ghz=frequency_start_ghz,
+        frequency_stop_ghz=frequency_stop_ghz,
+        rl_target_db=rl_target_db,
+        tdr_target_ohm=tdr_target_ohm,
+        tdr_tolerance_ohm=tdr_tolerance_ohm,
+        tdr_plot_time_stop_ps=tdr_plot_time_stop_ps,
     )
     score["plot_artifacts"] = plot_artifacts
     evidence_summary = _bounded_summary(score, sparameter_evidence)

@@ -38,6 +38,7 @@ def test_brd_channel_score_worker_outputs_bounded_evidence(tmp_path):
         artifact_dir=tmp_path / "artifacts",
         frequency_stop_ghz=67.0,
         rl_target_db=-20.0,
+        tdr_plot_time_stop_ps=20.0,
     )
     job = JobRecord.create("job-1", "mission-1", BRD_CHANNEL_SCORE_CAPABILITY, "score", payload, 300, 1)
 
@@ -57,6 +58,24 @@ def test_brd_channel_score_worker_outputs_bounded_evidence(tmp_path):
     assert Path(output["score"]["plot_artifacts"]["tdr"]).is_file()
     assert Path(output["score"]["plot_artifacts"]["s11"]).is_file()
     assert Path(output["score"]["plot_artifacts"]["s21"]).is_file()
+    tdr_svg = Path(output["score"]["plot_artifacts"]["tdr"]).read_text(
+        encoding="utf-8"
+    )
+    s11_svg = Path(output["score"]["plot_artifacts"]["s11"]).read_text(
+        encoding="utf-8"
+    )
+    s21_svg = Path(output["score"]["plot_artifacts"]["s21"]).read_text(
+        encoding="utf-8"
+    )
+    assert 'data-x-max="20"' in tdr_svg
+    assert 'data-y-min="80"' in tdr_svg
+    assert 'data-y-max="120"' in tdr_svg
+    assert "target 100 ohm" in tdr_svg
+    assert 'data-y-min="-40"' in s11_svg
+    assert 'data-y-max="0"' in s11_svg
+    assert "target -20 dB" in s11_svg
+    assert 'data-y-min="-5"' in s21_svg
+    assert 'data-y-max="1"' in s21_svg
     assert "0.00 0.05" not in str(output["evidence_summary"])
 
 

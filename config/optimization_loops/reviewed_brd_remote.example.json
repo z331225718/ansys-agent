@@ -25,6 +25,7 @@
   "rl_target_db": -17.0,
   "tdr_target_ohm": 90.0,
   "tdr_tolerance_ohm": 9.0,
+  "tdr_plot_time_stop_ps": 120.0,
   "geometry_constraints": {
     "anti_pad": {
       "max_radius_mil": 22
