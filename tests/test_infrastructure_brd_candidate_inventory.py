@@ -67,17 +67,25 @@ class FakePolygonData:
 
 
 class FakePrimitive:
-    def __init__(self) -> None:
-        self.id = 101
+    def __init__(
+        self,
+        primitive_id: int = 101,
+        primitive_type: str = "Polygon",
+    ) -> None:
+        self.id = primitive_id
         self.layer_name = "L2_GND"
         self.net_name = "GND"
         self.is_void = False
+        self.primitive_type = primitive_type
         self.polygon_data = FakePolygonData()
 
 
 class FakeModeler:
     def __init__(self) -> None:
-        self.primitives = [FakePrimitive()]
+        self.primitives = [
+            FakePrimitive(201, "Path"),
+            FakePrimitive(101, "Polygon"),
+        ]
 
     def get_primitives(self, **filters):
         return list(self.primitives)
@@ -119,6 +127,7 @@ def test_candidate_inventory_discovers_shape_ids_and_via_centers(tmp_path):
     anti_pad = inventory["anti_pad_shape_layers"][0]
     assert anti_pad["layer"] == "L2_GND"
     assert anti_pad["plane_shape_ids"] == ["101"]
+    assert "201" not in anti_pad["plane_shape_ids"]
     assert anti_pad["center_padstack_instance_ids"] == ["501", "502"]
     assert anti_pad["bridge_center_padstack_instance_ids"] == ["501", "502"]
     assert anti_pad["target_radius"] == {"value": 22.0, "unit": "mil"}

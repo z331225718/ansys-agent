@@ -148,11 +148,13 @@ class FakePrimitive:
         *,
         is_void: bool = False,
         inside: bool = True,
+        primitive_type: str = "Polygon",
     ) -> None:
         self.id = primitive_id
         self.layer_name = layer_name
         self.net_name = net_name
         self.is_void = is_void
+        self.primitive_type = primitive_type
         self.polygon_data = FakePolygonData(inside)
         self.voids = []
 
@@ -423,6 +425,46 @@ def test_model_edit_falls_back_to_primitive_add_void_when_modeler_returns_false(
     assert result.summary["changes"][0]["created_voids"][2][
         "added_to_shapes"
     ] == [101]
+
+
+def test_model_edit_rejects_path_primitives_as_void_hosts(tmp_path):
+    class ModelerWithPathTrace(FakeModeler):
+        def __init__(self) -> None:
+            super().__init__()
+            self.primitives.insert(
+                0,
+                FakePrimitive(
+                    303,
+                    "L06_GND",
+                    "TX_P",
+                    primitive_type="Path",
+                ),
+            )
+
+    class EdbWithPathTrace(FakeEdb):
+        def __init__(self, *, edbpath: str, version: str, grpc: bool | None):
+            super().__init__(edbpath=edbpath, version=version, grpc=grpc)
+            self.modeler = ModelerWithPathTrace()
+
+    request = _request(
+        tmp_path,
+        actions=[
+            {
+                "action_type": "anti_pad.enlarge",
+                "parasitic_target": "reviewed_test_parasitic",
+                "layers": ["L6_GND"],
+                "plane_shape_ids": [303],
+                "via_centers": [
+                    {"x": 1.0, "y": 2.0, "unit": "mm"},
+                    {"x": 1.9, "y": 2.0, "unit": "mm"},
+                ],
+                "target_diameter": {"value": 0.6, "unit": "mm"},
+            }
+        ],
+    )
+
+    with pytest.raises(ValueError, match="selected plane_shape_ids"):
+        BrdModelEditAdapter(edb_factory=EdbWithPathTrace).run(request)
 
 
 def test_model_edit_can_modify_existing_working_project(tmp_path):

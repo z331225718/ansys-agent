@@ -1250,6 +1250,8 @@ def _candidate_plane_shapes(
     for primitive in primitives:
         if _primitive_is_void(primitive):
             continue
+        if _primitive_is_path_like(primitive):
+            continue
         if _normalize_layer_name(_primitive_layer(primitive)) != _normalize_layer_name(
             layer
         ):
@@ -1970,6 +1972,23 @@ def _primitive_net(primitive: Any) -> str:
 
 def _primitive_is_void(primitive: Any) -> bool:
     return bool(getattr(primitive, "is_void", False))
+
+
+def _primitive_is_path_like(primitive: Any) -> bool:
+    for attr in (
+        "primitive_type",
+        "type",
+        "object_type",
+        "edb_object_type",
+        "primitive_object_type",
+    ):
+        value = getattr(primitive, attr, None)
+        if value is None:
+            continue
+        normalized = str(value).strip().casefold()
+        if normalized == "path" or normalized.rsplit(".", 1)[-1] == "path":
+            return True
+    return False
 
 
 def _required_string(action: dict[str, Any], key: str) -> str:

@@ -16,6 +16,7 @@ from aedt_agent.infrastructure.brd_model_edit import (
     _point_inside_shape,
     _primitive_id,
     _primitive_is_void,
+    _primitive_is_path_like,
     _primitive_layer,
     _primitive_net,
     _sidecar_edb,
@@ -308,6 +309,8 @@ def _primitive_layers_with_signal_centers(edb: Any, instances: list[Any]) -> lis
     for primitive in _modeler_primitives(modeler) if modeler is not None else []:
         if _primitive_is_void(primitive):
             continue
+        if _primitive_is_path_like(primitive):
+            continue
         layer = _primitive_layer(primitive)
         if not layer or layer in layers:
             continue
@@ -330,6 +333,8 @@ def _plane_shapes_containing_centers(
     candidates = []
     for primitive in _modeler_primitives(modeler):
         if _primitive_is_void(primitive):
+            continue
+        if _primitive_is_path_like(primitive):
             continue
         if _normalize_layer_name(_primitive_layer(primitive)) != _normalize_layer_name(layer):
             continue
