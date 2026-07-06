@@ -1844,13 +1844,13 @@ def _axis_aligned_tangent_rectangle_args(
 
 def _rectangle_representation_type(value: str) -> str:
     normalized = str(value).strip()
-    if normalized in {"lower_left_upper_right", "center_width_height"}:
+    if normalized in {"LowerLeftUpperRight", "CenterWidthHeight"}:
         return normalized
     key = normalized.replace("_", "").casefold()
     if key == "lowerleftupperright":
-        return "lower_left_upper_right"
+        return "LowerLeftUpperRight"
     if key == "centerwidthheight":
-        return "center_width_height"
+        return "CenterWidthHeight"
     return normalized
 
 

@@ -225,6 +225,8 @@ class FakeModeler:
         corner_radius="0mm",
         rotation="0deg",
     ):
+        if representation_type not in {"LowerLeftUpperRight", "CenterWidthHeight"}:
+            raise IndexError("string index out of range")
         primitive = FakePrimitive(
             self.next_id,
             layer_name,
