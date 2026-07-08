@@ -886,6 +886,147 @@ def test_decider_accepts_llm_selected_action_from_inventory(tmp_path, monkeypatc
     assert result.output_payload["loop_context"]["last_decision_source"] == "llm_proposed"
 
 
+def test_decider_merges_llm_action_index_with_inventory_candidate(
+    tmp_path,
+    monkeypatch,
+):
+    from aedt_agent.agent import llm as llm_module
+
+    monkeypatch.setattr(
+        llm_module.LlmConfig,
+        "from_env",
+        classmethod(
+            lambda cls, prefix="AEDT_AGENT_", *, profile="": cls(
+                model="test",
+                api_key="test-key",
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        llm_module,
+        "llm_complete_json",
+        lambda *args, **kwargs: {
+            "decision": "continue",
+            "selected_action": {
+                "action_index": 0,
+                "hypothesis": "TDR low maps to the reviewed L5 shape-backed region",
+            },
+            "reason": "reuse reviewed candidate geometry with LLM hypothesis",
+        },
+    )
+    fallback_action = {
+        "action_type": "anti_pad.enlarge",
+        "layers": ["L5"],
+        "plane_shape_ids": [105],
+        "center_padstack_instance_ids": [501, 502],
+        "bridge_center_padstack_instance_ids": [501, 502],
+        "target_radius": {"value": 22, "unit": "mil"},
+        "parameter_name": "l5_void_r",
+        "bridge_between_vias": True,
+        "constraints_checked": ["anti_pad_radius <= 22mil"],
+        "expected_effect": "increase_impedance",
+        "tdr_observation_port": "Diff1",
+        "tdr_port_orientation_evidence": "reviewed port map",
+        "risk": "watch for over-correction",
+        "rollback": "restore l5_void_r",
+    }
+    node = GraphNode(
+        "decide",
+        "decision_maker",
+        "agent",
+        handler="brd.optimization.decide_next_action",
+        input_schema="score_result",
+        output_schema="next_action",
+        profile="high_reasoning",
+    )
+    template = GraphTemplate(
+        "test",
+        1,
+        "",
+        [node],
+        [],
+        {
+            "score_result": HandoffSchema(
+                "score_result",
+                ["status", "score", "evidence_summary", "loop_context"],
+            ),
+            "next_action": HandoffSchema(
+                "next_action",
+                [
+                    "decision",
+                    "reason",
+                    "tdr_observation_port",
+                    "tdr_port_orientation_evidence",
+                    "constraints_checked",
+                    "risk",
+                    "rollback",
+                    "loop_context",
+                ],
+            ),
+        },
+    )
+    graph_run = GraphRunRecord.create("graph-1", "mission-1", "test", 1, 1)
+    node_run = NodeRunRecord.create(
+        "node-run-1",
+        graph_run.graph_run_id,
+        graph_run.mission_id,
+        node.node_id,
+        node.role,
+        node.kind,
+        1,
+        {},
+    )
+    context = GraphNodeExecutionContext(
+        runtime=None,
+        graph_run=graph_run,
+        node_run=node_run,
+        node=node,
+        template=template,
+        input_payload={
+            "status": "failed",
+            "score": {
+                "status": "fail",
+                "tdr_target_ohm": 90,
+                "tdr_min_impedance_ohm": 82,
+                "tdr_observation_port": "Diff1",
+            },
+            "evidence_summary": {
+                "status": "fail",
+                "tdr_observation_port": "Diff1",
+            },
+            "loop_context": {
+                "round_index": 1,
+                "max_rounds": 3,
+                "report_dir": str(tmp_path / "progress"),
+                "candidate_actions": [fallback_action],
+                "candidate_action_inventory": {
+                    "anti_pad_shape_layers": [
+                        {
+                            "layer": "L5",
+                            "plane_shape_ids": [105],
+                            "center_padstack_instance_ids": [501, 502],
+                            "bridge_center_padstack_instance_ids": [501, 502],
+                        }
+                    ]
+                },
+            },
+        },
+        run_index=1,
+        worker_id="test",
+    )
+
+    result = execute_graph_node(context)
+
+    assert result.status == NodeRunStatus.SUCCEEDED
+    assert result.outcome == "continue"
+    action = result.output_payload["selected_action"]
+    assert action["plane_shape_ids"] == [105]
+    assert action["center_padstack_instance_ids"] == [501, 502]
+    assert action["bridge_center_padstack_instance_ids"] == [501, 502]
+    assert action["hypothesis"] == "TDR low maps to the reviewed L5 shape-backed region"
+    assert result.output_payload["loop_context"]["last_decision_source"] == "llm_proposed"
+
+
 def test_decider_falls_back_when_llm_selected_action_invents_layer(
     tmp_path,
     monkeypatch,

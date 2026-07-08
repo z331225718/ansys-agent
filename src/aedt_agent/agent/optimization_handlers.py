@@ -610,7 +610,11 @@ def _select_candidate_action_with_llm(
         return None, str(result.get("reason") or normalized), "llm", normalized
     selected_action = result.get("selected_action") or result.get("action")
     if isinstance(selected_action, Mapping):
-        action = dict(selected_action)
+        action = _merge_llm_action_with_indexed_candidate(
+            dict(selected_action),
+            candidate_actions,
+            start_index=start_index,
+        )
         valid, validation_reason = _llm_selected_action_within_inventory(
             action,
             inventory,
@@ -635,6 +639,28 @@ def _select_candidate_action_with_llm(
         "llm",
         "continue",
     )
+
+
+def _merge_llm_action_with_indexed_candidate(
+    action: dict[str, Any],
+    candidate_actions: list[dict[str, Any]],
+    *,
+    start_index: int,
+) -> dict[str, Any]:
+    try:
+        action_index = int(action.get("action_index"))
+    except (TypeError, ValueError):
+        return action
+    if action_index < start_index or action_index >= len(candidate_actions):
+        return action
+    merged = dict(candidate_actions[action_index])
+    for key, value in action.items():
+        if value is None or value == "":
+            continue
+        if isinstance(value, (list, dict)) and not value:
+            continue
+        merged[key] = value
+    return merged
 
 
 def _allowed_decisions(context: GraphNodeExecutionContext) -> set[str]:

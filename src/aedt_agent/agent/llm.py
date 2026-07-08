@@ -161,7 +161,10 @@ def llm_complete(
 
     url = (config.base_url or "https://api.openai.com/v1").rstrip("/") + "/chat/completions"
 
-    max_retries = 3
+    # Transient server errors and gateway hiccups are common during long
+    # optimization loops; keep the retry budget bounded but less brittle.
+    max_retries = 6
+    base_backoff = 2.0
     last_error = None
     for attempt in range(max_retries):
         try:
@@ -170,7 +173,7 @@ def llm_complete(
             last_error = e
             if attempt < max_retries - 1 and _is_retryable(e):
                 import time as _time
-                _time.sleep(2 ** attempt)  # 1s, 2s, 4s
+                _time.sleep(base_backoff * (2 ** attempt))
                 continue
             raise
     raise last_error  # type: ignore[misc]

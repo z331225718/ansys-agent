@@ -162,6 +162,10 @@ class FakePrimitive:
         self.voids.append(void_shape)
         return True
 
+    def subtract(self, void_shape):
+        self.voids.append(void_shape)
+        return True
+
 
 class FakeModeler:
     def __init__(self) -> None:
@@ -421,6 +425,41 @@ def test_model_edit_falls_back_to_primitive_add_void_when_modeler_returns_false(
     result = BrdModelEditAdapter(
         edb_factory=EdbWithPrimitiveVoidFallback
     ).run(request)
+
+    shape = FakeEdb.last_instance.modeler.primitives[0]
+    assert len(shape.voids) == 3
+    assert result.summary["changes"][0]["created_voids"][2][
+        "added_to_shapes"
+    ] == [101]
+
+
+def test_model_edit_falls_back_to_primitive_subtract_when_add_void_returns_false(
+    tmp_path,
+):
+    class PrimitiveAddVoidFalse(FakePrimitive):
+        def add_void(self, void_shape):
+            return False
+
+    class ModelerAddVoidFalse(FakeModeler):
+        def __init__(self) -> None:
+            super().__init__()
+            self.primitives = [
+                PrimitiveAddVoidFalse(101, "L06_GND", "GND"),
+                PrimitiveAddVoidFalse(102, "L05", "GND"),
+                PrimitiveAddVoidFalse(202, "L06_GND", "GND", inside=False),
+            ]
+
+        def add_void(self, shape, void_shape):
+            return False
+
+    class EdbWithSubtractFallback(FakeEdb):
+        def __init__(self, *, edbpath: str, version: str, grpc: bool | None):
+            super().__init__(edbpath=edbpath, version=version, grpc=grpc)
+            self.modeler = ModelerAddVoidFalse()
+
+    request = _request(tmp_path)
+
+    result = BrdModelEditAdapter(edb_factory=EdbWithSubtractFallback).run(request)
 
     shape = FakeEdb.last_instance.modeler.primitives[0]
     assert len(shape.voids) == 3

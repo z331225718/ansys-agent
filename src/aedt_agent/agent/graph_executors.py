@@ -141,7 +141,7 @@ def execute_agent_node(
         if fallback is not None:
             return fallback
         return GraphNodeExecutionResult(
-            NodeRunStatus.FAILED, "failed", {},
+            NodeRunStatus.FAILED, "failed", {}, [],
             error={"error_class": "agent_no_prompt", "message": "agent node has no system_prompt"},
         )
 
@@ -187,12 +187,20 @@ def execute_agent_node(
         if fallback is not None:
             return fallback
         return GraphNodeExecutionResult(
-            NodeRunStatus.FAILED, "failed", {},
+            NodeRunStatus.FAILED, "failed", {}, [],
             error={"error_class": "agent_llm_unavailable", "message": str(e)},
         )
     except Exception as e:
+        fallback = _execute_agent_fallback(
+            context,
+            registry=registry,
+            constraints=constraints,
+            reason=str(e),
+        )
+        if fallback is not None:
+            return fallback
         return GraphNodeExecutionResult(
-            NodeRunStatus.FAILED, "failed", {},
+            NodeRunStatus.FAILED, "failed", {}, [],
             error={"error_class": "agent_llm_error", "message": str(e)},
         )
 
@@ -204,7 +212,7 @@ def execute_agent_node(
         output = _extract_json_from_markdown(raw)
     if not isinstance(output, dict):
         return GraphNodeExecutionResult(
-            NodeRunStatus.FAILED, "failed", {},
+            NodeRunStatus.FAILED, "failed", {}, [],
             error={"error_class": "agent_output_not_json", "message": "agent output is not valid JSON"},
         )
 
@@ -241,7 +249,7 @@ def execute_agent_node(
             validate_handoff(schema, output)
         except HandoffValidationError as e:
             return GraphNodeExecutionResult(
-                NodeRunStatus.FAILED, "failed", output,
+                NodeRunStatus.FAILED, "failed", output, [],
                 error={"error_class": "agent_handoff_invalid", "message": str(e)},
             )
 

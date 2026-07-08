@@ -1497,8 +1497,16 @@ def _add_void(edb: Any, shape: Any, void_shape: Any) -> None:
             "primitive",
         ):
             return
-    if not callable(add_void) and not callable(primitive_add_void):
-        raise ValueError("EDB modeler.add_void or primitive.add_void is required")
+    if _subtract_void(shape, void_shape, failures):
+        return
+    has_subtract = any(
+        callable(getattr(shape, method_name, None))
+        for method_name in ("subtract", "subtract_void")
+    )
+    if not callable(add_void) and not callable(primitive_add_void) and not has_subtract:
+        raise ValueError(
+            "EDB modeler.add_void, primitive.add_void, or primitive.subtract is required"
+        )
     details = "; ".join(failures) if failures else "no add_void API succeeded"
     raise RuntimeError(f"failed to add anti-pad void to plane shape: {details}")
 
@@ -1527,6 +1535,25 @@ def _try_add_void(
             return False
         return True
     failures.append(f"{label}.add_void signature did not accept known arguments")
+    return False
+
+
+def _subtract_void(shape: Any, void_shape: Any, failures: list[str]) -> bool:
+    for method_name in ("subtract", "subtract_void"):
+        subtract = getattr(shape, method_name, None)
+        if not callable(subtract):
+            continue
+        try:
+            result = subtract(void_shape)
+        except Exception as exc:
+            failures.append(
+                f"primitive.{method_name} raised {type(exc).__name__}: {exc}"
+            )
+            return False
+        if result is False:
+            failures.append(f"primitive.{method_name} returned False")
+            return False
+        return True
     return False
 
 

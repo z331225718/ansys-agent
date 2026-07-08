@@ -416,3 +416,43 @@ def test_agent_node_uses_decision_as_edge_outcome(tmp_path, monkeypatch):
     assert result.status == NodeRunStatus.SUCCEEDED
     assert result.outcome == "continue"
     assert result.output_payload["reason"] == "bounded next step"
+
+
+def test_agent_node_uses_handler_fallback_after_llm_error(tmp_path, monkeypatch):
+    runtime, _, graph_run = _runtime(tmp_path)
+    registry = GraphNodeExecutorRegistry()
+    registry.register(
+        "fallback.handler",
+        lambda context: {
+            "status": "succeeded",
+            "outcome": "continue",
+            "output_payload": {"decision": "continue", "reason": "fallback"},
+            "artifact_refs": [],
+        },
+    )
+    node = GraphNode(
+        "decider",
+        "decision_maker",
+        "agent",
+        system_prompt="decide",
+        handler="fallback.handler",
+        profile="low_cost",
+    )
+    template = _template(node)
+
+    def fake_complete(*args, **kwargs):
+        raise TimeoutError("gateway timeout")
+
+    monkeypatch.setenv("AEDT_AGENT_LLM_API_KEY", "test")
+    monkeypatch.setattr("aedt_agent.agent.llm.llm_complete", fake_complete)
+
+    result = execute_graph_node(
+        _context(runtime, graph_run, node, template, {"score": {"status": "fail"}}),
+        registry=registry,
+    )
+
+    assert result.status == NodeRunStatus.SUCCEEDED
+    assert result.outcome == "continue"
+    assert result.output_payload["reason"] == "fallback"
+    assert result.output_payload["agent_fallback"]["status"] == "used"
+    assert result.output_payload["agent_fallback"]["reason"] == "gateway timeout"
