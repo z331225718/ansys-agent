@@ -91,20 +91,39 @@ def build_brd_optimization_summary(
         summary = dict(payload.get("summary") or {})
         for change in summary.get("changes") or []:
             if isinstance(change, Mapping):
+                change_record = {
+                    "edit_index": index,
+                    "action_type": change.get("action_type"),
+                    "layer": change.get("layer"),
+                    "requested_layer": change.get("requested_layer"),
+                    "property": change.get("property"),
+                    "implementation": change.get("implementation"),
+                    "parasitic_target": change.get("parasitic_target"),
+                    "center_source": change.get("center_source"),
+                    "parameters": change.get("parameters") or {},
+                    "selected_shapes": change.get("selected_shapes") or [],
+                    "center_refs": change.get("center_refs") or [],
+                    "via_centers": change.get("via_centers") or [],
+                    "created_voids": change.get("created_voids") or [],
+                    "created_shapes": change.get("created_shapes") or [],
+                    "manifest_path": str(
+                        Path(model_edit_manifest_paths[index - 1])
+                    ),
+                }
+                change_record["layout_instruction"] = _layout_instruction(
+                    change_record
+                )
                 changes.append(
                     {
-                        "edit_index": index,
-                        "action_type": change.get("action_type"),
-                        "layer": change.get("layer"),
-                        "requested_layer": change.get("requested_layer"),
-                        "property": change.get("property"),
-                        "implementation": change.get("implementation"),
-                        "parasitic_target": change.get("parasitic_target"),
-                        "center_source": change.get("center_source"),
-                        "parameters": change.get("parameters") or {},
-                        "manifest_path": str(
-                            Path(model_edit_manifest_paths[index - 1])
-                        ),
+                        key: value
+                        for key, value in change_record.items()
+                        if key
+                        not in {
+                            "created_voids",
+                            "created_shapes",
+                            "selected_shapes",
+                            "via_centers",
+                        }
                     }
                 )
     final = rounds[-1] if rounds else {}
@@ -121,6 +140,11 @@ def build_brd_optimization_summary(
         "history_rows": history_rows,
         "history_columns": OPTIMIZATION_HISTORY_COLUMNS,
         "changes": changes,
+        "layout_change_instructions": [
+            change.get("layout_instruction")
+            for change in changes
+            if change.get("layout_instruction")
+        ],
         "score_evidence_paths": [str(Path(path)) for path in score_evidence_paths],
         "model_edit_manifest_paths": [
             str(Path(path)) for path in model_edit_manifest_paths
@@ -197,6 +221,8 @@ def render_brd_optimization_report_html(summary: Mapping[str, Any]) -> str:
       <td>{_e(final_score.get("tdr_peak_deviation_ohm"))} ohm @ {_e(final_score.get("tdr_peak_time_ps"))} ps</td>
     </tr>
   </table>
+  <h2>Layout 修改指引</h2>
+  {_layout_instructions_table(summary.get("layout_change_instructions"))}
   <h2>修改记录</h2>
   {_changes_table(summary.get("changes"))}
   <h2>优化历史</h2>
@@ -221,15 +247,44 @@ def _changes_table(changes: Any) -> str:
             f"<td>{_e(change.get('implementation'))}</td>"
             f"<td>{_e(change.get('parasitic_target'))}</td>"
             f"<td>{_e(_parameter_names(change.get('parameters')))}</td>"
+            f"<td>{_e(_layout_instruction_text(change.get('layout_instruction')))}</td>"
             f"<td><code>{_e(change.get('manifest_path'))}</code></td>"
             "</tr>"
         )
     if not rows:
-        rows.append("<tr><td colspan=\"8\">无模型修改记录</td></tr>")
+        rows.append("<tr><td colspan=\"9\">无模型修改记录</td></tr>")
     return (
         "<table><tr><th>#</th><th>Action</th><th>Layer</th><th>Property</th>"
         "<th>Implementation</th><th>Target</th><th>Parameters</th>"
-        "<th>Manifest</th></tr>"
+        "<th>Layout Instruction</th><th>Manifest</th></tr>"
+        f"{''.join(rows)}</table>"
+    )
+
+
+def _layout_instructions_table(instructions: Any) -> str:
+    rows = []
+    for item in instructions if isinstance(instructions, list) else []:
+        if not isinstance(item, Mapping):
+            continue
+        rows.append(
+            "<tr>"
+            f"<td>{_e(item.get('edit_index'))}</td>"
+            f"<td>{_e(item.get('action_type'))}</td>"
+            f"<td>{_e(item.get('layer'))}</td>"
+            f"<td>{_e(item.get('operation'))}</td>"
+            f"<td>{_e(item.get('dimensions'))}</td>"
+            f"<td>{_e(item.get('centers'))}</td>"
+            f"<td>{_e(item.get('shape_ids'))}</td>"
+            f"<td>{_e(item.get('nets'))}</td>"
+            f"<td>{_e(item.get('note'))}</td>"
+            "</tr>"
+        )
+    if not rows:
+        rows.append("<tr><td colspan=\"9\">无模型修改记录；若 baseline 已达标，请保留当前 layout。</td></tr>")
+    return (
+        "<table><tr><th>#</th><th>Action</th><th>Layer</th><th>Operation</th>"
+        "<th>尺寸</th><th>中心/坐标</th><th>Shape/对象</th><th>Net</th>"
+        "<th>说明</th></tr>"
         f"{''.join(rows)}</table>"
     )
 
@@ -585,6 +640,153 @@ def _target_diameter(change: Mapping[str, Any]) -> str:
         if isinstance(item, Mapping):
             values.append(item.get("diameter_m"))
     return _join_unique(values)
+
+
+def _layout_instruction(change: Mapping[str, Any]) -> dict[str, Any]:
+    action_type = str(change.get("action_type") or "")
+    layer = str(change.get("requested_layer") or change.get("layer") or "")
+    dimensions = _layout_dimensions(change)
+    centers = _layout_centers(change)
+    shape_ids = _layout_shape_ids(change)
+    nets = _layout_nets(change)
+    if action_type == "anti_pad.enlarge":
+        operation = "在指定 plane/shape 上挖 anti-pad void"
+        note = (
+            "按 listed centers 画圆形 void；如含 bridge，按 bridge 起止点加矩形/跑道挖空。"
+        )
+    elif action_type == "non_functional_pad.add_or_enlarge":
+        operation = "在机械孔/过孔中心画显式 signal-net 圆形焊盘"
+        note = "不要改 padstack NFP；在对应层直接画 circle shape。"
+    else:
+        operation = str(change.get("property") or "")
+        note = ""
+    return {
+        "edit_index": change.get("edit_index"),
+        "action_type": action_type,
+        "layer": layer,
+        "operation": operation,
+        "dimensions": dimensions,
+        "centers": centers,
+        "shape_ids": shape_ids,
+        "nets": nets,
+        "parasitic_target": change.get("parasitic_target"),
+        "note": note,
+        "manifest_path": change.get("manifest_path"),
+    }
+
+
+def _layout_instruction_text(value: Any) -> str:
+    if not isinstance(value, Mapping):
+        return ""
+    parts = [
+        value.get("operation"),
+        f"尺寸: {value.get('dimensions')}" if value.get("dimensions") else "",
+        f"中心: {value.get('centers')}" if value.get("centers") else "",
+        f"Shape: {value.get('shape_ids')}" if value.get("shape_ids") else "",
+        f"Net: {value.get('nets')}" if value.get("nets") else "",
+    ]
+    return "；".join(str(part) for part in parts if part)
+
+
+def _layout_dimensions(change: Mapping[str, Any]) -> str:
+    created = _created_items(change)
+    values = []
+    for item in created:
+        radius_m = _float_or_none(item.get("radius_m"))
+        diameter_m = _float_or_none(item.get("diameter_m"))
+        radius_expr = item.get("radius_expression")
+        width_expr = item.get("width_expression")
+        length_m = _float_or_none(item.get("length_m"))
+        if radius_m is not None:
+            values.append(f"R={_m_to_mil(radius_m):.3g}mil/{radius_m * 1000:.4g}mm")
+        elif radius_expr:
+            values.append(f"R={radius_expr}")
+        if diameter_m is not None:
+            values.append(f"D={_m_to_mil(diameter_m):.3g}mil/{diameter_m * 1000:.4g}mm")
+        if width_expr:
+            values.append(f"bridge_width={width_expr}")
+        if length_m is not None:
+            values.append(f"bridge_length={_m_to_mil(length_m):.3g}mil/{length_m * 1000:.4g}mm")
+    return _join_unique(values)
+
+
+def _layout_centers(change: Mapping[str, Any]) -> str:
+    created = _created_items(change)
+    center_values = []
+    for item in created:
+        center = item.get("center")
+        if isinstance(center, Mapping):
+            center_values.append(_point_text(center))
+        rectangle = item.get("rectangle")
+        if isinstance(rectangle, Mapping):
+            start = rectangle.get("engineering_start_point")
+            end = rectangle.get("engineering_end_point")
+            if isinstance(start, list) and isinstance(end, list):
+                center_values.append(
+                    f"bridge {_point_list_text(start)} -> {_point_list_text(end)}"
+                )
+    if not center_values:
+        for center in change.get("via_centers") or []:
+            if isinstance(center, Mapping):
+                center_values.append(_point_text(center))
+    return _join_unique(center_values)
+
+
+def _layout_shape_ids(change: Mapping[str, Any]) -> str:
+    values = []
+    for shape in change.get("selected_shapes") or []:
+        if isinstance(shape, Mapping):
+            values.append(shape.get("id"))
+    for item in _created_items(change):
+        values.extend(item.get("added_to_shapes") or [])
+        primitive = item.get("primitive")
+        if isinstance(primitive, Mapping):
+            values.append(primitive.get("id"))
+    return _join_unique(values)
+
+
+def _layout_nets(change: Mapping[str, Any]) -> str:
+    values = []
+    for item in _created_items(change):
+        values.append(item.get("net"))
+    return _join_unique(values)
+
+
+def _created_items(change: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    created = change.get("created_voids") or change.get("created_shapes") or []
+    return [item for item in created if isinstance(item, Mapping)]
+
+
+def _point_text(point: Mapping[str, Any]) -> str:
+    x = _float_or_none(point.get("x"))
+    y = _float_or_none(point.get("y"))
+    unit = str(point.get("unit") or "")
+    if x is None or y is None:
+        return ""
+    if unit == "m":
+        return f"({x * 1000:.6g}mm, {y * 1000:.6g}mm)"
+    return f"({x:.6g}{unit}, {y:.6g}{unit})"
+
+
+def _point_list_text(values: list[Any]) -> str:
+    if len(values) < 2:
+        return ""
+    x = _float_or_none(values[0])
+    y = _float_or_none(values[1])
+    if x is None or y is None:
+        return ""
+    return f"({x * 1000:.6g}mm, {y * 1000:.6g}mm)"
+
+
+def _m_to_mil(value_m: float) -> float:
+    return value_m / 0.0000254
+
+
+def _float_or_none(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _join_unique(values: Any) -> str:

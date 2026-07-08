@@ -43,7 +43,11 @@ def _score_evidence(path: Path) -> str:
             "tdr_flatness_msd_ohm2": 2.0,
             "rl_violation_sum_db": 4.5,
             "optimization_objective": {"total_cost": 14.5},
-            "plot_artifacts": {},
+            "plot_artifacts": {
+                "tdr": "tdr.svg",
+                "sdd11": "sdd11.svg",
+                "sdd21": "sdd21.svg",
+            },
             "samples": {"sparameter_count": 3, "tdr_count": 4},
         },
         "evidence_summary": {
@@ -107,6 +111,9 @@ def test_final_report_worker_returns_scorecard_report(tmp_path):
 
     assert output["status"] == "passed"
     assert output["checks"][0]["id"] == "raw_trace_policy"
+    assert next(check for check in output["checks"] if check["id"] == "required_plots")[
+        "status"
+    ] == "passed"
     assert Path(output["optimization_history_csv"]).is_file()
     assert output["optimization_history_rows"][0]["score_status"] == "fail"
     assert output["artifact_refs"] == [

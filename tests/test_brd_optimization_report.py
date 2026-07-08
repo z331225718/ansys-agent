@@ -44,9 +44,48 @@ def test_brd_optimization_report_lists_changes_and_plots(tmp_path):
                         {
                             "action_type": "anti_pad.enlarge",
                             "requested_layer": "L2_GND",
+                            "layer": "L02_GND",
                             "property": "plane_shape_void",
                             "implementation": "shape",
                             "parasitic_target": "l1_ball",
+                            "parameters": {
+                                "name": "l02_void_r",
+                                "value": "20mil",
+                            },
+                            "selected_shapes": [{"id": 173575}],
+                            "via_centers": [
+                                {"x": 0.299946568, "y": 0.122, "unit": "m"}
+                            ],
+                            "created_voids": [
+                                {
+                                    "type": "circle",
+                                    "center": {
+                                        "x": 0.299946568,
+                                        "y": 0.122,
+                                        "unit": "m",
+                                    },
+                                    "radius_m": 0.000508,
+                                    "diameter_m": 0.001016,
+                                    "radius_expression": "$l02_void_r",
+                                    "added_to_shapes": [173575],
+                                },
+                                {
+                                    "type": "rectangle_bridge",
+                                    "length_m": 0.0009,
+                                    "width_expression": "2.0*$l02_void_r",
+                                    "rectangle": {
+                                        "engineering_start_point": [
+                                            0.299946568,
+                                            0.122508,
+                                        ],
+                                        "engineering_end_point": [
+                                            0.300846568,
+                                            0.121492,
+                                        ],
+                                    },
+                                    "added_to_shapes": [173575],
+                                },
+                            ],
                         }
                     ]
                 }
@@ -63,8 +102,13 @@ def test_brd_optimization_report_lists_changes_and_plots(tmp_path):
 
     assert summary["status"] == "pass"
     assert summary["change_count"] == 1
+    assert summary["layout_change_instructions"][0]["shape_ids"] == "173575"
     assert summary["final_score"]["return_loss_trace"] == "SDD11"
+    assert "Layout 修改指引" in html
     assert "anti_pad.enlarge" in html
+    assert "20mil" in html
+    assert "299.947mm" in html
+    assert "173575" in html
     assert "sdd11.svg" in html
     assert "sdd21.svg" in html
 

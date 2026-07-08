@@ -56,6 +56,7 @@ def run_brd_optimization_report_worker(
     payload = dict(job.input_payload)
     loop_context = _loop_context(payload)
     report = _write_progress_artifacts(loop_context, context=context)
+    final_score = dict(report.get("final_score") or {})
     checks = [
         {
             "id": "raw_trace_policy",
@@ -71,6 +72,11 @@ def run_brd_optimization_report_worker(
             "id": "optimization_report_html",
             "status": "passed" if report.get("report_html") else "failed",
             "message": str(report.get("report_html") or ""),
+        },
+        {
+            "id": "required_plots",
+            "status": "passed" if _has_required_plots(final_score) else "failed",
+            "message": "final report must include TDR plus SDD11/SDD21 plot artifacts",
         },
     ]
     status = "passed" if all(check["status"] == "passed" for check in checks) else "failed"
@@ -94,6 +100,7 @@ def run_brd_optimization_report_worker(
             "optimization_history_csv": report["optimization_history_csv"],
             "report_json": report["report_json"],
             "report_html": report["report_html"],
+            "final_score": final_score,
             "artifact_refs": [
                 report["optimization_history_csv"],
                 report["report_json"],
@@ -170,3 +177,15 @@ def _unique(values: list[Any]) -> list[str]:
         if text and text not in result:
             result.append(text)
     return result
+
+
+def _has_required_plots(final_score: Mapping[str, Any]) -> bool:
+    plots = final_score.get("plot_artifacts")
+    if not isinstance(plots, Mapping):
+        return False
+    required = ["tdr"]
+    if str(final_score.get("sparameter_mode") or "").casefold() == "single_ended":
+        required.extend(["s11", "s21"])
+    else:
+        required.extend(["sdd11", "sdd21"])
+    return all(str(plots.get(name) or "").strip() for name in required)
