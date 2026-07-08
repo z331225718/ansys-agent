@@ -233,6 +233,7 @@ def test_render_channel_score_html_contains_chinese_sections():
         "tdr_anomaly_window": {"start_ps": 10.0, "stop_ps": 30.0},
         "diagnosis": ["0-26.56GHz 内 RL 未达到 -20dB 目标。"],
         "sources": {"touchstone": "case.s2p", "tdr": "tdr.csv"},
+        "plot_artifacts": {"tdr": "tdr.svg", "s11": "s11.svg", "s21": "s21.svg"},
         "samples": {"sparameter_count": 3, "tdr_count": 4},
     }
 
@@ -242,6 +243,7 @@ def test_render_channel_score_html_contains_chinese_sections():
     assert "回波损耗" in html
     assert "TDR" in html
     assert "优化目标函数" in html
+    assert '<object data="tdr.svg" type="image/svg+xml"' in html
     assert "-12.041" in html
     assert "case.s2p" in html
 

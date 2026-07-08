@@ -20,7 +20,7 @@ def render_channel_score_html(score: Mapping[str, Any]) -> str:
     .card b{{display:block;color:#5f6b7a;font-size:12px;margin-bottom:5px}}
     .plots{{display:grid;grid-template-columns:1fr;gap:14px}}
     .plot{{background:white;border:1px solid #d8dee8;border-radius:8px;padding:10px}}
-    .plot img{{width:100%;height:auto;display:block}}
+    .plot img,.plot object{{width:100%;height:auto;display:block;min-height:360px}}
     table{{width:100%;border-collapse:collapse;background:white;border:1px solid #d8dee8}}
     th,td{{border-bottom:1px solid #e5e9f0;padding:9px 10px;text-align:left;font-size:13px}}
     th{{background:#eef2f6}}
@@ -77,13 +77,24 @@ def _plot_section(plots: Any) -> str:
     for name in ("tdr", "sdd11", "sdd21", "s11", "s21"):
         path = plots.get(name)
         if path:
-            cards.append(
-                f'<div class="plot"><b>{_e(name.upper())}</b>'
-                f'<img src="{_e(path)}" alt="{_e(name.upper())}"></div>'
-            )
+            cards.append(_plot_card(name, path))
     if not cards:
         return ""
     return f"<h2>曲线</h2><div class=\"plots\">{''.join(cards)}</div>"
+
+
+def _plot_card(name: str, path: Any) -> str:
+    label = _e(name.upper())
+    escaped_path = _e(path)
+    if str(path).casefold().endswith(".svg"):
+        media = (
+            f'<object data="{escaped_path}" type="image/svg+xml" '
+            f'aria-label="{label} plot">'
+            f'<img src="{escaped_path}" alt="{label}"></object>'
+        )
+    else:
+        media = f'<img src="{escaped_path}" alt="{label}">'
+    return f'<div class="plot"><b>{label}</b>{media}</div>'
 
 
 def _e(value: Any) -> str:

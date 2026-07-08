@@ -75,7 +75,10 @@ def test_brd_channel_score_worker_outputs_bounded_evidence(tmp_path):
     assert 'data-y-max="0"' in s11_svg
     assert "target -20 dB" in s11_svg
     assert 'data-y-min="-5"' in s21_svg
-    assert 'data-y-max="1"' in s21_svg
+    assert 'data-y-max="0"' in s21_svg
+    assert 'class="grid x-grid"' in s21_svg
+    assert 'class="hover-points"' in s21_svg
+    assert "<title>Frequency (GHz): 18; Magnitude (dB):" in s21_svg
     assert "0.00 0.05" not in str(output["evidence_summary"])
 
 

@@ -109,6 +109,7 @@ def test_brd_optimization_report_lists_changes_and_plots(tmp_path):
     assert "20mil" in html
     assert "299.947mm" in html
     assert "173575" in html
+    assert '<object data="tdr.svg" type="image/svg+xml"' in html
     assert "sdd11.svg" in html
     assert "sdd21.svg" in html
 

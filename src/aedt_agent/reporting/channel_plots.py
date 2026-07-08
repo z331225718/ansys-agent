@@ -180,6 +180,10 @@ def _write_svg(
     for value in x_ticks:
         x = sx(value)
         tick_markup.append(
+            f'<line class="grid x-grid" x1="{x:.2f}" y1="{margin_top}" '
+            f'x2="{x:.2f}" y2="{margin_top + plot_height}" />'
+        )
+        tick_markup.append(
             f'<line x1="{x:.2f}" y1="{margin_top + plot_height}" '
             f'x2="{x:.2f}" y2="{margin_top + plot_height + 5}" />'
         )
@@ -219,13 +223,25 @@ def _write_svg(
                 f'y="{y - 5:.2f}" text-anchor="end">{html.escape(label)}</text>'
             )
 
+    point_markup = []
+    for x_value, y_value in points:
+        point_markup.append(
+            f'<circle class="hit-point" cx="{sx(x_value):.2f}" '
+            f'cy="{sy(y_value):.2f}" r="5">'
+            f"<title>{html.escape(_point_title(x_label, y_label, x_value, y_value))}</title>"
+            "</circle>"
+        )
+
     path.write_text(
         f"""<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">
 <style>
   text {{ font-family: Arial, 'Microsoft YaHei', sans-serif; font-size: 12px; fill: #1f2933; }}
   .axis {{ stroke: #263445; stroke-width: 1.2; }}
   .grid {{ stroke: #d8dee8; stroke-width: 1; }}
+  .x-grid {{ stroke: #edf1f6; }}
   .trace {{ fill: none; stroke: #0067b1; stroke-width: 2; }}
+  .hit-point {{ fill: transparent; stroke: transparent; pointer-events: all; }}
+  .hit-point:hover {{ fill: #0067b1; fill-opacity: .18; stroke: #0067b1; stroke-width: 1; }}
   .target {{ stroke: #d13438; stroke-width: 1.4; stroke-dasharray: 6 5; }}
   .limit {{ stroke: #f59e0b; stroke-width: 1.1; stroke-dasharray: 4 5; }}
   .target-label, .limit-label {{ font-size: 11px; fill: #52616f; }}
@@ -240,6 +256,7 @@ def _write_svg(
 {''.join(tick_markup)}
 {''.join(marker_markup)}
 <polyline class="trace" points="{polyline}" />
+<g class="hover-points">{''.join(point_markup)}</g>
 <text x="{margin_left + plot_width / 2:.2f}" y="{height - 6}" text-anchor="middle">{html.escape(x_label)}</text>
 <text transform="translate(16 {margin_top + plot_height / 2:.2f}) rotate(-90)" text-anchor="middle">{html.escape(y_label)}</text>
 </svg>
@@ -335,8 +352,7 @@ def _return_loss_y_range(values: list[float]) -> tuple[float, float]:
 
 def _insertion_loss_y_range(values: list[float]) -> tuple[float, float]:
     bottom = min(-5.0, math.floor(min(values) / 5.0) * 5.0)
-    top = max(1.0, math.ceil(max(values) / 1.0) * 1.0)
-    return bottom, top
+    return bottom, 0.0
 
 
 def _tdr_y_range(
@@ -406,3 +422,12 @@ def _round_up(value: float, step: float) -> float:
 
 def _fmt_attr(value: float) -> str:
     return f"{value:g}"
+
+
+def _point_title(
+    x_label: str,
+    y_label: str,
+    x_value: float,
+    y_value: float,
+) -> str:
+    return f"{x_label}: {x_value:.6g}; {y_label}: {y_value:.6g}"

@@ -198,7 +198,7 @@ def render_brd_optimization_report_html(summary: Mapping[str, Any]) -> str:
     th{{background:#eef2f6}} code{{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}}
     .plots{{display:grid;grid-template-columns:1fr;gap:14px}}
     .plot{{background:white;border:1px solid #d8dee8;border-radius:8px;padding:10px}}
-    .plot img{{width:100%;height:auto;display:block}}
+    .plot img,.plot object{{width:100%;height:auto;display:block;min-height:360px}}
   </style>
 </head>
 <body><main>
@@ -346,11 +346,22 @@ def _plot_section(plots: Any) -> str:
     for name in ("tdr", "sdd11", "sdd21", "s11", "s21"):
         path = plots.get(name)
         if path:
-            cards.append(
-                f'<div class="plot"><b>{_e(name.upper())}</b>'
-                f'<img src="{_e(path)}" alt="{_e(name.upper())}"></div>'
-            )
+            cards.append(_plot_card(name, path))
     return f"<div class=\"plots\">{''.join(cards)}</div>" if cards else "<p>未找到曲线 artifact。</p>"
+
+
+def _plot_card(name: str, path: Any) -> str:
+    label = _e(name.upper())
+    escaped_path = _e(path)
+    if str(path).casefold().endswith(".svg"):
+        media = (
+            f'<object data="{escaped_path}" type="image/svg+xml" '
+            f'aria-label="{label} plot">'
+            f'<img src="{escaped_path}" alt="{label}"></object>'
+        )
+    else:
+        media = f'<img src="{escaped_path}" alt="{label}">'
+    return f'<div class="plot"><b>{label}</b>{media}</div>'
 
 
 def _load_json(path: str | Path) -> dict[str, Any]:
