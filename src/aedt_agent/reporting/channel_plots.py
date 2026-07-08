@@ -20,10 +20,14 @@ def write_channel_plot_artifacts(
     tdr_target_ohm: float | None = None,
     tdr_tolerance_ohm: float | None = None,
     tdr_plot_time_stop_ps: float | None = 120.0,
+    reference_impedance_ohm: float | None = None,
 ) -> dict[str, str]:
     output_dir = Path(artifact_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    sparameter_samples = parse_touchstone(Path(touchstone_path))
+    sparameter_samples = parse_touchstone(
+        Path(touchstone_path),
+        reference_impedance_ohm=reference_impedance_ohm,
+    )
     tdr_samples = parse_tdr_csv(Path(tdr_path))
     trace_config = _trace_config(sparameter_samples, sparameter_mode)
     sparameter_points = _filter_sparameter_samples(

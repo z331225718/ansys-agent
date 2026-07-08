@@ -472,7 +472,22 @@ def _salvage_brd_real_solve_result(
         "frequency_stop_ghz": float(payload.get("frequency_stop_ghz", 67.0)),
         "rl_target_db": float(payload.get("rl_target_db", -20.0)),
         "tdr_target_ohm": float(payload.get("tdr_target_ohm", 100.0)),
+        "tdr_reference_impedance_ohm": float(
+            payload.get(
+                "tdr_reference_impedance_ohm",
+                payload.get("tdr_target_ohm", 100.0),
+            )
+        ),
         "tdr_observation_port": str(payload.get("tdr_observation_port") or ""),
+        "reference_impedance_ohm": float(
+            payload.get(
+                "reference_impedance_ohm",
+                payload.get(
+                    "sparameter_reference_impedance_ohm",
+                    payload.get("tdr_target_ohm", 100.0),
+                ),
+            )
+        ),
         "sparameter_mode": str(payload.get("sparameter_mode") or "auto"),
         "loop_context": loop_context,
         "evidence_summary": {
@@ -480,6 +495,21 @@ def _salvage_brd_real_solve_result(
             "raw_sparameters": "artifact_only",
             "raw_tdr": "artifact_only",
             "tdr_observation_port": str(payload.get("tdr_observation_port") or ""),
+            "tdr_reference_impedance_ohm": float(
+                payload.get(
+                    "tdr_reference_impedance_ohm",
+                    payload.get("tdr_target_ohm", 100.0),
+                )
+            ),
+            "reference_impedance_ohm": float(
+                payload.get(
+                    "reference_impedance_ohm",
+                    payload.get(
+                        "sparameter_reference_impedance_ohm",
+                        payload.get("tdr_target_ohm", 100.0),
+                    ),
+                )
+            ),
             "sparameter_mode": str(payload.get("sparameter_mode") or "auto"),
             "artifact_refs": refs,
             "harness_salvaged_after_missing_result": True,

@@ -57,6 +57,26 @@ def test_parse_touchstone_reads_s4p_differential_samples(tmp_path):
     assert samples[0]["s21_db"] == samples[0]["sdd21_db"]
 
 
+def test_parse_touchstone_renormalizes_s4p_to_configured_diff90(tmp_path):
+    path = tmp_path / "case.s4p"
+    path.write_text(
+        "# GHz S MA R 50\n"
+        "1.0 "
+        "0 0 0 0 0 0 0 0 "
+        "0 0 0 0 0 0 0 0 "
+        "0 0 0 0 0 0 0 0 "
+        "0 0 0 0 0 0 0 0\n",
+        encoding="utf-8",
+    )
+
+    samples = parse_touchstone(path, reference_impedance_ohm=90.0)
+
+    assert samples[0]["touchstone_reference_impedance_ohm"] == 50.0
+    assert samples[0]["single_ended_reference_impedance_ohm"] == 45.0
+    assert samples[0]["differential_reference_impedance_ohm"] == 90.0
+    assert round(samples[0]["sdd11_db"], 3) == -25.575
+
+
 def test_parse_tdr_csv_accepts_time_and_impedance_columns(tmp_path):
     path = tmp_path / "tdr.csv"
     path.write_text("time_ps,impedance_ohm\n0,100\n10,104\n20,92\n", encoding="utf-8")
@@ -173,6 +193,8 @@ def test_score_channel_result_uses_sdd11_for_s4p(tmp_path):
     assert score["return_loss_trace"] == "SDD11"
     assert score["insertion_loss_trace"] == "SDD21"
     assert score["tdr_observation_port"] == "Diff1"
+    assert score["reference_impedance_ohm"] == 90
+    assert score["single_ended_reference_impedance_ohm"] == 45
     assert score["rl_worst_frequency_ghz"] == 28.0
     assert "sdd21_worst_db_in_band" in score
 

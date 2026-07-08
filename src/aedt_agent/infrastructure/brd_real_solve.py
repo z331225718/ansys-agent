@@ -62,6 +62,7 @@ class BrdRealSolveRequest:
     export_tdr: bool = True
     tdr_differential_pairs: bool = False
     tdr_observation_port: str = ""
+    tdr_reference_impedance_ohm: float | None = None
     project_copy_mode: str = "checkpoint_copy"
 
 
@@ -198,6 +199,7 @@ class BrdRealSolveAdapter:
             "expected_port_count": request.expected_port_count,
             "tdr_differential_pairs": request.tdr_differential_pairs,
             "tdr_observation_port": request.tdr_observation_port,
+            "tdr_reference_impedance_ohm": _tdr_reference_impedance(request),
             "tdr_export_method": tdr_export_method,
             "touchstone_sample_count": len(touchstone_samples),
             "tdr_sample_count": len(tdr_samples),
@@ -466,10 +468,15 @@ def _write_tdr_from_touchstone(
 
     response_network = network.copy()
     trace_index = _touchstone_tdr_trace_index(request, response_network.nports)
+    reference_impedance = _tdr_reference_impedance(request)
     if _touchstone_tdr_uses_mixed_mode(request, response_network.nports):
         pair_count = response_network.nports // 2
+        if reference_impedance > 0:
+            _renormalize_network(response_network, reference_impedance / 2.0)
         response_network.se2gmm(p=pair_count)
         trace_index = min(trace_index, pair_count - 1)
+    elif reference_impedance > 0:
+        _renormalize_network(response_network, reference_impedance)
 
     if response_network.f[0] > 0:
         try:
@@ -577,6 +584,25 @@ def _touchstone_tdr_reference_impedance(
     if not real_values:
         return 50.0
     return sum(real_values) / len(real_values)
+
+
+def _tdr_reference_impedance(request: BrdRealSolveRequest) -> float:
+    if request.tdr_reference_impedance_ohm is not None:
+        value = float(request.tdr_reference_impedance_ohm)
+        if value > 0:
+            return value
+    return 0.0
+
+
+def _renormalize_network(network: Any, reference_impedance_ohm: float) -> None:
+    if reference_impedance_ohm <= 0:
+        return
+    try:
+        network.renormalize(reference_impedance_ohm)
+    except Exception as exc:
+        raise ArtifactExportError(
+            f"failed to renormalize Touchstone to {reference_impedance_ohm:g} ohm"
+        ) from exc
 
 
 def _create_tdr_report(

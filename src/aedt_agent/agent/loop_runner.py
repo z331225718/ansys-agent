@@ -128,6 +128,18 @@ def validate_loop_config_for_run(
         and str(config.get("tdr_observation_port") or "").casefold() == "diff1",
         "TDR observation should default to Diff1 for this workflow",
     )
+    reference_impedance = float(
+        config.get(
+            "reference_impedance_ohm",
+            config.get("tdr_reference_impedance_ohm", config.get("tdr_target_ohm", 0)),
+        )
+        or 0
+    )
+    check(
+        "differential_reference_impedance",
+        abs(reference_impedance - 90.0) < 1e-9,
+        "reviewed differential loop must score SDD/TDR with 90ohm differential reference",
+    )
     check(
         "tdr_export_enabled",
         bool(config.get("export_tdr", True)),

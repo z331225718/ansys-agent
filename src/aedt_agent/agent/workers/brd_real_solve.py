@@ -37,6 +37,7 @@ def build_brd_real_solve_job_input(
     export_tdr: bool = True,
     tdr_differential_pairs: bool = False,
     tdr_observation_port: str = "",
+    tdr_reference_impedance_ohm: float | None = None,
     sparameter_mode: str = "auto",
     project_copy_mode: str = "checkpoint_copy",
     aedt: dict[str, Any] | None = None,
@@ -58,6 +59,11 @@ def build_brd_real_solve_job_input(
         "export_tdr": bool(export_tdr),
         "tdr_differential_pairs": bool(tdr_differential_pairs),
         "tdr_observation_port": str(tdr_observation_port),
+        "tdr_reference_impedance_ohm": (
+            float(tdr_reference_impedance_ohm)
+            if tdr_reference_impedance_ohm is not None
+            else float(tdr_target_ohm)
+        ),
         "sparameter_mode": str(sparameter_mode),
         "project_copy_mode": str(project_copy_mode),
         "aedt": dict(aedt or {}),
@@ -116,6 +122,12 @@ def run_brd_real_solve_worker(
             payload.get("tdr_differential_pairs", False)
         ),
         tdr_observation_port=str(payload.get("tdr_observation_port") or ""),
+        tdr_reference_impedance_ohm=float(
+            payload.get(
+                "tdr_reference_impedance_ohm",
+                payload.get("tdr_target_ohm", 100.0),
+            )
+        ),
         project_copy_mode=str(
             payload.get("project_copy_mode") or "checkpoint_copy"
         ),
@@ -200,6 +212,12 @@ def run_brd_real_solve_worker(
         "tdr_target_ohm": float(
             payload.get("tdr_target_ohm", 100.0)
         ),
+        "tdr_reference_impedance_ohm": float(
+            payload.get(
+                "tdr_reference_impedance_ohm",
+                payload.get("tdr_target_ohm", 100.0),
+            )
+        ),
         "tdr_observation_port": str(
             payload.get("tdr_observation_port") or ""
         ),
@@ -211,6 +229,12 @@ def run_brd_real_solve_worker(
             "raw_tdr": "artifact_only",
             "tdr_observation_port": str(
                 payload.get("tdr_observation_port") or ""
+            ),
+            "tdr_reference_impedance_ohm": float(
+                payload.get(
+                    "tdr_reference_impedance_ohm",
+                    payload.get("tdr_target_ohm", 100.0),
+                )
             ),
             "sparameter_mode": str(payload.get("sparameter_mode") or "auto"),
             "artifact_refs": refs,

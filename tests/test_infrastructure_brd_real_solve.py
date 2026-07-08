@@ -527,11 +527,13 @@ def test_real_solve_derives_differential_tdr_from_s4p(
             tdr_expression="TDRZ(Diff1)",
             tdr_differential_pairs=True,
             tdr_observation_port="Diff1",
+            tdr_reference_impedance_ohm=90.0,
         )
     )
 
     assert result.summary["tdr_export_method"] == "skrf_touchstone_step_response"
     assert result.summary["tdr_observation_port"] == "Diff1"
+    assert result.summary["tdr_reference_impedance_ohm"] == 90.0
     assert result.summary["tdr_sample_count"] > 0
     assert Path(result.tdr_path).stat().st_size > 0
 

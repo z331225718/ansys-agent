@@ -7,9 +7,14 @@ from pathlib import Path
 from typing import Any
 
 
-def parse_touchstone(path: Path) -> list[dict[str, float]]:
+def parse_touchstone(
+    path: Path,
+    *,
+    reference_impedance_ohm: float | None = None,
+) -> list[dict[str, float]]:
     frequency_unit = "GHZ"
     data_format = "MA"
+    source_reference_impedance_ohm = 50.0
     port_count = _touchstone_port_count(path)
     expected_number_count = 1 + (2 * port_count * port_count)
     pending_numbers: list[float] = []
@@ -24,6 +29,10 @@ def parse_touchstone(path: Path) -> list[dict[str, float]]:
                 frequency_unit = parts[0].upper()
             if len(parts) >= 3:
                 data_format = parts[2].upper()
+            source_reference_impedance_ohm = _option_reference_impedance(
+                parts,
+                default=source_reference_impedance_ohm,
+            )
             continue
         if line.startswith("["):
             match = re.match(r"\[Number of Ports\]\s+([0-9]+)", line, re.IGNORECASE)
@@ -41,6 +50,8 @@ def parse_touchstone(path: Path) -> list[dict[str, float]]:
                     frequency_unit=frequency_unit,
                     data_format=data_format,
                     port_count=port_count,
+                    source_reference_impedance_ohm=source_reference_impedance_ohm,
+                    reference_impedance_ohm=reference_impedance_ohm,
                 )
             )
     return samples
@@ -70,10 +81,20 @@ def score_channel_result(
     tdr_tolerance_ohm: float = 5.0,
     sparameter_mode: str = "auto",
     tdr_observation_port: str = "",
+    reference_impedance_ohm: float | None = None,
 ) -> dict[str, Any]:
+    parse_reference_impedance = _score_reference_impedance(
+        reference_impedance_ohm,
+        sparameter_mode=sparameter_mode,
+        tdr_target_ohm=tdr_target_ohm,
+        touchstone_path=touchstone_path,
+    )
     sparameters = [
         sample
-        for sample in parse_touchstone(touchstone_path)
+        for sample in parse_touchstone(
+            touchstone_path,
+            reference_impedance_ohm=parse_reference_impedance,
+        )
         if frequency_start_ghz <= sample["frequency_ghz"] <= frequency_stop_ghz
     ]
     if not sparameters:
@@ -115,6 +136,10 @@ def score_channel_result(
         "tdr_target_ohm": tdr_target_ohm,
         "tdr_tolerance_ohm": tdr_tolerance_ohm,
         "tdr_observation_port": tdr_observation_port,
+        "reference_impedance_ohm": parse_reference_impedance,
+        "single_ended_reference_impedance_ohm": sparameters[0].get(
+            "single_ended_reference_impedance_ohm"
+        ),
         "tdr_peak_deviation_ohm": round(peak_deviation, 3),
         "tdr_peak_time_ps": peak["time_ps"],
         "tdr_anomaly_window": _tdr_window(tdr_samples, peak["time_ps"]),
@@ -205,9 +230,21 @@ def _touchstone_sample(
     frequency_unit: str,
     data_format: str,
     port_count: int,
+    source_reference_impedance_ohm: float,
+    reference_impedance_ohm: float | None,
 ) -> dict[str, float]:
     frequency_ghz = _to_ghz(numbers[0], frequency_unit)
     matrix = _touchstone_matrix(numbers[1:], port_count, data_format)
+    single_ended_reference = _single_ended_reference_impedance(
+        port_count,
+        reference_impedance_ohm,
+        default=source_reference_impedance_ohm,
+    )
+    matrix = _renormalize_matrix(
+        matrix,
+        source_reference_impedance_ohm,
+        single_ended_reference,
+    )
     single_ended_s11 = matrix[0][0]
     single_ended_s21 = (
         matrix[1][0] if port_count >= 2 else complex(0.0, 0.0)
@@ -215,6 +252,8 @@ def _touchstone_sample(
     sample: dict[str, float] = {
         "frequency_ghz": frequency_ghz,
         "port_count": float(port_count),
+        "touchstone_reference_impedance_ohm": float(source_reference_impedance_ohm),
+        "single_ended_reference_impedance_ohm": float(single_ended_reference),
         "single_ended_s11_db": _mag_to_db(abs(single_ended_s11)),
         "single_ended_s21_db": _mag_to_db(abs(single_ended_s21))
         if single_ended_s21
@@ -235,6 +274,9 @@ def _touchstone_sample(
         )
         sample.update(
             {
+                "differential_reference_impedance_ohm": float(
+                    single_ended_reference * 2.0
+                ),
                 "sdd11_db": _mag_to_db(abs(sdd11)),
                 "sdd21_db": _mag_to_db(abs(sdd21))
                 if sdd21
@@ -247,6 +289,163 @@ def _touchstone_sample(
         sample["s11_db"] = sample["single_ended_s11_db"]
         sample["s21_db"] = sample["single_ended_s21_db"]
     return sample
+
+
+def _option_reference_impedance(
+    parts: list[str],
+    *,
+    default: float,
+) -> float:
+    upper_parts = [part.upper() for part in parts]
+    if "R" not in upper_parts:
+        return default
+    index = upper_parts.index("R")
+    if index + 1 >= len(parts):
+        return default
+    try:
+        value = float(parts[index + 1])
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def _score_reference_impedance(
+    reference_impedance_ohm: float | None,
+    *,
+    sparameter_mode: str,
+    tdr_target_ohm: float,
+    touchstone_path: Path,
+) -> float | None:
+    if reference_impedance_ohm is not None and reference_impedance_ohm > 0:
+        return float(reference_impedance_ohm)
+    mode = sparameter_mode.strip().casefold()
+    if mode in {"differential", "diff", "mixed_mode"}:
+        return float(tdr_target_ohm)
+    if mode == "auto" and _touchstone_port_count(touchstone_path) >= 4:
+        return float(tdr_target_ohm)
+    return None
+
+
+def _single_ended_reference_impedance(
+    port_count: int,
+    reference_impedance_ohm: float | None,
+    *,
+    default: float,
+) -> float:
+    if reference_impedance_ohm is None or reference_impedance_ohm <= 0:
+        return float(default)
+    if port_count >= 4:
+        return float(reference_impedance_ohm) / 2.0
+    return float(reference_impedance_ohm)
+
+
+def _renormalize_matrix(
+    matrix: list[list[complex]],
+    source_reference_ohm: float,
+    target_reference_ohm: float,
+) -> list[list[complex]]:
+    if (
+        source_reference_ohm <= 0
+        or target_reference_ohm <= 0
+        or abs(source_reference_ohm - target_reference_ohm) < 1e-12
+    ):
+        return matrix
+    size = len(matrix)
+    identity = _identity_matrix(size)
+    z_norm = _matrix_multiply(
+        _matrix_add(identity, matrix),
+        _matrix_inverse(_matrix_subtract(identity, matrix)),
+    )
+    z_scaled = [
+        [
+            value * (source_reference_ohm / target_reference_ohm)
+            for value in row
+        ]
+        for row in z_norm
+    ]
+    return _matrix_multiply(
+        _matrix_subtract(z_scaled, identity),
+        _matrix_inverse(_matrix_add(z_scaled, identity)),
+    )
+
+
+def _identity_matrix(size: int) -> list[list[complex]]:
+    return [
+        [1.0 + 0.0j if row == column else 0.0 + 0.0j for column in range(size)]
+        for row in range(size)
+    ]
+
+
+def _matrix_add(
+    left: list[list[complex]],
+    right: list[list[complex]],
+) -> list[list[complex]]:
+    return [
+        [left[row][column] + right[row][column] for column in range(len(left))]
+        for row in range(len(left))
+    ]
+
+
+def _matrix_subtract(
+    left: list[list[complex]],
+    right: list[list[complex]],
+) -> list[list[complex]]:
+    return [
+        [left[row][column] - right[row][column] for column in range(len(left))]
+        for row in range(len(left))
+    ]
+
+
+def _matrix_multiply(
+    left: list[list[complex]],
+    right: list[list[complex]],
+) -> list[list[complex]]:
+    size = len(left)
+    return [
+        [
+            sum(left[row][index] * right[index][column] for index in range(size))
+            for column in range(size)
+        ]
+        for row in range(size)
+    ]
+
+
+def _matrix_inverse(matrix: list[list[complex]]) -> list[list[complex]]:
+    size = len(matrix)
+    augmented = [
+        list(matrix[row]) + list(_identity_matrix(size)[row])
+        for row in range(size)
+    ]
+    for column in range(size):
+        pivot_row = max(
+            range(column, size),
+            key=lambda row: abs(augmented[row][column]),
+        )
+        pivot = augmented[pivot_row][column]
+        if abs(pivot) < 1e-15:
+            raise ValueError("Touchstone renormalization matrix is singular")
+        if pivot_row != column:
+            augmented[column], augmented[pivot_row] = (
+                augmented[pivot_row],
+                augmented[column],
+            )
+        pivot = augmented[column][column]
+        augmented[column] = [value / pivot for value in augmented[column]]
+        for row in range(size):
+            if row == column:
+                continue
+            factor = augmented[row][column]
+            if abs(factor) < 1e-30:
+                continue
+            augmented[row] = [
+                value - factor * pivot_value
+                for value, pivot_value in zip(
+                    augmented[row],
+                    augmented[column],
+                    strict=False,
+                )
+            ]
+    return [row[size:] for row in augmented]
 
 
 def _touchstone_matrix(

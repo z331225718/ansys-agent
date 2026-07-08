@@ -133,6 +133,7 @@ def test_validate_reviewed_loop_example_without_machine_paths():
     assert check_status["touchstone_is_s4p"] == "passed"
     assert check_status["differential_traces"] == "passed"
     assert check_status["tdr_diff1"] == "passed"
+    assert check_status["differential_reference_impedance"] == "passed"
     assert check_status["geometry_constraints"] == "passed"
     assert "candidate_action_inventory_path" in config
     assert "L2_GND" not in config_text
@@ -167,3 +168,4 @@ def test_validate_loop_config_rejects_single_ended_contract():
     assert "touchstone_is_s4p" in report["failed_checks"]
     assert "differential_traces" in report["failed_checks"]
     assert "tdr_diff1" in report["failed_checks"]
+    assert "differential_reference_impedance" in report["failed_checks"]

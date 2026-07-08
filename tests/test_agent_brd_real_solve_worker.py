@@ -105,6 +105,7 @@ def test_real_solve_worker_uses_context_artifacts_and_returns_only_refs(
 
     assert adapter.request.artifact_dir == tmp_path / "artifacts"
     assert adapter.request.tdr_observation_port == "P1"
+    assert adapter.request.tdr_reference_impedance_ohm == 100.0
     assert adapter.request.project_copy_mode == "checkpoint_copy"
     assert output["status"] == "succeeded"
     assert output["solve_summary"]["raw_sparameters"] == "artifact_only"
@@ -120,6 +121,7 @@ def test_real_solve_job_input_contains_no_output_directory(tmp_path):
     assert payload["solution_name"] == "Setup1 : Sweep1"
     assert payload["run_analyze"] is True
     assert payload["tdr_observation_port"] == "P1"
+    assert payload["tdr_reference_impedance_ohm"] == 100.0
     assert payload["sparameter_mode"] == "auto"
     assert payload["project_copy_mode"] == "checkpoint_copy"
     assert payload["approval_reason"] == "approve_real_brd_solve"

@@ -26,6 +26,7 @@ def build_brd_channel_score_job_input(
     tdr_tolerance_ohm: float = 5.0,
     sparameter_mode: str = "auto",
     tdr_observation_port: str = "",
+    reference_impedance_ohm: float | None = None,
     bucket_count: int = 128,
     tdr_plot_time_stop_ps: float = 120.0,
 ) -> dict[str, Any]:
@@ -40,6 +41,7 @@ def build_brd_channel_score_job_input(
         "tdr_tolerance_ohm": tdr_tolerance_ohm,
         "sparameter_mode": sparameter_mode,
         "tdr_observation_port": tdr_observation_port,
+        "reference_impedance_ohm": reference_impedance_ohm,
         "bucket_count": bucket_count,
         "tdr_plot_time_stop_ps": tdr_plot_time_stop_ps,
     }
@@ -63,6 +65,7 @@ def run_brd_channel_score_worker(job: JobRecord, context: WorkerContext) -> dict
     tdr_tolerance_ohm = float(payload.get("tdr_tolerance_ohm", 5.0))
     sparameter_mode = str(payload.get("sparameter_mode") or "auto")
     tdr_observation_port = str(payload.get("tdr_observation_port") or "")
+    reference_impedance_ohm = _score_reference_impedance(payload, tdr_target_ohm)
     bucket_count = int(payload.get("bucket_count", 128))
     tdr_plot_time_stop_ps = float(payload.get("tdr_plot_time_stop_ps", 120.0))
 
@@ -76,6 +79,7 @@ def run_brd_channel_score_worker(job: JobRecord, context: WorkerContext) -> dict
         tdr_tolerance_ohm=tdr_tolerance_ohm,
         sparameter_mode=sparameter_mode,
         tdr_observation_port=tdr_observation_port,
+        reference_impedance_ohm=reference_impedance_ohm,
     )
     samples = [
         _evidence_sample(
@@ -83,7 +87,10 @@ def run_brd_channel_score_worker(job: JobRecord, context: WorkerContext) -> dict
             return_loss_trace=str(score["return_loss_trace"]),
             insertion_loss_trace=str(score["insertion_loss_trace"]),
         )
-        for sample in parse_touchstone(touchstone_path)
+        for sample in parse_touchstone(
+            touchstone_path,
+            reference_impedance_ohm=reference_impedance_ohm,
+        )
         if frequency_start_ghz <= sample["frequency_ghz"] <= frequency_stop_ghz
     ]
     sparameter_evidence = build_sparameter_evidence(
@@ -104,6 +111,7 @@ def run_brd_channel_score_worker(job: JobRecord, context: WorkerContext) -> dict
         tdr_target_ohm=tdr_target_ohm,
         tdr_tolerance_ohm=tdr_tolerance_ohm,
         tdr_plot_time_stop_ps=tdr_plot_time_stop_ps,
+        reference_impedance_ohm=reference_impedance_ohm,
     )
     score["plot_artifacts"] = plot_artifacts
     evidence_summary = _bounded_summary(score, sparameter_evidence)
@@ -143,6 +151,7 @@ def run_brd_channel_score_worker(job: JobRecord, context: WorkerContext) -> dict
         "rl_target_db": rl_target_db,
         "tdr_target_ohm": tdr_target_ohm,
         "tdr_tolerance_ohm": tdr_tolerance_ohm,
+        "reference_impedance_ohm": reference_impedance_ohm,
         "sparameter_mode": sparameter_mode,
         "tdr_observation_port": tdr_observation_port,
         "score": score,
@@ -179,6 +188,10 @@ def _bounded_summary(score: dict[str, Any], sparameter_evidence: dict[str, Any])
         "tdr_target_ohm": score["tdr_target_ohm"],
         "tdr_tolerance_ohm": score["tdr_tolerance_ohm"],
         "tdr_observation_port": score.get("tdr_observation_port", ""),
+        "reference_impedance_ohm": score.get("reference_impedance_ohm"),
+        "single_ended_reference_impedance_ohm": score.get(
+            "single_ended_reference_impedance_ohm"
+        ),
         "tdr_peak_deviation_ohm": score["tdr_peak_deviation_ohm"],
         "tdr_peak_time_ps": score["tdr_peak_time_ps"],
         "tdr_anomaly_window": score["tdr_anomaly_window"],
@@ -241,6 +254,23 @@ def _evidence_sample(
         "s11_db": sample[rl_key],
         "s21_db": sample[il_key],
     }
+
+
+def _score_reference_impedance(
+    payload: dict[str, Any],
+    tdr_target_ohm: float,
+) -> float | None:
+    explicit = payload.get("reference_impedance_ohm")
+    if explicit is None:
+        explicit = payload.get("sparameter_reference_impedance_ohm")
+    if explicit is not None:
+        value = float(explicit)
+        return value if value > 0 else None
+    mode = str(payload.get("sparameter_mode") or "auto").casefold()
+    touchstone_name = str(payload.get("touchstone_path") or "")
+    if mode in {"differential", "diff", "mixed_mode"} or touchstone_name.lower().endswith(".s4p"):
+        return float(tdr_target_ohm)
+    return None
 
 
 def _loop_context(payload: dict[str, Any]) -> dict[str, Any]:

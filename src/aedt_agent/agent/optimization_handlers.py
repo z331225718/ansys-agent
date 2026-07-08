@@ -403,6 +403,12 @@ def _initial_loop_context(
             "tdr_report_name": str(payload.get("tdr_report_name") or "ChannelTDR"),
             "tdr_differential_pairs": bool(payload.get("tdr_differential_pairs", True)),
             "tdr_observation_port": str(payload.get("tdr_observation_port") or "Diff1"),
+            "tdr_reference_impedance_ohm": float(
+                payload.get(
+                    "tdr_reference_impedance_ohm",
+                    payload.get("tdr_target_ohm", 90.0),
+                )
+            ),
             "project_copy_mode": "working_project",
             "run_analyze": bool(payload.get("run_analyze", True)),
             "export_tdr": bool(payload.get("export_tdr", True)),
@@ -415,6 +421,15 @@ def _initial_loop_context(
             "tdr_target_ohm": float(payload.get("tdr_target_ohm", 90.0)),
             "tdr_tolerance_ohm": float(payload.get("tdr_tolerance_ohm", 9.0)),
             "sparameter_mode": str(payload.get("sparameter_mode") or "differential"),
+            "reference_impedance_ohm": float(
+                payload.get(
+                    "reference_impedance_ohm",
+                    payload.get(
+                        "sparameter_reference_impedance_ohm",
+                        payload.get("tdr_target_ohm", 90.0),
+                    ),
+                )
+            ),
             "tdr_observation_port": str(payload.get("tdr_observation_port") or "Diff1"),
             "tdr_plot_time_stop_ps": float(
                 payload.get("tdr_plot_time_stop_ps", 120.0)
@@ -450,6 +465,12 @@ def _solve_input(
         "export_tdr": bool(solve.get("export_tdr", True)),
         "tdr_differential_pairs": bool(solve.get("tdr_differential_pairs", True)),
         "tdr_observation_port": solve.get("tdr_observation_port", "Diff1"),
+        "tdr_reference_impedance_ohm": float(
+            solve.get(
+                "tdr_reference_impedance_ohm",
+                score.get("tdr_target_ohm", 90.0),
+            )
+        ),
         "project_copy_mode": "working_project",
         "frequency_start_ghz": float(score.get("frequency_start_ghz", 0.0)),
         "frequency_stop_ghz": float(score.get("frequency_stop_ghz", 28.0)),
@@ -457,6 +478,9 @@ def _solve_input(
         "tdr_target_ohm": float(score.get("tdr_target_ohm", 90.0)),
         "tdr_tolerance_ohm": float(score.get("tdr_tolerance_ohm", 9.0)),
         "sparameter_mode": score.get("sparameter_mode", "differential"),
+        "reference_impedance_ohm": float(
+            score.get("reference_impedance_ohm", score.get("tdr_target_ohm", 90.0))
+        ),
         "tdr_plot_time_stop_ps": float(score.get("tdr_plot_time_stop_ps", 120.0)),
         "loop_context": {**loop_context, "round_index": round_index},
     }
