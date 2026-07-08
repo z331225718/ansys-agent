@@ -749,6 +749,19 @@ Required fields:
 If an anti-pad proposal cannot name explicit layers, selected plane shapes, via
 centers, and a bounded void size, it is not ready for worker execution.
 
+## Best Project Preservation
+
+After every scored round, the loop must preserve the best-so-far AEDT project
+bundle for later layout/debug review. Use `optimization_objective.total_cost`
+as the primary comparable value; lower is better. When a new best round is
+found, copy the current project `.aedt`, matching `.aedb`, and matching
+`.aedtresults` directory if it exists into a single `best_project` directory
+under the report/run directory, overwriting only the previous best copy. Record
+`best_project_path`, `best_round_index`, `best_objective_total_cost`,
+`best_project_manifest_path`, and the score evidence path in loop context and
+in the final report. Do not create a new full AEDT bundle for every non-best
+round.
+
 ## Controlled Model Edit Rule
 
 The first real model-edit worker is `brd.model.edit`. It is intentionally narrow

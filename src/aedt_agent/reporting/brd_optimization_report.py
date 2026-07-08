@@ -223,6 +223,8 @@ def render_brd_optimization_report_html(summary: Mapping[str, Any]) -> str:
   </table>
   <h2>Layout 修改指引</h2>
   {_layout_instructions_table(summary.get("layout_change_instructions"))}
+  <h2>Best-so-far 工程文件</h2>
+  {_best_project_table(summary.get("best_project"))}
   <h2>修改记录</h2>
   {_changes_table(summary.get("changes"))}
   <h2>优化历史</h2>
@@ -258,6 +260,36 @@ def _changes_table(changes: Any) -> str:
         "<th>Implementation</th><th>Target</th><th>Parameters</th>"
         "<th>Layout Instruction</th><th>Manifest</th></tr>"
         f"{''.join(rows)}</table>"
+    )
+
+
+def _best_project_table(best_project: Any) -> str:
+    if not isinstance(best_project, Mapping) or not best_project.get("project_path"):
+        return "<p>尚未保存 best-so-far 工程文件。</p>"
+    artifact_refs = best_project.get("artifact_refs") or []
+    if not isinstance(artifact_refs, list):
+        artifact_refs = []
+    refs_text = "<br>".join(
+        f"<code>{_e(ref)}</code>" for ref in artifact_refs if str(ref)
+    )
+    return (
+        "<table>"
+        "<tr><th>Status</th><td>{status}</td></tr>"
+        "<tr><th>Best Round</th><td>{round_index}</td></tr>"
+        "<tr><th>Total Cost</th><td>{cost}</td></tr>"
+        "<tr><th>Project</th><td><code>{project}</code></td></tr>"
+        "<tr><th>Manifest</th><td><code>{manifest}</code></td></tr>"
+        "<tr><th>Score Evidence</th><td><code>{score}</code></td></tr>"
+        "<tr><th>Artifacts</th><td>{refs}</td></tr>"
+        "</table>"
+    ).format(
+        status=_e(best_project.get("status")),
+        round_index=_e(best_project.get("round_index")),
+        cost=_e(best_project.get("objective_total_cost")),
+        project=_e(best_project.get("project_path")),
+        manifest=_e(best_project.get("manifest_path")),
+        score=_e(best_project.get("score_evidence_path")),
+        refs=refs_text,
     )
 
 

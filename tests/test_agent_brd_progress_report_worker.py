@@ -75,6 +75,18 @@ def test_progress_worker_writes_history_and_report_artifacts(tmp_path):
             "round_index": 1,
             "report_dir": str(tmp_path / "progress"),
             "score_evidence_paths": [evidence_path],
+            "best_project_preservation_status": "updated",
+            "best_round_index": 1,
+            "best_objective_total_cost": 14.5,
+            "best_project_path": str(tmp_path / "best" / "case.best.aedt"),
+            "best_project_manifest_path": str(
+                tmp_path / "best" / "best_project_manifest.json"
+            ),
+            "best_score_evidence_path": evidence_path,
+            "best_project_artifact_refs": [
+                str(tmp_path / "best" / "case.best.aedt"),
+                str(tmp_path / "best" / "best_project_manifest.json"),
+            ],
         },
     }
 
@@ -88,8 +100,12 @@ def test_progress_worker_writes_history_and_report_artifacts(tmp_path):
     assert Path(output["report_json"]).is_file()
     assert Path(output["report_html"]).is_file()
     assert output["optimization_history_rows"][0]["round_index"] == 1
+    assert output["best_project"]["project_path"].endswith("case.best.aedt")
     assert output["loop_context"]["optimization_history_csv"] == output["optimization_history_csv"]
     assert output["evidence_summary"]["optimization_report_html"] == output["report_html"]
+    assert "Best-so-far 工程文件" in Path(output["report_html"]).read_text(
+        encoding="utf-8"
+    )
 
 
 def test_final_report_worker_returns_scorecard_report(tmp_path):

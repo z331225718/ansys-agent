@@ -82,6 +82,54 @@ def test_brd_channel_score_worker_outputs_bounded_evidence(tmp_path):
     assert "0.00 0.05" not in str(output["evidence_summary"])
 
 
+def test_brd_channel_score_worker_preserves_best_project_bundle(tmp_path):
+    touchstone = tmp_path / "channel.s2p"
+    tdr = tmp_path / "channel_tdr.csv"
+    project = tmp_path / "working" / "case.aedt"
+    project.parent.mkdir()
+    project.write_text("project", encoding="utf-8")
+    edb = project.with_suffix(".aedb")
+    edb.mkdir()
+    (edb / "edb.def").write_text("edb", encoding="utf-8")
+    results = Path(f"{project}results")
+    results.mkdir()
+    (results / "result.dat").write_text("result", encoding="utf-8")
+    _write_touchstone(touchstone)
+    _write_tdr(tdr)
+    payload = build_brd_channel_score_job_input(
+        touchstone_path=touchstone,
+        tdr_path=tdr,
+        artifact_dir=tmp_path / "artifacts",
+        frequency_stop_ghz=67.0,
+        rl_target_db=-20.0,
+    )
+    payload["project_path"] = str(project)
+    payload["loop_context"] = {
+        "round_index": 1,
+        "report_dir": str(tmp_path / "progress"),
+    }
+    job = JobRecord.create(
+        "job-1",
+        "mission-1",
+        BRD_CHANNEL_SCORE_CAPABILITY,
+        "score",
+        payload,
+        300,
+        1,
+    )
+
+    output = run_brd_channel_score_worker(job, WorkerContext("worker-1"))
+    context = output["loop_context"]
+    best_project = Path(context["best_project_path"])
+
+    assert context["best_project_preservation_status"] == "updated"
+    assert best_project.is_file()
+    assert best_project.with_suffix(".aedb").is_dir()
+    assert Path(f"{best_project}results").is_dir()
+    assert Path(context["best_project_manifest_path"]).is_file()
+    assert str(best_project) in output["artifact_refs"]
+
+
 def test_brd_channel_score_worker_rejects_missing_artifacts(tmp_path):
     payload = build_brd_channel_score_job_input(
         touchstone_path=tmp_path / "missing.s2p",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -130,14 +131,21 @@ def run_brd_channel_score_worker(job: JobRecord, context: WorkerContext) -> dict
     loop_context["last_score_evidence_path"] = str(evidence_artifact)
     loop_context["last_score_status"] = str(score.get("status") or "")
     objective = score.get("optimization_objective") or {}
-    loop_context["last_objective_total_cost"] = (
+    objective_total_cost = (
         objective.get("total_cost") if isinstance(objective, dict) else None
     )
+    loop_context["last_objective_total_cost"] = objective_total_cost
     loop_context["latest_project_path"] = str(
         payload.get("project_path")
         or payload.get("solved_project")
         or loop_context.get("latest_project_path")
         or ""
+    )
+    best_project_refs = _preserve_best_project_if_needed(
+        loop_context,
+        score=score,
+        evidence_artifact=evidence_artifact,
+        objective_total_cost=objective_total_cost,
     )
 
     return {
@@ -164,6 +172,7 @@ def run_brd_channel_score_worker(job: JobRecord, context: WorkerContext) -> dict
             str(tdr_path),
             str(evidence_artifact),
             *plot_artifacts.values(),
+            *best_project_refs,
         ],
     }
 
@@ -283,3 +292,96 @@ def _append_unique(payload: dict[str, Any], key: str, value: str) -> None:
     if value and value not in values:
         values.append(value)
     payload[key] = values
+
+
+def _preserve_best_project_if_needed(
+    loop_context: dict[str, Any],
+    *,
+    score: dict[str, Any],
+    evidence_artifact: Path,
+    objective_total_cost: Any,
+) -> list[str]:
+    cost = _float_or_none(objective_total_cost)
+    if cost is None:
+        loop_context["best_project_preservation_status"] = "skipped_no_objective"
+        return []
+    previous_cost = _float_or_none(loop_context.get("best_objective_total_cost"))
+    if previous_cost is not None and cost >= previous_cost:
+        loop_context["best_project_preservation_status"] = "unchanged"
+        return []
+    source_project = Path(str(loop_context.get("latest_project_path") or ""))
+    if not source_project.is_file():
+        loop_context["best_project_preservation_status"] = "skipped_project_missing"
+        return []
+
+    best_dir = Path(
+        str(
+            loop_context.get("best_project_dir")
+            or Path(str(loop_context.get("report_dir") or source_project.parent))
+            / "best_project"
+        )
+    )
+    best_dir.mkdir(parents=True, exist_ok=True)
+    target_project = best_dir / f"{source_project.stem}.best.aedt"
+    copied_refs = _copy_project_bundle(source_project, target_project)
+    manifest_path = best_dir / "best_project_manifest.json"
+    manifest = {
+        "status": "preserved_best_so_far",
+        "round_index": int(loop_context.get("round_index") or 1),
+        "objective_total_cost": cost,
+        "previous_objective_total_cost": previous_cost,
+        "score_status": score.get("status"),
+        "source_project_path": str(source_project),
+        "best_project_path": str(target_project),
+        "score_evidence_path": str(evidence_artifact),
+    }
+    manifest_path.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    loop_context["best_project_preservation_status"] = "updated"
+    loop_context["best_objective_total_cost"] = cost
+    loop_context["best_round_index"] = manifest["round_index"]
+    loop_context["best_project_path"] = str(target_project)
+    loop_context["best_project_manifest_path"] = str(manifest_path)
+    loop_context["best_score_evidence_path"] = str(evidence_artifact)
+    for ref in [*copied_refs, str(manifest_path)]:
+        _append_unique(loop_context, "best_project_artifact_refs", ref)
+    return [*copied_refs, str(manifest_path)]
+
+
+def _copy_project_bundle(source_project: Path, target_project: Path) -> list[str]:
+    _remove_project_bundle(target_project)
+    shutil.copy2(source_project, target_project)
+    refs = [str(target_project)]
+    source_edb = source_project.with_suffix(".aedb")
+    target_edb = target_project.with_suffix(".aedb")
+    if source_edb.is_dir():
+        shutil.copytree(source_edb, target_edb)
+        refs.append(str(target_edb))
+    source_results = Path(f"{source_project}results")
+    target_results = Path(f"{target_project}results")
+    if source_results.is_dir():
+        shutil.copytree(source_results, target_results)
+        refs.append(str(target_results))
+    return refs
+
+
+def _remove_project_bundle(project_path: Path) -> None:
+    for path in [
+        project_path,
+        project_path.with_suffix(".aedb"),
+        Path(f"{project_path}results"),
+        Path(f"{project_path}.lock"),
+    ]:
+        if path.is_dir():
+            shutil.rmtree(path)
+        elif path.exists():
+            path.unlink()
+
+
+def _float_or_none(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None

@@ -1314,6 +1314,7 @@ def _refresh_progress_report(loop_context: dict[str, Any]) -> dict[str, Any]:
         model_edit_manifest_paths=list(loop_context.get("model_edit_manifest_paths") or []),
         solve_manifest_paths=list(loop_context.get("solve_manifest_paths") or []),
     )
+    summary["best_project"] = _best_project_summary(loop_context)
     history_csv = write_brd_optimization_history_csv(
         summary,
         report_dir / "optimization_history.csv",
@@ -1339,6 +1340,19 @@ def _refresh_progress_report(loop_context: dict[str, Any]) -> dict[str, Any]:
         "report_html": str(report_html),
         "report_json": str(report_json),
         "final_score": summary.get("final_score") or {},
+        "best_project": summary.get("best_project") or {},
+    }
+
+
+def _best_project_summary(loop_context: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "status": loop_context.get("best_project_preservation_status"),
+        "round_index": loop_context.get("best_round_index"),
+        "objective_total_cost": loop_context.get("best_objective_total_cost"),
+        "project_path": loop_context.get("best_project_path"),
+        "manifest_path": loop_context.get("best_project_manifest_path"),
+        "score_evidence_path": loop_context.get("best_score_evidence_path"),
+        "artifact_refs": list(loop_context.get("best_project_artifact_refs") or []),
     }
 
 

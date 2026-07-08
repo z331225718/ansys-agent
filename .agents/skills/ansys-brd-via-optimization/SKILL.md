@@ -61,6 +61,10 @@ Before planning or proposing geometry changes, read the project playbook:
   report must list the accepted/rejected geometry changes, final bounded
   metrics, plots for TDR, `SDD11`, and `SDD21`, and an optimization history
   CSV so the user can judge current progress and whether to continue.
+- Do not let the best result exist only as metrics. After each scored round,
+  preserve the best-so-far AEDT project bundle (`.aedt`, `.aedb`, and
+  `.aedtresults` when present) under the run/report directory, overwriting only
+  that best bundle when a lower `optimization_objective.total_cost` is found.
 - Do not let the LLM invent route layers, component families, stackup values,
   anti-pad limits, non-functional-pad limits, or manufacturability clearances.
 - Do not treat the example L2 candidate as a hardcoded allow list. The reviewed
