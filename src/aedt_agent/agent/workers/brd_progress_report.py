@@ -22,20 +22,22 @@ def run_brd_optimization_progress_worker(
     context: WorkerContext,
 ) -> dict[str, Any]:
     payload = dict(job.input_payload)
+    upstream_status = str(payload.get("status") or "")
     loop_context = _loop_context(payload)
     report = _write_progress_artifacts(loop_context, context=context)
     evidence = dict(payload.get("evidence_summary") or {})
     evidence.update(
         {
+            "upstream_status": upstream_status,
             "optimization_history_csv": report["optimization_history_csv"],
             "optimization_report_json": report["report_json"],
             "optimization_report_html": report["report_html"],
         }
     )
     return {
-        **payload,
+        **_strip_upstream_control_fields(payload),
         **report,
-        "status": payload.get("status", "succeeded"),
+        "status": "succeeded",
         "evidence_summary": evidence,
         "loop_context": loop_context,
         "artifact_refs": _unique(
@@ -184,6 +186,20 @@ def _best_project_summary(loop_context: Mapping[str, Any]) -> dict[str, Any]:
         "manifest_path": loop_context.get("best_project_manifest_path"),
         "score_evidence_path": loop_context.get("best_score_evidence_path"),
         "artifact_refs": list(loop_context.get("best_project_artifact_refs") or []),
+    }
+
+
+def _strip_upstream_control_fields(payload: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in payload.items()
+        if key
+        not in {
+            "approval_reason",
+            "approval_required",
+            "approval_options",
+            "edge_outcome",
+        }
     }
 
 
