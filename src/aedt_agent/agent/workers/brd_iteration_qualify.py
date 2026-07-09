@@ -244,7 +244,14 @@ def _artifact_presence_details(
     details = []
     for ref in _unique(str(item) for item in refs if item):
         path = Path(ref)
-        details.append({"path": ref, "exists": path.is_file()})
+        kind = "directory" if path.is_dir() else "file" if path.is_file() else "missing"
+        details.append(
+            {
+                "path": ref,
+                "exists": path.exists(),
+                "kind": kind,
+            }
+        )
     return details or [{"path": "", "exists": False}]
 
 

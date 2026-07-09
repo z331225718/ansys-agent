@@ -82,6 +82,11 @@ def _valid_payload(tmp_path: Path) -> dict:
 
 def test_iteration_qualifier_passes_bounded_differential_score(tmp_path):
     payload = _valid_payload(tmp_path)
+    best_edb = tmp_path / "best_project" / "case.best.aedb"
+    best_results = tmp_path / "best_project" / "case.best.aedtresults"
+    best_edb.mkdir(parents=True)
+    best_results.mkdir()
+    payload["artifact_refs"].extend([str(best_edb), str(best_results)])
 
     output = run_brd_iteration_qualify_worker(
         _job(payload),
@@ -94,6 +99,15 @@ def test_iteration_qualifier_passes_bounded_differential_score(tmp_path):
     assert output["status"] == "succeeded"
     assert output["evidence_summary"]["iteration_qualification_status"] == "succeeded"
     assert output["iteration_qualification"]["blocking_count"] == 0
+    artifact_check = next(
+        check
+        for check in output["iteration_qualification"]["checks"]
+        if check["id"] == "score_artifacts_exist"
+    )
+    assert any(
+        item["kind"] == "directory" and item["path"] == str(best_edb)
+        for item in artifact_check["details"]["artifacts"]
+    )
     assert Path(output["iteration_qualification_manifest"]).is_file()
     assert output["loop_context"]["last_iteration_qualification_status"] == "succeeded"
 
