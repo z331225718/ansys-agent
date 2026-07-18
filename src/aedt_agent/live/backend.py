@@ -78,6 +78,10 @@ class LiveAedtBackend:
                 return self._hfss_setup_preview(target, arguments)
             if command == "hfss_setup_apply":
                 return self._hfss_setup_apply(target, arguments)
+            if command == "hfss_setup_update_preview":
+                return self._hfss_setup_update_preview(target, arguments)
+            if command == "hfss_setup_update_apply":
+                return self._hfss_setup_update_apply(target, arguments)
             if command == "hfss_report_preview":
                 return self._hfss_report_preview(target, arguments)
             if command == "hfss_report_apply":
@@ -331,11 +335,30 @@ class LiveAedtBackend:
             )
         post = getattr(app, "post", None)
         reports = list(getattr(post, "all_report_names", []) or []) if post is not None else []
+        setup_names = list(_read(app, setup_attribute))
+        setup_details = []
+        for setup_name in setup_names:
+            try:
+                setup = app.get_setup(setup_name)
+                properties = {
+                    name: _json_value(setup.props.get(name))
+                    for name in sorted(_HFSS_SETUP_PROPERTIES)
+                    if name in setup.props
+                }
+                sweeps = [str(getattr(item, "name", item)) for item in list(getattr(setup, "sweeps", []) or [])]
+                setup_details.append(
+                    {"name": str(setup_name), "properties": properties, "sweeps": sorted(sweeps)}
+                )
+            except Exception:
+                setup_details.append(
+                    {"name": str(setup_name), "properties": {}, "sweeps": [], "status": "unavailable"}
+                )
         return {
             "project_name": app.project_name,
             "design_name": app.design_name,
             "solution_type": str(getattr(app, "solution_type", "")),
-            "setups": list(_read(app, setup_attribute)),
+            "setups": setup_names,
+            "setup_details": setup_details,
             "ports": [str(item) for item in list(getattr(app, "ports", []) or [])],
             "boundaries": boundaries,
             "reports": [str(item) for item in reports],
@@ -442,6 +465,102 @@ class LiveAedtBackend:
             "preview_id": preview_id,
             "setup_name": preview["setup_name"],
             "properties": after,
+            "project_dirty": True,
+            "project_saved": False,
+        }
+
+    def _hfss_setup_update_preview(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
+        app = self._app(target, "hfss", _required(args, "project_name"), _required(args, "design_name"))
+        setup_name = _required(args, "setup_name")
+        properties = dict(args.get("properties") or {})
+        if not properties:
+            raise LiveBackendError("at least one HFSS setup property is required")
+        unsupported = sorted(set(properties).difference(_HFSS_SETUP_PROPERTIES))
+        if unsupported:
+            raise LiveBackendError(f"unsupported HFSS setup property: {unsupported[0]}")
+        if setup_name not in _setup_names(app):
+            raise LiveBackendError(f"unknown HFSS setup: {setup_name}")
+        setup = app.get_setup(setup_name)
+        before = {
+            name: {
+                "existed": name in setup.props,
+                "value": _json_value(setup.props.get(name)),
+            }
+            for name in properties
+        }
+        snapshot = {"setup_names": _setup_names(app), "setup_name": setup_name, "before": before}
+        digest = _digest(snapshot)
+        preview_id = "setup-update-preview-" + _digest(
+            {**snapshot, "properties": properties}
+        )[:24]
+        self._previews[preview_id] = {
+            "kind": "hfss_setup_update",
+            "target": target,
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "setup_name": setup_name,
+            "properties": properties,
+            "before": before,
+            "digest": digest,
+        }
+        return {
+            "preview_id": preview_id,
+            "setup_name": setup_name,
+            "before": before,
+            "after": properties,
+            "snapshot_digest": digest,
+            "approval_required": True,
+            "project_dirty": False,
+        }
+
+    def _hfss_setup_update_apply(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
+        preview_id = _required(args, "preview_id")
+        preview = self._preview(preview_id, "hfss_setup_update", target)
+        app = self._app(target, "hfss", preview["project_name"], preview["design_name"])
+        if preview["setup_name"] not in _setup_names(app):
+            raise LiveBackendError("stale HFSS setup update preview")
+        setup = app.get_setup(preview["setup_name"])
+        current_before = {
+            name: {
+                "existed": name in setup.props,
+                "value": _json_value(setup.props.get(name)),
+            }
+            for name in preview["properties"]
+        }
+        current = {
+            "setup_names": _setup_names(app),
+            "setup_name": preview["setup_name"],
+            "before": current_before,
+        }
+        if _digest(current) != preview["digest"]:
+            raise LiveBackendError("stale HFSS setup update preview")
+        try:
+            for name, value in preview["properties"].items():
+                setup.props[name] = value
+            if not setup.update():
+                raise LiveBackendError("failed to update HFSS setup properties")
+            readback = app.get_setup(preview["setup_name"])
+            after = {name: _json_value(readback.props.get(name)) for name in preview["properties"]}
+            if any(str(after[name]) != str(value) for name, value in preview["properties"].items()):
+                raise LiveBackendError("HFSS setup update readback verification failed")
+        except Exception:
+            try:
+                for name, state in preview["before"].items():
+                    if state["existed"]:
+                        setup.props[name] = state["value"]
+                    else:
+                        setup.props.pop(name, None)
+                setup.update()
+            except Exception:
+                pass
+            raise
+        del self._previews[preview_id]
+        return {
+            "status": "verified",
+            "preview_id": preview_id,
+            "setup_name": preview["setup_name"],
+            "before": preview["before"],
+            "after": after,
             "project_dirty": True,
             "project_saved": False,
         }

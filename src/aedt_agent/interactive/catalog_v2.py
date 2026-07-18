@@ -82,6 +82,15 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             postconditions=["setup_readback_verified", "rollback_on_failure", "project_not_saved"],
         ),
         _cap(
+            "hfss.setup.update",
+            "reversible_edit",
+            ["live"],
+            ["preview_live_hfss_setup_update", "apply_live_hfss_setup_update"],
+            approval="external_host_token",
+            side_effects=["project_becomes_dirty"],
+            postconditions=["setup_snapshot_unchanged", "readback_verified", "rollback_on_failure"],
+        ),
+        _cap(
             "hfss.report.create",
             "reversible_edit",
             ["live"],

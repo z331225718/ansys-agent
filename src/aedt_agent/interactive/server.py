@@ -354,6 +354,36 @@ def create_server(
         )
 
     @server.tool()
+    async def preview_live_hfss_setup_update(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        setup_name: str,
+        properties: dict,
+    ) -> dict:
+        """Preview updating allowlisted properties on one existing HFSS setup."""
+        return live.preview_hfss_setup_update(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            setup_name=setup_name,
+            properties=properties,
+        )
+
+    @server.tool()
+    async def apply_live_hfss_setup_update(
+        live_session_id: str,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        """Apply a setup update with native approval, stale-state checks, readback, and rollback."""
+        return live.apply_hfss_setup_update(
+            live_session_id,
+            preview_id=preview_id,
+            approval_token=approval_token,
+        )
+
+    @server.tool()
     async def preview_live_hfss_report_create(
         live_session_id: str,
         project_name: str,

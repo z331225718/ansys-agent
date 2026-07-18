@@ -52,6 +52,8 @@ _DESKTOP_ASSISTANT_MCP_TOOLS = (
     "get_live_hfss_geometry_inventory",
     "preview_live_hfss_setup_create",
     "apply_live_hfss_setup_create",
+    "preview_live_hfss_setup_update",
+    "apply_live_hfss_setup_update",
     "preview_live_hfss_report_create",
     "apply_live_hfss_report_create",
     "preview_live_hfss_boundary_create",

@@ -345,6 +345,39 @@ class LiveAedtSessionManager:
         self._approval_contexts.pop((session_id, preview_id), None)
         return result
 
+    def preview_hfss_setup_update(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+        setup_name: str,
+        properties: dict[str, Any],
+    ) -> dict[str, Any]:
+        result = self._execute(
+            session_id,
+            "hfss_setup_update_preview",
+            {
+                "project_name": project_name,
+                "design_name": design_name,
+                "setup_name": setup_name,
+                "properties": properties,
+            },
+        )
+        return self._register_approval(session_id, "hfss.setup.update", result)
+
+    def apply_hfss_setup_update(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict[str, Any]:
+        self._require_approval(session_id, "hfss.setup.update", preview_id, approval_token)
+        result = self._execute(session_id, "hfss_setup_update_apply", {"preview_id": preview_id})
+        self._approval_contexts.pop((session_id, preview_id), None)
+        return result
+
     def preview_hfss_report(
         self,
         session_id: str,

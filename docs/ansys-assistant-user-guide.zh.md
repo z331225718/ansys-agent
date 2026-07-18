@@ -442,6 +442,17 @@ HFSS 3D object/face inventory；应使用 layout path inventory。
 
 ## 13. 创建和求解任务
 
+已有 HFSS Setup 的常用求解参数也可以受控更新。例如：
+
+```text
+把当前 HFSS 设计 Setup1 的 Frequency 改成 28GHz、MaximumPasses 改成 8。
+先读取 setup inventory，再 preview，不要创建新 setup，不要保存工程。
+```
+
+这会调用 `preview_live_hfss_setup_update`，只接受 allowlist 中的 Setup 属性。apply 前会确认 Setup 列表和原属性
+没有变化，成功后 readback；失败时恢复每个属性的原值或删除本次新增属性。创建新 Setup 仍使用独立的
+`preview_live_hfss_setup_create`，避免“更新拼错名称”意外创建第二个 Setup。
+
 受支持的写操作都必须经过 preview 和原生审批。例如创建 setup：
 
 ```text

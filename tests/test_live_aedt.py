@@ -362,6 +362,7 @@ def test_backend_reuses_wrappers_and_lists_live_layout_paths():
         {"project_name": "Board", "design_name": "HFSS1"},
     )
     assert inventory["setups"] == ["Setup1"]
+    assert inventory["setup_details"] == [{"name": "Setup1", "properties": {}, "sweeps": []}]
     assert inventory["ports"] == ["P1", "P2"]
     assert inventory["boundaries"] == [{"name": "rad1", "type": "Radiation"}]
     assert inventory["reports"] == ["S Parameters"]
@@ -384,6 +385,24 @@ def test_backend_reuses_wrappers_and_lists_live_layout_paths():
     setup_result = backend.execute(target, "hfss_setup_apply", {"preview_id": setup_preview["preview_id"]})
     assert setup_result["status"] == "verified"
     assert setup_result["properties"]["Frequency"] == "10GHz"
+    setup_update_preview = backend.execute(
+        target,
+        "hfss_setup_update_preview",
+        {
+            "project_name": "Board",
+            "design_name": "HFSS1",
+            "setup_name": "Setup1",
+            "properties": {"Frequency": "28GHz", "MaximumPasses": 8},
+        },
+    )
+    assert setup_update_preview["before"]["Frequency"]["existed"] is False
+    setup_update_result = backend.execute(
+        target,
+        "hfss_setup_update_apply",
+        {"preview_id": setup_update_preview["preview_id"]},
+    )
+    assert setup_update_result["after"] == {"Frequency": "28GHz", "MaximumPasses": 8}
+    assert setup_update_result["project_saved"] is False
     report_preview = backend.execute(
         target,
         "hfss_report_preview",
