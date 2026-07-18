@@ -753,6 +753,59 @@ def create_server(
         )
 
     @server.tool()
+    async def get_live_layout_port_candidate_inventory(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        signal_nets: list[str],
+        reference_nets: list[str] | None = None,
+        max_candidates: int = 100,
+    ) -> dict:
+        """Score live component endpoint candidates for exact signal/reference nets without editing AEDT."""
+        return live.layout_port_candidate_inventory(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            signal_nets=signal_nets,
+            reference_nets=reference_nets,
+            max_candidates=max_candidates,
+        )
+
+    @server.tool()
+    async def preview_live_layout_component_ports_create(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        component_name: str,
+        signal_nets: list[str],
+        allow_multiple_pins_per_net: bool = False,
+        max_new_ports: int = 16,
+    ) -> dict:
+        """Preview PyAEDT component-net port creation with exact pins, port order, and a bounded count."""
+        return live.preview_layout_component_ports_create(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            component_name=component_name,
+            signal_nets=signal_nets,
+            allow_multiple_pins_per_net=allow_multiple_pins_per_net,
+            max_new_ports=max_new_ports,
+        )
+
+    @server.tool()
+    async def apply_live_layout_component_ports_create(
+        live_session_id: str,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        """Create approved component-net ports, verify exact readback count, and rollback on failure."""
+        return live.apply_layout_component_ports_create(
+            live_session_id,
+            preview_id=preview_id,
+            approval_token=approval_token,
+        )
+
+    @server.tool()
     async def get_live_layout_object_inventory(
         live_session_id: str,
         project_name: str,

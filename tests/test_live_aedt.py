@@ -108,13 +108,23 @@ class FakeLayoutNet:
 
 
 class FakeLayoutComponent:
-    def __init__(self, name, pins=None):
+    def __init__(
+        self,
+        name,
+        pins=None,
+        *,
+        part="R0402",
+        part_type="Resistor",
+        location=None,
+        bounding_box=None,
+    ):
         self.name = name
-        self.part = "R0402"
-        self.part_type = "Resistor"
+        self.part = part
+        self.part_type = part_type
         self.enabled = True
         self.placement_layer = "TOP"
-        self.location = [3.0, 4.0]
+        self.location = list(location or [3.0, 4.0])
+        self.bounding_box = list(bounding_box or [2.5, 3.5, 3.5, 4.5])
         self.angle = "0deg"
         self.lock_position = False
         self.pins = dict(pins or {})
@@ -243,6 +253,66 @@ class FakeLayout:
     def _set_variable(self, name, value):
         self.variable_manager.variables[name] = value
         return True
+
+
+class FakePortLayout(FakeLayout):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        u1_pins = {
+            "U1-1": FakeLayoutPin("U1-1", "U1", "N1"),
+            "U1-2": FakeLayoutPin("U1-2", "U1", "N2"),
+            "U1-3": FakeLayoutPin("U1-3", "U1", "GND"),
+        }
+        j1_pins = {
+            "J1-1": FakeLayoutPin("J1-1", "J1", "N1"),
+            "J1-2": FakeLayoutPin("J1-2", "J1", "N2"),
+            "J1-3": FakeLayoutPin("J1-3", "J1", "GND"),
+        }
+        for index, pin in enumerate(u1_pins.values()):
+            pin.location = [1.0 + index * 0.2, 1.0]
+        for index, pin in enumerate(j1_pins.values()):
+            pin.location = [31.0 + index * 0.2, 1.0]
+        self.modeler.components = {
+            "J1": FakeLayoutComponent(
+                "J1",
+                j1_pins,
+                part="RF_CONNECTOR",
+                part_type="IO",
+                location=[31.0, 1.0],
+                bounding_box=[30.0, 0.0, 32.0, 2.0],
+            ),
+            "U1": FakeLayoutComponent(
+                "U1",
+                u1_pins,
+                part="BGA_DEVICE",
+                part_type="IC",
+                location=[1.0, 1.0],
+                bounding_box=[0.0, 0.0, 2.0, 2.0],
+            ),
+        }
+        self.modeler.pins = {**j1_pins, **u1_pins}
+
+    def create_ports_on_component_by_nets(self, component, nets):
+        created = []
+        for pin_name, pin in self.modeler.components[component].pins.items():
+            if pin.net_name not in nets:
+                continue
+            name = f"Port_{pin_name}"
+            if name not in self.excitation_names:
+                self.excitation_names.append(name)
+                created.append(SimpleNamespace(name=name))
+        return created
+
+    def delete_port(self, name, remove_geometry=True):
+        if name not in self.excitation_names:
+            return False
+        self.excitation_names.remove(name)
+        return True
+
+
+class FakeShortPortLayout(FakePortLayout):
+    def create_ports_on_component_by_nets(self, component, nets):
+        return super().create_ports_on_component_by_nets(component, list(nets)[:1])
 
 
 class FakeSetup:
@@ -456,6 +526,8 @@ class FakeRegistry:
             return {"preview_id": "cancel-preview-1", "snapshot_digest": "cancel-digest-1"}
         if command == "hfss_export_preview":
             return {"preview_id": "export-preview-1", "snapshot_digest": "export-digest-1"}
+        if command == "layout_component_ports_create_preview":
+            return {"preview_id": "layout-port-preview-1", "snapshot_digest": "layout-port-digest-1"}
         return {"command": command, **arguments}
 
     def release(self, target, *, version="2026.1"):
@@ -927,6 +999,162 @@ def test_backend_reuses_wrappers_and_lists_live_layout_paths():
     backend.execute(target, "hfss_analysis_cancel_apply", {"preview_id": layout_cancel_preview["preview_id"]})
     backend.release()
     assert desktop.releases[-1] == {"close_projects": False, "close_on_exit": False}
+
+
+def test_backend_scores_live_port_candidates_and_creates_component_ports_with_readback():
+    desktop = FakeDesktop()
+    backend = LiveAedtBackend(
+        desktop_factory=lambda **kwargs: desktop,
+        hfss_factory=FakeHfss,
+        layout_factory=FakePortLayout,
+    )
+    target = AedtTarget("pid", 42)
+    candidates = backend.execute(
+        target,
+        "layout_port_candidate_inventory",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "signal_nets": ["N1", "N2"],
+            "reference_nets": ["GND"],
+            "max_candidates": 10,
+        },
+    )
+    assert candidates["status"] == "ready"
+    assert candidates["component_count"] == 2
+    assert [item["name"] for item in candidates["recommended_endpoints"]] == ["U1", "J1"]
+    assert candidates["recommended_endpoints"][0]["bbox"] == [0.0, 0.0, 0.002, 0.002]
+    assert candidates["design_unchanged"] is True
+
+    preview = backend.execute(
+        target,
+        "layout_component_ports_create_preview",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "component_name": "U1",
+            "signal_nets": ["N1", "N2"],
+            "max_new_ports": 4,
+        },
+    )
+    assert preview["expected_port_count"] == 2
+    assert [item["name"] for item in preview["matching_pins"]] == ["U1-1", "U1-2"]
+    assert preview["approval_required"] is True
+    assert preview["project_dirty"] is False
+    result = backend.execute(
+        target,
+        "layout_component_ports_create_apply",
+        {"preview_id": preview["preview_id"]},
+    )
+    assert result["status"] == "verified"
+    assert result["created_ports"] == ["Port_U1-1", "Port_U1-2"]
+    assert result["created_port_count"] == result["expected_port_count"] == 2
+    assert result["project_dirty"] is True
+    assert result["project_saved"] is False
+
+
+def test_backend_component_port_create_rejects_stale_preview_and_rolls_back_partial_apply():
+    desktop = FakeDesktop()
+    instances = []
+
+    def factory(**kwargs):
+        instance = FakeShortPortLayout(**kwargs)
+        instances.append(instance)
+        return instance
+
+    backend = LiveAedtBackend(
+        desktop_factory=lambda **kwargs: desktop,
+        hfss_factory=FakeHfss,
+        layout_factory=factory,
+    )
+    target = AedtTarget("pid", 42)
+    preview = backend.execute(
+        target,
+        "layout_component_ports_create_preview",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "component_name": "U1",
+            "signal_nets": ["N1", "N2"],
+        },
+    )
+    initial_ports = list(instances[0].excitation_names)
+    with pytest.raises(LiveBackendError, match="readback count mismatch"):
+        backend.execute(
+            target,
+            "layout_component_ports_create_apply",
+            {"preview_id": preview["preview_id"]},
+        )
+    assert instances[0].excitation_names == initial_ports
+
+    preview = backend.execute(
+        target,
+        "layout_component_ports_create_preview",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "component_name": "U1",
+            "signal_nets": ["N1", "N2"],
+        },
+    )
+    instances[0].modeler.components["U1"].pins["U1-1"].location = [9.0, 9.0]
+    with pytest.raises(LiveBackendError, match="stale layout component port preview"):
+        backend.execute(
+            target,
+            "layout_component_ports_create_apply",
+            {"preview_id": preview["preview_id"]},
+        )
+
+
+def test_backend_component_port_preview_rejects_ambiguous_or_invalid_targets():
+    desktop = FakeDesktop()
+    instances = []
+
+    def factory(**kwargs):
+        instance = FakePortLayout(**kwargs)
+        instances.append(instance)
+        return instance
+
+    backend = LiveAedtBackend(
+        desktop_factory=lambda **kwargs: desktop,
+        hfss_factory=FakeHfss,
+        layout_factory=factory,
+    )
+    target = AedtTarget("pid", 42)
+    with pytest.raises(LiveBackendError, match="unknown layout component"):
+        backend.execute(
+            target,
+            "layout_component_ports_create_preview",
+            {
+                "project_name": "Board",
+                "design_name": "Layout1",
+                "component_name": "DOES_NOT_EXIST",
+                "signal_nets": ["N1"],
+            },
+        )
+    with pytest.raises(LiveBackendError, match="unknown layout net"):
+        backend.execute(
+            target,
+            "layout_port_candidate_inventory",
+            {
+                "project_name": "Board",
+                "design_name": "Layout1",
+                "signal_nets": ["MISSING"],
+            },
+        )
+    duplicate_pin = FakeLayoutPin("U1-4", "U1", "N1")
+    instances[0].modeler.components["U1"].pins["U1-4"] = duplicate_pin
+    with pytest.raises(LiveBackendError, match="multiple pins on net N1"):
+        backend.execute(
+            target,
+            "layout_component_ports_create_preview",
+            {
+                "project_name": "Board",
+                "design_name": "Layout1",
+                "component_name": "U1",
+                "signal_nets": ["N1", "N2"],
+            },
+        )
 
 
 def test_backend_uses_display_design_name_and_refuses_internal_identifier_before_factory_call():
@@ -1781,6 +2009,35 @@ def test_manager_requires_independent_approvals_for_hfss_setup_and_report():
         approval_token=report_token,
     )
     assert report_result["command"] == "hfss_report_apply"
+
+
+def test_manager_requires_action_bound_approval_for_layout_component_ports():
+    registry = FakeRegistry()
+    authority = HmacApprovalAuthority("p" * 32)
+    manager = LiveAedtSessionManager(registry=registry, approval_verifier=authority)
+    session_id = manager.attach(pid=42)["live_session_id"]
+    preview = manager.preview_layout_component_ports_create(
+        session_id,
+        project_name="Board",
+        design_name="Layout1",
+        component_name="U1",
+        signal_nets=["N1", "N2"],
+        max_new_ports=4,
+    )
+    token = authority.issue(**preview["approval_request"])
+    result = manager.apply_layout_component_ports_create(
+        session_id,
+        preview_id=preview["preview_id"],
+        approval_token=token,
+    )
+    assert result["command"] == "layout_component_ports_create_apply"
+    with pytest.raises(Exception) as replay:
+        manager.apply_layout_component_ports_create(
+            session_id,
+            preview_id=preview["preview_id"],
+            approval_token=token,
+        )
+    assert getattr(replay.value, "code", None) == "approval_required"
 
     boundary_preview = manager.preview_hfss_boundary(
         session_id,

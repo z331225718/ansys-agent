@@ -129,6 +129,12 @@ class LiveAedtBackend:
                 return self._layout_technology_inventory(target, arguments)
             if command == "layout_connectivity_inventory":
                 return self._layout_connectivity_inventory(target, arguments)
+            if command == "layout_port_candidate_inventory":
+                return self._layout_port_candidate_inventory(target, arguments)
+            if command == "layout_component_ports_create_preview":
+                return self._layout_component_ports_create_preview(target, arguments)
+            if command == "layout_component_ports_create_apply":
+                return self._layout_component_ports_create_apply(target, arguments)
             if command == "layout_object_inventory":
                 return self._layout_object_inventory(target, arguments)
             if command == "layout_object_property_inventory":
@@ -1556,6 +1562,279 @@ class LiveAedtBackend:
             "design_unchanged": True,
         }
 
+    def _layout_port_candidate_inventory(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
+        app = self._app(
+            target,
+            "layout",
+            _required(args, "project_name"),
+            _required(args, "design_name"),
+        )
+        signal_nets = _unique_nonempty_names(args.get("signal_nets"), "signal_nets")
+        if not signal_nets:
+            raise LiveBackendError("signal_nets must contain at least one exact net name")
+        reference_nets = _unique_nonempty_names(args.get("reference_nets"), "reference_nets")
+        overlap = sorted(
+            set(item.casefold() for item in signal_nets).intersection(
+                item.casefold() for item in reference_nets
+            )
+        )
+        if overlap:
+            raise LiveBackendError(f"signal_nets and reference_nets overlap: {overlap[0]}")
+        max_candidates = args.get("max_candidates", 100)
+        if type(max_candidates) is not int or not 1 <= max_candidates <= 500:
+            raise LiveBackendError("max_candidates must be an integer between 1 and 500")
+
+        try:
+            nets = {str(name) for name in dict(app.modeler.nets or {})}
+        except Exception as exc:
+            raise LiveBackendError("layout net inventory is unavailable") from exc
+        missing = sorted(set(signal_nets + reference_nets).difference(nets))
+        if missing:
+            raise LiveBackendError(f"unknown layout net: {missing[0]}")
+        components, unavailable = _layout_live_component_connections(
+            app,
+            relevant_nets=set(signal_nets + reference_nets),
+        )
+        from aedt_agent.layout.ports import score_layout_port_candidates
+
+        report = score_layout_port_candidates(components, signal_nets, reference_nets)
+        all_candidates = list(report.get("candidates") or [])
+        candidates = all_candidates[:max_candidates]
+        candidate_names = {
+            str(item.get("name") or "") for item in candidates
+        }
+        recommended = [
+            item
+            for item in list(report.get("recommended_endpoints") or [])
+            if str(item.get("name") or "") in candidate_names
+        ]
+        snapshot = {
+            "signal_nets": signal_nets,
+            "reference_nets": reference_nets,
+            "candidates": candidates,
+            "recommended_endpoints": recommended,
+        }
+        return {
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "model_units": _safe_json_attribute(app.modeler, "model_units"),
+            "status": "ready" if len(recommended) >= 2 else "needs_user_hint",
+            "signal_nets": signal_nets,
+            "reference_nets": reference_nets,
+            "component_count": len(components),
+            "candidate_count": len(all_candidates),
+            "returned_candidate_count": len(candidates),
+            "recommended_endpoints": recommended,
+            "candidates": candidates,
+            "truncated": len(all_candidates) > max_candidates,
+            "unavailable_components": unavailable[:max_candidates],
+            "snapshot_digest": _digest(snapshot),
+            "design_unchanged": True,
+        }
+
+    def _layout_component_ports_create_preview(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        app = self._app(
+            target,
+            "layout",
+            _required(args, "project_name"),
+            _required(args, "design_name"),
+        )
+        component_name = _required(args, "component_name")
+        signal_nets = _unique_nonempty_names(args.get("signal_nets"), "signal_nets")
+        if not signal_nets:
+            raise LiveBackendError("signal_nets must contain at least one exact net name")
+        allow_multiple_pins_per_net = args.get("allow_multiple_pins_per_net", False)
+        if type(allow_multiple_pins_per_net) is not bool:
+            raise LiveBackendError("allow_multiple_pins_per_net must be a boolean")
+        max_new_ports = args.get("max_new_ports", 16)
+        if type(max_new_ports) is not int or not 1 <= max_new_ports <= 64:
+            raise LiveBackendError("max_new_ports must be an integer between 1 and 64")
+        if _simulation_running(app):
+            raise LiveBackendError("cannot create layout ports while an AEDT simulation is running or pending")
+        try:
+            components = {str(name): value for name, value in dict(app.modeler.components or {}).items()}
+            nets = {str(name) for name in dict(app.modeler.nets or {})}
+        except Exception as exc:
+            raise LiveBackendError("layout component or net inventory is unavailable") from exc
+        if component_name not in components:
+            raise LiveBackendError(f"unknown layout component: {component_name}")
+        missing_nets = sorted(set(signal_nets).difference(nets))
+        if missing_nets:
+            raise LiveBackendError(f"unknown layout net: {missing_nets[0]}")
+        component = components[component_name]
+        try:
+            pins = {
+                str(name): pin
+                for name, pin in dict(getattr(component, "pins") or {}).items()
+            }
+        except Exception as exc:
+            raise LiveBackendError(f"component pin inventory is unavailable: {component_name}") from exc
+        matching_pins = [
+            _layout_terminal_record("pin", name, pin)
+            for name, pin in sorted(pins.items())
+            if str(_safe_attribute(pin, "net_name") or "") in signal_nets
+        ]
+        pins_by_net = {
+            net: [item for item in matching_pins if item["net_name"] == net]
+            for net in signal_nets
+        }
+        missing_component_nets = [net for net, records in pins_by_net.items() if not records]
+        if missing_component_nets:
+            raise LiveBackendError(
+                f"component {component_name} has no pin on requested net: {missing_component_nets[0]}"
+            )
+        multiple = [net for net, records in pins_by_net.items() if len(records) > 1]
+        if multiple and not allow_multiple_pins_per_net:
+            raise LiveBackendError(
+                f"component {component_name} has multiple pins on net {multiple[0]}; "
+                "set allow_multiple_pins_per_net=true only after reviewing the pin list"
+            )
+        expected_port_count = len(matching_pins)
+        if expected_port_count > max_new_ports:
+            raise LiveBackendError(
+                f"expected port count {expected_port_count} exceeds max_new_ports {max_new_ports}"
+            )
+        before_ports = _port_names(app)
+        state = {
+            "component_name": component_name,
+            "signal_nets": signal_nets,
+            "matching_pins": matching_pins,
+            "before_ports": before_ports,
+        }
+        snapshot_digest = _digest(state)
+        spec = {
+            "component_name": component_name,
+            "signal_nets": signal_nets,
+            "allow_multiple_pins_per_net": allow_multiple_pins_per_net,
+            "max_new_ports": max_new_ports,
+            "expected_port_count": expected_port_count,
+        }
+        preview_id = "layout-port-preview-" + _digest({**spec, "snapshot": snapshot_digest})[:24]
+        self._previews[preview_id] = {
+            "kind": "layout_component_ports_create",
+            "target": target,
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "spec": spec,
+            "state": state,
+            "digest": snapshot_digest,
+        }
+        return {
+            "preview_id": preview_id,
+            **spec,
+            "matching_pins": matching_pins,
+            "before_ports": before_ports,
+            "snapshot_digest": snapshot_digest,
+            "approval_required": True,
+            "project_dirty": False,
+        }
+
+    def _layout_component_ports_create_apply(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        preview_id = _required(args, "preview_id")
+        preview = self._preview(preview_id, "layout_component_ports_create", target)
+        app = self._app(target, "layout", preview["project_name"], preview["design_name"])
+        spec = dict(preview["spec"])
+        if _simulation_running(app):
+            raise LiveBackendError("cannot create layout ports while an AEDT simulation is running or pending")
+        current_preview = self._layout_component_ports_snapshot(app, spec)
+        if _digest(current_preview) != preview["digest"]:
+            raise LiveBackendError("stale layout component port preview")
+        before_ports = list(preview["state"]["before_ports"])
+        created_ports: list[str] = []
+        try:
+            creator = getattr(app, "create_ports_on_component_by_nets", None)
+            if not callable(creator):
+                raise LiveBackendError("PyAEDT create_ports_on_component_by_nets is unavailable")
+            creator(spec["component_name"], list(spec["signal_nets"]))
+            after_ports = _port_names(app)
+            missing_before_ports = [name for name in before_ports if name not in set(after_ports)]
+            if missing_before_ports:
+                raise LiveBackendError(
+                    f"existing layout port changed during creation: {missing_before_ports[0]}"
+                )
+            created_ports = [name for name in after_ports if name not in set(before_ports)]
+            if len(created_ports) != spec["expected_port_count"]:
+                raise LiveBackendError(
+                    f"layout port readback count mismatch: expected {spec['expected_port_count']}, "
+                    f"created {len(created_ports)}"
+                )
+            if len(created_ports) > spec["max_new_ports"]:
+                raise LiveBackendError("layout port creation exceeded the approved max_new_ports")
+        except Exception as exc:
+            rollback = self._rollback_layout_ports(app, before_ports)
+            if rollback["remaining_new_ports"] or rollback["missing_before_ports"]:
+                raise LiveBackendError(
+                    f"layout port creation failed and rollback was incomplete: {rollback}"
+                ) from exc
+            raise
+        del self._previews[preview_id]
+        return {
+            "status": "verified",
+            "preview_id": preview_id,
+            **spec,
+            "created_ports": created_ports,
+            "created_port_count": len(created_ports),
+            "ports": _port_names(app),
+            "port_order_source": _port_order_source(app),
+            "project_dirty": True,
+            "project_saved": False,
+        }
+
+    def _layout_component_ports_snapshot(self, app: Any, spec: dict[str, Any]) -> dict[str, Any]:
+        try:
+            components = {str(name): value for name, value in dict(app.modeler.components or {}).items()}
+        except Exception as exc:
+            raise LiveBackendError("layout component inventory is unavailable") from exc
+        component = components.get(spec["component_name"])
+        if component is None:
+            raise LiveBackendError("stale layout component port preview")
+        try:
+            pins = {
+                str(name): pin
+                for name, pin in dict(getattr(component, "pins") or {}).items()
+            }
+        except Exception as exc:
+            raise LiveBackendError("component pin inventory is unavailable") from exc
+        matching_pins = [
+            _layout_terminal_record("pin", name, pin)
+            for name, pin in sorted(pins.items())
+            if str(_safe_attribute(pin, "net_name") or "") in spec["signal_nets"]
+        ]
+        return {
+            "component_name": spec["component_name"],
+            "signal_nets": list(spec["signal_nets"]),
+            "matching_pins": matching_pins,
+            "before_ports": _port_names(app),
+        }
+
+    @staticmethod
+    def _rollback_layout_ports(app: Any, before_ports: list[str]) -> dict[str, Any]:
+        before = set(before_ports)
+        candidates = [name for name in _port_names(app) if name not in before]
+        failures = []
+        for name in reversed(candidates):
+            try:
+                if not app.delete_port(name, remove_geometry=True):
+                    failures.append(name)
+            except Exception:
+                failures.append(name)
+        remaining = [name for name in _port_names(app) if name not in before]
+        missing_before = [name for name in before_ports if name not in set(_port_names(app))]
+        return {
+            "attempted_ports": candidates,
+            "delete_failures": failures,
+            "remaining_new_ports": remaining,
+            "missing_before_ports": missing_before,
+        }
+
     def _layout_object_inventory(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
         app = self._app(target, "layout", _required(args, "project_name"), _required(args, "design_name"))
         attributes = {
@@ -2208,6 +2487,145 @@ def _layout_selector_names(selector: dict[str, Any], field: str) -> set[str]:
             raise LiveBackendError(f"layout connectivity selector {field} must not contain empty names")
         values.add(value)
     return values
+
+
+def _unique_nonempty_names(raw: Any, field: str) -> list[str]:
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise LiveBackendError(f"{field} must be a list of exact AEDT names")
+    values = []
+    seen = set()
+    seen_casefold = set()
+    for item in raw:
+        if not isinstance(item, str):
+            raise LiveBackendError(f"{field} must contain only string AEDT names")
+        value = item.strip()
+        if not value:
+            raise LiveBackendError(f"{field} must not contain empty names")
+        if value in seen or value.casefold() in seen_casefold:
+            raise LiveBackendError(f"{field} must not contain duplicate names: {value}")
+        values.append(value)
+        seen.add(value)
+        seen_casefold.add(value.casefold())
+    return values
+
+
+def _layout_live_component_connections(
+    app: Any,
+    *,
+    relevant_nets: set[str],
+) -> tuple[list[Any], list[dict[str, str]]]:
+    from aedt_agent.layout.ports import ComponentConnection
+
+    try:
+        components = {
+            str(name): component
+            for name, component in dict(app.modeler.components or {}).items()
+        }
+    except Exception as exc:
+        raise LiveBackendError("layout component inventory is unavailable") from exc
+    units = str(_safe_attribute(app.modeler, "model_units") or "m")
+    output = []
+    unavailable = []
+    for name in sorted(components):
+        component = components[name]
+        try:
+            pins = {
+                str(pin_name): pin
+                for pin_name, pin in dict(getattr(component, "pins") or {}).items()
+            }
+        except Exception as exc:
+            unavailable.append(
+                {
+                    "name": name,
+                    "reason": f"{type(exc).__name__}: component pin inventory unavailable",
+                }
+            )
+            continue
+        pin_records = []
+        for pin_name, pin in sorted(pins.items()):
+            net_name = str(_safe_attribute(pin, "net_name") or "")
+            if net_name not in relevant_nets:
+                continue
+            location = _safe_attribute(pin, "location")
+            position = _layout_position_in_meters(location, units)
+            pin_records.append(
+                {
+                    "pin": pin_name,
+                    "net": net_name,
+                    "position": position,
+                    "padstack": str(
+                        _safe_attribute(pin, "padstack_definition")
+                        or _safe_attribute(pin, "padstackname")
+                        or ""
+                    ),
+                    "start_layer": str(_safe_attribute(pin, "start_layer") or ""),
+                    "stop_layer": str(_safe_attribute(pin, "stop_layer") or ""),
+                }
+            )
+        if not pin_records:
+            continue
+        bbox = _layout_bbox_in_meters(_safe_attribute(component, "bounding_box"), units)
+        if bbox is None:
+            unavailable.append(
+                {
+                    "name": name,
+                    "reason": "component bounding_box is unavailable or malformed",
+                }
+            )
+            continue
+        output.append(
+            ComponentConnection(
+                name=name,
+                partname=str(_safe_attribute(component, "part") or ""),
+                component_type=str(_safe_attribute(component, "part_type") or ""),
+                layer=str(_safe_attribute(component, "placement_layer") or ""),
+                bbox=bbox,
+                pins=pin_records,
+            )
+        )
+    return output, unavailable
+
+
+def _layout_position_in_meters(value: Any, units: str) -> list[float]:
+    if not isinstance(value, (list, tuple)) or len(value) < 2:
+        return [0.0, 0.0]
+    try:
+        factor = _layout_length_factor_to_meters(units)
+        return [float(value[0]) * factor, float(value[1]) * factor]
+    except (TypeError, ValueError):
+        return [0.0, 0.0]
+
+
+def _layout_bbox_in_meters(value: Any, units: str) -> list[float] | None:
+    if not isinstance(value, (list, tuple)) or len(value) != 4:
+        return None
+    try:
+        factor = _layout_length_factor_to_meters(units)
+        return [float(item) * factor for item in value]
+    except (TypeError, ValueError):
+        return None
+
+
+def _layout_length_factor_to_meters(units: str) -> float:
+    factors = {
+        "m": 1.0,
+        "meter": 1.0,
+        "meters": 1.0,
+        "cm": 1e-2,
+        "mm": 1e-3,
+        "um": 1e-6,
+        "nm": 1e-9,
+        "in": 0.0254,
+        "inch": 0.0254,
+        "mil": 0.0000254,
+        "mils": 0.0000254,
+    }
+    normalized = str(units).strip().casefold()
+    if normalized not in factors:
+        raise LiveBackendError(f"unsupported layout model units: {units}")
+    return factors[normalized]
 
 
 def _layout_terminal_record(kind: str, name: str, terminal: Any) -> dict[str, Any]:

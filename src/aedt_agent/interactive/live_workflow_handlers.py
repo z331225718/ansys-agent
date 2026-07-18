@@ -25,6 +25,26 @@ def register_live_workflow_handlers(
         _audit_layout_inventory,
     )
     registry.register(
+        "assistant.live.layout.discover_port_candidates",
+        lambda context: _discover_port_candidates(context, live_manager, binding_resolver),
+    )
+    registry.register(
+        "assistant.live.layout.validate_component_port_selection",
+        _validate_component_port_selection,
+    )
+    registry.register(
+        "assistant.live.layout.preview_component_ports_create",
+        lambda context: _preview_component_ports_create(context, live_manager, binding_resolver),
+    )
+    registry.register(
+        "assistant.live.layout.apply_component_ports_create",
+        lambda context: _apply_component_ports_create(context, live_manager, binding_resolver),
+    )
+    registry.register(
+        "assistant.live.layout.component_ports_scorecard",
+        _component_ports_scorecard,
+    )
+    registry.register(
         "assistant.live.layout.select_paths",
         lambda context: _select_layout_paths(context, live_manager, binding_resolver),
     )
@@ -218,6 +238,156 @@ def _audit_layout_inventory(context: GraphNodeExecutionContext) -> dict[str, Any
         "live_session_reused": True,
     }
     return _success(output, outcome="passed" if passed else "failed")
+
+
+def _discover_port_candidates(context, live_manager, binding_resolver) -> dict[str, Any]:
+    payload = dict(context.input_payload)
+    session_id, project_name, design_name, _ = _live_target(context, binding_resolver)
+    candidates = live_manager.layout_port_candidate_inventory(
+        session_id,
+        project_name=project_name,
+        design_name=design_name,
+        signal_nets=payload.get("signal_nets") or [],
+        reference_nets=payload.get("reference_nets") or [],
+        max_candidates=payload.get("max_candidates", 100),
+    )
+    return _success(
+        {
+            **payload,
+            "candidate_inventory": candidates,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _validate_component_port_selection(context: GraphNodeExecutionContext) -> dict[str, Any]:
+    payload = dict(context.input_payload)
+    inventory = dict(payload.get("candidate_inventory") or {})
+    component_name = str(payload.get("component_name") or "").strip()
+    signal_nets = [str(item) for item in list(payload.get("signal_nets") or [])]
+    requested = {item.casefold() for item in signal_nets}
+    if not component_name or not requested:
+        raise ValueError("component_name and signal_nets are required")
+    match = next(
+        (
+            dict(item)
+            for item in list(inventory.get("candidates") or [])
+            if str(item.get("kind") or "") == "component"
+            and str(item.get("name") or "") == component_name
+        ),
+        None,
+    )
+    if match is None:
+        raise ValueError(
+            "the explicit component is not a scored component candidate; paired groups and inferred targets are not writable"
+        )
+    connected = {str(item).casefold() for item in list(match.get("signal_nets") or [])}
+    if connected != requested:
+        missing = sorted(requested.difference(connected))
+        raise ValueError(
+            f"component {component_name} does not connect every requested signal net: {missing}"
+        )
+    validation = {
+        "status": "verified",
+        "component_name": component_name,
+        "signal_nets": signal_nets,
+        "candidate_name": match["name"],
+        "candidate_score": match.get("score"),
+        "candidate_confidence": match.get("confidence"),
+        "explicit_component_required": True,
+        "paired_component_groups_writable": False,
+    }
+    return _success(
+        {
+            **payload,
+            "selection_validation": validation,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _preview_component_ports_create(context, live_manager, binding_resolver) -> dict[str, Any]:
+    payload = dict(context.input_payload)
+    session_id, project_name, design_name, _ = _live_target(context, binding_resolver)
+    preview = live_manager.preview_layout_component_ports_create(
+        session_id,
+        project_name=project_name,
+        design_name=design_name,
+        component_name=str(payload["component_name"]),
+        signal_nets=payload["signal_nets"],
+        allow_multiple_pins_per_net=payload.get("allow_multiple_pins_per_net", False),
+        max_new_ports=payload.get("max_new_ports", 16),
+    )
+    return _success(
+        {
+            **payload,
+            "operation_preview_id": preview["preview_id"],
+            "operation_approval": preview.get("approval_request") or {},
+            "operation_preview": preview,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _apply_component_ports_create(context, live_manager, binding_resolver) -> dict[str, Any]:
+    payload = dict(context.input_payload)
+    session_id, _, _, binding = _live_target(context, binding_resolver)
+    token = str(binding.get("operation_approval_token") or "")
+    if not token:
+        raise ValueError(
+            "operation_approval_token is required after wait_for_live_approval approves the port preview"
+        )
+    result = live_manager.apply_layout_component_ports_create(
+        session_id,
+        preview_id=str(payload["operation_preview_id"]),
+        approval_token=token,
+    )
+    return _success(
+        {
+            **payload,
+            "operation_result": result,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _component_ports_scorecard(context: GraphNodeExecutionContext) -> dict[str, Any]:
+    payload = dict(context.input_payload)
+    result = dict(payload.get("operation_result") or {})
+    created = list(result.get("created_ports") or [])
+    ports = set(result.get("ports") or [])
+    checks = [
+        _check("verified", result.get("status") == "verified"),
+        _check(
+            "created_port_count",
+            result.get("created_port_count") == result.get("expected_port_count"),
+        ),
+        _check("created_ports_readback", bool(created) and all(item in ports for item in created)),
+        _check("component_unchanged", result.get("component_name") == payload.get("component_name")),
+        _check("signal_nets_unchanged", result.get("signal_nets") == payload.get("signal_nets")),
+        _check("project_not_saved", result.get("project_saved") is False),
+        _check("live_session_reused", payload.get("live_session_reused") is True),
+    ]
+    passed = all(item["passed"] for item in checks)
+    summary = {
+        "component_name": result.get("component_name"),
+        "signal_nets": list(result.get("signal_nets") or []),
+        "created_ports": created,
+        "created_port_count": int(result.get("created_port_count") or 0),
+        "port_order": list(result.get("ports") or []),
+        "port_order_source": result.get("port_order_source"),
+        "project_saved": result.get("project_saved"),
+    }
+    return _success(
+        {
+            **payload,
+            "status": "passed" if passed else "failed",
+            "checks": checks,
+            "summary": summary,
+            "live_session_reused": True,
+        },
+        outcome="passed" if passed else "failed",
+    )
 
 
 def _select_layout_paths(context, live_manager, binding_resolver) -> dict[str, Any]:

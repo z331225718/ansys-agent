@@ -225,6 +225,37 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             products=["layout"],
         ),
         _cap(
+            "layout.port_candidates.inventory",
+            "read_only",
+            ["live"],
+            ["get_live_layout_port_candidate_inventory"],
+            postconditions=[
+                "design_unchanged",
+                "exact_signal_and_reference_nets_verified",
+                "legacy_component_candidate_scoring_reused",
+                "candidate_output_bounded",
+            ],
+            products=["layout"],
+        ),
+        _cap(
+            "layout.component_ports.create",
+            "reversible_edit",
+            ["live"],
+            [
+                "preview_live_layout_component_ports_create",
+                "apply_live_layout_component_ports_create",
+            ],
+            approval="external_host_token",
+            side_effects=["project_becomes_dirty", "layout_ports_created"],
+            postconditions=[
+                "component_and_net_snapshot_unchanged",
+                "new_port_count_bounded_and_verified",
+                "rollback_on_failure",
+                "project_not_saved",
+            ],
+            products=["layout"],
+        ),
+        _cap(
             "layout.objects.inventory",
             "read_only",
             ["live"],

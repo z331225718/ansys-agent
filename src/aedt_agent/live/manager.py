@@ -722,6 +722,74 @@ class LiveAedtSessionManager:
             },
         )
 
+    def layout_port_candidate_inventory(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+        signal_nets: list[str],
+        reference_nets: list[str] | None = None,
+        max_candidates: int = 100,
+    ) -> dict[str, Any]:
+        return self._execute(
+            session_id,
+            "layout_port_candidate_inventory",
+            {
+                "project_name": project_name,
+                "design_name": design_name,
+                "signal_nets": signal_nets,
+                "reference_nets": reference_nets or [],
+                "max_candidates": max_candidates,
+            },
+        )
+
+    def preview_layout_component_ports_create(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+        component_name: str,
+        signal_nets: list[str],
+        allow_multiple_pins_per_net: bool = False,
+        max_new_ports: int = 16,
+    ) -> dict[str, Any]:
+        result = self._execute(
+            session_id,
+            "layout_component_ports_create_preview",
+            {
+                "project_name": project_name,
+                "design_name": design_name,
+                "component_name": component_name,
+                "signal_nets": signal_nets,
+                "allow_multiple_pins_per_net": allow_multiple_pins_per_net,
+                "max_new_ports": max_new_ports,
+            },
+        )
+        return self._register_approval(session_id, "layout.component_ports.create", result)
+
+    def apply_layout_component_ports_create(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict[str, Any]:
+        self._require_approval(
+            session_id,
+            "layout.component_ports.create",
+            preview_id,
+            approval_token,
+        )
+        result = self._execute(
+            session_id,
+            "layout_component_ports_create_apply",
+            {"preview_id": preview_id},
+        )
+        self._approval_contexts.pop((session_id, preview_id), None)
+        return result
+
     def layout_object_inventory(
         self,
         session_id: str,

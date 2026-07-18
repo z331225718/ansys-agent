@@ -83,6 +83,24 @@ class _Live:
             "design_unchanged": True,
         }
 
+    def layout_port_candidate_inventory(self, session_id: str, **kwargs) -> dict:
+        return {
+            "status": "needs_user_hint",
+            "signal_nets": list(kwargs["signal_nets"]),
+            "reference_nets": list(kwargs.get("reference_nets") or []),
+            "candidates": [
+                {
+                    "kind": "component",
+                    "name": "U1",
+                    "signal_nets": ["n1", "n2"],
+                    "score": 120.0,
+                    "confidence": 0.92,
+                }
+            ],
+            "recommended_endpoints": [],
+            "design_unchanged": True,
+        }
+
     def variable_inventory(self, session_id: str, **kwargs) -> dict:
         return {"count": 1, "variables": [], "design_unchanged": True}
 
@@ -131,6 +149,40 @@ class _Live:
             "status": "verified",
             "target_count": 2,
             "verified_count": 2,
+            "project_saved": False,
+        }
+
+    def preview_layout_component_ports_create(self, session_id: str, **kwargs) -> dict:
+        return {
+            "preview_id": "port-preview-1",
+            "component_name": kwargs["component_name"],
+            "signal_nets": list(kwargs["signal_nets"]),
+            "expected_port_count": 2,
+            "matching_pins": [
+                {"name": "U1-1", "net_name": "N1"},
+                {"name": "U1-2", "net_name": "N2"},
+            ],
+            "approval_request": {"action": "layout.component_ports.create"},
+        }
+
+    def apply_layout_component_ports_create(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        assert preview_id == "port-preview-1"
+        assert approval_token == "port-approved"
+        return {
+            "status": "verified",
+            "component_name": "U1",
+            "signal_nets": ["N1", "N2"],
+            "expected_port_count": 2,
+            "created_port_count": 2,
+            "created_ports": ["Port_U1-1", "Port_U1-2"],
+            "ports": ["P1", "P2", "Port_U1-1", "Port_U1-2"],
+            "port_order_source": "pyaedt.excitation_names",
             "project_saved": False,
         }
 
@@ -289,6 +341,12 @@ def test_default_workflow_catalog_includes_live_monitor_and_export(tmp_path: Pat
     assert descriptors["layout_live_solve_touchstone_score"]["attached_live_session_reuse"] is True
     assert descriptors["layout_live_parameterize_solve_touchstone_score"]["risk"] == "expensive"
     assert descriptors["layout_live_parameterize_solve_touchstone_score"]["attached_live_session_reuse"] is True
+    assert descriptors["layout_live_component_ports_create"]["risk"] == "reversible_edit"
+    assert descriptors["layout_live_component_ports_create"]["attached_live_session_reuse"] is True
+    assert descriptors["layout_live_component_ports_create"]["recommended_initial_fields"] == [
+        "component_name",
+        "signal_nets",
+    ]
     assert manager.inspect_workflow("layout_live_solve_monitor")["graph"]["edges"][1]["on"] == "running"
 
 
@@ -401,6 +459,50 @@ def test_live_layout_audit_workflow_reuses_bound_session_for_graph_handlers(tmp_
             goal="Try to forge a binding",
             initial_payload={"_assistant_live": {"live_session_id": "forged"}},
         )
+
+
+def test_live_component_port_workflow_reuses_candidates_and_keeps_token_out_of_graph_state(
+    tmp_path: Path,
+):
+    manager = AssistantWorkflowManager(
+        live_manager=_Live(),
+        db_path=tmp_path / "port-missions.db",
+        template_ids=("layout_live_component_ports_create",),
+        runtime_factory=lambda path: AgentRuntime(SQLiteMissionStore(path)),
+    )
+    start = manager.preview_start(
+        "live-1",
+        workflow_id="layout_live_component_ports_create",
+        goal="Create reviewed component ports",
+        initial_payload={
+            "component_name": "U1",
+            "signal_nets": ["N1", "N2"],
+            "reference_nets": ["GND"],
+        },
+    )
+    started = manager.apply_start(
+        "live-1",
+        preview_id=start["preview_id"],
+        approval_token="approved",
+    )
+    report = None
+    for index in range(5):
+        advance = manager.preview_advance("live-1", graph_run_id=started["graph_run_id"])
+        if index == 3:
+            assert advance["operation_approval_required"]["preview_id"] == "port-preview-1"
+        report = manager.apply_advance(
+            "live-1",
+            preview_id=advance["preview_id"],
+            approval_token="approved",
+            operation_approval_token="port-approved" if index == 3 else "",
+        )
+
+    assert report is not None and report["status"] == "succeeded"
+    assert "port-approved" not in str(report)
+    scorecard = report["node_runs"][-1]["output_payload"]
+    assert scorecard["status"] == "passed"
+    assert scorecard["summary"]["component_name"] == "U1"
+    assert scorecard["summary"]["created_ports"] == ["Port_U1-1", "Port_U1-2"]
 
 
 def test_live_width_workflow_keeps_operation_token_out_of_graph_state(tmp_path: Path):
