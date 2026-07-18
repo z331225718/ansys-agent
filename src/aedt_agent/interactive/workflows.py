@@ -15,6 +15,7 @@ _MAX_PAYLOAD_BYTES = 256 * 1024
 _DEFAULT_TEMPLATE_IDS = (
     "layout_live_audit",
     "layout_live_parameterize_width",
+    "layout_live_solve_start",
     "brd_before_after_compare",
     "brd_channel_optimize",
     "brd_iterative_optimize",
@@ -26,10 +27,13 @@ _DEFAULT_TEMPLATE_IDS = (
     "brd_reviewed_model_optimize_loop",
     "via_optimize_demo",
 )
-_LIVE_SESSION_WORKFLOWS = frozenset({"layout_live_audit", "layout_live_parameterize_width"})
+_LIVE_SESSION_WORKFLOWS = frozenset(
+    {"layout_live_audit", "layout_live_parameterize_width", "layout_live_solve_start"}
+)
 _LIVE_WORKFLOW_RISKS = {
     "layout_live_audit": "read_only",
     "layout_live_parameterize_width": "reversible_edit",
+    "layout_live_solve_start": "expensive",
 }
 
 
@@ -365,14 +369,19 @@ def _graph_state_digest(report: dict[str, Any]) -> str:
 
 
 def _operation_approval_requirement(report: dict[str, Any]) -> dict[str, Any] | None:
-    if report.get("template_id") != "layout_live_parameterize_width":
+    preview_nodes = {
+        "layout_live_parameterize_width": "preview_parameterization",
+        "layout_live_solve_start": "preview_analysis",
+    }
+    expected_node = preview_nodes.get(str(report.get("template_id") or ""))
+    if expected_node is None:
         return None
     completed = [
         item
         for item in report.get("node_runs", [])
         if item.get("status") == "succeeded"
     ]
-    if not completed or completed[-1].get("node_id") != "preview_parameterization":
+    if not completed or completed[-1].get("node_id") != expected_node:
         return None
     output = dict(completed[-1].get("output_payload") or {})
     preview_id = str(output.get("operation_preview_id") or "")

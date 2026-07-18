@@ -34,6 +34,22 @@ def register_live_workflow_handlers(
         "assistant.live.layout.width_scorecard",
         _width_scorecard,
     )
+    registry.register(
+        "assistant.live.layout.validate_solve_setup",
+        lambda context: _validate_solve_setup(context, live_manager, binding_resolver),
+    )
+    registry.register(
+        "assistant.live.layout.preview_analysis_start",
+        lambda context: _preview_analysis_start(context, live_manager, binding_resolver),
+    )
+    registry.register(
+        "assistant.live.layout.apply_analysis_start",
+        lambda context: _apply_analysis_start(context, live_manager, binding_resolver),
+    )
+    registry.register(
+        "assistant.live.layout.solve_submission_scorecard",
+        lambda context: _solve_submission_scorecard(context, live_manager, binding_resolver),
+    )
 
 
 def _collect_layout_inventory(
@@ -192,6 +208,112 @@ def _width_scorecard(context: GraphNodeExecutionContext) -> dict[str, Any]:
             "variable_name": payload.get("variable_name"),
             "variable_value": payload.get("variable_value"),
         },
+        "live_session_reused": True,
+    }
+    return _success(output, outcome="passed" if passed else "failed")
+
+
+def _validate_solve_setup(context, live_manager, binding_resolver) -> dict[str, Any]:
+    payload = dict(context.input_payload)
+    session_id, project_name, design_name, _ = _live_target(context, binding_resolver)
+    setup_name = str(payload.get("setup_name") or "")
+    sweep_name = str(payload.get("sweep_name") or "")
+    inventory = live_manager.setup_inventory(
+        session_id,
+        product="layout",
+        project_name=project_name,
+        design_name=design_name,
+    )
+    setup = next((item for item in inventory.get("setups", []) if item.get("name") == setup_name), None)
+    if setup is None:
+        raise ValueError(f"unknown live layout setup: {setup_name}")
+    if sweep_name and sweep_name not in set(setup.get("sweeps") or []):
+        raise ValueError(f"unknown sweep {sweep_name} in setup {setup_name}")
+    resources = {
+        "cores": payload.get("cores"),
+        "tasks": payload.get("tasks"),
+        "gpus": payload.get("gpus"),
+        "use_auto_settings": payload.get("use_auto_settings", True),
+    }
+    return _success(
+        {
+            **payload,
+            "setup_inventory": inventory,
+            "resources": resources,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _preview_analysis_start(context, live_manager, binding_resolver) -> dict[str, Any]:
+    payload = dict(context.input_payload)
+    session_id, project_name, design_name, _ = _live_target(context, binding_resolver)
+    resources = dict(payload["resources"])
+    preview = live_manager.preview_hfss_analysis_start(
+        session_id,
+        project_name=project_name,
+        design_name=design_name,
+        setup_name=str(payload["setup_name"]),
+        cores=resources.get("cores"),
+        tasks=resources.get("tasks"),
+        gpus=resources.get("gpus"),
+        use_auto_settings=resources.get("use_auto_settings", True),
+        product="layout",
+    )
+    return _success(
+        {
+            **payload,
+            "operation_preview_id": preview["preview_id"],
+            "operation_approval": preview.get("approval_request") or {},
+            "operation_preview": preview,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _apply_analysis_start(context, live_manager, binding_resolver) -> dict[str, Any]:
+    payload = dict(context.input_payload)
+    session_id, _, _, binding = _live_target(context, binding_resolver)
+    token = str(binding.get("operation_approval_token") or "")
+    if not token:
+        raise ValueError("operation_approval_token is required after approval of the solve preview")
+    result = live_manager.apply_hfss_analysis_start(
+        session_id,
+        preview_id=str(payload["operation_preview_id"]),
+        approval_token=token,
+    )
+    return _success({**payload, "operation_result": result, "live_session_reused": True})
+
+
+def _solve_submission_scorecard(context, live_manager, binding_resolver) -> dict[str, Any]:
+    payload = dict(context.input_payload)
+    session_id, project_name, design_name, _ = _live_target(context, binding_resolver)
+    result = dict(payload.get("operation_result") or {})
+    status = live_manager.hfss_analysis_status(
+        session_id,
+        product="layout",
+        project_name=project_name,
+        design_name=design_name,
+        setup_name=str(payload["setup_name"]),
+    )
+    checks = [
+        _check("submitted", result.get("status") == "submitted" and result.get("started") is True),
+        _check("non_blocking", result.get("blocking") is False),
+        _check("status_observed", status.get("running") is True or status.get("latest_run") is not None),
+        _check("project_not_saved", result.get("project_saved") is False),
+    ]
+    passed = all(item["passed"] for item in checks)
+    output = {
+        **payload,
+        "status": "passed" if passed else "failed",
+        "checks": checks,
+        "summary": {
+            "setup_name": payload["setup_name"],
+            "run_id": result.get("run_id"),
+            "resources": result.get("resources"),
+            "observed_running": status.get("running"),
+        },
+        "analysis_status": status,
         "live_session_reused": True,
     }
     return _success(output, outcome="passed" if passed else "failed")

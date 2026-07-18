@@ -131,9 +131,28 @@ class FakeLayout:
             set_variable=lambda name, value, sweep=True: self._set_variable(name, value),
             delete_variable=lambda name: self.variable_manager.variables.pop(name, None) is not None,
         )
+        self._setups = {"SetupL": FakeSetup("SetupL", {"Frequency": "10GHz"})}
+        self.are_there_simulations_running = False
 
     def release_desktop(self, **kwargs):
         return True
+
+    @property
+    def existing_analysis_setups(self):
+        return list(self._setups)
+
+    def get_setup(self, name):
+        return self._setups[name]
+
+    def analyze_setup(self, setup, **kwargs):
+        if setup not in self._setups:
+            return False
+        self.are_there_simulations_running = True
+        return True
+
+    def stop_simulations(self, clean_stop=True):
+        self.are_there_simulations_running = False
+        return "stopped"
 
     def _set_variable(self, name, value):
         self.variable_manager.variables[name] = value
@@ -608,6 +627,39 @@ def test_backend_reuses_wrappers_and_lists_live_layout_paths():
     )
     assert variable_inventory["count"] == 3
     assert variable_inventory["variables"][-1]["name"] == "trace_w"
+    layout_analysis_preview = backend.execute(
+        target,
+        "hfss_analysis_start_preview",
+        {
+            "product": "layout",
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "setup_name": "SetupL",
+            "cores": 4,
+            "tasks": 1,
+            "gpus": 0,
+        },
+    )
+    assert layout_analysis_preview["product"] == "layout"
+    layout_analysis = backend.execute(
+        target,
+        "hfss_analysis_start_apply",
+        {"preview_id": layout_analysis_preview["preview_id"]},
+    )
+    assert layout_analysis["started"] is True
+    layout_status = backend.execute(
+        target,
+        "hfss_analysis_status",
+        {"product": "layout", "project_name": "Board", "design_name": "Layout1", "setup_name": "SetupL"},
+    )
+    assert layout_status["product"] == "layout"
+    assert layout_status["running"] is True
+    layout_cancel_preview = backend.execute(
+        target,
+        "hfss_analysis_cancel_preview",
+        {"product": "layout", "project_name": "Board", "design_name": "Layout1", "setup_name": "SetupL"},
+    )
+    backend.execute(target, "hfss_analysis_cancel_apply", {"preview_id": layout_cancel_preview["preview_id"]})
     backend.release()
     assert desktop.releases[-1] == {"close_projects": False, "close_on_exit": False}
 

@@ -138,8 +138,15 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             approval="external_host_token",
             side_effects=["solver_job_started"],
             postconditions=["setup_digest_unchanged", "resource_budget_bounded", "non_blocking"],
+            products=["hfss", "layout"],
         ),
-        _cap("hfss.analysis.status", "read_only", ["live"], ["get_live_hfss_analysis_status"]),
+        _cap(
+            "hfss.analysis.status",
+            "read_only",
+            ["live"],
+            ["get_live_hfss_analysis_status"],
+            products=["hfss", "layout"],
+        ),
         _cap(
             "hfss.analysis.cancel",
             "expensive",
@@ -148,6 +155,7 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             approval="external_host_token",
             side_effects=["running_solver_job_interrupted"],
             postconditions=["running_state_digest_unchanged_before_cancel"],
+            products=["hfss", "layout"],
         ),
         _cap(
             "hfss.results.export",
@@ -326,6 +334,7 @@ def _cap(
     approval: str = "none",
     side_effects: list[str] | None = None,
     postconditions: list[str] | None = None,
+    products: list[str] | None = None,
 ) -> dict[str, Any]:
     return {
         "name": name,
@@ -335,4 +344,5 @@ def _cap(
         "approval": approval,
         "side_effects": side_effects or [],
         "postconditions": postconditions or [],
+        "products": products or [],
     }

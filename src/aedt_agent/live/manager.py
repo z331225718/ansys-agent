@@ -510,7 +510,8 @@ class LiveAedtSessionManager:
         return result
 
     def start_hfss_analysis(
-        self, session_id: str, *, project_name: str, design_name: str, setup_name: str, blocking: bool = False
+        self, session_id: str, *, project_name: str, design_name: str, setup_name: str, blocking: bool = False,
+        product: str = "hfss",
     ) -> dict[str, Any]:
         if self.strict_desktop:
             raise LiveAedtError(
@@ -520,7 +521,7 @@ class LiveAedtSessionManager:
         return self._execute(
             session_id,
             "hfss_analysis_start",
-            {"project_name": project_name, "design_name": design_name, "setup_name": setup_name, "blocking": blocking},
+            {"project_name": project_name, "design_name": design_name, "setup_name": setup_name, "blocking": blocking, "product": product},
         )
 
     def preview_hfss_analysis_start(
@@ -534,6 +535,7 @@ class LiveAedtSessionManager:
         tasks: int | None = None,
         gpus: int | None = None,
         use_auto_settings: bool = True,
+        product: str = "hfss",
     ) -> dict[str, Any]:
         result = self._execute(
             session_id,
@@ -546,6 +548,7 @@ class LiveAedtSessionManager:
                 "tasks": tasks,
                 "gpus": gpus,
                 "use_auto_settings": use_auto_settings,
+                "product": product,
             },
         )
         return self._register_approval(session_id, "hfss.analysis.start", result)
@@ -559,12 +562,13 @@ class LiveAedtSessionManager:
         return result
 
     def hfss_analysis_status(
-        self, session_id: str, *, project_name: str, design_name: str, setup_name: str = ""
+        self, session_id: str, *, project_name: str, design_name: str, setup_name: str = "",
+        product: str = "hfss",
     ) -> dict[str, Any]:
         return self._execute(
             session_id,
             "hfss_analysis_status",
-            {"project_name": project_name, "design_name": design_name, "setup_name": setup_name},
+            {"project_name": project_name, "design_name": design_name, "setup_name": setup_name, "product": product},
         )
 
     def preview_hfss_analysis_cancel(
@@ -575,6 +579,7 @@ class LiveAedtSessionManager:
         design_name: str,
         setup_name: str = "",
         clean_stop: bool = True,
+        product: str = "hfss",
     ) -> dict[str, Any]:
         result = self._execute(
             session_id,
@@ -584,6 +589,7 @@ class LiveAedtSessionManager:
                 "design_name": design_name,
                 "setup_name": setup_name,
                 "clean_stop": clean_stop,
+                "product": product,
             },
         )
         return self._register_approval(session_id, "hfss.analysis.cancel", result)

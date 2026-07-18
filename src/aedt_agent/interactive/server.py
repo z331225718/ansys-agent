@@ -529,6 +529,7 @@ def create_server(
         design_name: str,
         setup_name: str,
         blocking: bool = False,
+        product: str = "hfss",
     ) -> dict:
         """Compatibility entry point; prefer the preview/apply start tools for approved resource-bounded solves."""
         return live.start_hfss_analysis(
@@ -537,6 +538,7 @@ def create_server(
             design_name=design_name,
             setup_name=setup_name,
             blocking=blocking,
+            product=product,
         )
 
     @server.tool()
@@ -549,6 +551,7 @@ def create_server(
         tasks: int | None = None,
         gpus: int | None = None,
         use_auto_settings: bool = True,
+        product: str = "hfss",
     ) -> dict:
         """Freeze setup state and a bounded compute budget before starting a non-blocking HFSS solve."""
         return live.preview_hfss_analysis_start(
@@ -560,6 +563,7 @@ def create_server(
             tasks=tasks,
             gpus=gpus,
             use_auto_settings=use_auto_settings,
+            product=product,
         )
 
     @server.tool()
@@ -581,6 +585,7 @@ def create_server(
         project_name: str,
         design_name: str,
         setup_name: str = "",
+        product: str = "hfss",
     ) -> dict:
         """Read running state and setup inventory for one live HFSS design."""
         return live.hfss_analysis_status(
@@ -588,6 +593,7 @@ def create_server(
             project_name=project_name,
             design_name=design_name,
             setup_name=setup_name,
+            product=product,
         )
 
     @server.tool()
@@ -597,6 +603,7 @@ def create_server(
         design_name: str,
         setup_name: str = "",
         clean_stop: bool = True,
+        product: str = "hfss",
     ) -> dict:
         """Preview interrupting the currently running AEDT simulation without changing it yet."""
         return live.preview_hfss_analysis_cancel(
@@ -605,6 +612,7 @@ def create_server(
             design_name=design_name,
             setup_name=setup_name,
             clean_stop=clean_stop,
+            product=product,
         )
 
     @server.tool()

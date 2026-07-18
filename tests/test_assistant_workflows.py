@@ -56,7 +56,11 @@ class _Live:
         return {"count": 1, "variables": [], "design_unchanged": True}
 
     def setup_inventory(self, session_id: str, **kwargs) -> dict:
-        return {"setup_count": 1, "setups": [], "design_unchanged": True}
+        return {
+            "setup_count": 1,
+            "setups": [{"name": "SetupL", "sweeps": ["Sweep1"]}],
+            "design_unchanged": True,
+        }
 
     def list_layout_paths(self, session_id: str, **kwargs) -> dict:
         return {
@@ -83,6 +87,28 @@ class _Live:
             "verified_count": 2,
             "project_saved": False,
         }
+
+    def preview_hfss_analysis_start(self, session_id: str, **kwargs) -> dict:
+        assert kwargs["product"] == "layout"
+        return {
+            "preview_id": "solve-preview-1",
+            "approval_request": {"action": "hfss.analysis.start"},
+        }
+
+    def apply_hfss_analysis_start(self, session_id: str, *, preview_id: str, approval_token: str) -> dict:
+        assert preview_id == "solve-preview-1"
+        assert approval_token == "solve-approved"
+        return {
+            "status": "submitted",
+            "started": True,
+            "blocking": False,
+            "run_id": "run-1",
+            "resources": {"cores": 4, "tasks": 1, "gpus": 0},
+            "project_saved": False,
+        }
+
+    def hfss_analysis_status(self, session_id: str, **kwargs) -> dict:
+        return {"running": True, "latest_run": {"run_id": "run-1"}}
 
 
 def _manager(tmp_path: Path) -> AssistantWorkflowManager:
@@ -255,3 +281,44 @@ def test_live_width_workflow_keeps_operation_token_out_of_graph_state(tmp_path: 
     serialized = str(report)
     assert "operation-approved" not in serialized
     assert report["node_runs"][-1]["output_payload"]["summary"]["verified_count"] == 2
+
+
+def test_live_layout_solve_workflow_validates_setup_and_starts_non_blocking(tmp_path: Path):
+    manager = AssistantWorkflowManager(
+        live_manager=_Live(),
+        db_path=tmp_path / "solve-missions.db",
+        template_ids=("layout_live_solve_start",),
+        runtime_factory=lambda path: AgentRuntime(SQLiteMissionStore(path)),
+    )
+    start = manager.preview_start(
+        "live-1",
+        workflow_id="layout_live_solve_start",
+        goal="Start the approved live layout solve",
+        initial_payload={
+            "setup_name": "SetupL",
+            "sweep_name": "Sweep1",
+            "cores": 4,
+            "tasks": 1,
+            "gpus": 0,
+        },
+    )
+    started = manager.apply_start(
+        "live-1",
+        preview_id=start["preview_id"],
+        approval_token="approved",
+    )
+    report = None
+    for index in range(4):
+        advance = manager.preview_advance("live-1", graph_run_id=started["graph_run_id"])
+        report = manager.apply_advance(
+            "live-1",
+            preview_id=advance["preview_id"],
+            approval_token="approved",
+            operation_approval_token="solve-approved" if index == 2 else "",
+        )
+
+    assert report is not None and report["status"] == "succeeded"
+    scorecard = report["node_runs"][-1]["output_payload"]
+    assert scorecard["status"] == "passed"
+    assert scorecard["summary"]["run_id"] == "run-1"
+    assert "solve-approved" not in str(report)

@@ -1,0 +1,43 @@
+id: layout_live_solve_start
+version: 1
+description: Validate a live HFSS 3D Layout setup, preview a bounded non-blocking solve, start after approval, and verify submission.
+nodes:
+  - id: validate_setup
+    role: validator
+    kind: program
+    handler: assistant.live.layout.validate_solve_setup
+    input_schema: live_solve_request
+    output_schema: live_solve_validated
+  - id: preview_analysis
+    role: preview
+    kind: program
+    handler: assistant.live.layout.preview_analysis_start
+    input_schema: live_solve_validated
+    output_schema: live_solve_preview
+  - id: apply_analysis
+    role: apply
+    kind: program
+    handler: assistant.live.layout.apply_analysis_start
+    input_schema: live_solve_preview
+    output_schema: live_solve_apply_result
+  - id: verify_submission
+    role: scorecard
+    kind: program
+    handler: assistant.live.layout.solve_submission_scorecard
+    input_schema: live_solve_apply_result
+    output_schema: live_solve_scorecard
+edges:
+  - {id: validate-to-preview, from: validate_setup, to: preview_analysis, on: succeeded}
+  - {id: preview-to-apply, from: preview_analysis, to: apply_analysis, on: succeeded}
+  - {id: apply-to-scorecard, from: apply_analysis, to: verify_submission, on: succeeded}
+handoffs:
+  live_solve_request:
+    required_fields: [setup_name]
+  live_solve_validated:
+    required_fields: [setup_name, setup_inventory, resources, live_session_reused]
+  live_solve_preview:
+    required_fields: [setup_name, setup_inventory, resources, operation_preview_id, operation_approval, live_session_reused]
+  live_solve_apply_result:
+    required_fields: [setup_name, operation_result, live_session_reused]
+  live_solve_scorecard:
+    required_fields: [status, checks, summary, live_session_reused]

@@ -898,14 +898,16 @@ class LiveAedtBackend:
         }
 
     def _hfss_analysis_start(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
-        app = self._app(target, "hfss", _required(args, "project_name"), _required(args, "design_name"))
+        product = _analysis_product(args)
+        app = self._app(target, product, _required(args, "project_name"), _required(args, "design_name"))
         setup = _required(args, "setup_name")
         blocking = bool(args.get("blocking", False))
         started = bool(app.analyze_setup(setup, blocking=blocking))
-        return {"started": started, "setup_name": setup, "blocking": blocking}
+        return {"started": started, "product": product, "setup_name": setup, "blocking": blocking}
 
     def _hfss_analysis_start_preview(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
-        app = self._app(target, "hfss", _required(args, "project_name"), _required(args, "design_name"))
+        product = _analysis_product(args)
+        app = self._app(target, product, _required(args, "project_name"), _required(args, "design_name"))
         setup_name = _required(args, "setup_name")
         if setup_name not in _setup_names(app):
             raise LiveBackendError(f"unknown HFSS setup: {setup_name}")
@@ -914,7 +916,7 @@ class LiveAedtBackend:
         resources = _analysis_resources(args)
         state = _analysis_state(app, setup_name)
         digest = _digest(state)
-        spec = {"setup_name": setup_name, "resources": resources}
+        spec = {"product": product, "setup_name": setup_name, "resources": resources}
         preview_id = "analysis-preview-" + _digest(spec | {"state": digest})[:24]
         self._previews[preview_id] = {
             "kind": "hfss_analysis_start",
@@ -937,7 +939,7 @@ class LiveAedtBackend:
     def _hfss_analysis_start_apply(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
         preview_id = _required(args, "preview_id")
         preview = self._preview(preview_id, "hfss_analysis_start", target)
-        app = self._app(target, "hfss", preview["project_name"], preview["design_name"])
+        app = self._app(target, preview["spec"]["product"], preview["project_name"], preview["design_name"])
         spec = preview["spec"]
         if _digest(_analysis_state(app, spec["setup_name"])) != preview["digest"]:
             raise LiveBackendError("stale HFSS analysis preview")
@@ -966,6 +968,7 @@ class LiveAedtBackend:
         )[:24]
         run = {
             "run_id": run_id,
+            "product": spec["product"],
             "setup_name": spec["setup_name"],
             "resources": resources,
             "started_at": started_at,
@@ -983,7 +986,8 @@ class LiveAedtBackend:
         }
 
     def _hfss_analysis_status(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
-        app = self._app(target, "hfss", _required(args, "project_name"), _required(args, "design_name"))
+        product = _analysis_product(args)
+        app = self._app(target, product, _required(args, "project_name"), _required(args, "design_name"))
         setup_attribute = "existing_analysis_setups" if hasattr(app, "existing_analysis_setups") else "setup_names"
         setup_name = str(args.get("setup_name") or "")
         running = _simulation_running(app)
@@ -992,6 +996,7 @@ class LiveAedtBackend:
             run["state"] = "not_running"
             run.setdefault("last_observed_at", _utc_now())
         return {
+            "product": product,
             "running": running,
             "setups": list(_read(app, setup_attribute)),
             "setup_name": setup_name,
@@ -1000,7 +1005,8 @@ class LiveAedtBackend:
         }
 
     def _hfss_analysis_cancel_preview(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
-        app = self._app(target, "hfss", _required(args, "project_name"), _required(args, "design_name"))
+        product = _analysis_product(args)
+        app = self._app(target, product, _required(args, "project_name"), _required(args, "design_name"))
         if not _simulation_running(app):
             raise LiveBackendError("no AEDT simulation is currently running")
         setup_name = str(args.get("setup_name") or "")
@@ -1014,10 +1020,12 @@ class LiveAedtBackend:
             "design_name": app.design_name,
             "setup_name": setup_name,
             "clean_stop": bool(args.get("clean_stop", True)),
+            "product": product,
             "digest": digest,
         }
         return {
             "preview_id": preview_id,
+            "product": product,
             "setup_name": setup_name,
             "clean_stop": bool(args.get("clean_stop", True)),
             "snapshot_digest": digest,
@@ -1028,7 +1036,7 @@ class LiveAedtBackend:
     def _hfss_analysis_cancel_apply(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
         preview_id = _required(args, "preview_id")
         preview = self._preview(preview_id, "hfss_analysis_cancel", target)
-        app = self._app(target, "hfss", preview["project_name"], preview["design_name"])
+        app = self._app(target, preview["product"], preview["project_name"], preview["design_name"])
         current = {"running": _simulation_running(app), "setups": _setup_names(app), "setup_name": preview["setup_name"]}
         if _digest(current) != preview["digest"]:
             raise LiveBackendError("stale HFSS analysis cancel preview")
@@ -1040,6 +1048,7 @@ class LiveAedtBackend:
         return {
             "status": "cancel_requested",
             "preview_id": preview_id,
+            "product": preview["product"],
             "setup_name": preview["setup_name"],
             "clean_stop": preview["clean_stop"],
             "backend_message": stop_result,
@@ -1827,6 +1836,13 @@ def _positive_number(arguments: dict[str, Any], name: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
         raise LiveBackendError(f"{name} must be a positive number")
     return float(value)
+
+
+def _analysis_product(arguments: dict[str, Any]) -> str:
+    product = str(arguments.get("product") or "hfss").strip().casefold()
+    if product not in {"hfss", "layout"}:
+        raise LiveBackendError("analysis product must be hfss or layout")
+    return product
 
 
 def _layout_object_kind(arguments: dict[str, Any]) -> str:

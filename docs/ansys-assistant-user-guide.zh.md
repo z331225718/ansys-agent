@@ -578,6 +578,7 @@ ansys-assistant parameterize-width `
 |---|---|
 | `layout_live_audit` | 复用当前已 attach 会话，对活动 3D Layout 执行 routing/object/variable/setup 只读审计 |
 | `layout_live_parameterize_width` | 在当前 3D Layout 中选择 Path、冻结线宽参数化 preview、审批后 apply 并生成 readback scorecard |
+| `layout_live_solve_start` | 核对当前 3D Layout Setup/Sweep 和资源预算，审批后非阻塞启动求解并验证提交状态 |
 | `brd_local_cut_build` | 构建局部裁切模型，停在模型复核，不直接求解 |
 | `brd_real_solve_evidence` | 真实求解并生成证据包 |
 | `brd_local_cut_solve_evidence` | 局部裁切、求解和证据链 |
@@ -656,6 +657,9 @@ Workflow 现在分为两类。`inspect_ansys_workflow` 中 `attached_live_sessio
 server-owned binding 和 live graph handler 复用当前已 attach 的 AEDT 会话。首个实现是
 `layout_live_audit`：它在两个受控 graph step 中读取 routing、对象分类、变量、Setup/Sweep，并输出 scorecard；
 `layout_live_parameterize_width` 则把本手册的核心线宽参数化用例提升为四步 live Workflow。
+`layout_live_solve_start` 使用相同的 server-owned binding 和双层审批模型：先验证 Setup/Sweep，再冻结 cores、
+tasks、gpus 和 auto settings，最后以非阻塞方式提交求解并读取运行状态。它不会把“API 返回成功”单独当成
+通过，scorecard 还会检查 run id、资源预算、非阻塞标志和项目未保存状态。
 用户不能在 `initial_payload` 中伪造 `_assistant_live`。Runtime 会拒绝该保留字段，并把可执行
 `live_session_id` 只保存在当前 MCP 进程的 server-owned graph binding 中，不写进 Mission payload；
 Mission 只持久化端口、PID、工程和设计身份用于后续重新绑定校验。
