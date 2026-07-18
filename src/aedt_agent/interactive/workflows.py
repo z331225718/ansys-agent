@@ -14,6 +14,7 @@ from aedt_agent.live.broker import LiveAedtError
 _MAX_PAYLOAD_BYTES = 256 * 1024
 _DEFAULT_TEMPLATE_IDS = (
     "layout_live_audit",
+    "layout_live_parameterize_width",
     "brd_before_after_compare",
     "brd_channel_optimize",
     "brd_iterative_optimize",
@@ -25,7 +26,11 @@ _DEFAULT_TEMPLATE_IDS = (
     "brd_reviewed_model_optimize_loop",
     "via_optimize_demo",
 )
-_LIVE_SESSION_WORKFLOWS = frozenset({"layout_live_audit"})
+_LIVE_SESSION_WORKFLOWS = frozenset({"layout_live_audit", "layout_live_parameterize_width"})
+_LIVE_WORKFLOW_RISKS = {
+    "layout_live_audit": "read_only",
+    "layout_live_parameterize_width": "reversible_edit",
+}
 
 
 class AssistantWorkflowManager:
@@ -177,6 +182,7 @@ class AssistantWorkflowManager:
                 "step_count": report["graph_run"]["step_count"],
                 "state_digest": _graph_state_digest(report),
                 "target_binding": binding,
+                "operation_approval_required": _operation_approval_requirement(report),
             },
         )
         return self.live_manager.register_guarded_preview(
@@ -192,10 +198,22 @@ class AssistantWorkflowManager:
         preview_id: str,
         approval_token: str,
         max_workers: int = 1,
+        operation_approval_token: str = "",
     ) -> dict[str, Any]:
         if not 1 <= int(max_workers) <= 4:
             raise ValueError("max_workers must be between 1 and 4")
         preview = self._preview(live_session_id, preview_id, "workflow.graph.advance")
+        operation_requirement = preview["data"].get("operation_approval_required")
+        if operation_requirement and not str(operation_approval_token or ""):
+            raise LiveAedtError(
+                "operation_approval_required",
+                "approve the nested live operation preview and pass its token in operation_approval_token",
+            )
+        if not operation_requirement and operation_approval_token:
+            raise LiveAedtError(
+                "unexpected_operation_approval_token",
+                "this graph step has no pending live operation approval",
+            )
         current = self.status(preview["data"]["graph_run_id"])
         if _graph_state_digest(current) != preview["data"]["state_digest"]:
             raise LiveAedtError("preview_stale", "workflow graph advanced after the preview was created")
@@ -206,20 +224,28 @@ class AssistantWorkflowManager:
         self._live_graph_bindings[preview["data"]["graph_run_id"]] = {
             "live_session_id": live_session_id,
             "target_binding": binding,
+            "operation_approval_token": str(operation_approval_token or ""),
         }
-        self.live_manager.authorize_guarded_preview(
-            live_session_id,
-            action="workflow.graph.advance",
-            preview_id=preview_id,
-            approval_token=approval_token,
-        )
-        report = advance_graph(
-            self._get_runtime(),
-            preview["data"]["graph_run_id"],
-            worker_id="assistant-workflow",
-            max_workers=int(max_workers),
-            registry=self._graph_registry,
-        )
+        try:
+            self.live_manager.authorize_guarded_preview(
+                live_session_id,
+                action="workflow.graph.advance",
+                preview_id=preview_id,
+                approval_token=approval_token,
+            )
+            report = advance_graph(
+                self._get_runtime(),
+                preview["data"]["graph_run_id"],
+                worker_id="assistant-workflow",
+                max_workers=int(max_workers),
+                registry=self._graph_registry,
+            )
+        finally:
+            if preview["data"]["graph_run_id"] in self._live_graph_bindings:
+                self._live_graph_bindings[preview["data"]["graph_run_id"]].pop(
+                    "operation_approval_token",
+                    None,
+                )
         self._previews.pop((live_session_id, preview_id), None)
         return report
 
@@ -249,7 +275,10 @@ class AssistantWorkflowManager:
             "max_rounds": template.max_rounds,
             "worker_capabilities": worker_capabilities,
             "recommended_initial_fields": self._required_initial_fields(template),
-            "risk": "expensive" if expensive else "reversible_edit" if mutating else "read_only",
+            "risk": _LIVE_WORKFLOW_RISKS.get(
+                template.template_id,
+                "expensive" if expensive else "reversible_edit" if mutating else "read_only",
+            ),
             "approval": "external_host_token_per_start_and_step",
             "execution_backend": (
                 "live_aedt_graph_handlers"
@@ -333,6 +362,27 @@ def _graph_state_digest(report: dict[str, Any]) -> str:
     }
     encoded = json.dumps(state, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _operation_approval_requirement(report: dict[str, Any]) -> dict[str, Any] | None:
+    if report.get("template_id") != "layout_live_parameterize_width":
+        return None
+    completed = [
+        item
+        for item in report.get("node_runs", [])
+        if item.get("status") == "succeeded"
+    ]
+    if not completed or completed[-1].get("node_id") != "preview_parameterization":
+        return None
+    output = dict(completed[-1].get("output_payload") or {})
+    preview_id = str(output.get("operation_preview_id") or "")
+    if not preview_id:
+        return None
+    return {
+        "preview_id": preview_id,
+        "wait_tool": "wait_for_live_approval",
+        "apply_argument": "operation_approval_token",
+    }
 
 
 def _default_runtime_factory(db_path: Path):

@@ -58,6 +58,32 @@ class _Live:
     def setup_inventory(self, session_id: str, **kwargs) -> dict:
         return {"setup_count": 1, "setups": [], "design_unchanged": True}
 
+    def list_layout_paths(self, session_id: str, **kwargs) -> dict:
+        return {
+            "count": 2,
+            "paths": [
+                {"name": "line1", "width_expression": "4.3mil"},
+                {"name": "line2", "width_expression": "4.3mil"},
+            ],
+        }
+
+    def preview_layout_width(self, session_id: str, **kwargs) -> dict:
+        return {
+            "preview_id": "width-preview-1",
+            "target_count": 2,
+            "approval_request": {"action": "layout.path_width.parameterize"},
+        }
+
+    def apply_layout_width(self, session_id: str, *, preview_id: str, approval_token: str) -> dict:
+        assert preview_id == "width-preview-1"
+        assert approval_token == "operation-approved"
+        return {
+            "status": "verified",
+            "target_count": 2,
+            "verified_count": 2,
+            "project_saved": False,
+        }
+
 
 def _manager(tmp_path: Path) -> AssistantWorkflowManager:
     return AssistantWorkflowManager(
@@ -183,3 +209,49 @@ def test_live_layout_audit_workflow_reuses_bound_session_for_graph_handlers(tmp_
             goal="Try to forge a binding",
             initial_payload={"_assistant_live": {"live_session_id": "forged"}},
         )
+
+
+def test_live_width_workflow_keeps_operation_token_out_of_graph_state(tmp_path: Path):
+    manager = AssistantWorkflowManager(
+        live_manager=_Live(),
+        db_path=tmp_path / "width-missions.db",
+        template_ids=("layout_live_parameterize_width",),
+        runtime_factory=lambda path: AgentRuntime(SQLiteMissionStore(path)),
+    )
+    start = manager.preview_start(
+        "live-1",
+        workflow_id="layout_live_parameterize_width",
+        goal="Parameterize matching path widths",
+        initial_payload={
+            "selector": {"target_width": "4.3mil"},
+            "variable_name": "W_line",
+            "variable_value": "4.3mil",
+        },
+    )
+    started = manager.apply_start(
+        "live-1",
+        preview_id=start["preview_id"],
+        approval_token="approved",
+    )
+    report = None
+    for index in range(4):
+        advance = manager.preview_advance("live-1", graph_run_id=started["graph_run_id"])
+        if index == 2:
+            assert advance["operation_approval_required"]["preview_id"] == "width-preview-1"
+            with pytest.raises(Exception, match="nested live operation preview"):
+                manager.apply_advance(
+                    "live-1",
+                    preview_id=advance["preview_id"],
+                    approval_token="approved",
+                )
+        report = manager.apply_advance(
+            "live-1",
+            preview_id=advance["preview_id"],
+            approval_token="approved",
+            operation_approval_token="operation-approved" if index == 2 else "",
+        )
+
+    assert report is not None and report["status"] == "succeeded"
+    serialized = str(report)
+    assert "operation-approved" not in serialized
+    assert report["node_runs"][-1]["output_payload"]["summary"]["verified_count"] == 2

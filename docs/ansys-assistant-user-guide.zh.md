@@ -577,6 +577,7 @@ ansys-assistant parameterize-width `
 | Workflow | 用途 |
 |---|---|
 | `layout_live_audit` | 复用当前已 attach 会话，对活动 3D Layout 执行 routing/object/variable/setup 只读审计 |
+| `layout_live_parameterize_width` | 在当前 3D Layout 中选择 Path、冻结线宽参数化 preview、审批后 apply 并生成 readback scorecard |
 | `brd_local_cut_build` | 构建局部裁切模型，停在模型复核，不直接求解 |
 | `brd_real_solve_evidence` | 真实求解并生成证据包 |
 | `brd_local_cut_solve_evidence` | 局部裁切、求解和证据链 |
@@ -619,6 +620,22 @@ list_ansys_workflows
 `apply_ansys_workflow_start` 只创建 Mission 和 Graph Run，不执行首个节点。每次
 `apply_ansys_workflow_advance` 最多推进一个调度 step；不能一次审批后静默跑完整个循环。
 
+`layout_live_parameterize_width` 有两层独立审批：Graph step 审批控制“是否推进工作流”，线宽 operation 审批控制
+“是否修改 AEDT”。执行到 `preview_parameterization` 后，其输出包含 `operation_preview_id`。Claude Code 必须：
+
+```text
+wait_for_live_approval(live_session_id, operation_preview_id)
+  -> 获取 operation approval token
+  -> preview_ansys_workflow_advance
+  -> 等待 graph step approval
+  -> apply_ansys_workflow_advance(
+       approval_token=<graph token>,
+       operation_approval_token=<operation token>)
+```
+
+两个 token 不能互换。`operation_approval_token` 只短暂进入 MCP 内存中的 graph binding，用完立即清除，
+不会写入 Graph Run、node payload、日志或 status 输出。缺少 operation token 时 apply node 会明确失败，不会绕过审批。
+
 ### 16.3 审批和目标绑定
 
 Workflow start preview 会冻结以下内容并计算 SHA-256 digest：
@@ -637,7 +654,8 @@ Workflow start preview 会冻结以下内容并计算 SHA-256 digest：
 
 Workflow 现在分为两类。`inspect_ansys_workflow` 中 `attached_live_session_reuse=true` 的 Workflow 会通过
 server-owned binding 和 live graph handler 复用当前已 attach 的 AEDT 会话。首个实现是
-`layout_live_audit`：它在两个受控 graph step 中读取 routing、对象分类、变量、Setup/Sweep，并输出 scorecard。
+`layout_live_audit`：它在两个受控 graph step 中读取 routing、对象分类、变量、Setup/Sweep，并输出 scorecard；
+`layout_live_parameterize_width` 则把本手册的核心线宽参数化用例提升为四步 live Workflow。
 用户不能在 `initial_payload` 中伪造 `_assistant_live`。Runtime 会拒绝该保留字段，并把可执行
 `live_session_id` 只保存在当前 MCP 进程的 server-owned graph binding 中，不写进 Mission payload；
 Mission 只持久化端口、PID、工程和设计身份用于后续重新绑定校验。

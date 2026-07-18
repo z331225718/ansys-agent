@@ -1,0 +1,56 @@
+id: layout_live_parameterize_width
+version: 1
+description: Select live 3D Layout paths, preview width parameterization, apply after native approval, and verify readback.
+nodes:
+  - id: select_paths
+    role: live_inventory
+    kind: program
+    handler: assistant.live.layout.select_paths
+    input_schema: live_width_request
+    output_schema: live_width_selection
+    max_runs: 1
+  - id: preview_parameterization
+    role: preview
+    kind: program
+    handler: assistant.live.layout.preview_width_parameterization
+    input_schema: live_width_selection
+    output_schema: live_width_preview
+    max_runs: 1
+  - id: apply_parameterization
+    role: apply
+    kind: program
+    handler: assistant.live.layout.apply_width_parameterization
+    input_schema: live_width_preview
+    output_schema: live_width_apply_result
+    max_runs: 1
+  - id: verify_scorecard
+    role: scorecard
+    kind: program
+    handler: assistant.live.layout.width_scorecard
+    input_schema: live_width_apply_result
+    output_schema: live_width_scorecard
+    max_runs: 1
+edges:
+  - id: select-to-preview
+    from: select_paths
+    to: preview_parameterization
+    on: succeeded
+  - id: preview-to-apply
+    from: preview_parameterization
+    to: apply_parameterization
+    on: succeeded
+  - id: apply-to-scorecard
+    from: apply_parameterization
+    to: verify_scorecard
+    on: succeeded
+handoffs:
+  live_width_request:
+    required_fields: [selector, variable_name, variable_value]
+  live_width_selection:
+    required_fields: [selector, variable_name, variable_value, selection, live_session_reused]
+  live_width_preview:
+    required_fields: [selector, variable_name, variable_value, selection, operation_preview_id, operation_approval, live_session_reused]
+  live_width_apply_result:
+    required_fields: [operation_result, live_session_reused]
+  live_width_scorecard:
+    required_fields: [status, checks, summary, live_session_reused]

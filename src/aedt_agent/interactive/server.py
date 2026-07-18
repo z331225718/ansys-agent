@@ -62,6 +62,8 @@ def create_server(
             "Report missing capabilities and backend failures truthfully."
             " Existing graph workflows are guarded Harness capabilities: inspect them first, preview start or "
             "advance, wait for native approval, and execute at most one graph step per approved apply."
+            " A live workflow operation token is distinct from its graph-step token and may only be passed in "
+            "operation_approval_token after wait_for_live_approval approves the operation preview."
         ),
     )
 
@@ -156,6 +158,7 @@ def create_server(
         preview_id: str,
         approval_token: str,
         max_workers: int = 1,
+        operation_approval_token: str = "",
     ) -> dict:
         """Execute exactly one approved graph scheduler step and return its full status."""
         return workflows.apply_advance(
@@ -163,6 +166,7 @@ def create_server(
             preview_id=preview_id,
             approval_token=approval_token,
             max_workers=max_workers,
+            operation_approval_token=operation_approval_token,
         )
 
     @register_tool(not strict_desktop)
