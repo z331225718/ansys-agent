@@ -1,6 +1,6 @@
 id: layout_live_audit
-version: 2
-description: Audit routing, objects, variables, setups, stackup, padstacks, ports, and differential pairs in the attached HFSS 3D Layout design.
+version: 3
+description: Audit routing, objects, variables, setups, technology, and bounded net/component/pin/via connectivity in the attached HFSS 3D Layout design.
 nodes:
   - id: collect_live_inventory
     role: live_inventory
@@ -35,6 +35,7 @@ handoffs:
       - variables
       - setups
       - technology
+      - connectivity
       - live_session_reused
   live_layout_audit_report:
     required_fields:

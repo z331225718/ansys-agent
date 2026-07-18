@@ -72,6 +72,7 @@ _DESKTOP_ASSISTANT_MCP_TOOLS = (
     "list_live_layout_paths",
     "get_live_layout_routing_inventory",
     "get_live_layout_technology_inventory",
+    "get_live_layout_connectivity_inventory",
     "get_live_layout_object_inventory",
     "get_live_layout_object_property_inventory",
     "preview_live_layout_object_property_update",

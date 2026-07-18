@@ -73,6 +73,16 @@ class _Live:
             "design_unchanged": True,
         }
 
+    def layout_connectivity_inventory(self, session_id: str, **kwargs) -> dict:
+        assert kwargs["selector"] == {"nets": ["N1"]}
+        return {
+            "counts": {"nets": 1, "components": 2, "pins": 4, "vias": 3},
+            "returned_counts": {"nets": 1, "components": 2, "pins": 4, "vias": 3},
+            "truncated_sections": [],
+            "unavailable_sections": [],
+            "design_unchanged": True,
+        }
+
     def variable_inventory(self, session_id: str, **kwargs) -> dict:
         return {"count": 1, "variables": [], "design_unchanged": True}
 
@@ -379,6 +389,10 @@ def test_live_layout_audit_workflow_reuses_bound_session_for_graph_handlers(tmp_
     assert report["node_runs"][1]["output_payload"]["summary"]["path_count"] == 2
     assert report["node_runs"][1]["output_payload"]["summary"]["stackup_layer_count"] == 3
     assert report["node_runs"][1]["output_payload"]["summary"]["padstack_count"] == 1
+    assert report["node_runs"][1]["output_payload"]["summary"]["connectivity_net_count"] == 1
+    assert report["node_runs"][1]["output_payload"]["summary"]["component_count"] == 2
+    assert report["node_runs"][1]["output_payload"]["summary"]["pin_count"] == 4
+    assert report["node_runs"][1]["output_payload"]["summary"]["via_count"] == 3
 
     with pytest.raises(ValueError, match="reserved server-owned field"):
         manager.preview_start(

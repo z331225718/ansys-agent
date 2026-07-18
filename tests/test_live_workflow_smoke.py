@@ -77,6 +77,14 @@ class _SmokeLive:
             "design_unchanged": True,
         }
 
+    def layout_connectivity_inventory(self, session_id, **kwargs):
+        return {
+            "counts": {"nets": 1, "components": 1, "pins": 2, "vias": 1},
+            "truncated_sections": [],
+            "unavailable_sections": [],
+            "design_unchanged": True,
+        }
+
     def list_layout_paths(self, session_id, **kwargs):
         return {
             "count": 2,

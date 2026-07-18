@@ -90,8 +90,25 @@ class FakeVia:
         self.lock_position = False
 
 
+class FakeLayoutPin:
+    def __init__(self, name, component_name, net_name):
+        self.name = name
+        self.componentname = component_name
+        self.net_name = net_name
+        self.start_layer = "TOP"
+        self.stop_layer = "TOP"
+        self.location = [0.5, 0.75]
+        self.holediam = "0mm"
+
+
+class FakeLayoutNet:
+    def __init__(self, name, geometry_names):
+        self.name = name
+        self.geometry_names = geometry_names
+
+
 class FakeLayoutComponent:
-    def __init__(self, name):
+    def __init__(self, name, pins=None):
         self.name = name
         self.part = "R0402"
         self.part_type = "Resistor"
@@ -100,6 +117,7 @@ class FakeLayoutComponent:
         self.location = [3.0, 4.0]
         self.angle = "0deg"
         self.lock_position = False
+        self.pins = dict(pins or {})
 
 
 class FakeLayout:
@@ -158,13 +176,23 @@ class FakeLayout:
                 layers={"TOP": pad_layer},
             )
         }
+        pins = {"U1-1": FakeLayoutPin("U1-1", "U1", "N1")}
+        components = {"U1": FakeLayoutComponent("U1", pins)}
+        nets = {
+            "GND": FakeLayoutNet("GND", ["plane1"]),
+            "N1": FakeLayoutNet("N1", ["line1"]),
+            "N2": FakeLayoutNet("N2", ["line2"]),
+        }
         self.modeler = SimpleNamespace(
             line_names=list(lines),
             lines=lines,
-            components={"U1": FakeLayoutComponent("U1")},
-            pins={"U1-1": object()},
+            components=components,
+            pins=pins,
             vias={"V1": FakeVia("V1")},
-            nets={"N1": object(), "N2": object()},
+            nets=nets,
+            power_nets={"GND": nets["GND"]},
+            signal_nets={"N1": nets["N1"], "N2": nets["N2"]},
+            no_nets={},
             polygon_names=["poly1"],
             rectangle_names=[],
             circle_names=[],
@@ -174,6 +202,7 @@ class FakeLayout:
             circle_voids_names=[],
             layers=SimpleNamespace(stackup_layers=stackup_layers),
             padstacks=padstacks,
+            model_units="mm",
         )
         self.variable_manager = SimpleNamespace(
             variables={"$pitch": SimpleNamespace(expression="1mm")},
@@ -695,6 +724,103 @@ def test_backend_reuses_wrappers_and_lists_live_layout_paths():
                 "project_name": "Board",
                 "design_name": "Layout1",
                 "max_items": 0,
+            },
+        )
+    connectivity = backend.execute(
+        target,
+        "layout_connectivity_inventory",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "selector": {"nets": ["N1"]},
+            "max_items": 100,
+            "include_geometry_names": True,
+        },
+    )
+    assert connectivity["model_units"] == "mm"
+    assert connectivity["counts"] == {"nets": 1, "components": 1, "pins": 1, "vias": 0}
+    assert connectivity["nets"] == [
+        {
+            "name": "N1",
+            "class": "signal",
+            "component_count": 1,
+            "pin_count": 1,
+            "via_count": 0,
+            "geometry_count": 1,
+            "geometry_names": ["line1"],
+            "geometry_status": "complete",
+        }
+    ]
+    assert connectivity["components"][0]["name"] == "U1"
+    assert connectivity["components"][0]["pin_count"] == 1
+    assert connectivity["pins"][0]["component_name"] == "U1"
+    assert connectivity["pins"][0]["net_name"] == "N1"
+    assert connectivity["truncated_sections"] == []
+    assert connectivity["unavailable_sections"] == []
+    assert connectivity["design_unchanged"] is True
+    component_connectivity = backend.execute(
+        target,
+        "layout_connectivity_inventory",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "selector": {"components": ["U1"]},
+            "max_items": 100,
+        },
+    )
+    assert component_connectivity["selector"] == {"nets": [], "components": ["U1"]}
+    assert [item["name"] for item in component_connectivity["nets"]] == ["N1"]
+    assert component_connectivity["nets"][0]["geometry_status"] == "not_requested"
+    empty_intersection = backend.execute(
+        target,
+        "layout_connectivity_inventory",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "selector": {"nets": ["N2"], "components": ["U1"]},
+        },
+    )
+    assert empty_intersection["counts"] == {"nets": 1, "components": 0, "pins": 0, "vias": 0}
+    bounded_connectivity = backend.execute(
+        target,
+        "layout_connectivity_inventory",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "max_items": 1,
+        },
+    )
+    assert bounded_connectivity["counts"]["nets"] == 3
+    assert bounded_connectivity["returned_counts"]["nets"] == 1
+    assert bounded_connectivity["truncated_sections"] == ["nets"]
+    with pytest.raises(LiveBackendError, match="unknown layout net"):
+        backend.execute(
+            target,
+            "layout_connectivity_inventory",
+            {
+                "project_name": "Board",
+                "design_name": "Layout1",
+                "selector": {"nets": ["DOES_NOT_EXIST"]},
+            },
+        )
+    with pytest.raises(LiveBackendError, match="unsupported layout connectivity selector"):
+        backend.execute(
+            target,
+            "layout_connectivity_inventory",
+            {
+                "project_name": "Board",
+                "design_name": "Layout1",
+                "selector": {"layers": ["TOP"]},
+            },
+        )
+    with pytest.raises(LiveBackendError, match="must be a list"):
+        backend.execute(
+            target,
+            "layout_connectivity_inventory",
+            {
+                "project_name": "Board",
+                "design_name": "Layout1",
+                "selector": {"nets": "N1"},
             },
         )
     objects = backend.execute(

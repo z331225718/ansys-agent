@@ -138,6 +138,17 @@ def _collect_layout_inventory(
         max_items=500,
         include_padstack_layers=False,
     )
+    connectivity_selector = dict(payload.get("connectivity_selector") or {})
+    if not connectivity_selector and selector.get("nets"):
+        connectivity_selector["nets"] = list(selector["nets"])
+    connectivity = live_manager.layout_connectivity_inventory(
+        session_id,
+        project_name=project_name,
+        design_name=design_name,
+        selector=connectivity_selector,
+        max_items=500,
+        include_geometry_names=False,
+    )
     output = {
         **payload,
         "status": "collected",
@@ -148,6 +159,7 @@ def _collect_layout_inventory(
         "variables": variables,
         "setups": setups,
         "technology": technology,
+        "connectivity": connectivity,
         "live_session_reused": True,
     }
     return _success(output)
@@ -160,6 +172,7 @@ def _audit_layout_inventory(context: GraphNodeExecutionContext) -> dict[str, Any
     variables = dict(payload.get("variables") or {})
     setups = dict(payload.get("setups") or {})
     technology = dict(payload.get("technology") or {})
+    connectivity = dict(payload.get("connectivity") or {})
     checks = [
         _check("live_session_reused", payload.get("live_session_reused") is True),
         _check("routing_inventory", routing.get("design_unchanged") is True),
@@ -167,6 +180,7 @@ def _audit_layout_inventory(context: GraphNodeExecutionContext) -> dict[str, Any
         _check("variable_inventory", variables.get("design_unchanged") is True),
         _check("setup_inventory", setups.get("design_unchanged") is True),
         _check("technology_inventory", technology.get("design_unchanged") is True),
+        _check("connectivity_inventory", connectivity.get("design_unchanged") is True),
     ]
     passed = all(item["passed"] for item in checks)
     summary = {
@@ -180,6 +194,16 @@ def _audit_layout_inventory(context: GraphNodeExecutionContext) -> dict[str, Any
         "port_count": int((technology.get("counts") or {}).get("ports") or 0),
         "differential_pair_count": int(
             (technology.get("counts") or {}).get("differential_pairs") or 0
+        ),
+        "connectivity_net_count": int((connectivity.get("counts") or {}).get("nets") or 0),
+        "component_count": int((connectivity.get("counts") or {}).get("components") or 0),
+        "pin_count": int((connectivity.get("counts") or {}).get("pins") or 0),
+        "via_count": int((connectivity.get("counts") or {}).get("vias") or 0),
+        "truncated_connectivity_sections": list(
+            connectivity.get("truncated_sections") or []
+        ),
+        "unavailable_connectivity_sections": list(
+            connectivity.get("unavailable_sections") or []
         ),
         "unavailable_technology_sections": list(
             technology.get("unavailable_sections") or []

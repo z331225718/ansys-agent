@@ -700,6 +700,28 @@ class LiveAedtSessionManager:
             },
         )
 
+    def layout_connectivity_inventory(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+        selector: dict[str, Any] | None = None,
+        max_items: int = 500,
+        include_geometry_names: bool = False,
+    ) -> dict[str, Any]:
+        return self._execute(
+            session_id,
+            "layout_connectivity_inventory",
+            {
+                "project_name": project_name,
+                "design_name": design_name,
+                "selector": selector or {},
+                "max_items": max_items,
+                "include_geometry_names": include_geometry_names,
+            },
+        )
+
     def layout_object_inventory(
         self,
         session_id: str,

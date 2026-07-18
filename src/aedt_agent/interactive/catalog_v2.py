@@ -212,6 +212,19 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             products=["layout"],
         ),
         _cap(
+            "layout.connectivity.inventory",
+            "read_only",
+            ["live"],
+            ["get_live_layout_connectivity_inventory"],
+            postconditions=[
+                "design_unchanged",
+                "exact_net_and_component_selectors_verified",
+                "net_component_pin_via_relations_returned",
+                "each_flat_record_section_bounded",
+            ],
+            products=["layout"],
+        ),
+        _cap(
             "layout.objects.inventory",
             "read_only",
             ["live"],

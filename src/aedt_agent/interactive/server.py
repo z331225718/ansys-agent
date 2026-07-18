@@ -734,6 +734,25 @@ def create_server(
         )
 
     @server.tool()
+    async def get_live_layout_connectivity_inventory(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        selector: dict | None = None,
+        max_items: int = 500,
+        include_geometry_names: bool = False,
+    ) -> dict:
+        """Read bounded net/component/pin/via connectivity; selector supports exact nets and components."""
+        return live.layout_connectivity_inventory(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            selector=selector,
+            max_items=max_items,
+            include_geometry_names=include_geometry_names,
+        )
+
+    @server.tool()
     async def get_live_layout_object_inventory(
         live_session_id: str,
         project_name: str,

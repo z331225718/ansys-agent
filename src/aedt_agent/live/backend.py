@@ -127,6 +127,8 @@ class LiveAedtBackend:
                 return self._layout_routing_inventory(target, arguments)
             if command == "layout_technology_inventory":
                 return self._layout_technology_inventory(target, arguments)
+            if command == "layout_connectivity_inventory":
+                return self._layout_connectivity_inventory(target, arguments)
             if command == "layout_object_inventory":
                 return self._layout_object_inventory(target, arguments)
             if command == "layout_object_property_inventory":
@@ -1353,6 +1355,207 @@ class LiveAedtBackend:
             "design_unchanged": True,
         }
 
+    def _layout_connectivity_inventory(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
+        app = self._app(
+            target,
+            "layout",
+            _required(args, "project_name"),
+            _required(args, "design_name"),
+        )
+        max_items = args.get("max_items", 500)
+        if type(max_items) is not int or not 1 <= max_items <= 2_000:
+            raise LiveBackendError("max_items must be an integer between 1 and 2000")
+        include_geometry_names = args.get("include_geometry_names", False)
+        if type(include_geometry_names) is not bool:
+            raise LiveBackendError("include_geometry_names must be a boolean")
+        selector = dict(args.get("selector") or {})
+        requested_nets = _layout_selector_names(selector, "nets")
+        requested_components = _layout_selector_names(selector, "components")
+        unsupported_selector = sorted(set(selector).difference({"nets", "components"}))
+        if unsupported_selector:
+            raise LiveBackendError(f"unsupported layout connectivity selector: {unsupported_selector[0]}")
+
+        unavailable = []
+        collections: dict[str, dict[str, Any]] = {}
+        for section, attribute in (
+            ("nets", "nets"),
+            ("components", "components"),
+            ("pins", "pins"),
+            ("vias", "vias"),
+        ):
+            try:
+                collections[section] = {
+                    str(name): value
+                    for name, value in dict(getattr(app.modeler, attribute) or {}).items()
+                }
+            except Exception as exc:
+                collections[section] = {}
+                unavailable.append(
+                    {
+                        "section": section,
+                        "reason": f"{type(exc).__name__}: {attribute} API unavailable",
+                    }
+                )
+
+        net_names = {str(item) for item in collections["nets"]}
+        component_names = {str(item) for item in collections["components"]}
+        if requested_nets and not net_names:
+            raise LiveBackendError("net selector cannot be verified because the net inventory is unavailable")
+        if requested_components and not component_names:
+            raise LiveBackendError(
+                "component selector cannot be verified because the component inventory is unavailable"
+            )
+        missing_nets = sorted(requested_nets.difference(net_names))
+        if missing_nets:
+            raise LiveBackendError(f"unknown layout net: {missing_nets[0]}")
+        missing_components = sorted(requested_components.difference(component_names))
+        if missing_components:
+            raise LiveBackendError(f"unknown layout component: {missing_components[0]}")
+
+        pin_records = [
+            _layout_terminal_record("pin", str(name), pin)
+            for name, pin in sorted(collections["pins"].items(), key=lambda item: str(item[0]))
+        ]
+        if requested_components:
+            pin_records = [item for item in pin_records if item["component_name"] in requested_components]
+        if requested_nets:
+            pin_records = [item for item in pin_records if item["net_name"] in requested_nets]
+
+        if requested_nets:
+            selected_net_names = set(requested_nets)
+        elif requested_components:
+            selected_net_names = {item["net_name"] for item in pin_records if item["net_name"]}
+        else:
+            selected_net_names = set(net_names)
+
+        if requested_components and requested_nets:
+            selected_component_names = {
+                item["component_name"] for item in pin_records if item["component_name"]
+            }
+        elif requested_components:
+            selected_component_names = set(requested_components)
+        elif requested_nets:
+            selected_component_names = {
+                item["component_name"] for item in pin_records if item["component_name"]
+            }
+        else:
+            selected_component_names = set(component_names)
+
+        unresolved_components = sorted(selected_component_names.difference(component_names))
+        if unresolved_components:
+            unavailable.append(
+                {
+                    "section": "pin_component_references",
+                    "reason": "pins reference components absent from the component inventory",
+                    "names": unresolved_components[:max_items],
+                }
+            )
+            selected_component_names.intersection_update(component_names)
+        unresolved_nets = sorted(selected_net_names.difference(net_names))
+        if unresolved_nets:
+            unavailable.append(
+                {
+                    "section": "pin_net_references",
+                    "reason": "pins reference nets absent from the net inventory",
+                    "names": unresolved_nets[:max_items],
+                }
+            )
+
+        via_records = [
+            _layout_terminal_record("via", str(name), via)
+            for name, via in sorted(collections["vias"].items(), key=lambda item: str(item[0]))
+        ]
+        if requested_nets or requested_components:
+            via_records = [item for item in via_records if item["net_name"] in selected_net_names]
+
+        component_records = [
+            _layout_connectivity_component_record(name, collections["components"][name])
+            for name in sorted(selected_component_names)
+        ]
+        net_classes, class_errors = _layout_net_classes(app)
+        unavailable.extend(class_errors)
+        geometry_name_budget = max_items
+        net_records = []
+        for name in sorted(selected_net_names):
+            net_pins = [item for item in pin_records if item["net_name"] == name]
+            net_vias = [item for item in via_records if item["net_name"] == name]
+            geometry_names: list[str] = []
+            geometry_count: int | None = None
+            geometry_status = "not_requested"
+            if include_geometry_names:
+                net = collections["nets"].get(name)
+                try:
+                    all_geometry_names = sorted(
+                        str(item) for item in list(getattr(net, "geometry_names") or [])
+                    )
+                    geometry_count = len(all_geometry_names)
+                    geometry_names = all_geometry_names[:geometry_name_budget]
+                    geometry_name_budget -= len(geometry_names)
+                    geometry_status = (
+                        "complete" if len(geometry_names) == len(all_geometry_names) else "truncated"
+                    )
+                except Exception as exc:
+                    geometry_status = "unavailable"
+                    unavailable.append(
+                        {
+                            "section": f"net_geometry:{name}",
+                            "reason": f"{type(exc).__name__}: geometry_names API unavailable",
+                        }
+                    )
+            net_records.append(
+                {
+                    "name": name,
+                    "class": net_classes.get(name, "unknown"),
+                    "component_count": len(
+                        {item["component_name"] for item in net_pins if item["component_name"]}
+                    ),
+                    "pin_count": len(net_pins),
+                    "via_count": len(net_vias),
+                    "geometry_count": geometry_count,
+                    "geometry_names": geometry_names,
+                    "geometry_status": geometry_status,
+                }
+            )
+
+        full_counts = {
+            "nets": len(net_records),
+            "components": len(component_records),
+            "pins": len(pin_records),
+            "vias": len(via_records),
+        }
+        truncated_sections = [
+            section for section, count in full_counts.items() if count > max_items
+        ]
+        bounded = {
+            "nets": net_records[:max_items],
+            "components": component_records[:max_items],
+            "pins": pin_records[:max_items],
+            "vias": via_records[:max_items],
+        }
+        snapshot = {
+            **bounded,
+            "selector": {
+                "nets": sorted(requested_nets),
+                "components": sorted(requested_components),
+            },
+            "truncated_sections": truncated_sections,
+        }
+        return {
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "model_units": _safe_json_attribute(app.modeler, "model_units"),
+            **bounded,
+            "counts": full_counts,
+            "returned_counts": {name: len(records) for name, records in bounded.items()},
+            "selector": snapshot["selector"],
+            "max_items": max_items,
+            "include_geometry_names": include_geometry_names,
+            "truncated_sections": truncated_sections,
+            "unavailable_sections": unavailable,
+            "snapshot_digest": _digest(snapshot),
+            "design_unchanged": True,
+        }
+
     def _layout_object_inventory(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
         app = self._app(target, "layout", _required(args, "project_name"), _required(args, "design_name"))
         attributes = {
@@ -1992,6 +2195,86 @@ def _layout_object_record(kind: str, name: str, obj: Any) -> dict[str, Any]:
         except Exception:
             unavailable.append(prop)
     return {"name": name, "properties": properties, "unavailable_properties": unavailable}
+
+
+def _layout_selector_names(selector: dict[str, Any], field: str) -> set[str]:
+    raw = selector.get(field) or []
+    if not isinstance(raw, list):
+        raise LiveBackendError(f"layout connectivity selector {field} must be a list")
+    values = set()
+    for item in raw:
+        value = str(item).strip()
+        if not value:
+            raise LiveBackendError(f"layout connectivity selector {field} must not contain empty names")
+        values.add(value)
+    return values
+
+
+def _layout_terminal_record(kind: str, name: str, terminal: Any) -> dict[str, Any]:
+    attributes = ("net_name", "start_layer", "stop_layer", "location", "holediam")
+    record: dict[str, Any] = {"name": name, "kind": kind}
+    unavailable = []
+    for attribute in attributes:
+        try:
+            value = getattr(terminal, attribute)
+            record["hole_diameter" if attribute == "holediam" else attribute] = _json_value(value)
+        except Exception:
+            record["hole_diameter" if attribute == "holediam" else attribute] = None
+            unavailable.append(attribute)
+    component_name = ""
+    if kind == "pin":
+        for attribute in ("componentname", "component_name"):
+            value = _safe_attribute(terminal, attribute)
+            if value:
+                component_name = str(value)
+                break
+        if not component_name and "-" in name:
+            component_name = "-".join(name.split("-")[:-1])
+    record["component_name"] = component_name
+    record["net_name"] = str(record.get("net_name") or "")
+    record["unavailable_properties"] = unavailable
+    return record
+
+
+def _layout_connectivity_component_record(name: str, component: Any) -> dict[str, Any]:
+    record: dict[str, Any] = {"name": name}
+    unavailable = []
+    for attribute in ("part", "part_type", "enabled", "placement_layer", "location", "angle"):
+        try:
+            record[attribute] = _json_value(getattr(component, attribute))
+        except Exception:
+            record[attribute] = None
+            unavailable.append(attribute)
+    try:
+        record["pin_count"] = len(dict(getattr(component, "pins") or {}))
+    except Exception:
+        record["pin_count"] = None
+        unavailable.append("pins")
+    record["unavailable_properties"] = unavailable
+    return record
+
+
+def _layout_net_classes(app: Any) -> tuple[dict[str, str], list[dict[str, str]]]:
+    classes = {}
+    errors = []
+    for net_class, attribute in (
+        ("power_ground", "power_nets"),
+        ("signal", "signal_nets"),
+        ("unclassified", "no_nets"),
+    ):
+        try:
+            values = dict(getattr(app.modeler, attribute) or {})
+        except Exception as exc:
+            errors.append(
+                {
+                    "section": f"net_classes:{net_class}",
+                    "reason": f"{type(exc).__name__}: {attribute} API unavailable",
+                }
+            )
+            continue
+        for name in values:
+            classes[str(name)] = net_class
+    return classes, errors
 
 
 def _validate_layout_object_properties(kind: str, properties: dict[str, Any]) -> None:
