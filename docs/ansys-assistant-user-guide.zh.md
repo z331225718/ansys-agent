@@ -725,6 +725,28 @@ Worker 的环境变量。修改环境变量后应关闭并重新打开本次 Ans
 .\.venv\Scripts\python.exe -m aedt_agent.interactive capabilities-v2
 ```
 
+对正在运行的 HFSS 3D Layout 执行只读 Workflow smoke，并生成机器可读证据：
+
+```powershell
+.\.venv\Scripts\python.exe -m aedt_agent.interactive live-workflow-smoke `
+  --port 50051 `
+  --aedt-version 2024.2 `
+  --expected-project "Board" `
+  --expected-design "Layout1" `
+  --output-dir C:\AnsysAgent\smoke\layout-audit `
+  --confirm-read-only
+```
+
+该命令只运行 `layout_live_audit`，不会执行参数化、保存或求解。它要求显式
+`--confirm-read-only`，并在输出目录生成：
+
+- `live_layout_audit_smoke.json`；
+- `live_layout_audit_smoke.json.sha256`；
+- `missions.db`，用于检查 Graph Run 和 node 状态。
+
+退出时只释放 PyAEDT wrapper，不关闭 AEDT 和工程。JSON 中必须同时满足 `status=passed`、
+`read_only=true`、`project_saved=false` 和 scorecard `status=passed`，才可作为真实 AEDT smoke 证据。
+
 发现 AEDT：
 
 ```powershell

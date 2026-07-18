@@ -30,6 +30,16 @@ def build_parser() -> argparse.ArgumentParser:
     target.add_argument("--pid", type=int)
     target.add_argument("--port", type=int)
     live_info.add_argument("--aedt-version", default="2026.1")
+    live_smoke = subparsers.add_parser(
+        "live-workflow-smoke",
+        help="Run the read-only layout_live_audit workflow and write hashed evidence.",
+    )
+    live_smoke.add_argument("--port", type=int, required=True)
+    live_smoke.add_argument("--aedt-version", default="2026.1")
+    live_smoke.add_argument("--expected-project", default="")
+    live_smoke.add_argument("--expected-design", default="")
+    live_smoke.add_argument("--output-dir", type=Path, required=True)
+    live_smoke.add_argument("--confirm-read-only", action="store_true")
 
     inspect_parser = subparsers.add_parser("inspect-layout", help="List HFSS 3D Layout paths.")
     _add_project_options(inspect_parser)
@@ -99,6 +109,19 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             finally:
                 live.close()
+        if args.command == "live-workflow-smoke":
+            from aedt_agent.interactive.smoke import run_live_layout_audit_smoke
+
+            output = run_live_layout_audit_smoke(
+                port=args.port,
+                version=args.aedt_version,
+                output_dir=args.output_dir,
+                expected_project=args.expected_project,
+                expected_design=args.expected_design,
+                confirmed_read_only=args.confirm_read_only,
+            )
+            _print_json(output)
+            return 0 if output["status"] == "passed" else 2
         if args.command == "inspect-layout":
             output = _run_inspect(kernel, args)
             _print_json(output)
