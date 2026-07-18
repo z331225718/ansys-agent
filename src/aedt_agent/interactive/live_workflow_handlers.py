@@ -245,7 +245,7 @@ def _width_scorecard(context: GraphNodeExecutionContext) -> dict[str, Any]:
 
 
 def _validate_solve_setup(context, live_manager, binding_resolver) -> dict[str, Any]:
-    payload = dict(context.input_payload)
+    payload = _payload(context)
     session_id, project_name, design_name, _ = _live_target(context, binding_resolver)
     setup_name = str(payload.get("setup_name") or "")
     sweep_name = str(payload.get("sweep_name") or "")
@@ -277,7 +277,7 @@ def _validate_solve_setup(context, live_manager, binding_resolver) -> dict[str, 
 
 
 def _preview_analysis_start(context, live_manager, binding_resolver) -> dict[str, Any]:
-    payload = dict(context.input_payload)
+    payload = _payload(context)
     session_id, project_name, design_name, _ = _live_target(context, binding_resolver)
     resources = dict(payload["resources"])
     preview = live_manager.preview_hfss_analysis_start(
@@ -303,7 +303,7 @@ def _preview_analysis_start(context, live_manager, binding_resolver) -> dict[str
 
 
 def _apply_analysis_start(context, live_manager, binding_resolver) -> dict[str, Any]:
-    payload = dict(context.input_payload)
+    payload = _payload(context)
     session_id, _, _, binding = _live_target(context, binding_resolver)
     token = str(binding.get("operation_approval_token") or "")
     if not token:
@@ -313,11 +313,18 @@ def _apply_analysis_start(context, live_manager, binding_resolver) -> dict[str, 
         preview_id=str(payload["operation_preview_id"]),
         approval_token=token,
     )
-    return _success({**payload, "operation_result": result, "live_session_reused": True})
+    return _success(
+        {
+            **payload,
+            "operation_result": result,
+            "solve_result": result,
+            "live_session_reused": True,
+        }
+    )
 
 
 def _solve_submission_scorecard(context, live_manager, binding_resolver) -> dict[str, Any]:
-    payload = dict(context.input_payload)
+    payload = _payload(context)
     session_id, project_name, design_name, _ = _live_target(context, binding_resolver)
     result = dict(payload.get("operation_result") or {})
     status = live_manager.hfss_analysis_status(
@@ -385,11 +392,15 @@ def _poll_analysis_status(context, live_manager, binding_resolver) -> dict[str, 
         design_name=design_name,
         setup_name=str(payload["setup_name"]),
     )
-    running = status.get("running") is True
+    latest_run = dict(status.get("latest_run") or {})
+    running = status.get("running") is True or latest_run.get("state") in {"submitted", "running"}
     output = {
         **payload,
         "analysis_status": status,
         "poll_count": int(payload.get("poll_count") or 0) + 1,
+        "observed_running": bool(payload.get("observed_running"))
+        or status.get("running") is True
+        or latest_run.get("state") == "running",
         "live_session_reused": True,
     }
     return _success(output, outcome="running" if running else "stopped")
@@ -416,6 +427,7 @@ def _analysis_stopped_scorecard(context, live_manager, binding_resolver) -> dict
             "poll_count": int(payload.get("poll_count") or 0),
             "run_id": latest_run.get("run_id"),
             "last_known_state": latest_run.get("state") or "untracked_not_running",
+            "solve_running_observed": bool(payload.get("observed_running")),
             "solve_success_verified": False,
         },
         "live_session_reused": True,
@@ -436,8 +448,9 @@ def _validate_results_export(context, live_manager, binding_resolver) -> dict[st
         design_name=design_name,
         setup_name=str(payload.get("setup_name") or "").strip(),
     )
-    if status.get("running") is True:
-        raise ValueError("cannot export live layout results while AEDT is still solving")
+    latest_run = dict(status.get("latest_run") or {})
+    if status.get("running") is True or latest_run.get("state") in {"submitted", "running"}:
+        raise ValueError("cannot export live layout results while AEDT solve is running or pending")
     inventory = live_manager.setup_inventory(
         session_id,
         product="layout",
@@ -521,13 +534,23 @@ def _apply_results_export(context, live_manager, binding_resolver) -> dict[str, 
         preview_id=str(payload["operation_preview_id"]),
         approval_token=token,
     )
-    return _success({**payload, "operation_result": result, "live_session_reused": True})
+    return _success(
+        {
+            **payload,
+            "operation_result": result,
+            "export_result": result,
+            "live_session_reused": True,
+        }
+    )
 
 
 def _results_export_scorecard(context, live_manager, binding_resolver) -> dict[str, Any]:
     payload = _payload(context)
     _, project_name, design_name, _ = _live_target(context, binding_resolver)
-    result = dict(payload.get("operation_result") or {})
+    result = dict(payload.get("export_result") or payload.get("operation_result") or {})
+    solve_result = dict(payload.get("solve_result") or {})
+    analysis_status = dict(payload.get("analysis_status") or {})
+    latest_run = dict(analysis_status.get("latest_run") or {})
     artifact = dict(result.get("artifact") or {})
     artifact_path = Path(str(artifact.get("path") or ""))
     manifest_path = Path(str(result.get("manifest_path") or ""))
@@ -559,7 +582,28 @@ def _results_export_scorecard(context, live_manager, binding_resolver) -> dict[s
         _check("manifest_spec", manifest_spec == payload.get("export_spec")),
         _check("project_unchanged", result.get("project_unchanged") is True),
         _check("project_not_saved", result.get("project_saved") is False),
+        _check("solver_not_running", analysis_status.get("running") is False),
+        _check("not_known_canceled", latest_run.get("state") != "canceled"),
     ]
+    export_verified = all(item["passed"] for item in checks)
+    solve_verified = False
+    if solve_result:
+        solve_verified = (
+            solve_result.get("status") == "submitted"
+            and solve_result.get("started") is True
+            and solve_result.get("blocking") is False
+            and solve_result.get("project_saved") is False
+        )
+        checks.extend(
+            [
+                _check(
+                    "solve_submitted",
+                    solve_result.get("status") == "submitted" and solve_result.get("started") is True,
+                ),
+                _check("solve_non_blocking", solve_result.get("blocking") is False),
+                _check("solve_project_not_saved", solve_result.get("project_saved") is False),
+            ]
+        )
     passed = all(item["passed"] for item in checks)
     artifact_refs = [str(path) for path in (artifact_path, manifest_path) if path.is_file()]
     output = {
@@ -572,6 +616,12 @@ def _results_export_scorecard(context, live_manager, binding_resolver) -> dict[s
             "manifest_path": str(manifest_path) if manifest_exists else "",
             "sha256": actual_sha256,
             "bytes": artifact_path.stat().st_size if artifact_exists else 0,
+            "solve_run_id": solve_result.get("run_id"),
+            "poll_count": int(payload.get("poll_count") or 0),
+            "last_known_state": latest_run.get("state") or "untracked_not_running",
+            "solve_running_observed": bool(payload.get("observed_running")),
+            "solve_submission_verified": solve_verified,
+            "result_export_verified": export_verified,
         },
         "artifact_refs": artifact_refs,
         "live_session_reused": True,

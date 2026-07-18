@@ -233,10 +233,11 @@ preview_live_hfss_analysis_start(cores/tasks/gpus)
   -> preview/apply_live_hfss_results_export
 ```
 
-3D Layout 的完整受控链路可直接使用 `layout_live_solve_start`、`layout_live_solve_monitor` 和
-`layout_live_results_export`。monitor 通过有界 Graph loop 每次只轮询一次；results export 支持
+3D Layout 的完整受控链路可直接使用组合 Workflow `layout_live_solve_export`，也可以分别使用
+`layout_live_solve_start`、`layout_live_solve_monitor` 和 `layout_live_results_export`。monitor 通过有界 Graph
+loop 每次只轮询一次；results export 支持
 `product="layout"`，并在 scorecard 中重新核验 artifact 与 manifest。Workflow 的 start 和每个
-advance step 都需要 Graph 审批，真正启动求解或写出结果还需要独立 operation 审批。
+advance step 都需要 Graph 审批；组合 Workflow 中，启动求解和写出结果还各自需要一次不能互换的 operation 审批。
 
 批准后的求解固定非阻塞，资源预算有上限。结果导出只允许写入
 `AEDT_AGENT_EXPORT_ROOT`（默认 `.aedt-agent/exports`）下的 server-managed 目录，支持

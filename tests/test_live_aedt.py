@@ -329,6 +329,13 @@ class FakeControlledSolveHfss(FakeHfss):
         return str(path)
 
 
+class FakeSubmittedSolveHfss(FakeControlledSolveHfss):
+    def analyze_setup(self, setup, **kwargs):
+        self.analysis_calls.append((setup, kwargs))
+        self.are_there_simulations_running = False
+        return setup == "Setup1" and kwargs.get("blocking") is False
+
+
 class FakeRegistry:
     def __init__(self):
         self.calls = []
@@ -913,6 +920,59 @@ def test_backend_exports_layout_results_with_product_bound_evidence(tmp_path: Pa
     assert manifest["artifact"]["sha256"] == exported["artifact"]["sha256"]
 
 
+def test_backend_keeps_submitted_solve_pending_before_export_grace(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("AEDT_AGENT_EXPORT_ROOT", str(tmp_path / "exports"))
+    clock = [100.0]
+    monkeypatch.setattr("aedt_agent.live.backend.time.monotonic", lambda: clock[0])
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, hfss_factory=FakeSubmittedSolveHfss)
+    target = AedtTarget("pid", 42)
+    preview = backend.execute(
+        target,
+        "hfss_analysis_start_preview",
+        {"project_name": "Board", "design_name": "HFSS1", "setup_name": "Setup1"},
+    )
+    started = backend.execute(target, "hfss_analysis_start_apply", {"preview_id": preview["preview_id"]})
+
+    assert started["state"] == "submitted"
+    assert not any(key.startswith("_") for key in started)
+    status = backend.execute(
+        target,
+        "hfss_analysis_status",
+        {"project_name": "Board", "design_name": "HFSS1", "setup_name": "Setup1"},
+    )
+    assert status["latest_run"]["state"] == "submitted"
+    with pytest.raises(LiveBackendError, match="running or pending"):
+        backend.execute(
+            target,
+            "hfss_export_preview",
+            {
+                "project_name": "Board",
+                "design_name": "HFSS1",
+                "export_kind": "touchstone",
+                "setup_name": "Setup1",
+            },
+        )
+
+    clock[0] = 106.0
+    status = backend.execute(
+        target,
+        "hfss_analysis_status",
+        {"project_name": "Board", "design_name": "HFSS1", "setup_name": "Setup1"},
+    )
+    assert status["latest_run"]["state"] == "not_running_unverified"
+    export_preview = backend.execute(
+        target,
+        "hfss_export_preview",
+        {
+            "project_name": "Board",
+            "design_name": "HFSS1",
+            "export_kind": "touchstone",
+            "setup_name": "Setup1",
+        },
+    )
+    assert export_preview["approval_required"] is True
+
+
 def test_analysis_preview_rejects_unbounded_resources_and_unsafe_artifact_names(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("AEDT_AGENT_EXPORT_ROOT", str(tmp_path / "exports"))
     backend = LiveAedtBackend(desktop_factory=FakeDesktop, hfss_factory=FakeControlledSolveHfss)
@@ -1396,6 +1456,13 @@ def test_manager_requires_independent_approval_for_solve_cancel_and_export():
         export_kind="touchstone",
         setup_name="Setup1",
     )
+    with pytest.raises(Exception) as reused_solve_approval:
+        manager.apply_hfss_export(
+            session_id,
+            preview_id=export_preview["preview_id"],
+            approval_token=solve_token,
+        )
+    assert getattr(reused_solve_approval.value, "code", None) == "approval_required"
     export_token = authority.issue(**export_preview["approval_request"])
     exported = manager.apply_hfss_export(
         session_id,

@@ -34,6 +34,6 @@ handoffs:
   live_monitor_validated:
     required_fields: [setup_name, setup_inventory, poll_count, live_session_reused]
   live_monitor_observation:
-    required_fields: [setup_name, analysis_status, poll_count, live_session_reused]
+    required_fields: [setup_name, analysis_status, poll_count, observed_running, live_session_reused]
   live_monitor_scorecard:
     required_fields: [status, checks, summary, live_session_reused]

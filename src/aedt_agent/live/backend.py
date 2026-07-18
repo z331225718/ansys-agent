@@ -20,6 +20,9 @@ from aedt_agent.live.versioning import (
 )
 
 
+_ANALYSIS_SUBMISSION_GRACE_SECONDS = 5.0
+
+
 class LiveBackendError(RuntimeError):
     code = "backend_error"
 
@@ -52,6 +55,7 @@ class LiveAedtBackend:
         self._apps: dict[tuple[str, str, str], Any] = {}
         self._previews: dict[str, dict[str, Any]] = {}
         self._analysis_runs: dict[tuple[str, str, str], dict[str, Any]] = {}
+        self._active_analysis_runs: dict[tuple[str, str], str] = {}
         configured_export_root = os.environ.get("AEDT_AGENT_EXPORT_ROOT")
         self._export_root = Path(configured_export_root or Path.cwd() / ".aedt-agent" / "exports").resolve()
         self._lock = threading.RLock()
@@ -144,6 +148,7 @@ class LiveAedtBackend:
         self._apps.clear()
         self._previews.clear()
         self._analysis_runs.clear()
+        self._active_analysis_runs.clear()
         if self._desktop is not None:
             desktop = self._desktop
             self._desktop = None
@@ -966,21 +971,26 @@ class LiveAedtBackend:
                 "started_at": started_at,
             }
         )[:24]
+        running = _simulation_running(app)
         run = {
             "run_id": run_id,
             "product": spec["product"],
             "setup_name": spec["setup_name"],
             "resources": resources,
             "started_at": started_at,
-            "state": "running" if _simulation_running(app) else "submitted",
+            "state": "running" if running else "submitted",
+            "_observed_running": running,
+            "_submitted_monotonic": time.monotonic(),
         }
-        self._analysis_runs[(app.project_name, app.design_name, spec["setup_name"])] = run
+        run_key = (app.project_name, app.design_name, spec["setup_name"])
+        self._analysis_runs[run_key] = run
+        self._active_analysis_runs[(app.project_name, app.design_name)] = spec["setup_name"]
         del self._previews[preview_id]
         return {
             "status": "submitted",
             "started": True,
             "preview_id": preview_id,
-            **run,
+            **_public_analysis_run(run),
             "blocking": False,
             "project_saved": False,
         }
@@ -992,15 +1002,17 @@ class LiveAedtBackend:
         setup_name = str(args.get("setup_name") or "")
         running = _simulation_running(app)
         run = self._analysis_runs.get((app.project_name, app.design_name, setup_name)) if setup_name else None
-        if run is not None and not running and run["state"] in {"running", "submitted"}:
-            run["state"] = "not_running"
-            run.setdefault("last_observed_at", _utc_now())
+        active_key = (app.project_name, app.design_name)
+        if run is not None and self._active_analysis_runs.get(active_key) == setup_name:
+            _refresh_analysis_run(run, running)
+            if run.get("state") not in {"submitted", "running"}:
+                self._active_analysis_runs.pop(active_key, None)
         return {
             "product": product,
             "running": running,
             "setups": list(_read(app, setup_attribute)),
             "setup_name": setup_name,
-            "latest_run": dict(run) if run is not None else None,
+            "latest_run": _public_analysis_run(run) if run is not None else None,
             "observed_at": _utc_now(),
         }
 
@@ -1044,6 +1056,7 @@ class LiveAedtBackend:
         key = (app.project_name, app.design_name, preview["setup_name"])
         if preview["setup_name"] and key in self._analysis_runs:
             self._analysis_runs[key].update({"state": "canceled", "canceled_at": _utc_now()})
+        self._active_analysis_runs.pop((app.project_name, app.design_name), None)
         del self._previews[preview_id]
         return {
             "status": "cancel_requested",
@@ -1061,8 +1074,16 @@ class LiveAedtBackend:
         export_kind = _required(args, "export_kind").lower()
         if export_kind not in {"touchstone", "report_csv"}:
             raise LiveBackendError(f"unsupported HFSS export kind: {export_kind}")
-        if _simulation_running(app):
-            raise LiveBackendError("cannot export while an AEDT simulation is running")
+        running = _simulation_running(app)
+        active_key = (app.project_name, app.design_name)
+        active_setup = self._active_analysis_runs.get(active_key)
+        active_run = self._analysis_runs.get((app.project_name, app.design_name, active_setup or ""))
+        if active_run is not None:
+            _refresh_analysis_run(active_run, running)
+            if active_run.get("state") not in {"submitted", "running"}:
+                self._active_analysis_runs.pop(active_key, None)
+        if running or (active_run is not None and active_run.get("state") in {"submitted", "running"}):
+            raise LiveBackendError("cannot export while an AEDT simulation is running or pending")
         setup_name = str(args.get("setup_name") or "").strip()
         sweep_name = str(args.get("sweep_name") or "").strip()
         report_name = str(args.get("report_name") or "").strip()
@@ -1919,6 +1940,28 @@ def _boundary_names(app: Any) -> list[str]:
 def _simulation_running(app: Any) -> bool:
     owner = app if hasattr(app, "are_there_simulations_running") else app.desktop_class
     return bool(_read(owner, "are_there_simulations_running"))
+
+
+def _refresh_analysis_run(run: dict[str, Any], running: bool) -> None:
+    if run.get("state") == "canceled":
+        return
+    if running:
+        run["state"] = "running"
+        run["_observed_running"] = True
+        run["last_observed_at"] = _utc_now()
+        return
+    if run.get("_observed_running") or run.get("state") == "running":
+        run["state"] = "not_running"
+        run.setdefault("last_observed_at", _utc_now())
+        return
+    submitted_at = float(run.get("_submitted_monotonic") or time.monotonic())
+    if time.monotonic() - submitted_at >= _ANALYSIS_SUBMISSION_GRACE_SECONDS:
+        run["state"] = "not_running_unverified"
+        run.setdefault("last_observed_at", _utc_now())
+
+
+def _public_analysis_run(run: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in run.items() if not key.startswith("_")}
 
 
 def _analysis_resources(args: dict[str, Any]) -> dict[str, Any]:

@@ -201,6 +201,9 @@ def test_default_workflow_catalog_includes_live_monitor_and_export(tmp_path: Pat
     assert descriptors["layout_live_solve_monitor"]["attached_live_session_reuse"] is True
     assert descriptors["layout_live_results_export"]["risk"] == "persistent_write"
     assert descriptors["layout_live_results_export"]["attached_live_session_reuse"] is True
+    assert descriptors["layout_live_solve_export"]["risk"] == "expensive"
+    assert descriptors["layout_live_solve_export"]["attached_live_session_reuse"] is True
+    assert descriptors["layout_live_solve_export"]["recommended_initial_fields"] == ["export_kind", "setup_name"]
     assert manager.inspect_workflow("layout_live_solve_monitor")["graph"]["edges"][1]["on"] == "running"
 
 
@@ -435,6 +438,7 @@ def test_live_layout_monitor_workflow_uses_bounded_graph_loop(tmp_path: Path):
     scorecard = report["node_runs"][-1]["output_payload"]
     assert scorecard["status"] == "passed"
     assert scorecard["summary"]["poll_count"] == 3
+    assert scorecard["summary"]["solve_running_observed"] is True
     assert scorecard["summary"]["solve_success_verified"] is False
 
 
@@ -480,3 +484,83 @@ def test_live_layout_results_export_workflow_writes_verified_artifacts(tmp_path:
     assert scorecard["output_payload"]["summary"]["artifact_path"].endswith("SetupL.s2p")
     assert len(scorecard["artifact_refs"]) == 2
     assert "export-approved" not in str(report)
+
+
+def test_live_layout_solve_export_workflow_uses_two_independent_operation_approvals(tmp_path: Path):
+    live = _Live()
+    live.export_root = tmp_path / "combined-exports"
+    live.analysis_statuses = [
+        {"product": "layout", "running": False, "setup_name": "SetupL", "latest_run": {"run_id": "run-1", "state": "submitted"}},
+        {"product": "layout", "running": True, "setup_name": "SetupL", "latest_run": {"run_id": "run-1", "state": "running"}},
+        {"product": "layout", "running": False, "setup_name": "SetupL", "latest_run": {"run_id": "run-1", "state": "not_running"}},
+        {"product": "layout", "running": False, "setup_name": "SetupL", "latest_run": {"run_id": "run-1", "state": "not_running"}},
+    ]
+    manager = AssistantWorkflowManager(
+        live_manager=live,
+        db_path=tmp_path / "combined-missions.db",
+        template_ids=("layout_live_solve_export",),
+        runtime_factory=lambda path: AgentRuntime(SQLiteMissionStore(path)),
+    )
+    start = manager.preview_start(
+        "live-1",
+        workflow_id="layout_live_solve_export",
+        goal="Solve, monitor, and export one live layout setup",
+        initial_payload={
+            "setup_name": "SetupL",
+            "sweep_name": "Sweep1",
+            "export_kind": "touchstone",
+            "artifact_name": "combined-network",
+            "cores": 4,
+            "tasks": 1,
+            "gpus": 0,
+        },
+        max_steps=20,
+    )
+    started = manager.apply_start("live-1", preview_id=start["preview_id"], approval_token="approved")
+
+    report = None
+    for index in range(10):
+        advance = manager.preview_advance("live-1", graph_run_id=started["graph_run_id"])
+        operation_token = ""
+        if index == 2:
+            assert advance["operation_approval_required"]["preview_id"] == "solve-preview-1"
+            operation_token = "solve-approved"
+        elif index == 8:
+            assert advance["operation_approval_required"]["preview_id"] == "export-preview-1"
+            with pytest.raises(Exception, match="nested live operation preview"):
+                manager.apply_advance(
+                    "live-1",
+                    preview_id=advance["preview_id"],
+                    approval_token="approved",
+                )
+            operation_token = "export-approved"
+        report = manager.apply_advance(
+            "live-1",
+            preview_id=advance["preview_id"],
+            approval_token="approved",
+            operation_approval_token=operation_token,
+        )
+
+    assert report is not None and report["status"] == "succeeded"
+    assert [item["node_id"] for item in report["node_runs"]] == [
+        "validate_setup",
+        "preview_analysis",
+        "apply_analysis",
+        "poll_analysis",
+        "poll_analysis",
+        "poll_analysis",
+        "validate_export",
+        "preview_export",
+        "apply_export",
+        "verify_export",
+    ]
+    scorecard = report["node_runs"][-1]["output_payload"]
+    assert scorecard["status"] == "passed"
+    assert scorecard["summary"]["solve_run_id"] == "run-1"
+    assert scorecard["summary"]["solve_submission_verified"] is True
+    assert scorecard["summary"]["result_export_verified"] is True
+    assert scorecard["summary"]["poll_count"] == 3
+    assert scorecard["summary"]["solve_running_observed"] is True
+    serialized = str(report)
+    assert "solve-approved" not in serialized
+    assert "export-approved" not in serialized
