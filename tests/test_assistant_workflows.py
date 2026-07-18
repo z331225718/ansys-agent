@@ -126,6 +126,39 @@ class _Live:
             "design_unchanged": True,
         }
 
+    def preview_hfss_geometry_create(self, session_id: str, **kwargs) -> dict:
+        return {
+            "preview_id": "geometry-preview-1",
+            "primitives": list(kwargs["primitives"]),
+            "requested_object_names": [item["name"] for item in kwargs["primitives"]],
+            "expected_object_count": len(kwargs["primitives"]),
+            "approval_request": {"action": "hfss.geometry.create"},
+            "project_saved": False,
+        }
+
+    def apply_hfss_geometry_create(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        assert preview_id == "geometry-preview-1"
+        assert approval_token == "geometry-approved"
+        return {
+            "status": "verified",
+            "expected_object_count": 2,
+            "created_object_count": 2,
+            "created_object_names": ["Substrate", "AirBox"],
+            "objects": [
+                {"name": "Substrate", "material_name": "FR4_epoxy"},
+                {"name": "AirBox", "material_name": "vacuum"},
+            ],
+            "geometry_snapshot_digest": "geometry-after-1",
+            "automatic_rollback_on_failure": True,
+            "project_saved": False,
+        }
+
     def list_layout_paths(self, session_id: str, **kwargs) -> dict:
         return {
             "count": 2,
@@ -375,6 +408,11 @@ def test_default_workflow_catalog_includes_live_monitor_and_export(tmp_path: Pat
 
     descriptors = {item["workflow_id"]: item for item in manager.list_workflows()["workflows"]}
 
+    assert descriptors["hfss_live_geometry_create"]["risk"] == "reversible_edit"
+    assert descriptors["hfss_live_geometry_create"]["attached_live_session_reuse"] is True
+    assert descriptors["hfss_live_geometry_create"]["recommended_initial_fields"] == [
+        "primitives"
+    ]
     assert descriptors["layout_live_solve_monitor"]["risk"] == "read_only"
     assert descriptors["layout_live_solve_monitor"]["attached_live_session_reuse"] is True
     assert descriptors["layout_live_results_export"]["risk"] == "persistent_write"
@@ -476,6 +514,59 @@ def test_workflow_advance_is_target_bound_and_one_step_per_approval(tmp_path: Pa
 
     assert status["graph_run"]["step_count"] == 1
     assert len(status["node_runs"]) == 1
+
+
+def test_live_hfss_geometry_workflow_uses_nested_approval_and_scorecard(tmp_path: Path):
+    manager = AssistantWorkflowManager(
+        live_manager=_Live(),
+        db_path=tmp_path / "geometry-missions.db",
+        template_ids=("hfss_live_geometry_create",),
+        runtime_factory=lambda path: AgentRuntime(SQLiteMissionStore(path)),
+    )
+    primitives = [
+        {
+            "kind": "box",
+            "name": "Substrate",
+            "origin": [0, 0, 0],
+            "size": [10, 5, 1],
+            "material": "FR4_epoxy",
+        },
+        {
+            "kind": "region",
+            "name": "AirBox",
+            "padding": "10mm",
+            "padding_type": "Absolute Offset",
+        },
+    ]
+    start = manager.preview_start(
+        "live-1",
+        workflow_id="hfss_live_geometry_create",
+        goal="Create a reviewed HFSS geometry batch",
+        initial_payload={"primitives": primitives, "max_new_objects": 4},
+    )
+    started = manager.apply_start(
+        "live-1",
+        preview_id=start["preview_id"],
+        approval_token="approved",
+    )
+    report = None
+    for index in range(3):
+        advance = manager.preview_advance("live-1", graph_run_id=started["graph_run_id"])
+        if index == 1:
+            assert advance["operation_approval_required"]["preview_id"] == "geometry-preview-1"
+        report = manager.apply_advance(
+            "live-1",
+            preview_id=advance["preview_id"],
+            approval_token="approved",
+            operation_approval_token="geometry-approved" if index == 1 else "",
+        )
+
+    assert report is not None and report["status"] == "succeeded"
+    assert "geometry-approved" not in str(report)
+    scorecard = report["node_runs"][-1]["output_payload"]
+    assert scorecard["status"] == "passed"
+    assert scorecard["summary"]["created_object_names"] == ["Substrate", "AirBox"]
+    assert scorecard["summary"]["project_saved"] is False
 
 
 def test_live_layout_audit_workflow_reuses_bound_session_for_graph_handlers(tmp_path: Path):

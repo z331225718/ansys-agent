@@ -17,6 +17,18 @@ def register_live_workflow_handlers(
     binding_resolver,
 ) -> None:
     registry.register(
+        "assistant.live.hfss.preview_geometry_create",
+        lambda context: _preview_hfss_geometry_create(context, live_manager, binding_resolver),
+    )
+    registry.register(
+        "assistant.live.hfss.apply_geometry_create",
+        lambda context: _apply_hfss_geometry_create(context, live_manager, binding_resolver),
+    )
+    registry.register(
+        "assistant.live.hfss.geometry_create_scorecard",
+        _hfss_geometry_create_scorecard,
+    )
+    registry.register(
         "assistant.live.layout.collect_inventory",
         lambda context: _collect_layout_inventory(context, live_manager, binding_resolver),
     )
@@ -131,6 +143,96 @@ def register_live_workflow_handlers(
     registry.register(
         "assistant.live.layout.touchstone_scorecard",
         lambda context: _touchstone_scorecard(context, live_manager, binding_resolver),
+    )
+
+
+def _preview_hfss_geometry_create(context, live_manager, binding_resolver) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, project_name, design_name, _ = _live_target(context, binding_resolver)
+    preview = live_manager.preview_hfss_geometry_create(
+        session_id,
+        project_name=project_name,
+        design_name=design_name,
+        primitives=payload.get("primitives") or [],
+        max_new_objects=payload.get("max_new_objects", 16),
+    )
+    return _success(
+        {
+            **payload,
+            "operation_preview_id": preview["preview_id"],
+            "operation_approval": preview.get("approval_request") or {},
+            "operation_preview": preview,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _apply_hfss_geometry_create(context, live_manager, binding_resolver) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, _, _, binding = _live_target(context, binding_resolver)
+    token = str(binding.get("operation_approval_token") or "")
+    if not token:
+        raise ValueError(
+            "operation_approval_token is required after wait_for_live_approval approves the geometry preview"
+        )
+    result = live_manager.apply_hfss_geometry_create(
+        session_id,
+        preview_id=str(payload["operation_preview_id"]),
+        approval_token=token,
+    )
+    return _success(
+        {
+            **payload,
+            "operation_result": result,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _hfss_geometry_create_scorecard(context: GraphNodeExecutionContext) -> dict[str, Any]:
+    payload = _payload(context)
+    result = dict(payload.get("operation_result") or {})
+    requested = [
+        str(item.get("name") or "")
+        for item in list(payload.get("primitives") or [])
+        if isinstance(item, dict)
+    ]
+    created = [str(item) for item in list(result.get("created_object_names") or [])]
+    readback = {
+        str(item.get("name") or "")
+        for item in list(result.get("objects") or [])
+        if isinstance(item, dict)
+    }
+    checks = [
+        _check("verified", result.get("status") == "verified"),
+        _check("requested_names_preserved", bool(requested) and created == requested),
+        _check(
+            "created_object_count",
+            result.get("created_object_count") == result.get("expected_object_count"),
+        ),
+        _check("created_objects_readback", bool(created) and set(created) == readback),
+        _check(
+            "automatic_rollback_on_failure",
+            result.get("automatic_rollback_on_failure") is True,
+        ),
+        _check("project_not_saved", result.get("project_saved") is False),
+        _check("live_session_reused", payload.get("live_session_reused") is True),
+    ]
+    passed = all(item["passed"] for item in checks)
+    return _success(
+        {
+            **payload,
+            "status": "passed" if passed else "failed",
+            "checks": checks,
+            "summary": {
+                "created_object_count": int(result.get("created_object_count") or 0),
+                "created_object_names": created,
+                "geometry_snapshot_digest": result.get("geometry_snapshot_digest"),
+                "project_saved": result.get("project_saved"),
+            },
+            "live_session_reused": True,
+        },
+        outcome="passed" if passed else "failed",
     )
 
 

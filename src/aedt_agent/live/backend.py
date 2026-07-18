@@ -87,6 +87,10 @@ class LiveAedtBackend:
                 return self._solution_inventory(target, arguments)
             if command == "hfss_geometry_inventory":
                 return self._hfss_geometry_inventory(target, arguments)
+            if command == "hfss_geometry_create_preview":
+                return self._hfss_geometry_create_preview(target, arguments)
+            if command == "hfss_geometry_create_apply":
+                return self._hfss_geometry_create_apply(target, arguments)
             if command == "hfss_setup_preview":
                 return self._hfss_setup_preview(target, arguments)
             if command == "hfss_setup_apply":
@@ -469,6 +473,8 @@ class LiveAedtBackend:
                     "object_id": _json_value(getattr(obj, "id", None)),
                     "material_name": str(getattr(obj, "material_name", "")),
                     "solve_inside": bool(getattr(obj, "solve_inside", False)),
+                    "bounding_box": _json_value(_safe_attribute(obj, "bounding_box")),
+                    "volume": _json_value(_safe_attribute(obj, "volume")),
                     "faces": faces,
                 }
             )
@@ -478,6 +484,162 @@ class LiveAedtBackend:
             "object_count": len(objects),
             "objects": objects,
             "snapshot_digest": _digest(objects),
+        }
+
+    def _hfss_geometry_create_preview(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        app = self._app(
+            target,
+            "hfss",
+            _required(args, "project_name"),
+            _required(args, "design_name"),
+        )
+        if str(_safe_attribute(app, "design_type") or "").strip().casefold() != "hfss":
+            raise LiveBackendError("HFSS geometry creation requires an HFSS 3D design")
+        if _simulation_running(app):
+            raise LiveBackendError("cannot edit HFSS geometry while a simulation is running")
+        max_new_objects = _bounded_integer(
+            args.get("max_new_objects", 16),
+            "max_new_objects",
+            minimum=1,
+            maximum=32,
+        )
+        primitives = _normalize_hfss_primitives(
+            args.get("primitives"),
+            max_new_objects=max_new_objects,
+        )
+        existing_names = [str(item) for item in list(getattr(app.modeler, "object_names", []) or [])]
+        model_units = str(_safe_attribute(app.modeler, "model_units") or "").strip()
+        if not model_units:
+            raise LiveBackendError("HFSS model units are unavailable")
+        requested_names = [item["name"] for item in primitives]
+        existing_casefold = {item.casefold(): item for item in existing_names}
+        conflicts = sorted(
+            existing_casefold[item.casefold()]
+            for item in requested_names
+            if item.casefold() in existing_casefold
+        )
+        if conflicts:
+            raise LiveBackendError(f"HFSS object already exists: {conflicts[0]}")
+        geometry = self._hfss_geometry_inventory(
+            target,
+            {"project_name": app.project_name, "design_name": app.design_name},
+        )
+        state = {
+            "object_names": existing_names,
+            "geometry_digest": geometry["snapshot_digest"],
+            "model_units": model_units,
+        }
+        state_digest = _digest(state)
+        spec = {
+            "primitives": primitives,
+            "requested_object_names": requested_names,
+            "expected_object_count": len(primitives),
+            "max_new_objects": max_new_objects,
+            "model_units": model_units,
+        }
+        preview_id = "geometry-preview-" + _digest(spec | {"state": state_digest})[:24]
+        self._previews[preview_id] = {
+            "kind": "hfss_geometry_create",
+            "target": target,
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "spec": spec,
+            "state": state,
+            "digest": state_digest,
+        }
+        return {
+            "preview_id": preview_id,
+            **spec,
+            "existing_object_count": len(existing_names),
+            "existing_object_names": existing_names,
+            "snapshot_digest": state_digest,
+            "approval_required": True,
+            "project_dirty": False,
+            "project_saved": False,
+        }
+
+    def _hfss_geometry_create_apply(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        preview_id = _required(args, "preview_id")
+        preview = self._preview(preview_id, "hfss_geometry_create", target)
+        app = self._app(target, "hfss", preview["project_name"], preview["design_name"])
+        if _simulation_running(app):
+            raise LiveBackendError("cannot edit HFSS geometry while a simulation is running")
+        geometry = self._hfss_geometry_inventory(
+            target,
+            {"project_name": app.project_name, "design_name": app.design_name},
+        )
+        current_state = {
+            "object_names": [str(item) for item in list(getattr(app.modeler, "object_names", []) or [])],
+            "geometry_digest": geometry["snapshot_digest"],
+            "model_units": str(_safe_attribute(app.modeler, "model_units") or "").strip(),
+        }
+        if _digest(current_state) != preview["digest"]:
+            raise LiveBackendError("stale HFSS geometry create preview")
+
+        created_names: list[str] = []
+        try:
+            for primitive in preview["spec"]["primitives"]:
+                created = _create_hfss_primitive(app, primitive)
+                current_names = [
+                    str(item) for item in list(getattr(app.modeler, "object_names", []) or [])
+                ]
+                if created is None or primitive["name"] not in current_names:
+                    raise LiveBackendError(
+                        f"HFSS geometry readback failed after creating {primitive['name']}"
+                    )
+                created_names.append(primitive["name"])
+
+            requested_names = preview["spec"]["requested_object_names"]
+            if created_names != requested_names:
+                raise LiveBackendError("HFSS geometry created object order does not match preview")
+            readback = self._hfss_geometry_inventory(
+                target,
+                {
+                    "project_name": app.project_name,
+                    "design_name": app.design_name,
+                    "object_names": requested_names,
+                },
+            )
+            readback_names = [str(item["name"]) for item in readback["objects"]]
+            if set(readback_names) != set(requested_names):
+                raise LiveBackendError("HFSS geometry batch readback verification failed")
+            _verify_hfss_primitive_readback(preview["spec"]["primitives"], readback["objects"])
+        except Exception as exc:
+            rollback = _rollback_hfss_objects(
+                app,
+                created_names,
+                before_names=preview["state"]["object_names"],
+            )
+            if not rollback["complete"]:
+                raise LiveBackendError(
+                    f"HFSS geometry creation failed and rollback is incomplete: {rollback}"
+                ) from exc
+            if isinstance(exc, LiveBackendError):
+                raise
+            raise LiveBackendError(
+                f"HFSS geometry creation failed: {type(exc).__name__}: {exc}"
+            ) from exc
+
+        del self._previews[preview_id]
+        return {
+            "status": "verified",
+            "preview_id": preview_id,
+            **preview["spec"],
+            "created_object_count": len(created_names),
+            "created_object_names": created_names,
+            "objects": readback["objects"],
+            "geometry_snapshot_digest": readback["snapshot_digest"],
+            "automatic_rollback_on_failure": True,
+            "project_dirty": True,
+            "project_saved": False,
         }
 
     def _hfss_setup_preview(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
@@ -2669,6 +2831,39 @@ _HFSS_BOUNDARY_OPTIONS = {
     "lumped_port": {"impedance", "renormalize", "deembed", "integration_line"},
 }
 
+_HFSS_PRIMITIVE_FIELDS = {
+    "box": {"kind", "name", "origin", "size", "material", "solve_inside"},
+    "rectangle": {
+        "kind",
+        "name",
+        "orientation",
+        "origin",
+        "size",
+        "material",
+        "solve_inside",
+    },
+    "cylinder": {
+        "kind",
+        "name",
+        "axis",
+        "origin",
+        "radius",
+        "height",
+        "num_sides",
+        "material",
+        "solve_inside",
+    },
+    "region": {"kind", "name", "padding", "padding_type"},
+}
+_HFSS_REGION_PADDING_TYPES = {
+    "Percentage Offset",
+    "Absolute Offset",
+    "Transverse Percentage Offset",
+}
+_SAFE_AEDT_OBJECT_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_. -]{0,127}")
+_SAFE_AEDT_MATERIAL_NAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_. +()-]{0,127}")
+_SAFE_AEDT_EXPRESSION = re.compile(r"[A-Za-z0-9_$+\-*/^().,% \t]{1,128}")
+
 _LAYOUT_OBJECT_COLLECTIONS = {
     "via": "vias",
     "component": "components",
@@ -2683,6 +2878,256 @@ _LAYOUT_OBJECT_WRITABLE_PROPERTIES = {
 }
 
 _SAFE_ARTIFACT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,127}")
+
+
+def _bounded_integer(
+    value: Any,
+    field: str,
+    *,
+    minimum: int,
+    maximum: int,
+) -> int:
+    if type(value) is not int or not minimum <= value <= maximum:
+        raise LiveBackendError(f"{field} must be an integer between {minimum} and {maximum}")
+    return value
+
+
+def _normalize_hfss_primitives(
+    raw_primitives: Any,
+    *,
+    max_new_objects: int,
+) -> list[dict[str, Any]]:
+    if not isinstance(raw_primitives, list) or not raw_primitives:
+        raise LiveBackendError("primitives must be a non-empty list")
+    if len(raw_primitives) > max_new_objects:
+        raise LiveBackendError(
+            f"primitive count {len(raw_primitives)} exceeds max_new_objects {max_new_objects}"
+        )
+    normalized: list[dict[str, Any]] = []
+    names: set[str] = set()
+    names_casefold: set[str] = set()
+    for index, raw in enumerate(raw_primitives):
+        if not isinstance(raw, dict):
+            raise LiveBackendError(f"primitives[{index}] must be an object")
+        kind = str(raw.get("kind") or "").strip().casefold()
+        if kind not in _HFSS_PRIMITIVE_FIELDS:
+            raise LiveBackendError(f"unsupported HFSS primitive kind: {kind}")
+        unsupported = sorted(set(raw).difference(_HFSS_PRIMITIVE_FIELDS[kind]))
+        if unsupported:
+            raise LiveBackendError(f"unsupported {kind} field: {unsupported[0]}")
+        name = str(raw.get("name") or "").strip()
+        if not _SAFE_AEDT_OBJECT_NAME.fullmatch(name):
+            raise LiveBackendError(
+                f"primitives[{index}].name must be a safe AEDT object name up to 128 characters"
+            )
+        if name in names or name.casefold() in names_casefold:
+            raise LiveBackendError(f"primitives must not contain duplicate object names: {name}")
+        names.add(name)
+        names_casefold.add(name.casefold())
+        primitive: dict[str, Any] = {"kind": kind, "name": name}
+        if kind == "region":
+            primitive["padding"] = _hfss_padding(raw.get("padding", 10))
+            padding_type = str(raw.get("padding_type") or "Absolute Offset").strip()
+            if padding_type not in _HFSS_REGION_PADDING_TYPES:
+                raise LiveBackendError(f"unsupported HFSS region padding_type: {padding_type}")
+            primitive["padding_type"] = padding_type
+            normalized.append(primitive)
+            continue
+
+        material = str(raw.get("material") or "vacuum").strip()
+        if not _SAFE_AEDT_MATERIAL_NAME.fullmatch(material):
+            raise LiveBackendError(
+                f"primitives[{index}].material must be a safe AEDT material name"
+            )
+        primitive["material"] = material
+        primitive["origin"] = _hfss_vector(
+            raw.get("origin"),
+            f"primitives[{index}].origin",
+            length=3,
+            positive=False,
+        )
+        if "solve_inside" in raw:
+            if type(raw["solve_inside"]) is not bool:
+                raise LiveBackendError(f"primitives[{index}].solve_inside must be boolean")
+            primitive["solve_inside"] = raw["solve_inside"]
+        if kind == "box":
+            primitive["size"] = _hfss_vector(
+                raw.get("size"),
+                f"primitives[{index}].size",
+                length=3,
+                positive=True,
+            )
+        elif kind == "rectangle":
+            orientation = str(raw.get("orientation") or "").strip().upper()
+            if orientation not in {"XY", "YZ", "XZ", "ZX"}:
+                raise LiveBackendError(
+                    f"primitives[{index}].orientation must be XY, YZ, XZ, or ZX"
+                )
+            primitive["orientation"] = orientation
+            primitive["size"] = _hfss_vector(
+                raw.get("size"),
+                f"primitives[{index}].size",
+                length=2,
+                positive=True,
+            )
+        else:
+            axis = str(raw.get("axis") or "").strip().upper()
+            if axis not in {"X", "Y", "Z"}:
+                raise LiveBackendError(f"primitives[{index}].axis must be X, Y, or Z")
+            primitive["axis"] = axis
+            primitive["radius"] = _hfss_dimension(
+                raw.get("radius"),
+                f"primitives[{index}].radius",
+                positive=True,
+            )
+            primitive["height"] = _hfss_dimension(
+                raw.get("height"),
+                f"primitives[{index}].height",
+                positive=True,
+            )
+            primitive["num_sides"] = _bounded_integer(
+                raw.get("num_sides", 0),
+                f"primitives[{index}].num_sides",
+                minimum=0,
+                maximum=256,
+            )
+        normalized.append(primitive)
+    region_indexes = [index for index, item in enumerate(normalized) if item["kind"] == "region"]
+    if len(region_indexes) > 1:
+        raise LiveBackendError("a geometry batch can create at most one HFSS region")
+    if region_indexes and region_indexes[0] != len(normalized) - 1:
+        raise LiveBackendError("the HFSS region must be the last primitive in the batch")
+    return normalized
+
+
+def _hfss_vector(
+    value: Any,
+    field: str,
+    *,
+    length: int,
+    positive: bool,
+) -> list[int | float | str]:
+    if not isinstance(value, list) or len(value) != length:
+        raise LiveBackendError(f"{field} must contain exactly {length} dimensions")
+    return [
+        _hfss_dimension(item, f"{field}[{index}]", positive=positive)
+        for index, item in enumerate(value)
+    ]
+
+
+def _hfss_dimension(value: Any, field: str, *, positive: bool) -> int | float | str:
+    if isinstance(value, bool):
+        raise LiveBackendError(f"{field} must be numeric or a bounded AEDT expression")
+    if isinstance(value, (int, float)):
+        numeric = float(value)
+        if not math.isfinite(numeric) or (positive and numeric <= 0):
+            qualifier = "positive and " if positive else ""
+            raise LiveBackendError(f"{field} must be {qualifier}finite")
+        return value
+    if not isinstance(value, str):
+        raise LiveBackendError(f"{field} must be numeric or a bounded AEDT expression")
+    expression = value.strip()
+    if not _SAFE_AEDT_EXPRESSION.fullmatch(expression):
+        raise LiveBackendError(f"{field} contains unsupported AEDT expression characters")
+    if positive and expression.startswith("-"):
+        raise LiveBackendError(f"{field} must not be an explicitly negative expression")
+    return expression
+
+
+def _hfss_padding(value: Any) -> int | float | str | list[int | float | str]:
+    if isinstance(value, list):
+        if len(value) != 6:
+            raise LiveBackendError("region padding list must contain six offsets")
+        return [
+            _hfss_dimension(item, f"region padding[{index}]", positive=True)
+            for index, item in enumerate(value)
+        ]
+    return _hfss_dimension(value, "region padding", positive=True)
+
+
+def _create_hfss_primitive(app: Any, primitive: dict[str, Any]) -> Any:
+    modeler = app.modeler
+    kind = primitive["kind"]
+    if kind == "box":
+        created = modeler.create_box(
+            primitive["origin"],
+            primitive["size"],
+            name=primitive["name"],
+            material=primitive["material"],
+        )
+    elif kind == "rectangle":
+        created = modeler.create_rectangle(
+            primitive["orientation"],
+            primitive["origin"],
+            primitive["size"],
+            name=primitive["name"],
+            material=primitive["material"],
+        )
+    elif kind == "cylinder":
+        created = modeler.create_cylinder(
+            primitive["axis"],
+            primitive["origin"],
+            primitive["radius"],
+            primitive["height"],
+            num_sides=primitive["num_sides"],
+            name=primitive["name"],
+            material=primitive["material"],
+        )
+    else:
+        created = modeler.create_region(
+            pad_value=primitive["padding"],
+            pad_type=primitive["padding_type"],
+            name=primitive["name"],
+        )
+    if created is not None and "solve_inside" in primitive:
+        created.solve_inside = primitive["solve_inside"]
+    return created
+
+
+def _verify_hfss_primitive_readback(
+    primitives: list[dict[str, Any]],
+    objects: list[dict[str, Any]],
+) -> None:
+    by_name = {str(item.get("name") or ""): item for item in objects}
+    for primitive in primitives:
+        record = by_name.get(primitive["name"])
+        if record is None:
+            raise LiveBackendError(f"HFSS object readback missing: {primitive['name']}")
+        if primitive["kind"] != "region" and str(record.get("material_name") or "").casefold() != str(
+            primitive["material"]
+        ).casefold():
+            raise LiveBackendError(f"HFSS material readback failed: {primitive['name']}")
+        if "solve_inside" in primitive and record.get("solve_inside") is not primitive["solve_inside"]:
+            raise LiveBackendError(f"HFSS solve_inside readback failed: {primitive['name']}")
+
+
+def _rollback_hfss_objects(
+    app: Any,
+    created_names: list[str],
+    *,
+    before_names: list[str],
+) -> dict[str, Any]:
+    deletion_error = ""
+    if created_names:
+        try:
+            app.modeler.delete(list(reversed(created_names)))
+        except Exception as exc:
+            deletion_error = f"{type(exc).__name__}: {exc}"
+    current_names = [str(item) for item in list(getattr(app.modeler, "object_names", []) or [])]
+    before = set(before_names)
+    current = set(current_names)
+    created = set(created_names)
+    missing_old = sorted(before.difference(current))
+    remaining_created = sorted(created.intersection(current))
+    unexpected = sorted(current.difference(before).difference(created))
+    return {
+        "complete": not deletion_error and not missing_old and not remaining_created and not unexpected,
+        "deleted_objects": sorted(created.difference(current)),
+        "remaining_created_objects": remaining_created,
+        "missing_old_objects": missing_old,
+        "unexpected_objects": unexpected,
+        "delete_error": deletion_error,
+    }
 
 
 def _setup_names(app: Any) -> list[str]:

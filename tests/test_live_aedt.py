@@ -399,21 +399,86 @@ class FakeControlledExportLayout(FakeLayout):
 
 
 class FakeObject:
-    id = 9
-    material_name = "copper"
-    solve_inside = False
-
-    def __init__(self):
-        self.faces = [SimpleNamespace(id=101, center=[0, 0, 0], area=1.5)]
+    def __init__(
+        self,
+        *,
+        object_id=9,
+        material_name="copper",
+        solve_inside=False,
+        face_id=101,
+    ):
+        self.id = object_id
+        self.material_name = material_name
+        self.solve_inside = solve_inside
+        self.faces = [SimpleNamespace(id=face_id, center=[0, 0, 0], area=1.5)]
 
 
 class FakeHfssModeler:
     def __init__(self):
+        self.model_units = "mm"
         self.object_names = ["box1"]
         self._objects = {"box1": FakeObject()}
 
     def __getitem__(self, name):
         return self._objects[name]
+
+
+class FakeGeometryModeler(FakeHfssModeler):
+    def __init__(self, *, fail_on=""):
+        super().__init__()
+        self.fail_on = fail_on
+        self.calls = []
+
+    def _create(self, kind, name, material, call):
+        self.calls.append((kind, call))
+        if name == self.fail_on:
+            raise RuntimeError(f"synthetic {kind} failure")
+        obj = FakeObject(
+            object_id=10 + len(self.object_names),
+            material_name=material,
+            face_id=102 + len(self.object_names),
+        )
+        self.object_names.append(name)
+        self._objects[name] = obj
+        return obj
+
+    def create_box(self, origin, sizes, name=None, material=None):
+        return self._create("box", name, material, (origin, sizes, name, material))
+
+    def create_rectangle(self, orientation, origin, sizes, name=None, material=None):
+        return self._create(
+            "rectangle",
+            name,
+            material,
+            (orientation, origin, sizes, name, material),
+        )
+
+    def create_cylinder(
+        self,
+        orientation,
+        origin,
+        radius,
+        height,
+        num_sides=0,
+        name=None,
+        material=None,
+    ):
+        return self._create(
+            "cylinder",
+            name,
+            material,
+            (orientation, origin, radius, height, num_sides, name, material),
+        )
+
+    def create_region(self, pad_value=300, pad_type="Percentage Offset", name="Region"):
+        return self._create("region", name, "vacuum", (pad_value, pad_type, name))
+
+    def delete(self, assignment=None):
+        for name in list(assignment or []):
+            if name in self.object_names:
+                self.object_names.remove(name)
+                self._objects.pop(name, None)
+        return True
 
 
 class FakeBoundary:
@@ -433,6 +498,7 @@ class FakeBoundary:
 class FakeHfss:
     are_there_simulations_running = True
     solution_type = "DrivenModal"
+    design_type = "HFSS"
 
     def __init__(self, **kwargs):
         self.kwargs = kwargs
@@ -519,6 +585,13 @@ class FakeControlledSolveHfss(FakeHfss):
         return str(path)
 
 
+class FakeGeometryHfss(FakeHfss):
+    def __init__(self, *, geometry_fail_on="", **kwargs):
+        super().__init__(**kwargs)
+        self.are_there_simulations_running = False
+        self.modeler = FakeGeometryModeler(fail_on=geometry_fail_on)
+
+
 class FakeSubmittedSolveHfss(FakeControlledSolveHfss):
     def analyze_setup(self, setup, **kwargs):
         self.analysis_calls.append((setup, kwargs))
@@ -560,6 +633,8 @@ class FakeRegistry:
             return {"preview_id": "cancel-preview-1", "snapshot_digest": "cancel-digest-1"}
         if command == "hfss_export_preview":
             return {"preview_id": "export-preview-1", "snapshot_digest": "export-digest-1"}
+        if command == "hfss_geometry_create_preview":
+            return {"preview_id": "geometry-preview-1", "snapshot_digest": "geometry-digest-1"}
         if command == "layout_component_ports_create_preview":
             return {"preview_id": "layout-port-preview-1", "snapshot_digest": "layout-port-digest-1"}
         if command == "layout_edge_ports_create_preview":
@@ -1035,6 +1110,242 @@ def test_backend_reuses_wrappers_and_lists_live_layout_paths():
     backend.execute(target, "hfss_analysis_cancel_apply", {"preview_id": layout_cancel_preview["preview_id"]})
     backend.release()
     assert desktop.releases[-1] == {"close_projects": False, "close_on_exit": False}
+
+
+def test_backend_creates_typed_hfss_geometry_batch_with_readback():
+    apps = []
+
+    def factory(**kwargs):
+        app = FakeGeometryHfss(**kwargs)
+        apps.append(app)
+        return app
+
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=factory,
+    )
+    target = AedtTarget("pid", 42)
+    primitives = [
+        {
+            "kind": "box",
+            "name": "Substrate",
+            "origin": ["-25mm", "-10mm", 0],
+            "size": ["50mm", "20mm", "1.6mm"],
+            "material": "FR4_epoxy",
+            "solve_inside": True,
+        },
+        {
+            "kind": "rectangle",
+            "name": "Trace",
+            "orientation": "XY",
+            "origin": ["-20mm", "-1mm", "1.6mm"],
+            "size": ["40mm", "2mm"],
+            "material": "copper",
+            "solve_inside": False,
+        },
+        {
+            "kind": "cylinder",
+            "name": "Via",
+            "axis": "Z",
+            "origin": [0, 0, 0],
+            "radius": "0.2mm",
+            "height": "1.6mm",
+            "num_sides": 12,
+            "material": "copper",
+        },
+        {
+            "kind": "region",
+            "name": "AirBox",
+            "padding": ["10mm"] * 6,
+            "padding_type": "Absolute Offset",
+        },
+    ]
+    preview = backend.execute(
+        target,
+        "hfss_geometry_create_preview",
+        {
+            "project_name": "Board",
+            "design_name": "HFSS1",
+            "primitives": primitives,
+            "max_new_objects": 4,
+        },
+    )
+    assert preview["requested_object_names"] == ["Substrate", "Trace", "Via", "AirBox"]
+    assert preview["expected_object_count"] == 4
+    assert preview["model_units"] == "mm"
+    assert preview["project_dirty"] is False
+    result = backend.execute(
+        target,
+        "hfss_geometry_create_apply",
+        {"preview_id": preview["preview_id"]},
+    )
+    assert result["status"] == "verified"
+    assert result["created_object_names"] == ["Substrate", "Trace", "Via", "AirBox"]
+    assert result["created_object_count"] == 4
+    assert result["project_saved"] is False
+    assert [item["name"] for item in result["objects"]] == [
+        "Substrate",
+        "Trace",
+        "Via",
+        "AirBox",
+    ]
+    app = apps[0]
+    assert app.modeler._objects["Substrate"].solve_inside is True
+    assert app.modeler._objects["Trace"].solve_inside is False
+    assert [item[0] for item in app.modeler.calls] == ["box", "rectangle", "cylinder", "region"]
+
+
+def test_backend_hfss_geometry_batch_rolls_back_and_rejects_stale_preview():
+    apps = []
+
+    def factory(**kwargs):
+        app = FakeGeometryHfss(geometry_fail_on="Bad", **kwargs)
+        apps.append(app)
+        return app
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, hfss_factory=factory)
+    target = AedtTarget("pid", 42)
+    primitives = [
+        {
+            "kind": "box",
+            "name": "Good",
+            "origin": [0, 0, 0],
+            "size": [1, 1, 1],
+            "material": "copper",
+        },
+        {
+            "kind": "box",
+            "name": "Bad",
+            "origin": [1, 0, 0],
+            "size": [1, 1, 1],
+            "material": "copper",
+        },
+    ]
+    preview = backend.execute(
+        target,
+        "hfss_geometry_create_preview",
+        {
+            "project_name": "Board",
+            "design_name": "HFSS1",
+            "primitives": primitives,
+        },
+    )
+    with pytest.raises(LiveBackendError, match="synthetic box failure"):
+        backend.execute(
+            target,
+            "hfss_geometry_create_apply",
+            {"preview_id": preview["preview_id"]},
+        )
+    assert apps[0].modeler.object_names == ["box1"]
+
+    apps[0].modeler.fail_on = ""
+    stale = backend.execute(
+        target,
+        "hfss_geometry_create_preview",
+        {
+            "project_name": "Board",
+            "design_name": "HFSS1",
+            "primitives": [primitives[0]],
+        },
+    )
+    apps[0].modeler._create("box", "External", "vacuum", ())
+    with pytest.raises(LiveBackendError, match="stale HFSS geometry"):
+        backend.execute(
+            target,
+            "hfss_geometry_create_apply",
+            {"preview_id": stale["preview_id"]},
+        )
+
+
+@pytest.mark.parametrize(
+    "primitives,error",
+    [
+        ([], "non-empty list"),
+        ([{"kind": "sphere", "name": "S"}], "unsupported HFSS primitive"),
+        (
+            [
+                {
+                    "kind": "box",
+                    "name": "B",
+                    "origin": [0, 0, 0],
+                    "size": [1, -1, 1],
+                }
+            ],
+            "positive and finite",
+        ),
+        (
+            [
+                {
+                    "kind": "rectangle",
+                    "name": "R",
+                    "orientation": "AB",
+                    "origin": [0, 0, 0],
+                    "size": [1, 1],
+                }
+            ],
+            "orientation",
+        ),
+        (
+            [
+                {
+                    "kind": "box",
+                    "name": "B;Delete",
+                    "origin": [0, 0, 0],
+                    "size": [1, 1, 1],
+                }
+            ],
+            "safe AEDT object name",
+        ),
+        (
+            [
+                {"kind": "region", "name": "AirBox", "padding": "10mm"},
+                {
+                    "kind": "box",
+                    "name": "B",
+                    "origin": [0, 0, 0],
+                    "size": [1, 1, 1],
+                },
+            ],
+            "region must be the last primitive",
+        ),
+    ],
+)
+def test_backend_hfss_geometry_preview_rejects_invalid_primitives(primitives, error):
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, hfss_factory=FakeGeometryHfss)
+    with pytest.raises(LiveBackendError, match=error):
+        backend.execute(
+            AedtTarget("pid", 42),
+            "hfss_geometry_create_preview",
+            {
+                "project_name": "Board",
+                "design_name": "HFSS1",
+                "primitives": primitives,
+            },
+        )
+
+
+def test_backend_hfss_geometry_preview_rejects_non_hfss_design_type():
+    class WrongDesignType(FakeGeometryHfss):
+        design_type = "HFSS 3D Layout Design"
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, hfss_factory=WrongDesignType)
+    with pytest.raises(LiveBackendError, match="requires an HFSS 3D design"):
+        backend.execute(
+            AedtTarget("pid", 42),
+            "hfss_geometry_create_preview",
+            {
+                "project_name": "Board",
+                "design_name": "HFSS1",
+                "primitives": [
+                    {
+                        "kind": "box",
+                        "name": "B",
+                        "origin": [0, 0, 0],
+                        "size": [1, 1, 1],
+                    }
+                ],
+            },
+        )
 
 
 def test_backend_scores_live_port_candidates_and_creates_component_ports_with_readback():
@@ -2312,6 +2623,41 @@ def test_manager_requires_action_bound_approval_for_layout_component_ports():
     assert getattr(replay.value, "code", None) == "approval_required"
 
 
+def test_manager_requires_action_bound_one_use_approval_for_hfss_geometry():
+    registry = FakeRegistry()
+    authority = HmacApprovalAuthority("g" * 32)
+    manager = LiveAedtSessionManager(registry=registry, approval_verifier=authority)
+    session_id = manager.attach(pid=42)["live_session_id"]
+    preview = manager.preview_hfss_geometry_create(
+        session_id,
+        project_name="Board",
+        design_name="HFSS1",
+        primitives=[
+            {
+                "kind": "box",
+                "name": "Box2",
+                "origin": [0, 0, 0],
+                "size": [1, 1, 1],
+                "material": "copper",
+            }
+        ],
+    )
+    token = authority.issue(**preview["approval_request"])
+    result = manager.apply_hfss_geometry_create(
+        session_id,
+        preview_id=preview["preview_id"],
+        approval_token=token,
+    )
+    assert result["command"] == "hfss_geometry_create_apply"
+    with pytest.raises(Exception) as replay:
+        manager.apply_hfss_geometry_create(
+            session_id,
+            preview_id=preview["preview_id"],
+            approval_token=token,
+        )
+    assert getattr(replay.value, "code", None) == "approval_required"
+
+
 def test_manager_requires_action_bound_approval_for_layout_edge_ports():
     registry = FakeRegistry()
     authority = HmacApprovalAuthority("e" * 32)
@@ -2559,6 +2905,8 @@ def test_mcp_registers_live_tools_without_changing_artifact_tools(monkeypatch):
     assert "launch_live_aedt_session" in server.tools
     assert "get_live_hfss_design_inventory" in server.tools
     assert "get_live_hfss_geometry_inventory" in server.tools
+    assert "preview_live_hfss_geometry_create" in server.tools
+    assert "apply_live_hfss_geometry_create" in server.tools
     assert "preview_live_hfss_setup_create" in server.tools
     assert "apply_live_hfss_setup_create" in server.tools
     assert "preview_live_hfss_report_create" in server.tools

@@ -13,6 +13,7 @@ from aedt_agent.live.broker import LiveAedtError
 
 _MAX_PAYLOAD_BYTES = 256 * 1024
 _DEFAULT_TEMPLATE_IDS = (
+    "hfss_live_geometry_create",
     "layout_live_audit",
     "layout_live_component_ports_create",
     "layout_live_parameterize_width",
@@ -37,6 +38,7 @@ _DEFAULT_TEMPLATE_IDS = (
 )
 _LIVE_SESSION_WORKFLOWS = frozenset(
     {
+        "hfss_live_geometry_create",
         "layout_live_audit",
         "layout_live_component_ports_create",
         "layout_live_parameterize_width",
@@ -51,6 +53,7 @@ _LIVE_SESSION_WORKFLOWS = frozenset(
     }
 )
 _LIVE_WORKFLOW_RISKS = {
+    "hfss_live_geometry_create": "reversible_edit",
     "layout_live_audit": "read_only",
     "layout_live_component_ports_create": "reversible_edit",
     "layout_live_parameterize_width": "reversible_edit",
@@ -398,6 +401,7 @@ def _graph_state_digest(report: dict[str, Any]) -> str:
 
 def _operation_approval_requirement(report: dict[str, Any]) -> dict[str, Any] | None:
     preview_nodes = {
+        "hfss_live_geometry_create": {"preview_geometry"},
         "layout_live_component_ports_create": {"preview_port_creation"},
         "layout_live_uniform_edge_ports_create": {"preview_edge_ports"},
         "layout_live_parameterize_width": {"preview_parameterization"},
