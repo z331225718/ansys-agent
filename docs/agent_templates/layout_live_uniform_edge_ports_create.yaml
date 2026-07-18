@@ -1,0 +1,69 @@
+id: layout_live_uniform_edge_ports_create
+version: 1
+description: Rank live trace edges near one bbox side, select one explicit edge per signal net, create circuit or wave ports after native approval, and verify readback without saving.
+nodes:
+  - id: discover_edge_candidates
+    role: live_inventory
+    kind: program
+    handler: assistant.live.layout.discover_edge_port_candidates
+    input_schema: live_uniform_edge_port_request
+    output_schema: live_uniform_edge_port_candidates
+    max_runs: 1
+  - id: validate_edge_selection
+    role: validation
+    kind: program
+    handler: assistant.live.layout.validate_uniform_edge_port_selection
+    input_schema: live_uniform_edge_port_candidates
+    output_schema: live_uniform_edge_port_selection
+    max_runs: 1
+  - id: preview_edge_ports
+    role: preview
+    kind: program
+    handler: assistant.live.layout.preview_edge_ports_create
+    input_schema: live_uniform_edge_port_selection
+    output_schema: live_uniform_edge_port_preview
+    max_runs: 1
+  - id: apply_edge_ports
+    role: apply
+    kind: program
+    handler: assistant.live.layout.apply_edge_ports_create
+    input_schema: live_uniform_edge_port_preview
+    output_schema: live_uniform_edge_port_apply_result
+    max_runs: 1
+  - id: verify_scorecard
+    role: scorecard
+    kind: program
+    handler: assistant.live.layout.edge_ports_scorecard
+    input_schema: live_uniform_edge_port_apply_result
+    output_schema: live_uniform_edge_port_scorecard
+    max_runs: 1
+edges:
+  - id: discover-to-validate
+    from: discover_edge_candidates
+    to: validate_edge_selection
+    on: succeeded
+  - id: validate-to-preview
+    from: validate_edge_selection
+    to: preview_edge_ports
+    on: succeeded
+  - id: preview-to-apply
+    from: preview_edge_ports
+    to: apply_edge_ports
+    on: succeeded
+  - id: apply-to-scorecard
+    from: apply_edge_ports
+    to: verify_scorecard
+    on: succeeded
+handoffs:
+  live_uniform_edge_port_request:
+    required_fields: [signal_nets, local_cut_region, side, layer, port_type]
+  live_uniform_edge_port_candidates:
+    required_fields: [signal_nets, local_cut_region, side, layer, port_type, edge_candidate_inventory, live_session_reused]
+  live_uniform_edge_port_selection:
+    required_fields: [signal_nets, edge_targets, edge_selection_validation, live_session_reused]
+  live_uniform_edge_port_preview:
+    required_fields: [signal_nets, edge_targets, operation_preview_id, operation_approval, operation_preview, live_session_reused]
+  live_uniform_edge_port_apply_result:
+    required_fields: [signal_nets, edge_targets, operation_result, live_session_reused]
+  live_uniform_edge_port_scorecard:
+    required_fields: [status, checks, summary, live_session_reused]

@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import math
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,6 +12,7 @@ import shutil
 import tempfile
 import threading
 import time
+from types import SimpleNamespace
 from typing import Any
 
 from aedt_agent.live.target import AedtTarget
@@ -135,6 +137,12 @@ class LiveAedtBackend:
                 return self._layout_component_ports_create_preview(target, arguments)
             if command == "layout_component_ports_create_apply":
                 return self._layout_component_ports_create_apply(target, arguments)
+            if command == "layout_edge_port_candidate_inventory":
+                return self._layout_edge_port_candidate_inventory(target, arguments)
+            if command == "layout_edge_ports_create_preview":
+                return self._layout_edge_ports_create_preview(target, arguments)
+            if command == "layout_edge_ports_create_apply":
+                return self._layout_edge_ports_create_apply(target, arguments)
             if command == "layout_object_inventory":
                 return self._layout_object_inventory(target, arguments)
             if command == "layout_object_property_inventory":
@@ -1788,6 +1796,251 @@ class LiveAedtBackend:
             "project_saved": False,
         }
 
+    def _layout_edge_port_candidate_inventory(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        app = self._app(
+            target,
+            "layout",
+            _required(args, "project_name"),
+            _required(args, "design_name"),
+        )
+        signal_nets = _unique_nonempty_names(args.get("signal_nets"), "signal_nets")
+        if not signal_nets:
+            raise LiveBackendError("signal_nets must contain at least one exact net name")
+        local_cut_region = dict(args.get("local_cut_region") or {})
+        side = str(args.get("side") or "").strip().casefold()
+        if side not in {"left", "right", "top", "bottom"}:
+            raise LiveBackendError("side must be left, right, top, or bottom")
+        layer = str(args.get("layer") or "").strip()
+        if not layer:
+            raise LiveBackendError("layer must be an exact non-empty Layout layer name")
+        max_candidates = args.get("max_candidates", 100)
+        if type(max_candidates) is not int or not 1 <= max_candidates <= 500:
+            raise LiveBackendError("max_candidates must be an integer between 1 and 500")
+        from aedt_agent.layout.local_cut import parse_local_cut_region
+        from aedt_agent.layout.ports import find_uniform_line_edge_candidates
+
+        try:
+            region = parse_local_cut_region(local_cut_region)
+        except ValueError as exc:
+            raise LiveBackendError(str(exc)) from exc
+        try:
+            nets = {str(name) for name in dict(app.modeler.nets or {})}
+            lines = {str(name): value for name, value in dict(app.modeler.lines or {}).items()}
+            layer_names = {
+                str(getattr(item, "name", ""))
+                for item in list(app.modeler.layers.stackup_layers or [])
+            }
+        except Exception as exc:
+            raise LiveBackendError("layout net, line, or stackup layer inventory is unavailable") from exc
+        missing_nets = sorted(set(signal_nets).difference(nets))
+        if missing_nets:
+            raise LiveBackendError(f"unknown layout net: {missing_nets[0]}")
+        if layer not in layer_names:
+            raise LiveBackendError(f"unknown layout layer: {layer}")
+        model_units = str(_safe_attribute(app.modeler, "model_units") or "m")
+        scale = _layout_length_factor_to_meters(model_units) / _layout_length_factor_to_meters(
+            region["unit"]
+        )
+        primitives = []
+        unavailable_lines = []
+        for name in sorted(lines):
+            line = lines[name]
+            net_name = str(_safe_attribute(line, "net_name") or "")
+            placement_layer = str(_safe_attribute(line, "placement_layer") or "")
+            if net_name not in signal_nets or placement_layer != layer:
+                continue
+            try:
+                edges = [
+                    [
+                        [float(edge[0][0]) * scale, float(edge[0][1]) * scale],
+                        [float(edge[1][0]) * scale, float(edge[1][1]) * scale],
+                    ]
+                    for edge in list(getattr(line, "edges") or [])
+                ]
+            except Exception as exc:
+                unavailable_lines.append(
+                    {
+                        "name": name,
+                        "reason": f"{type(exc).__name__}: line edge inventory unavailable",
+                    }
+                )
+                continue
+            primitives.append(
+                SimpleNamespace(
+                    name=name,
+                    net_name=net_name,
+                    layer=placement_layer,
+                    edges=edges,
+                )
+            )
+        report = find_uniform_line_edge_candidates(
+            primitives,
+            signal_nets=signal_nets,
+            local_cut_region=region,
+            hint={"side": side, "layer": layer, "port_type": "edge"},
+        )
+        all_candidates = list(report.get("candidates") or [])
+        candidates = all_candidates[:max_candidates]
+        truncated = len(all_candidates) > max_candidates
+        status = "incomplete" if truncated else str(report.get("status") or "needs_user_hint")
+        snapshot = {
+            "signal_nets": signal_nets,
+            "local_cut_region": region,
+            "side": side,
+            "layer": layer,
+            "candidates": candidates,
+            "truncated": truncated,
+        }
+        return {
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "status": status,
+            "signal_nets": signal_nets,
+            "local_cut_region": region,
+            "side": side,
+            "layer": layer,
+            "coordinate_unit": region["unit"],
+            "source_model_units": model_units,
+            "candidate_count": len(all_candidates),
+            "returned_candidate_count": len(candidates),
+            "candidates": candidates,
+            "truncated": truncated,
+            "unavailable_lines": unavailable_lines[:max_candidates],
+            "snapshot_digest": _digest(snapshot),
+            "design_unchanged": True,
+        }
+
+    def _layout_edge_ports_create_preview(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        app = self._app(
+            target,
+            "layout",
+            _required(args, "project_name"),
+            _required(args, "design_name"),
+        )
+        max_new_ports = args.get("max_new_ports", 16)
+        if type(max_new_ports) is not int or not 1 <= max_new_ports <= 64:
+            raise LiveBackendError("max_new_ports must be an integer between 1 and 64")
+        if _simulation_running(app):
+            raise LiveBackendError("cannot create layout edge ports while a simulation is running or pending")
+        targets = _normalize_layout_edge_targets(app, args.get("edge_targets"), max_new_ports=max_new_ports)
+        before_ports = _port_names(app)
+        state = {"edge_targets": targets, "before_ports": before_ports}
+        snapshot_digest = _digest(state)
+        spec = {"edge_targets": targets, "max_new_ports": max_new_ports}
+        preview_id = "layout-edge-port-preview-" + _digest(
+            {"edge_targets": targets, "max_new_ports": max_new_ports, "snapshot": snapshot_digest}
+        )[:24]
+        self._previews[preview_id] = {
+            "kind": "layout_edge_ports_create",
+            "target": target,
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "spec": spec,
+            "state": state,
+            "digest": snapshot_digest,
+        }
+        return {
+            "preview_id": preview_id,
+            **spec,
+            "expected_port_count": len(targets),
+            "before_ports": before_ports,
+            "snapshot_digest": snapshot_digest,
+            "approval_required": True,
+            "project_dirty": False,
+        }
+
+    def _layout_edge_ports_create_apply(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        preview_id = _required(args, "preview_id")
+        preview = self._preview(preview_id, "layout_edge_ports_create", target)
+        app = self._app(target, "layout", preview["project_name"], preview["design_name"])
+        if _simulation_running(app):
+            raise LiveBackendError("cannot create layout edge ports while a simulation is running or pending")
+        spec = dict(preview["spec"])
+        current_targets = _normalize_layout_edge_targets(
+            app,
+            [item["request"] for item in spec["edge_targets"]],
+            max_new_ports=spec["max_new_ports"],
+        )
+        current_state = {"edge_targets": current_targets, "before_ports": _port_names(app)}
+        if _digest(current_state) != preview["digest"]:
+            raise LiveBackendError("stale layout edge port preview")
+        before_ports = list(preview["state"]["before_ports"])
+        created = []
+        try:
+            creator = getattr(app, "create_edge_port", None)
+            if not callable(creator):
+                raise LiveBackendError("PyAEDT create_edge_port is unavailable")
+            known_ports = list(before_ports)
+            for target_record in current_targets:
+                request = dict(target_record["request"])
+                kwargs = {
+                    "is_circuit_port": request["port_type"] == "circuit",
+                    "is_wave_port": request["port_type"] == "wave",
+                }
+                if request.get("reference_primitive"):
+                    kwargs["reference_primitive"] = request["reference_primitive"]
+                    kwargs["reference_edge_number"] = request["reference_edge_number"]
+                if request["port_type"] == "wave":
+                    kwargs.update(
+                        {
+                            "wave_horizontal_extension": request["wave_horizontal_extension"],
+                            "wave_vertical_extension": request["wave_vertical_extension"],
+                            "wave_launcher": request["wave_launcher"],
+                        }
+                    )
+                result = creator(
+                    request["primitive_name"],
+                    request["edge_number"],
+                    **kwargs,
+                )
+                after_step = _port_names(app)
+                new_names = [name for name in after_step if name not in set(known_ports)]
+                if not result or len(new_names) != 1:
+                    raise LiveBackendError(
+                        f"layout edge port readback mismatch for {request['primitive_name']} "
+                        f"edge {request['edge_number']}: created {len(new_names)}"
+                    )
+                created.append({"port_name": new_names[0], "target": target_record})
+                known_ports = after_step
+            after_ports = _port_names(app)
+            missing_before = [name for name in before_ports if name not in set(after_ports)]
+            if missing_before:
+                raise LiveBackendError(f"existing layout port changed during creation: {missing_before[0]}")
+            if len(created) != len(current_targets) or len(created) > spec["max_new_ports"]:
+                raise LiveBackendError("layout edge port batch count exceeded the approved preview")
+        except Exception as exc:
+            rollback = self._rollback_layout_ports(app, before_ports)
+            if rollback["remaining_new_ports"] or rollback["missing_before_ports"]:
+                raise LiveBackendError(
+                    f"layout edge port creation failed and rollback was incomplete: {rollback}"
+                ) from exc
+            raise
+        del self._previews[preview_id]
+        return {
+            "status": "verified",
+            "preview_id": preview_id,
+            "edge_targets": current_targets,
+            "expected_port_count": len(current_targets),
+            "created_port_count": len(created),
+            "created_ports": created,
+            "ports": _port_names(app),
+            "port_order_source": _port_order_source(app),
+            "project_dirty": True,
+            "project_saved": False,
+        }
+
     def _layout_component_ports_snapshot(self, app: Any, spec: dict[str, Any]) -> dict[str, Any]:
         try:
             components = {str(name): value for name, value in dict(app.modeler.components or {}).items()}
@@ -2626,6 +2879,152 @@ def _layout_length_factor_to_meters(units: str) -> float:
     if normalized not in factors:
         raise LiveBackendError(f"unsupported layout model units: {units}")
     return factors[normalized]
+
+
+def _normalize_layout_edge_targets(
+    app: Any,
+    raw_targets: Any,
+    *,
+    max_new_ports: int,
+) -> list[dict[str, Any]]:
+    if not isinstance(raw_targets, list) or not raw_targets:
+        raise LiveBackendError("edge_targets must be a non-empty list")
+    if len(raw_targets) > max_new_ports:
+        raise LiveBackendError(
+            f"edge target count {len(raw_targets)} exceeds max_new_ports {max_new_ports}"
+        )
+    try:
+        lines = {str(name): value for name, value in dict(app.modeler.lines or {}).items()}
+    except Exception as exc:
+        raise LiveBackendError("layout line inventory is unavailable") from exc
+    geometries: dict[str, Any] = dict(lines)
+    if any(isinstance(item, dict) and item.get("reference_primitive") for item in raw_targets):
+        try:
+            geometries.update(
+                {str(name): value for name, value in dict(app.modeler.geometries or {}).items()}
+            )
+        except Exception as exc:
+            raise LiveBackendError("layout geometry inventory is unavailable for reference edges") from exc
+    allowed = {
+        "primitive_name",
+        "edge_number",
+        "port_type",
+        "reference_primitive",
+        "reference_edge_number",
+        "wave_horizontal_extension",
+        "wave_vertical_extension",
+        "wave_launcher",
+    }
+    normalized = []
+    seen = set()
+    for index, raw in enumerate(raw_targets):
+        if not isinstance(raw, dict):
+            raise LiveBackendError(f"edge_targets[{index}] must be an object")
+        unsupported = sorted(set(raw).difference(allowed))
+        if unsupported:
+            raise LiveBackendError(f"unsupported edge target field: {unsupported[0]}")
+        primitive_name = str(raw.get("primitive_name") or "").strip()
+        if not primitive_name or primitive_name not in lines:
+            raise LiveBackendError(f"unknown layout line primitive: {primitive_name}")
+        edge_number = raw.get("edge_number")
+        if type(edge_number) is not int or edge_number < 0:
+            raise LiveBackendError("edge_number must be a non-negative integer")
+        key = (primitive_name, edge_number)
+        if key in seen:
+            raise LiveBackendError(
+                f"edge_targets must not duplicate {primitive_name} edge {edge_number}"
+            )
+        seen.add(key)
+        port_type = str(raw.get("port_type") or "circuit").strip().casefold()
+        if port_type not in {"circuit", "wave"}:
+            raise LiveBackendError("port_type must be circuit or wave")
+        request: dict[str, Any] = {
+            "primitive_name": primitive_name,
+            "edge_number": edge_number,
+            "port_type": port_type,
+        }
+        reference_primitive = str(raw.get("reference_primitive") or "").strip()
+        reference_record = None
+        if reference_primitive:
+            if reference_primitive not in geometries:
+                raise LiveBackendError(f"unknown layout reference primitive: {reference_primitive}")
+            reference_edge_number = raw.get("reference_edge_number", 0)
+            if type(reference_edge_number) is not int or reference_edge_number < 0:
+                raise LiveBackendError("reference_edge_number must be a non-negative integer")
+            if (reference_primitive, reference_edge_number) == key:
+                raise LiveBackendError("reference edge must differ from the signal edge")
+            request["reference_primitive"] = reference_primitive
+            request["reference_edge_number"] = reference_edge_number
+            reference_record = _layout_geometry_edge_record(
+                geometries[reference_primitive],
+                reference_primitive,
+                reference_edge_number,
+            )
+        elif "reference_edge_number" in raw:
+            raise LiveBackendError("reference_edge_number requires reference_primitive")
+        if port_type == "wave":
+            request["wave_horizontal_extension"] = _bounded_edge_port_factor(
+                raw.get("wave_horizontal_extension", 5),
+                "wave_horizontal_extension",
+            )
+            request["wave_vertical_extension"] = _bounded_edge_port_factor(
+                raw.get("wave_vertical_extension", 3),
+                "wave_vertical_extension",
+            )
+            wave_launcher = str(raw.get("wave_launcher") or "1mm").strip()
+            if not wave_launcher or len(wave_launcher) > 128:
+                raise LiveBackendError("wave_launcher must be a non-empty AEDT expression up to 128 characters")
+            request["wave_launcher"] = wave_launcher
+        elif any(
+            field in raw
+            for field in (
+                "wave_horizontal_extension",
+                "wave_vertical_extension",
+                "wave_launcher",
+            )
+        ):
+            raise LiveBackendError("wave port options require port_type=wave")
+        normalized.append(
+            {
+                "request": request,
+                "primary_edge": _layout_geometry_edge_record(
+                    lines[primitive_name],
+                    primitive_name,
+                    edge_number,
+                ),
+                "reference_edge": reference_record,
+            }
+        )
+    return normalized
+
+
+def _layout_geometry_edge_record(geometry: Any, name: str, edge_number: int) -> dict[str, Any]:
+    try:
+        edges = list(getattr(geometry, "edges") or [])
+        edge = edges[edge_number]
+        start = [float(edge[0][0]), float(edge[0][1])]
+        end = [float(edge[1][0]), float(edge[1][1])]
+    except (AttributeError, IndexError, TypeError, ValueError) as exc:
+        raise LiveBackendError(f"invalid edge {edge_number} on layout primitive {name}") from exc
+    return {
+        "primitive_name": name,
+        "edge_number": edge_number,
+        "start": start,
+        "end": end,
+        "midpoint": [(start[0] + end[0]) / 2.0, (start[1] + end[1]) / 2.0],
+        "length": math.hypot(end[0] - start[0], end[1] - start[1]),
+        "net_name": str(_safe_attribute(geometry, "net_name") or ""),
+        "layer": str(_safe_attribute(geometry, "placement_layer") or ""),
+    }
+
+
+def _bounded_edge_port_factor(value: Any, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise LiveBackendError(f"{field} must be numeric")
+    normalized = float(value)
+    if not math.isfinite(normalized) or not 0 < normalized <= 100:
+        raise LiveBackendError(f"{field} must be greater than 0 and at most 100")
+    return normalized
 
 
 def _layout_terminal_record(kind: str, name: str, terminal: Any) -> dict[str, Any]:

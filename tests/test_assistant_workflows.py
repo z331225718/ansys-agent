@@ -186,6 +186,65 @@ class _Live:
             "project_saved": False,
         }
 
+    def layout_edge_port_candidate_inventory(self, session_id: str, **kwargs) -> dict:
+        return {
+            "status": "ready",
+            "signal_nets": list(kwargs["signal_nets"]),
+            "candidates": [
+                {
+                    "primitive": "line1",
+                    "edge_number": 0,
+                    "net": "N1",
+                    "layer": "L1",
+                    "distance_to_side": 0.2,
+                },
+                {
+                    "primitive": "line2",
+                    "edge_number": 0,
+                    "net": "N2",
+                    "layer": "L1",
+                    "distance_to_side": 0.3,
+                },
+            ],
+            "truncated": False,
+            "snapshot_digest": "edge-candidates-1",
+            "design_unchanged": True,
+        }
+
+    def preview_layout_edge_ports_create(self, session_id: str, **kwargs) -> dict:
+        return {
+            "preview_id": "edge-port-preview-1",
+            "edge_targets": list(kwargs["edge_targets"]),
+            "expected_port_count": 2,
+            "approval_request": {"action": "layout.edge_ports.create"},
+        }
+
+    def apply_layout_edge_ports_create(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        assert preview_id == "edge-port-preview-1"
+        assert approval_token == "edge-port-approved"
+        return {
+            "status": "verified",
+            "expected_port_count": 2,
+            "created_port_count": 2,
+            "created_ports": [
+                {"port_name": "EdgePort_1", "target": {"request": {"primitive_name": "line1"}}},
+                {"port_name": "EdgePort_2", "target": {"request": {"primitive_name": "line2"}}},
+            ],
+            "edge_targets": [
+                {"request": {"primitive_name": "line1", "edge_number": 0, "port_type": "circuit"}},
+                {"request": {"primitive_name": "line2", "edge_number": 0, "port_type": "circuit"}},
+            ],
+            "ports": ["P1", "P2", "EdgePort_1", "EdgePort_2"],
+            "port_order_source": "pyaedt.excitation_names",
+            "project_saved": False,
+        }
+
     def preview_hfss_analysis_start(self, session_id: str, **kwargs) -> dict:
         assert kwargs["product"] == "layout"
         return {
@@ -347,6 +406,15 @@ def test_default_workflow_catalog_includes_live_monitor_and_export(tmp_path: Pat
         "component_name",
         "signal_nets",
     ]
+    assert descriptors["layout_live_uniform_edge_ports_create"]["risk"] == "reversible_edit"
+    assert descriptors["layout_live_uniform_edge_ports_create"]["attached_live_session_reuse"] is True
+    assert descriptors["layout_live_uniform_edge_ports_create"]["recommended_initial_fields"] == [
+        "layer",
+        "local_cut_region",
+        "port_type",
+        "side",
+        "signal_nets",
+    ]
     assert manager.inspect_workflow("layout_live_solve_monitor")["graph"]["edges"][1]["on"] == "running"
 
 
@@ -503,6 +571,61 @@ def test_live_component_port_workflow_reuses_candidates_and_keeps_token_out_of_g
     assert scorecard["status"] == "passed"
     assert scorecard["summary"]["component_name"] == "U1"
     assert scorecard["summary"]["created_ports"] == ["Port_U1-1", "Port_U1-2"]
+
+
+def test_live_uniform_edge_port_workflow_reuses_old_selector_and_verifies_batch(
+    tmp_path: Path,
+):
+    manager = AssistantWorkflowManager(
+        live_manager=_Live(),
+        db_path=tmp_path / "edge-port-missions.db",
+        template_ids=("layout_live_uniform_edge_ports_create",),
+        runtime_factory=lambda path: AgentRuntime(SQLiteMissionStore(path)),
+    )
+    start = manager.preview_start(
+        "live-1",
+        workflow_id="layout_live_uniform_edge_ports_create",
+        goal="Create reviewed uniform line edge ports",
+        initial_payload={
+            "signal_nets": ["N1", "N2"],
+            "local_cut_region": {
+                "type": "bbox",
+                "unit": "mm",
+                "x_min": 0,
+                "y_min": 0,
+                "x_max": 10,
+                "y_max": 8,
+            },
+            "side": "right",
+            "layer": "L1",
+            "port_type": "circuit",
+        },
+    )
+    started = manager.apply_start(
+        "live-1",
+        preview_id=start["preview_id"],
+        approval_token="approved",
+    )
+    report = None
+    for index in range(5):
+        advance = manager.preview_advance("live-1", graph_run_id=started["graph_run_id"])
+        if index == 3:
+            assert advance["operation_approval_required"]["preview_id"] == "edge-port-preview-1"
+        report = manager.apply_advance(
+            "live-1",
+            preview_id=advance["preview_id"],
+            approval_token="approved",
+            operation_approval_token="edge-port-approved" if index == 3 else "",
+        )
+
+    assert report is not None and report["status"] == "succeeded"
+    assert "edge-port-approved" not in str(report)
+    scorecard = report["node_runs"][-1]["output_payload"]
+    assert scorecard["status"] == "passed"
+    assert scorecard["summary"]["created_ports"] == ["EdgePort_1", "EdgePort_2"]
+    assert [
+        item["request"]["primitive_name"] for item in scorecard["summary"]["edge_targets"]
+    ] == ["line1", "line2"]
 
 
 def test_live_width_workflow_keeps_operation_token_out_of_graph_state(tmp_path: Path):

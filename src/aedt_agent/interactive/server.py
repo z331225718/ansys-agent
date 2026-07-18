@@ -806,6 +806,59 @@ def create_server(
         )
 
     @server.tool()
+    async def get_live_layout_edge_port_candidate_inventory(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        signal_nets: list[str],
+        local_cut_region: dict,
+        side: str,
+        layer: str,
+        max_candidates: int = 100,
+    ) -> dict:
+        """Rank exact trace edges near one bbox side using the reusable uniform-line candidate algorithm."""
+        return live.layout_edge_port_candidate_inventory(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            signal_nets=signal_nets,
+            local_cut_region=local_cut_region,
+            side=side,
+            layer=layer,
+            max_candidates=max_candidates,
+        )
+
+    @server.tool()
+    async def preview_live_layout_edge_ports_create(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        edge_targets: list[dict],
+        max_new_ports: int = 16,
+    ) -> dict:
+        """Preview explicit circuit/wave edge ports with optional reference edges and bounded wave options."""
+        return live.preview_layout_edge_ports_create(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            edge_targets=edge_targets,
+            max_new_ports=max_new_ports,
+        )
+
+    @server.tool()
+    async def apply_live_layout_edge_ports_create(
+        live_session_id: str,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        """Create an approved edge-port batch, verify one new port per target, and rollback on failure."""
+        return live.apply_layout_edge_ports_create(
+            live_session_id,
+            preview_id=preview_id,
+            approval_token=approval_token,
+        )
+
+    @server.tool()
     async def get_live_layout_object_inventory(
         live_session_id: str,
         project_name: str,

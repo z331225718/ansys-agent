@@ -23,6 +23,7 @@ _DEFAULT_TEMPLATE_IDS = (
     "layout_live_solve_start",
     "layout_live_solve_touchstone_score",
     "layout_live_touchstone_score",
+    "layout_live_uniform_edge_ports_create",
     "brd_before_after_compare",
     "brd_channel_optimize",
     "brd_iterative_optimize",
@@ -46,6 +47,7 @@ _LIVE_SESSION_WORKFLOWS = frozenset(
         "layout_live_solve_start",
         "layout_live_solve_touchstone_score",
         "layout_live_touchstone_score",
+        "layout_live_uniform_edge_ports_create",
     }
 )
 _LIVE_WORKFLOW_RISKS = {
@@ -59,6 +61,7 @@ _LIVE_WORKFLOW_RISKS = {
     "layout_live_solve_start": "expensive",
     "layout_live_solve_touchstone_score": "expensive",
     "layout_live_touchstone_score": "persistent_write",
+    "layout_live_uniform_edge_ports_create": "reversible_edit",
 }
 
 
@@ -396,6 +399,7 @@ def _graph_state_digest(report: dict[str, Any]) -> str:
 def _operation_approval_requirement(report: dict[str, Any]) -> dict[str, Any] | None:
     preview_nodes = {
         "layout_live_component_ports_create": {"preview_port_creation"},
+        "layout_live_uniform_edge_ports_create": {"preview_edge_ports"},
         "layout_live_parameterize_width": {"preview_parameterization"},
         "layout_live_parameterize_solve_touchstone_score": {
             "preview_parameterization",

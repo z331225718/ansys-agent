@@ -45,6 +45,26 @@ def register_live_workflow_handlers(
         _component_ports_scorecard,
     )
     registry.register(
+        "assistant.live.layout.discover_edge_port_candidates",
+        lambda context: _discover_edge_port_candidates(context, live_manager, binding_resolver),
+    )
+    registry.register(
+        "assistant.live.layout.validate_uniform_edge_port_selection",
+        _validate_uniform_edge_port_selection,
+    )
+    registry.register(
+        "assistant.live.layout.preview_edge_ports_create",
+        lambda context: _preview_edge_ports_create(context, live_manager, binding_resolver),
+    )
+    registry.register(
+        "assistant.live.layout.apply_edge_ports_create",
+        lambda context: _apply_edge_ports_create(context, live_manager, binding_resolver),
+    )
+    registry.register(
+        "assistant.live.layout.edge_ports_scorecard",
+        _edge_ports_scorecard,
+    )
+    registry.register(
         "assistant.live.layout.select_paths",
         lambda context: _select_layout_paths(context, live_manager, binding_resolver),
     )
@@ -373,6 +393,180 @@ def _component_ports_scorecard(context: GraphNodeExecutionContext) -> dict[str, 
         "component_name": result.get("component_name"),
         "signal_nets": list(result.get("signal_nets") or []),
         "created_ports": created,
+        "created_port_count": int(result.get("created_port_count") or 0),
+        "port_order": list(result.get("ports") or []),
+        "port_order_source": result.get("port_order_source"),
+        "project_saved": result.get("project_saved"),
+    }
+    return _success(
+        {
+            **payload,
+            "status": "passed" if passed else "failed",
+            "checks": checks,
+            "summary": summary,
+            "live_session_reused": True,
+        },
+        outcome="passed" if passed else "failed",
+    )
+
+
+def _discover_edge_port_candidates(context, live_manager, binding_resolver) -> dict[str, Any]:
+    payload = dict(context.input_payload)
+    session_id, project_name, design_name, _ = _live_target(context, binding_resolver)
+    inventory = live_manager.layout_edge_port_candidate_inventory(
+        session_id,
+        project_name=project_name,
+        design_name=design_name,
+        signal_nets=payload.get("signal_nets") or [],
+        local_cut_region=payload.get("local_cut_region") or {},
+        side=payload.get("side") or "",
+        layer=payload.get("layer") or "",
+        max_candidates=payload.get("max_candidates", 100),
+    )
+    return _success(
+        {
+            **payload,
+            "edge_candidate_inventory": inventory,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _validate_uniform_edge_port_selection(context: GraphNodeExecutionContext) -> dict[str, Any]:
+    payload = dict(context.input_payload)
+    inventory = dict(payload.get("edge_candidate_inventory") or {})
+    if inventory.get("status") != "ready" or inventory.get("truncated") is True:
+        raise ValueError(
+            f"uniform edge candidates are not uniquely ready: status={inventory.get('status')}"
+        )
+    signal_nets = [str(item) for item in list(payload.get("signal_nets") or [])]
+    port_type = str(payload.get("port_type") or "").strip().casefold()
+    if port_type not in {"circuit", "wave"}:
+        raise ValueError("port_type must be circuit or wave")
+    candidates = [dict(item) for item in list(inventory.get("candidates") or [])]
+    reference_edges = payload.get("reference_edges") or {}
+    if not isinstance(reference_edges, dict):
+        raise ValueError("reference_edges must map exact signal net names to edge objects")
+    unknown_reference_nets = sorted(set(reference_edges).difference(signal_nets))
+    if unknown_reference_nets:
+        raise ValueError(f"reference_edges contains an unknown signal net: {unknown_reference_nets[0]}")
+    targets = []
+    selected_candidates = []
+    for net in signal_nets:
+        matches = [item for item in candidates if str(item.get("net") or "").casefold() == net.casefold()]
+        if not matches:
+            raise ValueError(f"no ready uniform edge candidate for signal net: {net}")
+        selected = matches[0]
+        selected_candidates.append(selected)
+        target = {
+            "primitive_name": str(selected["primitive"]),
+            "edge_number": int(selected["edge_number"]),
+            "port_type": port_type,
+        }
+        reference = reference_edges.get(net)
+        if reference is not None:
+            if not isinstance(reference, dict):
+                raise ValueError(f"reference_edges[{net}] must be an object")
+            target["reference_primitive"] = reference.get("primitive_name")
+            target["reference_edge_number"] = reference.get("edge_number", 0)
+        if port_type == "wave":
+            for field in (
+                "wave_horizontal_extension",
+                "wave_vertical_extension",
+                "wave_launcher",
+            ):
+                if field in payload:
+                    target[field] = payload[field]
+        targets.append(target)
+    validation = {
+        "status": "verified",
+        "candidate_snapshot_digest": inventory.get("snapshot_digest"),
+        "selected_candidates": selected_candidates,
+        "selected_count": len(targets),
+        "one_edge_per_signal_net": len(targets) == len(signal_nets),
+        "candidate_inventory_complete": True,
+    }
+    return _success(
+        {
+            **payload,
+            "edge_targets": targets,
+            "edge_selection_validation": validation,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _preview_edge_ports_create(context, live_manager, binding_resolver) -> dict[str, Any]:
+    payload = dict(context.input_payload)
+    session_id, project_name, design_name, _ = _live_target(context, binding_resolver)
+    preview = live_manager.preview_layout_edge_ports_create(
+        session_id,
+        project_name=project_name,
+        design_name=design_name,
+        edge_targets=payload["edge_targets"],
+        max_new_ports=payload.get("max_new_ports", 16),
+    )
+    return _success(
+        {
+            **payload,
+            "operation_preview_id": preview["preview_id"],
+            "operation_approval": preview.get("approval_request") or {},
+            "operation_preview": preview,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _apply_edge_ports_create(context, live_manager, binding_resolver) -> dict[str, Any]:
+    payload = dict(context.input_payload)
+    session_id, _, _, binding = _live_target(context, binding_resolver)
+    token = str(binding.get("operation_approval_token") or "")
+    if not token:
+        raise ValueError(
+            "operation_approval_token is required after wait_for_live_approval approves the edge-port preview"
+        )
+    result = live_manager.apply_layout_edge_ports_create(
+        session_id,
+        preview_id=str(payload["operation_preview_id"]),
+        approval_token=token,
+    )
+    return _success(
+        {
+            **payload,
+            "operation_result": result,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _edge_ports_scorecard(context: GraphNodeExecutionContext) -> dict[str, Any]:
+    payload = dict(context.input_payload)
+    result = dict(payload.get("operation_result") or {})
+    created = list(result.get("created_ports") or [])
+    created_names = [str(item.get("port_name") or "") for item in created]
+    ports = set(result.get("ports") or [])
+    checks = [
+        _check("verified", result.get("status") == "verified"),
+        _check(
+            "created_port_count",
+            result.get("created_port_count") == result.get("expected_port_count"),
+        ),
+        _check(
+            "one_port_per_signal_net",
+            result.get("created_port_count") == len(payload.get("signal_nets") or []),
+        ),
+        _check(
+            "created_ports_readback",
+            bool(created_names) and all(item in ports for item in created_names),
+        ),
+        _check("project_not_saved", result.get("project_saved") is False),
+        _check("live_session_reused", payload.get("live_session_reused") is True),
+    ]
+    passed = all(item["passed"] for item in checks)
+    summary = {
+        "signal_nets": list(payload.get("signal_nets") or []),
+        "edge_targets": list(result.get("edge_targets") or []),
+        "created_ports": created_names,
         "created_port_count": int(result.get("created_port_count") or 0),
         "port_order": list(result.get("ports") or []),
         "port_order_source": result.get("port_order_source"),

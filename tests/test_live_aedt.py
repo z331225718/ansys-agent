@@ -71,11 +71,12 @@ class FakeDesktop:
 
 
 class FakeLine:
-    def __init__(self, name, net, layer, width):
+    def __init__(self, name, net, layer, width, edges=None):
         self.name = name
         self.net_name = net
         self.placement_layer = layer
         self.width = width
+        self.edges = list(edges or [[[0.0, 0.0], [1.0, 0.0]]])
 
 
 class FakeVia:
@@ -315,6 +316,39 @@ class FakeShortPortLayout(FakePortLayout):
         return super().create_ports_on_component_by_nets(component, list(nets)[:1])
 
 
+class FakeEdgePortLayout(FakePortLayout):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.modeler.lines["line1"].placement_layer = "L1"
+        self.modeler.lines["line1"].edges = [[[9.8, 2.0], [9.8, 4.0]]]
+        self.modeler.lines["line2"].placement_layer = "L1"
+        self.modeler.lines["line2"].edges = [[[9.7, 5.0], [9.7, 7.0]]]
+        self.modeler.layers.stackup_layers.append(SimpleNamespace(name="L1"))
+        reference = FakeLine(
+            "reference",
+            "GND",
+            "L1",
+            "1mm",
+            edges=[[[9.5, 0.0], [9.5, 8.0]]],
+        )
+        self.modeler.geometries = {**self.modeler.lines, "reference": reference}
+        self.edge_port_calls = []
+
+    def create_edge_port(self, assignment, edge_number, **kwargs):
+        self.edge_port_calls.append((assignment, edge_number, kwargs))
+        name = f"EdgePort_{len(self.edge_port_calls)}"
+        self.excitation_names.append(name)
+        return SimpleNamespace(name=name)
+
+
+class FakeShortEdgePortLayout(FakeEdgePortLayout):
+    def create_edge_port(self, assignment, edge_number, **kwargs):
+        if self.edge_port_calls:
+            self.edge_port_calls.append((assignment, edge_number, kwargs))
+            return False
+        return super().create_edge_port(assignment, edge_number, **kwargs)
+
+
 class FakeSetup:
     def __init__(self, name, properties=None):
         self.name = name
@@ -528,6 +562,8 @@ class FakeRegistry:
             return {"preview_id": "export-preview-1", "snapshot_digest": "export-digest-1"}
         if command == "layout_component_ports_create_preview":
             return {"preview_id": "layout-port-preview-1", "snapshot_digest": "layout-port-digest-1"}
+        if command == "layout_edge_ports_create_preview":
+            return {"preview_id": "edge-port-preview-1", "snapshot_digest": "edge-port-digest-1"}
         return {"command": command, **arguments}
 
     def release(self, target, *, version="2026.1"):
@@ -1153,6 +1189,242 @@ def test_backend_component_port_preview_rejects_ambiguous_or_invalid_targets():
                 "design_name": "Layout1",
                 "component_name": "U1",
                 "signal_nets": ["N1", "N2"],
+            },
+        )
+
+
+def test_backend_ranks_live_uniform_edges_and_creates_typed_edge_ports():
+    desktop = FakeDesktop()
+    instances = []
+
+    def factory(**kwargs):
+        instance = FakeEdgePortLayout(**kwargs)
+        instances.append(instance)
+        return instance
+
+    backend = LiveAedtBackend(
+        desktop_factory=lambda **kwargs: desktop,
+        hfss_factory=FakeHfss,
+        layout_factory=factory,
+    )
+    target = AedtTarget("pid", 42)
+    candidates = backend.execute(
+        target,
+        "layout_edge_port_candidate_inventory",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "signal_nets": ["N1", "N2"],
+            "local_cut_region": {
+                "type": "bbox",
+                "unit": "mm",
+                "x_min": 0,
+                "y_min": 0,
+                "x_max": 10,
+                "y_max": 8,
+            },
+            "side": "right",
+            "layer": "L1",
+        },
+    )
+    assert candidates["status"] == "ready"
+    assert candidates["coordinate_unit"] == "mm"
+    assert candidates["source_model_units"] == "mm"
+    assert [item["primitive"] for item in candidates["candidates"]] == ["line1", "line2"]
+    assert [item["distance_to_side"] for item in candidates["candidates"]] == [0.2, 0.3]
+    assert candidates["design_unchanged"] is True
+    incomplete = backend.execute(
+        target,
+        "layout_edge_port_candidate_inventory",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "signal_nets": ["N1", "N2"],
+            "local_cut_region": {
+                "type": "bbox",
+                "unit": "mm",
+                "x_min": 0,
+                "y_min": 0,
+                "x_max": 10,
+                "y_max": 8,
+            },
+            "side": "right",
+            "layer": "L1",
+            "max_candidates": 1,
+        },
+    )
+    assert incomplete["status"] == "incomplete"
+    assert incomplete["truncated"] is True
+
+    preview = backend.execute(
+        target,
+        "layout_edge_ports_create_preview",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "edge_targets": [
+                {
+                    "primitive_name": "line1",
+                    "edge_number": 0,
+                    "port_type": "circuit",
+                },
+                {
+                    "primitive_name": "line2",
+                    "edge_number": 0,
+                    "port_type": "wave",
+                    "reference_primitive": "reference",
+                    "reference_edge_number": 0,
+                    "wave_horizontal_extension": 6,
+                    "wave_vertical_extension": 4,
+                    "wave_launcher": "0.5mm",
+                },
+            ],
+            "max_new_ports": 4,
+        },
+    )
+    assert preview["expected_port_count"] == 2
+    assert preview["edge_targets"][0]["primary_edge"]["midpoint"] == [9.8, 3.0]
+    assert preview["edge_targets"][1]["reference_edge"]["primitive_name"] == "reference"
+    result = backend.execute(
+        target,
+        "layout_edge_ports_create_apply",
+        {"preview_id": preview["preview_id"]},
+    )
+    assert result["status"] == "verified"
+    assert [item["port_name"] for item in result["created_ports"]] == [
+        "EdgePort_1",
+        "EdgePort_2",
+    ]
+    assert result["created_port_count"] == result["expected_port_count"] == 2
+    assert instances[0].edge_port_calls == [
+        ("line1", 0, {"is_circuit_port": True, "is_wave_port": False}),
+        (
+            "line2",
+            0,
+            {
+                "is_circuit_port": False,
+                "is_wave_port": True,
+                "reference_primitive": "reference",
+                "reference_edge_number": 0,
+                "wave_horizontal_extension": 6.0,
+                "wave_vertical_extension": 4.0,
+                "wave_launcher": "0.5mm",
+            },
+        ),
+    ]
+    assert result["project_saved"] is False
+
+
+def test_backend_edge_port_batch_rolls_back_partial_creation_and_rejects_stale_edges():
+    desktop = FakeDesktop()
+    instances = []
+
+    def factory(**kwargs):
+        instance = FakeShortEdgePortLayout(**kwargs)
+        instances.append(instance)
+        return instance
+
+    backend = LiveAedtBackend(
+        desktop_factory=lambda **kwargs: desktop,
+        hfss_factory=FakeHfss,
+        layout_factory=factory,
+    )
+    target = AedtTarget("pid", 42)
+    request = {
+        "project_name": "Board",
+        "design_name": "Layout1",
+        "edge_targets": [
+            {"primitive_name": "line1", "edge_number": 0, "port_type": "circuit"},
+            {"primitive_name": "line2", "edge_number": 0, "port_type": "circuit"},
+        ],
+    }
+    preview = backend.execute(target, "layout_edge_ports_create_preview", request)
+    before = list(instances[0].excitation_names)
+    with pytest.raises(LiveBackendError, match="readback mismatch"):
+        backend.execute(
+            target,
+            "layout_edge_ports_create_apply",
+            {"preview_id": preview["preview_id"]},
+        )
+    assert instances[0].excitation_names == before
+
+    instances[0].edge_port_calls.clear()
+    preview = backend.execute(target, "layout_edge_ports_create_preview", request)
+    instances[0].modeler.lines["line1"].edges = [[[8.0, 2.0], [8.0, 4.0]]]
+    with pytest.raises(LiveBackendError, match="stale layout edge port preview"):
+        backend.execute(
+            target,
+            "layout_edge_ports_create_apply",
+            {"preview_id": preview["preview_id"]},
+        )
+
+
+def test_backend_edge_port_preview_rejects_duplicate_invalid_or_unbounded_targets():
+    backend = LiveAedtBackend(
+        desktop_factory=lambda **kwargs: FakeDesktop(),
+        hfss_factory=FakeHfss,
+        layout_factory=FakeEdgePortLayout,
+    )
+    target = AedtTarget("pid", 42)
+    base = {"project_name": "Board", "design_name": "Layout1"}
+    with pytest.raises(LiveBackendError, match="must not duplicate"):
+        backend.execute(
+            target,
+            "layout_edge_ports_create_preview",
+            {
+                **base,
+                "edge_targets": [
+                    {"primitive_name": "line1", "edge_number": 0},
+                    {"primitive_name": "line1", "edge_number": 0},
+                ],
+            },
+        )
+    with pytest.raises(LiveBackendError, match="wave port options require"):
+        backend.execute(
+            target,
+            "layout_edge_ports_create_preview",
+            {
+                **base,
+                "edge_targets": [
+                    {
+                        "primitive_name": "line1",
+                        "edge_number": 0,
+                        "port_type": "circuit",
+                        "wave_launcher": "1mm",
+                    }
+                ],
+            },
+        )
+    with pytest.raises(LiveBackendError, match="exceeds max_new_ports"):
+        backend.execute(
+            target,
+            "layout_edge_ports_create_preview",
+            {
+                **base,
+                "edge_targets": [
+                    {"primitive_name": "line1", "edge_number": 0},
+                    {"primitive_name": "line2", "edge_number": 0},
+                ],
+                "max_new_ports": 1,
+            },
+        )
+    with pytest.raises(LiveBackendError, match="unknown layout layer"):
+        backend.execute(
+            target,
+            "layout_edge_port_candidate_inventory",
+            {
+                **base,
+                "signal_nets": ["N1"],
+                "local_cut_region": {
+                    "type": "bbox",
+                    "unit": "mm",
+                    "x_min": 0,
+                    "y_min": 0,
+                    "x_max": 10,
+                    "y_max": 8,
+                },
+                "side": "right",
+                "layer": "MISSING",
             },
         )
 
@@ -2033,6 +2305,35 @@ def test_manager_requires_action_bound_approval_for_layout_component_ports():
     assert result["command"] == "layout_component_ports_create_apply"
     with pytest.raises(Exception) as replay:
         manager.apply_layout_component_ports_create(
+            session_id,
+            preview_id=preview["preview_id"],
+            approval_token=token,
+        )
+    assert getattr(replay.value, "code", None) == "approval_required"
+
+
+def test_manager_requires_action_bound_approval_for_layout_edge_ports():
+    registry = FakeRegistry()
+    authority = HmacApprovalAuthority("e" * 32)
+    manager = LiveAedtSessionManager(registry=registry, approval_verifier=authority)
+    session_id = manager.attach(pid=42)["live_session_id"]
+    preview = manager.preview_layout_edge_ports_create(
+        session_id,
+        project_name="Board",
+        design_name="Layout1",
+        edge_targets=[
+            {"primitive_name": "line1", "edge_number": 0, "port_type": "circuit"},
+        ],
+    )
+    token = authority.issue(**preview["approval_request"])
+    result = manager.apply_layout_edge_ports_create(
+        session_id,
+        preview_id=preview["preview_id"],
+        approval_token=token,
+    )
+    assert result["command"] == "layout_edge_ports_create_apply"
+    with pytest.raises(Exception) as replay:
+        manager.apply_layout_edge_ports_create(
             session_id,
             preview_id=preview["preview_id"],
             approval_token=token,
