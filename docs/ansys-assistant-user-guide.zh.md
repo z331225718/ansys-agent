@@ -78,16 +78,18 @@ AEDT 2024 R2 使用 PyEDB DotNet 路径。只安装基础 `pyedb` 而没有 `[do
 
 发布包位于 GitHub Releases，不放进 Git 历史，避免每次 clone 都携带约 100 MB wheelhouse。
 
-当前预发布版本：
+打开发布页 <https://github.com/z331225718/ansys-agent/releases>，选择最新的
+`Ansys Assistant Offline` 预发布版本，并同时下载：
 
-- 发布页：<https://github.com/z331225718/ansys-agent/releases/tag/v0.1.0-ansys-assistant-preview.1>
-- ZIP：`ansys-agent-offline-0.1.0-win-amd64-py311.zip`
-- SHA256：`6b0a9dee7900346600e34ebda1e890778b5624188f8c0de5e16894cc2b22dfdd`
+- `ansys-agent-offline-0.1.0-win-amd64-py311.zip`；
+- `ansys-agent-offline-0.1.0-win-amd64-py311.zip.sha256`。
+
+具体 SHA256 以对应 Release 描述和同一 Release 下的 `.sha256` 文件为准。
 
 联网中转机可以使用：
 
 ```powershell
-gh release download v0.1.0-ansys-assistant-preview.1 `
+gh release download <release-tag> `
   --repo z331225718/ansys-agent `
   --pattern "ansys-agent-offline-*.zip*" `
   --dir C:\AnsysAgentTransfer
