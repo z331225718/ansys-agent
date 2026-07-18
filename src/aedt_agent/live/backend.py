@@ -118,6 +118,12 @@ class LiveAedtBackend:
                 return self._layout_routing_inventory(target, arguments)
             if command == "layout_object_inventory":
                 return self._layout_object_inventory(target, arguments)
+            if command == "layout_object_property_inventory":
+                return self._layout_object_property_inventory(target, arguments)
+            if command == "layout_object_property_update_preview":
+                return self._layout_object_property_update_preview(target, arguments)
+            if command == "layout_object_property_update_apply":
+                return self._layout_object_property_update_apply(target, arguments)
             if command == "variable_inventory":
                 return self._variable_inventory(target, arguments)
             if command == "variable_upsert_preview":
@@ -1241,6 +1247,144 @@ class LiveAedtBackend:
             "design_unchanged": True,
         }
 
+    def _layout_object_property_inventory(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
+        app = self._app(target, "layout", _required(args, "project_name"), _required(args, "design_name"))
+        object_kind = _layout_object_kind(args)
+        collection = dict(getattr(app.modeler, _LAYOUT_OBJECT_COLLECTIONS[object_kind]) or {})
+        requested = [str(item) for item in args.get("names") or []]
+        missing = sorted(set(requested).difference(collection))
+        if missing:
+            raise LiveBackendError(f"unknown layout {object_kind}: {missing[0]}")
+        names = requested or sorted(str(item) for item in collection)
+        records = [
+            _layout_object_record(object_kind, name, collection[name])
+            for name in names
+        ]
+        return {
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "object_kind": object_kind,
+            "count": len(records),
+            "objects": records,
+            "snapshot_digest": _digest(records),
+            "design_unchanged": True,
+        }
+
+    def _layout_object_property_update_preview(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        app = self._app(target, "layout", _required(args, "project_name"), _required(args, "design_name"))
+        object_kind = _layout_object_kind(args)
+        properties = dict(args.get("properties") or {})
+        if not properties:
+            raise LiveBackendError("at least one layout object property is required")
+        unsupported = sorted(set(properties).difference(_LAYOUT_OBJECT_WRITABLE_PROPERTIES[object_kind]))
+        if unsupported:
+            raise LiveBackendError(f"unsupported {object_kind} property: {unsupported[0]}")
+        _validate_layout_object_properties(object_kind, properties)
+        collection = dict(getattr(app.modeler, _LAYOUT_OBJECT_COLLECTIONS[object_kind]) or {})
+        names = [str(item) for item in args.get("names") or []]
+        if not names:
+            raise LiveBackendError("names must select at least one layout object")
+        if len(names) != len(set(names)):
+            raise LiveBackendError("names must not contain duplicates")
+        missing = sorted(set(names).difference(collection))
+        if missing:
+            raise LiveBackendError(f"unknown layout {object_kind}: {missing[0]}")
+        before = [
+            {
+                "name": name,
+                "properties": {
+                    prop: _json_value(getattr(collection[name], prop))
+                    for prop in properties
+                },
+            }
+            for name in names
+        ]
+        digest = _digest(before)
+        spec = {"object_kind": object_kind, "names": names, "properties": properties}
+        preview_id = "layout-object-preview-" + _digest({**spec, "snapshot": digest})[:24]
+        self._previews[preview_id] = {
+            "kind": "layout_object_property_update",
+            "target": target,
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "spec": spec,
+            "before": before,
+            "digest": digest,
+        }
+        return {
+            "preview_id": preview_id,
+            **spec,
+            "before": before,
+            "target_count": len(names),
+            "snapshot_digest": digest,
+            "approval_required": True,
+            "project_dirty": False,
+        }
+
+    def _layout_object_property_update_apply(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
+        preview_id = _required(args, "preview_id")
+        preview = self._preview(preview_id, "layout_object_property_update", target)
+        spec = preview["spec"]
+        app = self._app(target, "layout", preview["project_name"], preview["design_name"])
+        collection = dict(getattr(app.modeler, _LAYOUT_OBJECT_COLLECTIONS[spec["object_kind"]]) or {})
+        if any(name not in collection for name in spec["names"]):
+            raise LiveBackendError("stale layout object preview")
+        current = [
+            {
+                "name": name,
+                "properties": {
+                    prop: _json_value(getattr(collection[name], prop))
+                    for prop in spec["properties"]
+                },
+            }
+            for name in spec["names"]
+        ]
+        if _digest(current) != preview["digest"]:
+            raise LiveBackendError("stale layout object preview")
+        try:
+            for name in spec["names"]:
+                for prop, value in spec["properties"].items():
+                    setattr(collection[name], prop, value)
+            after = [
+                {
+                    "name": name,
+                    "properties": {
+                        prop: _json_value(getattr(collection[name], prop))
+                        for prop in spec["properties"]
+                    },
+                }
+                for name in spec["names"]
+            ]
+            for record in after:
+                for prop, expected in spec["properties"].items():
+                    if not _property_values_equal(record["properties"][prop], expected):
+                        raise LiveBackendError(f"layout {spec['object_kind']} {prop} readback verification failed")
+        except Exception:
+            for record in preview["before"]:
+                obj = collection.get(record["name"])
+                if obj is None:
+                    continue
+                for prop, value in record["properties"].items():
+                    try:
+                        setattr(obj, prop, value)
+                    except Exception:
+                        pass
+            raise
+        del self._previews[preview_id]
+        return {
+            "status": "verified",
+            "preview_id": preview_id,
+            **spec,
+            "target_count": len(spec["names"]),
+            "after": after,
+            "project_dirty": True,
+            "project_saved": False,
+        }
+
     def _variable_inventory(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
         product = _variable_product(args)
         app = self._app(target, product, _required(args, "project_name"), _required(args, "design_name"))
@@ -1650,6 +1794,19 @@ _HFSS_BOUNDARY_OPTIONS = {
     "lumped_port": {"impedance", "renormalize", "deembed", "integration_line"},
 }
 
+_LAYOUT_OBJECT_COLLECTIONS = {
+    "via": "vias",
+    "component": "components",
+}
+_LAYOUT_OBJECT_READABLE_PROPERTIES = {
+    "via": ("start_layer", "stop_layer", "holediam", "net_name", "location", "angle", "lock_position"),
+    "component": ("part", "part_type", "enabled", "placement_layer", "location", "angle", "lock_position"),
+}
+_LAYOUT_OBJECT_WRITABLE_PROPERTIES = {
+    "via": {"net_name", "location", "angle", "lock_position"},
+    "component": {"enabled", "placement_layer", "location", "angle", "lock_position"},
+}
+
 _SAFE_ARTIFACT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,127}")
 
 
@@ -1670,6 +1827,50 @@ def _positive_number(arguments: dict[str, Any], name: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
         raise LiveBackendError(f"{name} must be a positive number")
     return float(value)
+
+
+def _layout_object_kind(arguments: dict[str, Any]) -> str:
+    kind = str(arguments.get("object_kind") or "").strip().casefold()
+    if kind not in _LAYOUT_OBJECT_COLLECTIONS:
+        raise LiveBackendError("object_kind must be via or component")
+    return kind
+
+
+def _layout_object_record(kind: str, name: str, obj: Any) -> dict[str, Any]:
+    properties: dict[str, Any] = {}
+    unavailable = []
+    for prop in _LAYOUT_OBJECT_READABLE_PROPERTIES[kind]:
+        try:
+            properties[prop] = _json_value(getattr(obj, prop))
+        except Exception:
+            unavailable.append(prop)
+    return {"name": name, "properties": properties, "unavailable_properties": unavailable}
+
+
+def _validate_layout_object_properties(kind: str, properties: dict[str, Any]) -> None:
+    if "location" in properties:
+        value = properties["location"]
+        if not isinstance(value, list) or len(value) != 2 or any(
+            isinstance(item, bool) or not isinstance(item, (int, float)) for item in value
+        ):
+            raise LiveBackendError("location must contain exactly two numeric values in the design model units")
+    if "lock_position" in properties and type(properties["lock_position"]) is not bool:
+        raise LiveBackendError("lock_position must be boolean")
+    if "enabled" in properties and type(properties["enabled"]) is not bool:
+        raise LiveBackendError("enabled must be boolean")
+    for name in ("net_name", "placement_layer"):
+        if name in properties and (not isinstance(properties[name], str) or not properties[name].strip()):
+            raise LiveBackendError(f"{name} must be a non-empty string")
+    if "angle" in properties and (
+        isinstance(properties["angle"], bool) or not isinstance(properties["angle"], (int, float, str))
+    ):
+        raise LiveBackendError("angle must be numeric or an AEDT expression")
+
+
+def _property_values_equal(actual: Any, expected: Any) -> bool:
+    if isinstance(actual, str) and isinstance(expected, str):
+        return _normalized_expression(actual) == _normalized_expression(expected)
+    return actual == expected
 
 
 def _report_names(app: Any) -> list[str]:

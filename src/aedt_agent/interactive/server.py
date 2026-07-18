@@ -696,6 +696,55 @@ def create_server(
         )
 
     @server.tool()
+    async def get_live_layout_object_property_inventory(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        object_kind: str,
+        names: list[str] | None = None,
+    ) -> dict:
+        """Read stable properties for selected 3D Layout vias or components."""
+        return live.layout_object_property_inventory(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            object_kind=object_kind,
+            names=names,
+        )
+
+    @server.tool()
+    async def preview_live_layout_object_property_update(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        object_kind: str,
+        names: list[str],
+        properties: dict,
+    ) -> dict:
+        """Preview allowlisted property changes on explicit via or component names."""
+        return live.preview_layout_object_property_update(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            object_kind=object_kind,
+            names=names,
+            properties=properties,
+        )
+
+    @server.tool()
+    async def apply_live_layout_object_property_update(
+        live_session_id: str,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        """Apply a via/component property preview with approval, readback, and batch rollback."""
+        return live.apply_layout_object_property_update(
+            live_session_id,
+            preview_id=preview_id,
+            approval_token=approval_token,
+        )
+
+    @server.tool()
     async def get_live_aedt_variable_inventory(
         live_session_id: str,
         product: str,

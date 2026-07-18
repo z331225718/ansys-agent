@@ -665,6 +665,61 @@ class LiveAedtSessionManager:
             {"project_name": project_name, "design_name": design_name},
         )
 
+    def layout_object_property_inventory(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+        object_kind: str,
+        names: list[str] | None = None,
+    ) -> dict[str, Any]:
+        return self._execute(
+            session_id,
+            "layout_object_property_inventory",
+            {
+                "project_name": project_name,
+                "design_name": design_name,
+                "object_kind": object_kind,
+                "names": names or [],
+            },
+        )
+
+    def preview_layout_object_property_update(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+        object_kind: str,
+        names: list[str],
+        properties: dict[str, Any],
+    ) -> dict[str, Any]:
+        result = self._execute(
+            session_id,
+            "layout_object_property_update_preview",
+            {
+                "project_name": project_name,
+                "design_name": design_name,
+                "object_kind": object_kind,
+                "names": names,
+                "properties": properties,
+            },
+        )
+        return self._register_approval(session_id, "layout.object.property.update", result)
+
+    def apply_layout_object_property_update(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict[str, Any]:
+        self._require_approval(session_id, "layout.object.property.update", preview_id, approval_token)
+        result = self._execute(session_id, "layout_object_property_update_apply", {"preview_id": preview_id})
+        self._approval_contexts.pop((session_id, preview_id), None)
+        return result
+
     def variable_inventory(
         self,
         session_id: str,

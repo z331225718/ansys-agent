@@ -78,6 +78,30 @@ class FakeLine:
         self.width = width
 
 
+class FakeVia:
+    def __init__(self, name):
+        self.name = name
+        self.start_layer = "L1"
+        self.stop_layer = "L2"
+        self.holediam = "0.2mm"
+        self.net_name = "GND"
+        self.location = [1.0, 2.0]
+        self.angle = "0deg"
+        self.lock_position = False
+
+
+class FakeLayoutComponent:
+    def __init__(self, name):
+        self.name = name
+        self.part = "R0402"
+        self.part_type = "Resistor"
+        self.enabled = True
+        self.placement_layer = "TOP"
+        self.location = [3.0, 4.0]
+        self.angle = "0deg"
+        self.lock_position = False
+
+
 class FakeLayout:
     def __init__(self, **kwargs):
         self.kwargs = kwargs
@@ -90,9 +114,9 @@ class FakeLayout:
         self.modeler = SimpleNamespace(
             line_names=list(lines),
             lines=lines,
-            components={"U1": object()},
+            components={"U1": FakeLayoutComponent("U1")},
             pins={"U1-1": object()},
-            vias={"V1": object()},
+            vias={"V1": FakeVia("V1")},
             nets={"N1": object(), "N2": object()},
             polygon_names=["poly1"],
             rectangle_names=[],
@@ -524,6 +548,40 @@ def test_backend_reuses_wrappers_and_lists_live_layout_paths():
     assert objects["categories"]["vias"] == {"count": 1, "names": ["V1"]}
     assert objects["categories"]["polygons"] == {"count": 1, "names": ["poly1"]}
     assert objects["unavailable_categories"] == []
+    via_properties = backend.execute(
+        target,
+        "layout_object_property_inventory",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "object_kind": "via",
+            "names": ["V1"],
+        },
+    )
+    assert via_properties["objects"][0]["properties"]["holediam"] == "0.2mm"
+    component_preview = backend.execute(
+        target,
+        "layout_object_property_update_preview",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "object_kind": "component",
+            "names": ["U1"],
+            "properties": {"location": [5.0, 6.0], "angle": "90deg", "lock_position": True},
+        },
+    )
+    component_result = backend.execute(
+        target,
+        "layout_object_property_update_apply",
+        {"preview_id": component_preview["preview_id"]},
+    )
+    assert component_result["status"] == "verified"
+    assert component_result["after"][0]["properties"] == {
+        "location": [5.0, 6.0],
+        "angle": "90deg",
+        "lock_position": True,
+    }
+    assert component_result["project_saved"] is False
     variable_preview = backend.execute(
         target,
         "variable_upsert_preview",
@@ -623,6 +681,47 @@ def test_variable_upsert_rejects_stale_preview_and_rolls_back_failed_readback():
     with pytest.raises(LiveBackendError, match="readback verification failed"):
         backend.execute(target, "variable_upsert_apply", {"preview_id": failed["preview_id"]})
     assert "W_bad" not in layout.variable_manager.variables
+
+
+def test_layout_component_batch_update_rolls_back_every_target_on_readback_failure():
+    class BadComponent(FakeLayoutComponent):
+        def __init__(self, name):
+            self._angle = "0deg"
+            super().__init__(name)
+
+        @property
+        def angle(self):
+            return self._angle
+
+        @angle.setter
+        def angle(self, value):
+            self._angle = "45deg" if value == "90deg" else value
+
+    layout = FakeLayout(project="Board", design="Layout1")
+    layout.modeler.components["U2"] = BadComponent("U2")
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, layout_factory=lambda **kwargs: layout)
+    target = AedtTarget("pid", 42)
+    preview = backend.execute(
+        target,
+        "layout_object_property_update_preview",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "object_kind": "component",
+            "names": ["U1", "U2"],
+            "properties": {"angle": "90deg"},
+        },
+    )
+
+    with pytest.raises(LiveBackendError, match="readback verification failed"):
+        backend.execute(
+            target,
+            "layout_object_property_update_apply",
+            {"preview_id": preview["preview_id"]},
+        )
+
+    assert layout.modeler.components["U1"].angle == "0deg"
+    assert layout.modeler.components["U2"].angle == "0deg"
 
 
 def test_backend_refuses_missing_design_instead_of_allowing_pyaedt_to_create_it():

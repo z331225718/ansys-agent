@@ -413,6 +413,26 @@ attach_live_aedt_session（一次）
 via、net、line、polygon、rectangle、circle 和各种 void 的名称与数量；某个 PyAEDT 版本不提供某类集合时，
 会在 `unavailable_categories` 中明确列出，而不是把整个设计误报为空。
 
+Via 和 component 可以继续下钻到精确属性：
+
+```text
+只读查看 via V1 的起止层、孔径、net、位置、角度和锁定状态。
+然后把 component U1 移到 [5.0, 6.0]（当前设计 model unit）、旋转到 90deg 并锁定位置；
+先 preview，等我审批。
+```
+
+先调用 `get_live_layout_object_property_inventory`。当前稳定写属性 allowlist 为：
+
+| 对象 | 可修改属性 |
+|---|---|
+| via | `net_name`、`location`、`angle`、`lock_position` |
+| component | `enabled`、`placement_layer`、`location`、`angle`、`lock_position` |
+
+孔径、起止层、器件料号和器件类型目前只读，不能通过通用 setter 猜测修改。写操作必须调用
+`preview_live_layout_object_property_update -> wait_for_live_approval -> apply_live_layout_object_property_update`。
+目标必须是显式名称列表；apply 前重新读取所有目标属性，任何对象变化都会让 preview 失效。批量更新中任意对象
+readback 失败时，Harness 会尝试把所有已触及对象恢复到 preview 快照。
+
 也可以单独查询或修改 HFSS/3D Layout 变量：
 
 ```text

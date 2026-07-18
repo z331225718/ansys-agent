@@ -180,6 +180,25 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             postconditions=["design_unchanged", "layout_object_categories_returned"],
         ),
         _cap(
+            "layout.object_properties.inventory",
+            "read_only",
+            ["live"],
+            ["get_live_layout_object_property_inventory"],
+            postconditions=["design_unchanged", "explicit_via_or_component_properties_returned"],
+        ),
+        _cap(
+            "layout.object_properties.update",
+            "reversible_edit",
+            ["live"],
+            [
+                "preview_live_layout_object_property_update",
+                "apply_live_layout_object_property_update",
+            ],
+            approval="external_host_token",
+            side_effects=["project_becomes_dirty"],
+            postconditions=["snapshot_unchanged", "readback_verified", "batch_rollback_on_failure"],
+        ),
+        _cap(
             "aedt.variables.inventory",
             "read_only",
             ["live"],
