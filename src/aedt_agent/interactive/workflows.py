@@ -13,6 +13,7 @@ from aedt_agent.live.broker import LiveAedtError
 
 _MAX_PAYLOAD_BYTES = 256 * 1024
 _DEFAULT_TEMPLATE_IDS = (
+    "layout_live_audit",
     "brd_before_after_compare",
     "brd_channel_optimize",
     "brd_iterative_optimize",
@@ -24,6 +25,7 @@ _DEFAULT_TEMPLATE_IDS = (
     "brd_reviewed_model_optimize_loop",
     "via_optimize_demo",
 )
+_LIVE_SESSION_WORKFLOWS = frozenset({"layout_live_audit"})
 
 
 class AssistantWorkflowManager:
@@ -47,13 +49,15 @@ class AssistantWorkflowManager:
         self._runtime_factory = runtime_factory or _default_runtime_factory
         self._runtime = None
         self._previews: dict[tuple[str, str], dict[str, Any]] = {}
+        self._live_graph_bindings: dict[str, dict[str, Any]] = {}
+        self._graph_registry = _graph_registry(live_manager, self._resolve_live_graph_binding)
 
     def list_workflows(self) -> dict[str, Any]:
         return {
             "version": "1",
             "execution_model": "guarded_graph_step",
             "runtime_profile": os.environ.get("AEDT_AGENT_WORKFLOW_PROFILE", "safe-recorded"),
-            "attached_live_session_reuse": False,
+            "attached_live_session_reuse": "per_workflow",
             "workflows": [self._descriptor(self._template(item)) for item in self.template_ids],
         }
 
@@ -75,6 +79,8 @@ class AssistantWorkflowManager:
     ) -> dict[str, Any]:
         template = self._template(workflow_id)
         payload = _validated_payload(initial_payload)
+        if "_assistant_live" in payload:
+            raise ValueError("initial_payload contains a reserved server-owned field: _assistant_live")
         if not str(goal).strip():
             raise ValueError("workflow goal is required")
         if not 1 <= int(max_steps) <= 256:
@@ -135,9 +141,14 @@ class AssistantWorkflowManager:
             runtime,
             mission.mission_id,
             self._template(data["workflow_id"]),
-            initial_payload=data["initial_payload"],
+            initial_payload=self._bound_initial_payload(live_session_id, data),
             max_steps=data["max_steps"],
         )
+        if data["workflow_id"] in _LIVE_SESSION_WORKFLOWS:
+            self._live_graph_bindings[graph_run.graph_run_id] = {
+                "live_session_id": live_session_id,
+                "target_binding": dict(data["target_binding"]),
+            }
         self._previews.pop((live_session_id, preview_id), None)
         return {
             "started": True,
@@ -192,6 +203,10 @@ class AssistantWorkflowManager:
         if binding != preview["data"]["target_binding"]:
             raise LiveAedtError("target_mismatch", "active AEDT target changed after workflow preview")
         self._validate_binding(current["mission_id"], binding)
+        self._live_graph_bindings[preview["data"]["graph_run_id"]] = {
+            "live_session_id": live_session_id,
+            "target_binding": binding,
+        }
         self.live_manager.authorize_guarded_preview(
             live_session_id,
             action="workflow.graph.advance",
@@ -203,6 +218,7 @@ class AssistantWorkflowManager:
             preview["data"]["graph_run_id"],
             worker_id="assistant-workflow",
             max_workers=int(max_workers),
+            registry=self._graph_registry,
         )
         self._previews.pop((live_session_id, preview_id), None)
         return report
@@ -235,9 +251,26 @@ class AssistantWorkflowManager:
             "recommended_initial_fields": self._required_initial_fields(template),
             "risk": "expensive" if expensive else "reversible_edit" if mutating else "read_only",
             "approval": "external_host_token_per_start_and_step",
-            "execution_backend": "mission_process_harness",
-            "attached_live_session_reuse": False,
+            "execution_backend": (
+                "live_aedt_graph_handlers"
+                if template.template_id in _LIVE_SESSION_WORKFLOWS
+                else "mission_process_harness"
+            ),
+            "attached_live_session_reuse": template.template_id in _LIVE_SESSION_WORKFLOWS,
         }
+
+    @staticmethod
+    def _bound_initial_payload(_live_session_id: str, data: dict[str, Any]) -> dict[str, Any]:
+        return dict(data["initial_payload"])
+
+    def _resolve_live_graph_binding(self, graph_run_id: str) -> dict[str, Any]:
+        try:
+            return dict(self._live_graph_bindings[graph_run_id])
+        except KeyError as exc:
+            raise LiveAedtError(
+                "live_workflow_binding_missing",
+                "preview and approve this graph step from its bound live AEDT session",
+            ) from exc
 
     @staticmethod
     def _required_initial_fields(template: GraphTemplate) -> list[str]:
@@ -310,3 +343,14 @@ def _default_runtime_factory(db_path: Path):
     profile_value = os.environ.get("AEDT_AGENT_WORKFLOW_PROFILE", "").strip()
     profile = _load_execution_profile(profile_value) if profile_value else None
     return _runtime_with_workers(db_path, profile)
+
+
+def _graph_registry(live_manager, binding_resolver):
+    from aedt_agent.agent.graph_executors import GraphNodeExecutorRegistry
+    from aedt_agent.agent.optimization_handlers import register_optimization_handlers
+    from aedt_agent.interactive.live_workflow_handlers import register_live_workflow_handlers
+
+    registry = GraphNodeExecutorRegistry()
+    register_optimization_handlers(registry)
+    register_live_workflow_handlers(registry, live_manager, binding_resolver)
+    return registry

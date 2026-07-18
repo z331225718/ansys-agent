@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from aedt_agent.agent.orchestrator.runtime import AgentRuntime
 from aedt_agent.infrastructure.sqlite_mission_store import SQLiteMissionStore
 from aedt_agent.interactive.workflows import AssistantWorkflowManager
@@ -38,6 +40,23 @@ class _Live:
     ) -> None:
         assert approval_token == "approved"
         self.authorized.append((session_id, action, preview_id))
+
+    def layout_routing_inventory(self, session_id: str, **kwargs) -> dict:
+        return {
+            "path_count": 2,
+            "nets": ["N1"],
+            "layers": ["L1"],
+            "design_unchanged": True,
+        }
+
+    def layout_object_inventory(self, session_id: str, **kwargs) -> dict:
+        return {"categories": {}, "unavailable_categories": [], "design_unchanged": True}
+
+    def variable_inventory(self, session_id: str, **kwargs) -> dict:
+        return {"count": 1, "variables": [], "design_unchanged": True}
+
+    def setup_inventory(self, session_id: str, **kwargs) -> dict:
+        return {"setup_count": 1, "setups": [], "design_unchanged": True}
 
 
 def _manager(tmp_path: Path) -> AssistantWorkflowManager:
@@ -119,3 +138,48 @@ def test_workflow_advance_is_target_bound_and_one_step_per_approval(tmp_path: Pa
 
     assert status["graph_run"]["step_count"] == 1
     assert len(status["node_runs"]) == 1
+
+
+def test_live_layout_audit_workflow_reuses_bound_session_for_graph_handlers(tmp_path: Path):
+    manager = AssistantWorkflowManager(
+        live_manager=_Live(),
+        db_path=tmp_path / "live-missions.db",
+        template_ids=("layout_live_audit",),
+        runtime_factory=lambda path: AgentRuntime(SQLiteMissionStore(path)),
+    )
+    start_preview = manager.preview_start(
+        "live-1",
+        workflow_id="layout_live_audit",
+        goal="Audit the active layout",
+        initial_payload={"selector": {"nets": ["N1"]}},
+    )
+    started = manager.apply_start(
+        "live-1",
+        preview_id=start_preview["preview_id"],
+        approval_token="approved",
+    )
+
+    for _ in range(2):
+        advance_preview = manager.preview_advance(
+            "live-1",
+            graph_run_id=started["graph_run_id"],
+        )
+        report = manager.apply_advance(
+            "live-1",
+            preview_id=advance_preview["preview_id"],
+            approval_token="approved",
+        )
+
+    assert report["status"] == "succeeded"
+    assert "_assistant_live" not in report["graph_run"]["initial_payload"]
+    assert "_assistant_live" not in report["node_runs"][0]["input_payload"]
+    assert report["node_runs"][0]["output_payload"]["live_session_reused"] is True
+    assert report["node_runs"][1]["output_payload"]["summary"]["path_count"] == 2
+
+    with pytest.raises(ValueError, match="reserved server-owned field"):
+        manager.preview_start(
+            "live-1",
+            workflow_id="layout_live_audit",
+            goal="Try to forge a binding",
+            initial_payload={"_assistant_live": {"live_session_id": "forged"}},
+        )

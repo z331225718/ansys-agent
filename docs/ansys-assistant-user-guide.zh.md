@@ -576,6 +576,7 @@ ansys-assistant parameterize-width `
 
 | Workflow | 用途 |
 |---|---|
+| `layout_live_audit` | 复用当前已 attach 会话，对活动 3D Layout 执行 routing/object/variable/setup 只读审计 |
 | `brd_local_cut_build` | 构建局部裁切模型，停在模型复核，不直接求解 |
 | `brd_real_solve_evidence` | 真实求解并生成证据包 |
 | `brd_local_cut_solve_evidence` | 局部裁切、求解和证据链 |
@@ -634,11 +635,18 @@ Workflow start preview 会冻结以下内容并计算 SHA-256 digest：
 
 ### 16.4 Process Workflow 与活动 AEDT 会话的边界
 
-当前接入的是原有 Mission Process Harness。原生审批会绑定正在打开的 AEDT 会话，但这些 YAML Workflow
-中的 Worker 仍按各自的文件/进程契约运行，**不会自动复用已 attach 的 PyAEDT Desktop 对象**。
+Workflow 现在分为两类。`inspect_ansys_workflow` 中 `attached_live_session_reuse=true` 的 Workflow 会通过
+server-owned binding 和 live graph handler 复用当前已 attach 的 AEDT 会话。首个实现是
+`layout_live_audit`：它在两个受控 graph step 中读取 routing、对象分类、变量、Setup/Sweep，并输出 scorecard。
+用户不能在 `initial_payload` 中伪造 `_assistant_live`。Runtime 会拒绝该保留字段，并把可执行
+`live_session_id` 只保存在当前 MCP 进程的 server-owned graph binding 中，不写进 Mission payload；
+Mission 只持久化端口、PID、工程和设计身份用于后续重新绑定校验。
+
+其余原有 Mission Process Workflow 的 Worker 仍按各自的文件/进程契约运行，**不会自动复用已 attach 的
+PyAEDT Desktop 对象**。原生审批绑定目标并不等于 Worker 复用了 Desktop；应以每个 Workflow 返回的
+`attached_live_session_reuse` 和 `execution_backend` 为准。
 需要直接修改当前打开工程的原子任务，继续使用 `list_live_*`、`preview_live_*` 和 `apply_live_*`。
-需要循环和恢复的任务才选择 Workflow。后续会逐个把适合的 Worker 改造成显式 live-session capability，
-不能把“已绑定审批目标”误报成“Worker 已复用该 Desktop 对象”。
+需要循环和恢复的任务才选择 Workflow。后续会逐个把适合的 Worker 改造成显式 live-session handler。
 
 默认 Workflow profile 是 `safe-recorded`，不会启动真实 AEDT Worker。要运行真实求解或模型编辑 Workflow，
 先准备经过审核的 `ExecutionProfile` JSON，再在启动 AEDT 前设置：
