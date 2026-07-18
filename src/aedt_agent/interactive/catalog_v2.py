@@ -77,6 +77,18 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             ],
         ),
         _cap(
+            "aedt.solutions.inventory",
+            "read_only",
+            ["live"],
+            ["get_live_aedt_solution_inventory"],
+            postconditions=[
+                "design_unchanged",
+                "solved_setup_and_sweep_evidence_returned",
+                "bounded_results_directory_snapshot_returned",
+            ],
+            products=["hfss", "layout"],
+        ),
+        _cap(
             "hfss.geometry.inventory",
             "read_only",
             ["live"],

@@ -423,6 +423,7 @@ def _analysis_stopped_scorecard(context, live_manager, binding_resolver) -> dict
     _live_target(context, binding_resolver)
     status = dict(payload.get("analysis_status") or {})
     latest_run = dict(status.get("latest_run") or {})
+    solution_evidence = dict(latest_run.get("solution_evidence") or {})
     checks = [
         _check("target_setup", status.get("setup_name") == payload.get("setup_name")),
         _check("solver_not_running", status.get("running") is False),
@@ -440,7 +441,11 @@ def _analysis_stopped_scorecard(context, live_manager, binding_resolver) -> dict
             "run_id": latest_run.get("run_id"),
             "last_known_state": latest_run.get("state") or "untracked_not_running",
             "solve_running_observed": bool(payload.get("observed_running")),
-            "solve_success_verified": False,
+            "solve_success_verified": solution_evidence.get("solve_success_verified") is True,
+            "result_freshness_verified": solution_evidence.get("result_freshness_verified") is True,
+            "solution_verification_reasons": list(
+                solution_evidence.get("verification_reasons") or []
+            ),
         },
         "live_session_reused": True,
     }
@@ -563,6 +568,7 @@ def _results_export_scorecard(context, live_manager, binding_resolver) -> dict[s
     solve_result = dict(payload.get("solve_result") or {})
     analysis_status = dict(payload.get("analysis_status") or {})
     latest_run = dict(analysis_status.get("latest_run") or {})
+    solution_evidence = dict(latest_run.get("solution_evidence") or {})
     artifact = dict(result.get("artifact") or {})
     artifact_path = Path(str(artifact.get("path") or ""))
     manifest_path = Path(str(result.get("manifest_path") or ""))
@@ -633,6 +639,11 @@ def _results_export_scorecard(context, live_manager, binding_resolver) -> dict[s
             "last_known_state": latest_run.get("state") or "untracked_not_running",
             "solve_running_observed": bool(payload.get("observed_running")),
             "solve_submission_verified": solve_verified,
+            "solve_success_verified": solution_evidence.get("solve_success_verified") is True,
+            "result_freshness_verified": solution_evidence.get("result_freshness_verified") is True,
+            "solution_verification_reasons": list(
+                solution_evidence.get("verification_reasons") or []
+            ),
             "result_export_verified": export_verified,
         },
         "artifact_refs": artifact_refs,
@@ -714,6 +725,17 @@ def _validate_touchstone_score(context, live_manager, binding_resolver) -> dict[
         raise ValueError("Touchstone score requires an existing setup_name")
     if sweep_name and sweep_name not in set(setup.get("sweeps") or []):
         raise ValueError(f"unknown sweep {sweep_name} in setup {setup_name}")
+    solution_inventory = live_manager.solution_inventory(
+        session_id,
+        product="layout",
+        project_name=project_name,
+        design_name=design_name,
+        setup_name=setup_name,
+    )
+    if solution_inventory.get("target_solution_available") is not True:
+        raise ValueError(
+            "Touchstone score requires available solution data for the selected setup"
+        )
     export_spec = {
         "product": "layout",
         "export_kind": "touchstone",
@@ -730,6 +752,7 @@ def _validate_touchstone_score(context, live_manager, binding_resolver) -> dict[
             "export_spec": export_spec,
             "analysis_status": status,
             "setup_inventory": inventory,
+            "solution_inventory": solution_inventory,
             "live_session_reused": True,
         }
     )
@@ -752,6 +775,8 @@ def _touchstone_scorecard(context, live_manager, binding_resolver) -> dict[str, 
     manifest_artifact = dict(manifest.get("artifact") or {})
     analysis_status = dict(payload.get("analysis_status") or {})
     latest_run = dict(analysis_status.get("latest_run") or {})
+    solution_evidence = dict(latest_run.get("solution_evidence") or {})
+    solution_inventory = dict(payload.get("solution_inventory") or {})
     solve_result = dict(payload.get("solve_result") or {})
     parameterization_result = dict(payload.get("parameterization_result") or {})
     solve_submission_verified = bool(solve_result) and (
@@ -793,6 +818,10 @@ def _touchstone_scorecard(context, live_manager, binding_resolver) -> dict[str, 
         _check("project_not_saved", result.get("project_saved") is False),
         _check("solver_not_running", analysis_status.get("running") is False),
         _check("solve_not_known_canceled", latest_run.get("state") != "canceled"),
+        _check(
+            "target_solution_available",
+            solution_inventory.get("target_solution_available") is True,
+        ),
     ]
     if solve_result:
         checks.extend(
@@ -913,8 +942,13 @@ def _touchstone_scorecard(context, live_manager, binding_resolver) -> dict[str, 
             "score_evidence_sha256": evidence_sha256,
             "solve_run_id": solve_result.get("run_id"),
             "solve_submission_verified": solve_submission_verified,
-            "solve_success_verified": False,
-            "result_freshness_verified": False,
+            "solve_success_verified": solution_evidence.get("solve_success_verified") is True,
+            "result_freshness_verified": solution_evidence.get("result_freshness_verified") is True,
+            "solution_verification_reasons": list(
+                solution_evidence.get("verification_reasons") or []
+            ),
+            "target_solution_available": solution_inventory.get("target_solution_available") is True,
+            "solution_snapshot_digest": solution_inventory.get("snapshot_digest"),
             "solve_running_observed": bool(payload.get("observed_running")),
             "poll_count": int(payload.get("poll_count") or 0),
             "parameterization_verified": parameterization_verified,

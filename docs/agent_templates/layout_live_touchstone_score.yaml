@@ -48,7 +48,7 @@ handoffs:
       - insertion_loss_min_db
       - reference_impedance_ohm
   live_touchstone_score_validated:
-    required_fields: [export_kind, export_spec, score_spec, analysis_status, setup_inventory, live_session_reused]
+    required_fields: [export_kind, export_spec, score_spec, analysis_status, setup_inventory, solution_inventory, live_session_reused]
   live_touchstone_score_preview:
     required_fields: [export_spec, score_spec, operation_preview_id, operation_approval, operation_preview, live_session_reused]
   live_touchstone_score_exported:

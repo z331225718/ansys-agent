@@ -50,6 +50,7 @@ _DESKTOP_ASSISTANT_MCP_TOOLS = (
     "apply_live_project_save",
     "get_live_hfss_design_inventory",
     "get_live_aedt_setup_inventory",
+    "get_live_aedt_solution_inventory",
     "get_live_hfss_geometry_inventory",
     "preview_live_hfss_setup_create",
     "apply_live_hfss_setup_create",

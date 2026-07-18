@@ -21,6 +21,7 @@ from aedt_agent.live.versioning import (
 
 
 _ANALYSIS_SUBMISSION_GRACE_SECONDS = 5.0
+_MAX_SOLUTION_EVIDENCE_ATTEMPTS = 8
 
 
 class LiveBackendError(RuntimeError):
@@ -78,6 +79,8 @@ class LiveAedtBackend:
                 return self._hfss_design_inventory(target, arguments)
             if command == "setup_inventory":
                 return self._setup_inventory(target, arguments)
+            if command == "solution_inventory":
+                return self._solution_inventory(target, arguments)
             if command == "hfss_geometry_inventory":
                 return self._hfss_geometry_inventory(target, arguments)
             if command == "hfss_setup_preview":
@@ -399,6 +402,27 @@ class LiveAedtBackend:
             "setups": details,
             "ports": _port_names(app),
             "port_order_source": _port_order_source(app),
+            "design_unchanged": True,
+        }
+
+    def _solution_inventory(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
+        product = _analysis_product(args)
+        app = self._app(
+            target,
+            product,
+            _required(args, "project_name"),
+            _required(args, "design_name"),
+        )
+        setup_name = str(args.get("setup_name") or "").strip()
+        if setup_name and setup_name not in _setup_names(app):
+            raise LiveBackendError(f"unknown setup: {setup_name}")
+        snapshot = _solution_snapshot(app, setup_name)
+        return {
+            "product": product,
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            **snapshot,
+            "observed_at": _utc_now(),
             "design_unchanged": True,
         }
 
@@ -951,6 +975,11 @@ class LiveAedtBackend:
         if _digest(_analysis_state(app, spec["setup_name"])) != preview["digest"]:
             raise LiveBackendError("stale HFSS analysis preview")
         resources = spec["resources"]
+        solution_before = _solution_snapshot(
+            app,
+            spec["setup_name"],
+            query_solution_data=False,
+        )
         started = bool(
             app.analyze_setup(
                 spec["setup_name"],
@@ -983,6 +1012,7 @@ class LiveAedtBackend:
             "state": "running" if running else "submitted",
             "_observed_running": running,
             "_submitted_monotonic": time.monotonic(),
+            "_solution_before": solution_before,
         }
         run_key = (app.project_name, app.design_name, spec["setup_name"])
         self._analysis_runs[run_key] = run
@@ -1009,6 +1039,8 @@ class LiveAedtBackend:
             _refresh_analysis_run(run, running)
             if run.get("state") not in {"submitted", "running"}:
                 self._active_analysis_runs.pop(active_key, None)
+        if run is not None and run.get("state") in {"not_running", "not_running_unverified"}:
+            _finalize_analysis_solution_evidence(run, app)
         return {
             "product": product,
             "running": running,
@@ -1976,6 +2008,247 @@ def _refresh_analysis_run(run: dict[str, Any], running: bool) -> None:
 
 def _public_analysis_run(run: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in run.items() if not key.startswith("_")}
+
+
+def _solution_snapshot(
+    app: Any,
+    setup_name: str,
+    *,
+    query_solution_data: bool = True,
+) -> dict[str, Any]:
+    existing_solutions = _safe_string_list(app, "existing_analysis_sweeps")
+    setup = None
+    if setup_name:
+        try:
+            setup = app.get_setup(setup_name)
+        except Exception:
+            setup = None
+    setup_is_solved = (
+        _safe_optional_bool(setup, "is_solved") if query_solution_data else None
+    )
+    sweeps = []
+    try:
+        setup_sweeps = list(getattr(setup, "sweeps", []) or [])
+    except Exception:
+        setup_sweeps = []
+    for sweep in setup_sweeps:
+        sweeps.append(
+            {
+                "name": str(getattr(sweep, "name", sweep)),
+                "is_solved": (
+                    _safe_optional_bool(sweep, "is_solved")
+                    if query_solution_data
+                    else None
+                ),
+            }
+        )
+    target_solutions = [
+        item
+        for item in existing_solutions
+        if not setup_name or _solution_setup_name(item) == setup_name
+    ]
+    results = _results_directory_snapshot(app)
+    snapshot = {
+        "setup_name": setup_name,
+        "setup_is_solved": setup_is_solved,
+        "target_solution_available": bool(setup_is_solved is True or target_solutions),
+        "target_solution_names": target_solutions,
+        "existing_analysis_sweeps": existing_solutions,
+        "sweeps": sweeps,
+        "results": results,
+    }
+    return {**snapshot, "snapshot_digest": _digest(snapshot)}
+
+
+def _finalize_analysis_solution_evidence(run: dict[str, Any], app: Any) -> None:
+    previous_evidence = dict(run.get("solution_evidence") or {})
+    if previous_evidence.get("result_freshness_verified") is True:
+        return
+    if int(previous_evidence.get("verification_attempt") or 0) >= _MAX_SOLUTION_EVIDENCE_ATTEMPTS:
+        return
+    setup_name = str(run.get("setup_name") or "")
+    before = dict(run.get("_solution_before") or {})
+    after = _solution_snapshot(app, setup_name)
+    before_results = dict(before.get("results") or {})
+    after_results = dict(after.get("results") or {})
+    results_changed = bool(
+        after_results.get("snapshot_digest")
+        and after_results.get("snapshot_digest") != before_results.get("snapshot_digest")
+    )
+    submitted_ns = _iso_timestamp_ns(str(run.get("started_at") or ""))
+    latest_mtime_ns = int(after_results.get("latest_mtime_ns") or 0)
+    result_written_after_submit = bool(
+        submitted_ns
+        and latest_mtime_ns
+        and latest_mtime_ns >= submitted_ns - 2_000_000_000
+    )
+    observed_running = bool(run.get("_observed_running"))
+    solution_available = after.get("target_solution_available") is True
+    freshness_verified = bool(
+        observed_running
+        and solution_available
+        and results_changed
+        and result_written_after_submit
+        and not after_results.get("truncated")
+        and not after_results.get("scan_error")
+    )
+    reasons = []
+    if not observed_running:
+        reasons.append("solver_running_state_was_not_observed")
+    if not solution_available:
+        reasons.append("target_solution_data_is_not_available")
+    if not results_changed:
+        reasons.append("results_directory_snapshot_did_not_change")
+    if not result_written_after_submit:
+        reasons.append("no_result_file_timestamp_after_submission")
+    if after_results.get("truncated"):
+        reasons.append("results_directory_scan_was_truncated")
+    if after_results.get("scan_error"):
+        reasons.append("results_directory_scan_failed")
+    run["solution_evidence"] = {
+        "verification_attempt": int(previous_evidence.get("verification_attempt") or 0) + 1,
+        "setup_name": setup_name,
+        "before_snapshot_digest": before.get("snapshot_digest"),
+        "after_snapshot_digest": after.get("snapshot_digest"),
+        "target_solution_available": solution_available,
+        "setup_is_solved": after.get("setup_is_solved"),
+        "target_solution_names": list(after.get("target_solution_names") or []),
+        "results_snapshot_changed": results_changed,
+        "result_written_after_submit": result_written_after_submit,
+        "solve_running_observed": observed_running,
+        "solve_success_verified": freshness_verified,
+        "result_freshness_verified": freshness_verified,
+        "verification_reasons": reasons or ["fresh_solution_artifacts_verified"],
+        "results": after_results,
+        "verified_at": _utc_now(),
+    }
+
+
+def _safe_string_list(owner: Any, attribute: str) -> list[str]:
+    try:
+        values = getattr(owner, attribute, [])
+        if callable(values):
+            values = values()
+        return [str(item) for item in list(values or [])]
+    except Exception:
+        return []
+
+
+def _safe_optional_bool(owner: Any, attribute: str) -> bool | None:
+    if owner is None:
+        return None
+    try:
+        value = getattr(owner, attribute)
+        if callable(value):
+            value = value()
+        return bool(value)
+    except Exception:
+        return None
+
+
+def _solution_setup_name(solution_name: str) -> str:
+    return str(solution_name).split(":", 1)[0].strip()
+
+
+def _results_directory_snapshot(
+    app: Any,
+    *,
+    max_files: int = 20_000,
+    max_directories: int = 20_000,
+) -> dict[str, Any]:
+    try:
+        root_value = getattr(app, "results_directory", "")
+        if callable(root_value):
+            root_value = root_value()
+        root = Path(str(root_value or "")).resolve()
+    except Exception as exc:
+        return _empty_results_snapshot(scan_error=type(exc).__name__)
+    if not str(root_value or "") or not root.is_dir():
+        return _empty_results_snapshot(results_directory=str(root) if str(root_value or "") else "")
+
+    file_count = 0
+    directory_count = 0
+    total_bytes = 0
+    latest_mtime_ns = 0
+    latest_relative_path = ""
+    truncated = False
+    scan_error = ""
+    records = []
+    try:
+        for current_root, directory_names, file_names in os.walk(root):
+            directory_names.sort()
+            file_names.sort()
+            directory_count += 1
+            if directory_count > max_directories:
+                truncated = True
+                break
+            for file_name in file_names:
+                path = Path(current_root) / file_name
+                try:
+                    stat = path.stat()
+                except OSError:
+                    continue
+                relative = str(path.relative_to(root))
+                file_count += 1
+                total_bytes += int(stat.st_size)
+                mtime_ns = int(stat.st_mtime_ns)
+                records.append((relative, int(stat.st_size), mtime_ns))
+                if mtime_ns >= latest_mtime_ns:
+                    latest_mtime_ns = mtime_ns
+                    latest_relative_path = relative
+                if file_count >= max_files:
+                    truncated = True
+                    break
+            if truncated:
+                break
+    except OSError as exc:
+        scan_error = type(exc).__name__
+    aggregate = {
+        "file_count": file_count,
+        "directory_count": directory_count,
+        "total_bytes": total_bytes,
+        "latest_mtime_ns": latest_mtime_ns,
+        "latest_relative_path": latest_relative_path,
+        "truncated": truncated,
+        "scan_error": scan_error,
+        "records_digest": _digest(records),
+    }
+    return {
+        "results_directory": str(root),
+        "exists": True,
+        **aggregate,
+        "snapshot_digest": _digest(aggregate),
+    }
+
+
+def _empty_results_snapshot(
+    *,
+    results_directory: str = "",
+    scan_error: str = "",
+) -> dict[str, Any]:
+    aggregate = {
+        "file_count": 0,
+        "directory_count": 0,
+        "total_bytes": 0,
+        "latest_mtime_ns": 0,
+        "latest_relative_path": "",
+        "truncated": False,
+        "scan_error": scan_error,
+        "records_digest": _digest([]),
+    }
+    return {
+        "results_directory": results_directory,
+        "exists": False,
+        **aggregate,
+        "snapshot_digest": _digest(aggregate),
+    }
+
+
+def _iso_timestamp_ns(value: str) -> int:
+    try:
+        return int(datetime.fromisoformat(value).timestamp() * 1_000_000_000)
+    except (TypeError, ValueError, OverflowError):
+        return 0
 
 
 def _analysis_resources(args: dict[str, Any]) -> dict[str, Any]:

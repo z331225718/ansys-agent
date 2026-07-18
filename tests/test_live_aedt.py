@@ -929,6 +929,145 @@ def test_backend_exports_layout_results_with_product_bound_evidence(tmp_path: Pa
     assert manifest["ports"] == ["P1", "P2", "P3", "P4"]
 
 
+def test_backend_solution_inventory_and_run_freshness_use_result_snapshots(tmp_path: Path):
+    results_directory = tmp_path / "Board.aedtresults"
+    results_directory.mkdir()
+    (results_directory / "old.sol").write_text("old", encoding="ascii")
+    holder = {}
+
+    def layout_factory(**kwargs):
+        app = FakeLayout(**kwargs)
+        app.results_directory = str(results_directory)
+        app.existing_analysis_sweeps = ["SetupL : Sweep1"]
+        app.get_setup("SetupL").is_solved = True
+        holder["app"] = app
+        return app
+
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        layout_factory=layout_factory,
+    )
+    target = AedtTarget("pid", 42)
+    inventory = backend.execute(
+        target,
+        "solution_inventory",
+        {
+            "product": "layout",
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "setup_name": "SetupL",
+        },
+    )
+    assert inventory["target_solution_available"] is True
+    assert inventory["target_solution_names"] == ["SetupL : Sweep1"]
+    assert inventory["results"]["file_count"] == 1
+    assert inventory["results"]["truncated"] is False
+    assert inventory["design_unchanged"] is True
+
+    preview = backend.execute(
+        target,
+        "hfss_analysis_start_preview",
+        {
+            "product": "layout",
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "setup_name": "SetupL",
+        },
+    )
+    started = backend.execute(
+        target,
+        "hfss_analysis_start_apply",
+        {"preview_id": preview["preview_id"]},
+    )
+    assert started["state"] == "running"
+    (results_directory / "fresh.sol").write_text("fresh", encoding="ascii")
+    holder["app"].are_there_simulations_running = False
+
+    status = backend.execute(
+        target,
+        "hfss_analysis_status",
+        {
+            "product": "layout",
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "setup_name": "SetupL",
+        },
+    )
+    evidence = status["latest_run"]["solution_evidence"]
+    assert status["latest_run"]["state"] == "not_running"
+    assert evidence["target_solution_available"] is True
+    assert evidence["results_snapshot_changed"] is True
+    assert evidence["result_written_after_submit"] is True
+    assert evidence["solve_success_verified"] is True
+    assert evidence["result_freshness_verified"] is True
+    assert evidence["verification_reasons"] == ["fresh_solution_artifacts_verified"]
+
+
+def test_backend_does_not_relabel_unchanged_old_solution_as_fresh(tmp_path: Path):
+    results_directory = tmp_path / "Board.aedtresults"
+    results_directory.mkdir()
+    (results_directory / "old.sol").write_text("old", encoding="ascii")
+    holder = {}
+
+    def layout_factory(**kwargs):
+        app = FakeLayout(**kwargs)
+        app.results_directory = str(results_directory)
+        app.existing_analysis_sweeps = ["SetupL : Sweep1"]
+        app.get_setup("SetupL").is_solved = True
+        holder["app"] = app
+        return app
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, layout_factory=layout_factory)
+    target = AedtTarget("pid", 42)
+    preview = backend.execute(
+        target,
+        "hfss_analysis_start_preview",
+        {
+            "product": "layout",
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "setup_name": "SetupL",
+        },
+    )
+    backend.execute(target, "hfss_analysis_start_apply", {"preview_id": preview["preview_id"]})
+    holder["app"].are_there_simulations_running = False
+
+    status = backend.execute(
+        target,
+        "hfss_analysis_status",
+        {
+            "product": "layout",
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "setup_name": "SetupL",
+        },
+    )
+    evidence = status["latest_run"]["solution_evidence"]
+    assert evidence["target_solution_available"] is True
+    assert evidence["results_snapshot_changed"] is False
+    assert evidence["solve_success_verified"] is False
+    assert evidence["result_freshness_verified"] is False
+    assert "results_directory_snapshot_did_not_change" in evidence["verification_reasons"]
+    assert evidence["verification_attempt"] == 1
+
+    (results_directory / "late-flush.sol").write_text("fresh", encoding="ascii")
+    refreshed_status = backend.execute(
+        target,
+        "hfss_analysis_status",
+        {
+            "product": "layout",
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "setup_name": "SetupL",
+        },
+    )
+    refreshed = refreshed_status["latest_run"]["solution_evidence"]
+    assert refreshed["verification_attempt"] == 2
+    assert refreshed["results_snapshot_changed"] is True
+    assert refreshed["solve_success_verified"] is True
+    assert refreshed["result_freshness_verified"] is True
+
+
 def test_backend_keeps_submitted_solve_pending_before_export_grace(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("AEDT_AGENT_EXPORT_ROOT", str(tmp_path / "exports"))
     clock = [100.0]

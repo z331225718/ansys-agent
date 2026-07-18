@@ -316,6 +316,26 @@ class LiveAedtSessionManager:
             {"product": product, "project_name": project_name, "design_name": design_name},
         )
 
+    def solution_inventory(
+        self,
+        session_id: str,
+        *,
+        product: str,
+        project_name: str,
+        design_name: str,
+        setup_name: str = "",
+    ) -> dict[str, Any]:
+        return self._execute(
+            session_id,
+            "solution_inventory",
+            {
+                "product": product,
+                "project_name": project_name,
+                "design_name": design_name,
+                "setup_name": setup_name,
+            },
+        )
+
     def hfss_geometry_inventory(
         self,
         session_id: str,

@@ -69,6 +69,19 @@ class _Live:
             "design_unchanged": True,
         }
 
+    def solution_inventory(self, session_id: str, **kwargs) -> dict:
+        return {
+            "product": "layout",
+            "project_name": "demo",
+            "design_name": "layout",
+            "setup_name": kwargs.get("setup_name", ""),
+            "setup_is_solved": True,
+            "target_solution_available": True,
+            "target_solution_names": [f"{kwargs.get('setup_name', '')} : Sweep1"],
+            "snapshot_digest": "solution-snapshot-1",
+            "design_unchanged": True,
+        }
+
     def list_layout_paths(self, session_id: str, **kwargs) -> dict:
         return {
             "count": 2,
@@ -450,7 +463,20 @@ def test_live_layout_monitor_workflow_uses_bounded_graph_loop(tmp_path: Path):
     live.analysis_statuses = [
         {"product": "layout", "running": True, "setup_name": "SetupL", "latest_run": {"run_id": "run-1", "state": "running"}},
         {"product": "layout", "running": True, "setup_name": "SetupL", "latest_run": {"run_id": "run-1", "state": "running"}},
-        {"product": "layout", "running": False, "setup_name": "SetupL", "latest_run": {"run_id": "run-1", "state": "not_running"}},
+        {
+            "product": "layout",
+            "running": False,
+            "setup_name": "SetupL",
+            "latest_run": {
+                "run_id": "run-1",
+                "state": "not_running",
+                "solution_evidence": {
+                    "solve_success_verified": True,
+                    "result_freshness_verified": True,
+                    "verification_reasons": ["fresh_solution_artifacts_verified"],
+                },
+            },
+        },
     ]
     manager = AssistantWorkflowManager(
         live_manager=live,
@@ -485,7 +511,11 @@ def test_live_layout_monitor_workflow_uses_bounded_graph_loop(tmp_path: Path):
     assert scorecard["status"] == "passed"
     assert scorecard["summary"]["poll_count"] == 3
     assert scorecard["summary"]["solve_running_observed"] is True
-    assert scorecard["summary"]["solve_success_verified"] is False
+    assert scorecard["summary"]["solve_success_verified"] is True
+    assert scorecard["summary"]["result_freshness_verified"] is True
+    assert scorecard["summary"]["solution_verification_reasons"] == [
+        "fresh_solution_artifacts_verified"
+    ]
 
 
 def test_live_layout_results_export_workflow_writes_verified_artifacts(tmp_path: Path):
@@ -583,8 +613,34 @@ def test_live_layout_solve_touchstone_score_composes_two_operation_approvals(tmp
     live.analysis_statuses = [
         {"product": "layout", "running": False, "setup_name": "SetupL", "latest_run": {"run_id": "run-1", "state": "submitted"}},
         {"product": "layout", "running": True, "setup_name": "SetupL", "latest_run": {"run_id": "run-1", "state": "running"}},
-        {"product": "layout", "running": False, "setup_name": "SetupL", "latest_run": {"run_id": "run-1", "state": "not_running"}},
-        {"product": "layout", "running": False, "setup_name": "SetupL", "latest_run": {"run_id": "run-1", "state": "not_running"}},
+        {
+            "product": "layout",
+            "running": False,
+            "setup_name": "SetupL",
+            "latest_run": {
+                "run_id": "run-1",
+                "state": "not_running",
+                "solution_evidence": {
+                    "solve_success_verified": True,
+                    "result_freshness_verified": True,
+                    "verification_reasons": ["fresh_solution_artifacts_verified"],
+                },
+            },
+        },
+        {
+            "product": "layout",
+            "running": False,
+            "setup_name": "SetupL",
+            "latest_run": {
+                "run_id": "run-1",
+                "state": "not_running",
+                "solution_evidence": {
+                    "solve_success_verified": True,
+                    "result_freshness_verified": True,
+                    "verification_reasons": ["fresh_solution_artifacts_verified"],
+                },
+            },
+        },
     ]
     manager = AssistantWorkflowManager(
         live_manager=live,
@@ -635,8 +691,9 @@ def test_live_layout_solve_touchstone_score_composes_two_operation_approvals(tmp
     assert summary["score_status"] == "pass"
     assert summary["solve_run_id"] == "run-1"
     assert summary["solve_submission_verified"] is True
-    assert summary["solve_success_verified"] is False
-    assert summary["result_freshness_verified"] is False
+    assert summary["solve_success_verified"] is True
+    assert summary["result_freshness_verified"] is True
+    assert summary["solution_verification_reasons"] == ["fresh_solution_artifacts_verified"]
     assert summary["solve_running_observed"] is True
     assert summary["poll_count"] == 3
     assert summary["parameterization_verified"] is False

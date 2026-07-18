@@ -329,6 +329,23 @@ def create_server(
         )
 
     @server.tool()
+    async def get_live_aedt_solution_inventory(
+        live_session_id: str,
+        product: str,
+        project_name: str,
+        design_name: str,
+        setup_name: str = "",
+    ) -> dict:
+        """Read solved setup/sweep evidence and a bounded AEDT results-directory snapshot."""
+        return live.solution_inventory(
+            live_session_id,
+            product=product,
+            project_name=project_name,
+            design_name=design_name,
+            setup_name=setup_name,
+        )
+
+    @server.tool()
     async def get_live_hfss_geometry_inventory(
         live_session_id: str,
         project_name: str,
