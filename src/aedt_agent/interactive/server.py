@@ -638,8 +638,9 @@ def create_server(
         sweep_name: str = "",
         report_name: str = "",
         artifact_name: str = "",
+        product: str = "hfss",
     ) -> dict:
-        """Preview Touchstone or report CSV export into the server-managed export root."""
+        """Preview HFSS or 3D Layout Touchstone/report CSV export into the managed root."""
         return live.preview_hfss_export(
             live_session_id,
             project_name=project_name,
@@ -649,6 +650,7 @@ def create_server(
             sweep_name=sweep_name,
             report_name=report_name,
             artifact_name=artifact_name,
+            product=product,
         )
 
     @server.tool()

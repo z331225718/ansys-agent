@@ -1056,7 +1056,8 @@ class LiveAedtBackend:
         }
 
     def _hfss_export_preview(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
-        app = self._app(target, "hfss", _required(args, "project_name"), _required(args, "design_name"))
+        product = _analysis_product(args)
+        app = self._app(target, product, _required(args, "project_name"), _required(args, "design_name"))
         export_kind = _required(args, "export_kind").lower()
         if export_kind not in {"touchstone", "report_csv"}:
             raise LiveBackendError(f"unsupported HFSS export kind: {export_kind}")
@@ -1076,14 +1077,16 @@ class LiveAedtBackend:
         state = {
             "setups": _setup_names(app),
             "reports": _report_names(app),
-            "ports": sorted(str(item) for item in list(getattr(app, "ports", []) or [])),
+            "ports": _port_names(app),
             "running": False,
+            "product": product,
             "setup_name": setup_name,
             "sweep_name": sweep_name,
             "report_name": report_name,
         }
         digest = _digest(state)
         spec = {
+            "product": product,
             "export_kind": export_kind,
             "setup_name": setup_name,
             "sweep_name": sweep_name,
@@ -1112,13 +1115,14 @@ class LiveAedtBackend:
     def _hfss_export_apply(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
         preview_id = _required(args, "preview_id")
         preview = self._preview(preview_id, "hfss_export", target)
-        app = self._app(target, "hfss", preview["project_name"], preview["design_name"])
         spec = preview["spec"]
+        app = self._app(target, spec["product"], preview["project_name"], preview["design_name"])
         current = {
             "setups": _setup_names(app),
             "reports": _report_names(app),
-            "ports": sorted(str(item) for item in list(getattr(app, "ports", []) or [])),
+            "ports": _port_names(app),
             "running": _simulation_running(app),
+            "product": spec["product"],
             "setup_name": spec["setup_name"],
             "sweep_name": spec["sweep_name"],
             "report_name": spec["report_name"],
@@ -1173,6 +1177,7 @@ class LiveAedtBackend:
         return {
             "status": "verified",
             "preview_id": preview_id,
+            "product": spec["product"],
             "artifact": artifact,
             "manifest_path": str(manifest_path),
             "project_unchanged": True,
@@ -1891,6 +1896,18 @@ def _property_values_equal(actual: Any, expected: Any) -> bool:
 
 def _report_names(app: Any) -> list[str]:
     return sorted(str(item) for item in list(getattr(app.post, "all_report_names", []) or []))
+
+
+def _port_names(app: Any) -> list[str]:
+    fallback: list[str] = []
+    for attribute in ("ports", "excitation_names", "port_list"):
+        values = getattr(app, attribute, None)
+        if values is not None:
+            normalized = sorted(str(item) for item in list(values or []))
+            if normalized:
+                return normalized
+            fallback = normalized
+    return fallback
 
 
 def _boundary_names(app: Any) -> list[str]:

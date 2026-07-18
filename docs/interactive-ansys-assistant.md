@@ -1,7 +1,7 @@
 # 通用交互式 Ansys 助手
 
-`ansys-assistant` 是现有 YAML Workflow 之外的加法式交互入口。它面向临时查询和受控模型
-修改，不改变已有 BRD 优化图、worker 或 mission 状态机。
+`ansys-assistant` 是现有工程 Agent 的加法式交互入口。它既面向临时查询和受控模型修改，
+也通过 guarded graph tools 复用原有 YAML Workflow、worker 和 mission 状态机，而不改变其执行语义。
 
 当前稳定纵向切片支持 HFSS 3D Layout：
 
@@ -111,6 +111,13 @@ ansys-assistant parameterize-width `
 ```text
 list_ansys_capabilities
 list_ansys_capabilities_v2
+list_ansys_workflows
+inspect_ansys_workflow
+preview_ansys_workflow_start
+apply_ansys_workflow_start
+get_ansys_workflow_status
+preview_ansys_workflow_advance
+apply_ansys_workflow_advance
 open_layout_session
 list_layout_paths
 preview_parameterize_path_width
@@ -124,9 +131,14 @@ preview_live_project_save
 apply_live_project_save
 create_live_hfss_design
 get_live_hfss_design_inventory
+get_live_aedt_setup_inventory
 get_live_hfss_geometry_inventory
 preview_live_hfss_setup_create
 apply_live_hfss_setup_create
+preview_live_hfss_setup_update
+apply_live_hfss_setup_update
+preview_live_frequency_sweep_create
+apply_live_frequency_sweep_create
 preview_live_hfss_boundary_create
 apply_live_hfss_boundary_create
 preview_live_hfss_report_create
@@ -140,6 +152,14 @@ apply_live_hfss_analysis_cancel
 preview_live_hfss_results_export
 apply_live_hfss_results_export
 list_live_layout_paths
+get_live_layout_routing_inventory
+get_live_layout_object_inventory
+get_live_layout_object_property_inventory
+preview_live_layout_object_property_update
+apply_live_layout_object_property_update
+get_live_aedt_variable_inventory
+preview_live_aedt_variable_upsert
+apply_live_aedt_variable_upsert
 preview_live_parameterize_path_width
 apply_live_parameterize_path_width
 wait_for_live_approval
@@ -213,6 +233,11 @@ preview_live_hfss_analysis_start(cores/tasks/gpus)
   -> preview/apply_live_hfss_results_export
 ```
 
+3D Layout 的完整受控链路可直接使用 `layout_live_solve_start`、`layout_live_solve_monitor` 和
+`layout_live_results_export`。monitor 通过有界 Graph loop 每次只轮询一次；results export 支持
+`product="layout"`，并在 scorecard 中重新核验 artifact 与 manifest。Workflow 的 start 和每个
+advance step 都需要 Graph 审批，真正启动求解或写出结果还需要独立 operation 审批。
+
 批准后的求解固定非阻塞，资源预算有上限。结果导出只允许写入
 `AEDT_AGENT_EXPORT_ROOT`（默认 `.aedt-agent/exports`）下的 server-managed 目录，支持
 Touchstone 和 report CSV，并生成包含 artifact SHA-256 的 evidence manifest。
@@ -242,8 +267,9 @@ token = authority.issue(**preview["approval_request"])
 - 写操作暂不支持覆盖源工程。
 - 只读查询也打开临时快照副本，关闭会话后自动清理，避免 EDB lock/tmp 文件触碰源目录。
 - `.aedt` 输入必须存在同名 `.aedb` sidecar。
-- Live HFSS 当前支持 design create、geometry/setup/port/boundary/report inventory、受控 setup、
-  radiation/wave/lumped port、report 创建、批准式 analysis start/cancel/status、受限结果导出和受控 project save。
+- Live HFSS/3D Layout 当前支持 routing/object/variable/setup inventory、受控变量和对象属性更新、setup/sweep、
+  radiation/wave/lumped port、report 创建、批准式 analysis start/cancel/status、Layout 有界求解监控、
+  HFSS/Layout 受限结果导出和受控 project save。
 - `create_live_hfss_design` 与 `start_live_hfss_analysis` 仅为通用 MCP 兼容入口；Desktop strict 模式禁用直接写入，生产求解使用批准链路。
 - `launch_live_aedt_session` 返回 `owned_by_assistant=true`；release 仍不关闭 AEDT。
 - Live apply/save 在未配置 Host approval verifier 时固定返回 `approval_required`。

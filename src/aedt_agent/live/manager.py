@@ -613,6 +613,7 @@ class LiveAedtSessionManager:
         sweep_name: str = "",
         report_name: str = "",
         artifact_name: str = "",
+        product: str = "hfss",
     ) -> dict[str, Any]:
         result = self._execute(
             session_id,
@@ -625,6 +626,7 @@ class LiveAedtSessionManager:
                 "sweep_name": sweep_name,
                 "report_name": report_name,
                 "artifact_name": artifact_name,
+                "product": product,
             },
         )
         return self._register_approval(session_id, "hfss.results.export", result)

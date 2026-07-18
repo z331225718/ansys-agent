@@ -165,6 +165,7 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             approval="external_host_token",
             side_effects=["result_artifacts_written_to_managed_export_root"],
             postconditions=["design_unchanged", "artifact_sha256_verified", "evidence_manifest_written"],
+            products=["hfss", "layout"],
         ),
         _cap(
             "layout.paths.list",

@@ -15,6 +15,8 @@ _MAX_PAYLOAD_BYTES = 256 * 1024
 _DEFAULT_TEMPLATE_IDS = (
     "layout_live_audit",
     "layout_live_parameterize_width",
+    "layout_live_results_export",
+    "layout_live_solve_monitor",
     "layout_live_solve_start",
     "brd_before_after_compare",
     "brd_channel_optimize",
@@ -28,11 +30,19 @@ _DEFAULT_TEMPLATE_IDS = (
     "via_optimize_demo",
 )
 _LIVE_SESSION_WORKFLOWS = frozenset(
-    {"layout_live_audit", "layout_live_parameterize_width", "layout_live_solve_start"}
+    {
+        "layout_live_audit",
+        "layout_live_parameterize_width",
+        "layout_live_results_export",
+        "layout_live_solve_monitor",
+        "layout_live_solve_start",
+    }
 )
 _LIVE_WORKFLOW_RISKS = {
     "layout_live_audit": "read_only",
     "layout_live_parameterize_width": "reversible_edit",
+    "layout_live_results_export": "persistent_write",
+    "layout_live_solve_monitor": "read_only",
     "layout_live_solve_start": "expensive",
 }
 
@@ -371,6 +381,7 @@ def _graph_state_digest(report: dict[str, Any]) -> str:
 def _operation_approval_requirement(report: dict[str, Any]) -> dict[str, Any] | None:
     preview_nodes = {
         "layout_live_parameterize_width": "preview_parameterization",
+        "layout_live_results_export": "preview_export",
         "layout_live_solve_start": "preview_analysis",
     }
     expected_node = preview_nodes.get(str(report.get("template_id") or ""))

@@ -21,9 +21,10 @@ User goal
 ```
 
 对于没有预定义 Workflow 的临时 Ansys 查询和受控修改，仓库另提供加法式
-[`ansys-assistant`](docs/interactive-ansys-assistant.md) 入口。它当前可以枚举 HFSS 3D
-Layout 走线，并在自动创建的工作副本中把指定线宽参数化；现有 YAML Graph 和 BRD
-Worker 行为保持不变。
+[`ansys-assistant`](docs/interactive-ansys-assistant.md) 入口。它可以复用正在运行的 AEDT，
+查询 HFSS/3D Layout inventory，以 preview、原生审批、apply 和 readback 契约执行受控修改，
+并把 Layout 审计、线宽参数化、非阻塞求解、Graph loop 监控和带 SHA256 evidence 的结果导出
+提升为严格 live Workflow；现有 YAML Graph 和 BRD Worker 行为保持不变。
 
 ## 当前核心原则
 

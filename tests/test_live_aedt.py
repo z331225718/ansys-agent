@@ -196,6 +196,18 @@ class FakePost:
         return str(path)
 
 
+class FakeControlledExportLayout(FakeLayout):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.post = FakePost()
+        self.excitation_names = ["P1", "P2", "P3", "P4"]
+
+    def export_touchstone(self, setup=None, sweep=None, output_file=None):
+        path = Path(output_file)
+        path.write_text("# Hz S RI R 50\n", encoding="ascii")
+        return str(path)
+
+
 class FakeObject:
     id = 9
     material_name = "copper"
@@ -868,6 +880,37 @@ def test_backend_approved_analysis_cancel_and_restricted_exports(tmp_path: Path,
     )
     report = backend.execute(target, "hfss_export_apply", {"preview_id": report_preview["preview_id"]})
     assert Path(report["artifact"]["path"]).suffix == ".csv"
+
+
+def test_backend_exports_layout_results_with_product_bound_evidence(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("AEDT_AGENT_EXPORT_ROOT", str(tmp_path / "exports"))
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        layout_factory=FakeControlledExportLayout,
+    )
+    target = AedtTarget("pid", 42)
+    preview = backend.execute(
+        target,
+        "hfss_export_preview",
+        {
+            "product": "layout",
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "export_kind": "touchstone",
+            "setup_name": "SetupL",
+            "artifact_name": "layout-network",
+        },
+    )
+
+    assert preview["product"] == "layout"
+    exported = backend.execute(target, "hfss_export_apply", {"preview_id": preview["preview_id"]})
+
+    artifact_path = Path(exported["artifact"]["path"])
+    manifest = json.loads(Path(exported["manifest_path"]).read_text(encoding="utf-8"))
+    assert exported["product"] == "layout"
+    assert artifact_path.suffix == ".s4p"
+    assert manifest["spec"]["product"] == "layout"
+    assert manifest["artifact"]["sha256"] == exported["artifact"]["sha256"]
 
 
 def test_analysis_preview_rejects_unbounded_resources_and_unsafe_artifact_names(tmp_path: Path, monkeypatch):
@@ -1612,6 +1655,7 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
         "preview_live_parameterize_path_width",
         "apply_live_parameterize_path_width",
     ]
+    assert by_name["hfss.results.export"]["products"] == ["hfss", "layout"]
     unavailable = {item["name"] for item in v2["unavailable_capabilities"]}
     assert {"aedt.sessions.list", "aedt.sessions.launch", "hfss.design.create"}.issubset(unavailable)
     assert "preselected AEDT port, project, and design" in server.instructions

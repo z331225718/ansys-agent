@@ -1,0 +1,47 @@
+id: layout_live_results_export
+version: 1
+description: Validate and export live HFSS 3D Layout Touchstone or report CSV results with SHA-256 evidence.
+nodes:
+  - id: validate_export
+    role: validator
+    kind: program
+    handler: assistant.live.layout.validate_results_export
+    input_schema: live_export_request
+    output_schema: live_export_validated
+    max_runs: 1
+  - id: preview_export
+    role: preview
+    kind: program
+    handler: assistant.live.layout.preview_results_export
+    input_schema: live_export_validated
+    output_schema: live_export_preview
+    max_runs: 1
+  - id: apply_export
+    role: apply
+    kind: program
+    handler: assistant.live.layout.apply_results_export
+    input_schema: live_export_preview
+    output_schema: live_export_apply_result
+    max_runs: 1
+  - id: verify_export
+    role: scorecard
+    kind: program
+    handler: assistant.live.layout.results_export_scorecard
+    input_schema: live_export_apply_result
+    output_schema: live_export_scorecard
+    max_runs: 1
+edges:
+  - {id: validate-to-preview, from: validate_export, to: preview_export, on: succeeded}
+  - {id: preview-to-apply, from: preview_export, to: apply_export, on: succeeded}
+  - {id: apply-to-scorecard, from: apply_export, to: verify_export, on: succeeded}
+handoffs:
+  live_export_request:
+    required_fields: [export_kind]
+  live_export_validated:
+    required_fields: [export_kind, export_spec, analysis_status, live_session_reused]
+  live_export_preview:
+    required_fields: [export_spec, operation_preview_id, operation_approval, live_session_reused]
+  live_export_apply_result:
+    required_fields: [export_spec, operation_result, live_session_reused]
+  live_export_scorecard:
+    required_fields: [status, checks, summary, artifact_refs, live_session_reused]

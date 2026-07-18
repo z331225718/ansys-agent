@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import json
+from pathlib import Path
 from typing import Any
 
 from aedt_agent.agent.graph_executors import GraphNodeExecutionContext, GraphNodeExecutorRegistry
@@ -49,6 +52,34 @@ def register_live_workflow_handlers(
     registry.register(
         "assistant.live.layout.solve_submission_scorecard",
         lambda context: _solve_submission_scorecard(context, live_manager, binding_resolver),
+    )
+    registry.register(
+        "assistant.live.layout.validate_monitor_setup",
+        lambda context: _validate_monitor_setup(context, live_manager, binding_resolver),
+    )
+    registry.register(
+        "assistant.live.layout.poll_analysis_status",
+        lambda context: _poll_analysis_status(context, live_manager, binding_resolver),
+    )
+    registry.register(
+        "assistant.live.layout.analysis_stopped_scorecard",
+        lambda context: _analysis_stopped_scorecard(context, live_manager, binding_resolver),
+    )
+    registry.register(
+        "assistant.live.layout.validate_results_export",
+        lambda context: _validate_results_export(context, live_manager, binding_resolver),
+    )
+    registry.register(
+        "assistant.live.layout.preview_results_export",
+        lambda context: _preview_results_export(context, live_manager, binding_resolver),
+    )
+    registry.register(
+        "assistant.live.layout.apply_results_export",
+        lambda context: _apply_results_export(context, live_manager, binding_resolver),
+    )
+    registry.register(
+        "assistant.live.layout.results_export_scorecard",
+        lambda context: _results_export_scorecard(context, live_manager, binding_resolver),
     )
 
 
@@ -319,6 +350,239 @@ def _solve_submission_scorecard(context, live_manager, binding_resolver) -> dict
     return _success(output, outcome="passed" if passed else "failed")
 
 
+def _validate_monitor_setup(context, live_manager, binding_resolver) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, project_name, design_name, _ = _live_target(context, binding_resolver)
+    setup_name = str(payload.get("setup_name") or "").strip()
+    if not setup_name:
+        raise ValueError("setup_name is required for live solve monitoring")
+    inventory = live_manager.setup_inventory(
+        session_id,
+        product="layout",
+        project_name=project_name,
+        design_name=design_name,
+    )
+    if setup_name not in {str(item.get("name") or "") for item in inventory.get("setups", [])}:
+        raise ValueError(f"unknown live layout setup: {setup_name}")
+    return _success(
+        {
+            **payload,
+            "setup_name": setup_name,
+            "setup_inventory": inventory,
+            "poll_count": 0,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _poll_analysis_status(context, live_manager, binding_resolver) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, project_name, design_name, _ = _live_target(context, binding_resolver)
+    status = live_manager.hfss_analysis_status(
+        session_id,
+        product="layout",
+        project_name=project_name,
+        design_name=design_name,
+        setup_name=str(payload["setup_name"]),
+    )
+    running = status.get("running") is True
+    output = {
+        **payload,
+        "analysis_status": status,
+        "poll_count": int(payload.get("poll_count") or 0) + 1,
+        "live_session_reused": True,
+    }
+    return _success(output, outcome="running" if running else "stopped")
+
+
+def _analysis_stopped_scorecard(context, live_manager, binding_resolver) -> dict[str, Any]:
+    payload = _payload(context)
+    _live_target(context, binding_resolver)
+    status = dict(payload.get("analysis_status") or {})
+    latest_run = dict(status.get("latest_run") or {})
+    checks = [
+        _check("target_setup", status.get("setup_name") == payload.get("setup_name")),
+        _check("solver_not_running", status.get("running") is False),
+        _check("poll_observed", int(payload.get("poll_count") or 0) >= 1),
+        _check("not_known_canceled", latest_run.get("state") != "canceled"),
+    ]
+    passed = all(item["passed"] for item in checks)
+    output = {
+        **payload,
+        "status": "passed" if passed else "failed",
+        "checks": checks,
+        "summary": {
+            "setup_name": payload.get("setup_name"),
+            "poll_count": int(payload.get("poll_count") or 0),
+            "run_id": latest_run.get("run_id"),
+            "last_known_state": latest_run.get("state") or "untracked_not_running",
+            "solve_success_verified": False,
+        },
+        "live_session_reused": True,
+    }
+    return _success(output, outcome="passed" if passed else "failed")
+
+
+def _validate_results_export(context, live_manager, binding_resolver) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, project_name, design_name, _ = _live_target(context, binding_resolver)
+    export_kind = str(payload.get("export_kind") or "").strip().casefold()
+    if export_kind not in {"touchstone", "report_csv"}:
+        raise ValueError("export_kind must be touchstone or report_csv")
+    status = live_manager.hfss_analysis_status(
+        session_id,
+        product="layout",
+        project_name=project_name,
+        design_name=design_name,
+        setup_name=str(payload.get("setup_name") or "").strip(),
+    )
+    if status.get("running") is True:
+        raise ValueError("cannot export live layout results while AEDT is still solving")
+    inventory = live_manager.setup_inventory(
+        session_id,
+        product="layout",
+        project_name=project_name,
+        design_name=design_name,
+    )
+    setup_name = str(payload.get("setup_name") or "").strip()
+    sweep_name = str(payload.get("sweep_name") or "").strip()
+    report_name = str(payload.get("report_name") or "").strip()
+    if export_kind == "touchstone":
+        setup = next((item for item in inventory.get("setups", []) if item.get("name") == setup_name), None)
+        if setup is None:
+            raise ValueError("touchstone export requires an existing setup_name")
+        if sweep_name and sweep_name not in set(setup.get("sweeps") or []):
+            raise ValueError(f"unknown sweep {sweep_name} in setup {setup_name}")
+    elif not report_name:
+        raise ValueError("report_csv export requires report_name")
+    spec = {
+        "product": "layout",
+        "export_kind": export_kind,
+        "setup_name": setup_name,
+        "sweep_name": sweep_name,
+        "report_name": report_name,
+        "artifact_name": str(payload.get("artifact_name") or "").strip(),
+    }
+    return _success(
+        {
+            **payload,
+            "export_kind": export_kind,
+            "export_spec": spec,
+            "analysis_status": status,
+            "setup_inventory": inventory,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _preview_results_export(context, live_manager, binding_resolver) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, project_name, design_name, _ = _live_target(context, binding_resolver)
+    spec = dict(payload["export_spec"])
+    preview = live_manager.preview_hfss_export(
+        session_id,
+        project_name=project_name,
+        design_name=design_name,
+        export_kind=spec["export_kind"],
+        setup_name=spec["setup_name"],
+        sweep_name=spec["sweep_name"],
+        report_name=spec["report_name"],
+        artifact_name=spec["artifact_name"],
+        product="layout",
+    )
+    finalized_spec = {
+        "product": "layout",
+        "export_kind": str(preview.get("export_kind") or spec["export_kind"]),
+        "setup_name": str(preview.get("setup_name") or spec["setup_name"]),
+        "sweep_name": str(preview.get("sweep_name") or spec["sweep_name"]),
+        "report_name": str(preview.get("report_name") or spec["report_name"]),
+        "artifact_name": str(preview.get("artifact_name") or spec["artifact_name"]),
+    }
+    return _success(
+        {
+            **payload,
+            "export_spec": finalized_spec,
+            "operation_preview_id": preview["preview_id"],
+            "operation_approval": preview.get("approval_request") or {},
+            "operation_preview": preview,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _apply_results_export(context, live_manager, binding_resolver) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, _, _, binding = _live_target(context, binding_resolver)
+    token = str(binding.get("operation_approval_token") or "")
+    if not token:
+        raise ValueError("operation_approval_token is required after approval of the export preview")
+    result = live_manager.apply_hfss_export(
+        session_id,
+        preview_id=str(payload["operation_preview_id"]),
+        approval_token=token,
+    )
+    return _success({**payload, "operation_result": result, "live_session_reused": True})
+
+
+def _results_export_scorecard(context, live_manager, binding_resolver) -> dict[str, Any]:
+    payload = _payload(context)
+    _, project_name, design_name, _ = _live_target(context, binding_resolver)
+    result = dict(payload.get("operation_result") or {})
+    artifact = dict(result.get("artifact") or {})
+    artifact_path = Path(str(artifact.get("path") or ""))
+    manifest_path = Path(str(result.get("manifest_path") or ""))
+    artifact_exists = artifact_path.is_file()
+    manifest_exists = manifest_path.is_file()
+    actual_sha256 = _file_sha256(artifact_path) if artifact_exists else ""
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_exists else {}
+    except (OSError, ValueError, TypeError):
+        manifest = {}
+    manifest_artifact = dict(manifest.get("artifact") or {})
+    manifest_spec = dict(manifest.get("spec") or {})
+    checks = [
+        _check("verified", result.get("status") == "verified"),
+        _check("layout_product", result.get("product") == "layout"),
+        _check("artifact_exists", artifact_exists),
+        _check("artifact_nonempty", artifact_exists and artifact_path.stat().st_size > 0),
+        _check("artifact_size", artifact_exists and artifact.get("bytes") == artifact_path.stat().st_size),
+        _check("artifact_sha256", bool(actual_sha256) and artifact.get("sha256") == actual_sha256),
+        _check("manifest_exists", manifest_exists),
+        _check(
+            "manifest_artifact",
+            manifest_artifact.get("path") == str(artifact_path)
+            and manifest_artifact.get("sha256") == actual_sha256
+            and manifest_artifact.get("bytes") == artifact.get("bytes"),
+        ),
+        _check("manifest_colocated", manifest_exists and artifact_exists and manifest_path.parent == artifact_path.parent),
+        _check("manifest_target", manifest.get("project_name") == project_name and manifest.get("design_name") == design_name),
+        _check("manifest_spec", manifest_spec == payload.get("export_spec")),
+        _check("project_unchanged", result.get("project_unchanged") is True),
+        _check("project_not_saved", result.get("project_saved") is False),
+    ]
+    passed = all(item["passed"] for item in checks)
+    artifact_refs = [str(path) for path in (artifact_path, manifest_path) if path.is_file()]
+    output = {
+        **payload,
+        "status": "passed" if passed else "failed",
+        "checks": checks,
+        "summary": {
+            "export_kind": payload.get("export_kind"),
+            "artifact_path": str(artifact_path) if artifact_exists else "",
+            "manifest_path": str(manifest_path) if manifest_exists else "",
+            "sha256": actual_sha256,
+            "bytes": artifact_path.stat().st_size if artifact_exists else 0,
+        },
+        "artifact_refs": artifact_refs,
+        "live_session_reused": True,
+    }
+    return _success(
+        output,
+        outcome="passed" if passed else "failed",
+        artifact_refs=artifact_refs,
+    )
+
+
 def _live_target(context, binding_resolver) -> tuple[str, str, str, dict[str, Any]]:
     binding = binding_resolver(context.graph_run.graph_run_id)
     session_id = str(binding.get("live_session_id") or "")
@@ -334,10 +598,29 @@ def _check(name: str, passed: bool) -> dict[str, Any]:
     return {"name": name, "passed": bool(passed)}
 
 
-def _success(output: dict[str, Any], *, outcome: str = "succeeded") -> dict[str, Any]:
+def _payload(context: GraphNodeExecutionContext) -> dict[str, Any]:
+    payload = dict(context.input_payload)
+    payload.pop("_handoffs", None)
+    return payload
+
+
+def _success(
+    output: dict[str, Any],
+    *,
+    outcome: str = "succeeded",
+    artifact_refs: list[str] | None = None,
+) -> dict[str, Any]:
     return {
         "status": "succeeded",
         "outcome": outcome,
         "output_payload": output,
-        "artifact_refs": [],
+        "artifact_refs": list(artifact_refs or []),
     }
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
