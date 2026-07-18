@@ -1,5 +1,8 @@
 # ansys-agent
 
+完整的安装、AEDT 连接、对话操作、审批、故障排查和升级说明见
+[`docs/ansys-assistant-user-guide.zh.md`](docs/ansys-assistant-user-guide.zh.md)。
+
 AEDT Automation Tab 的 Claude Code 入口见
 [`docs/aedt-desktop-claude-entry.md`](docs/aedt-desktop-claude-entry.md)。
 未知能力的 API Memory、受控探索与 Harness 晋升设计见
