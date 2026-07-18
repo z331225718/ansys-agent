@@ -2,6 +2,8 @@
 
 AEDT 2024 R2 离线 Windows Server 的完整打包、验签、安装、Claude Code/模型网关配置和只读
 验收步骤见 [`offline-windows-server-deployment.md`](offline-windows-server-deployment.md)。
+安装完成后的工程师日常使用和对话示例见
+[`ansys-assistant-user-guide.zh.md`](ansys-assistant-user-guide.zh.md)。
 
 ## 目标
 

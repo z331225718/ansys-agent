@@ -40,6 +40,24 @@ def build_parser() -> argparse.ArgumentParser:
     live_smoke.add_argument("--expected-design", default="")
     live_smoke.add_argument("--output-dir", type=Path, required=True)
     live_smoke.add_argument("--confirm-read-only", action="store_true")
+    live_width_smoke = subparsers.add_parser(
+        "live-width-preview-smoke",
+        help="Run layout width selection and preview without applying or saving changes.",
+    )
+    live_width_smoke.add_argument("--port", type=int, required=True)
+    live_width_smoke.add_argument("--aedt-version", default="2026.1")
+    live_width_smoke.add_argument("--expected-project", default="")
+    live_width_smoke.add_argument("--expected-design", default="")
+    live_width_smoke.add_argument("--target-width", required=True)
+    live_width_smoke.add_argument("--variable-name", default="W_line")
+    live_width_smoke.add_argument(
+        "--variable-value",
+        help="Initial parameter value. Defaults to --target-width.",
+    )
+    live_width_smoke.add_argument("--net", action="append", default=[])
+    live_width_smoke.add_argument("--layer", action="append", default=[])
+    live_width_smoke.add_argument("--output-dir", type=Path, required=True)
+    live_width_smoke.add_argument("--confirm-preview-only", action="store_true")
 
     inspect_parser = subparsers.add_parser("inspect-layout", help="List HFSS 3D Layout paths.")
     _add_project_options(inspect_parser)
@@ -119,6 +137,24 @@ def main(argv: list[str] | None = None) -> int:
                 expected_project=args.expected_project,
                 expected_design=args.expected_design,
                 confirmed_read_only=args.confirm_read_only,
+            )
+            _print_json(output)
+            return 0 if output["status"] == "passed" else 2
+        if args.command == "live-width-preview-smoke":
+            from aedt_agent.interactive.smoke import run_live_width_preview_smoke
+
+            output = run_live_width_preview_smoke(
+                port=args.port,
+                version=args.aedt_version,
+                output_dir=args.output_dir,
+                target_width=args.target_width,
+                variable_name=args.variable_name,
+                variable_value=args.variable_value or args.target_width,
+                expected_project=args.expected_project,
+                expected_design=args.expected_design,
+                nets=args.net,
+                layers=args.layer,
+                confirmed_preview_only=args.confirm_preview_only,
             )
             _print_json(output)
             return 0 if output["status"] == "passed" else 2

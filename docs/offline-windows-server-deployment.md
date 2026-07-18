@@ -2,6 +2,9 @@
 
 本文面向不能访问公网、已安装 AEDT 2024 R2 的 Windows Server。推荐拓扑是：
 
+完成安装后的 AEDT 连接、Automation Tab、日常对话、严格 Workflow、审批和排障说明见
+[`ansys-assistant-user-guide.zh.md`](ansys-assistant-user-guide.zh.md)。
+
 ```text
 同一 RDP 用户会话
   -> AEDT 2024 R2（本机 gRPC loopback）
