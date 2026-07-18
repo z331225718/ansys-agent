@@ -66,6 +66,13 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             ["get_live_hfss_design_inventory"],
         ),
         _cap(
+            "aedt.setups.inventory",
+            "read_only",
+            ["live"],
+            ["get_live_aedt_setup_inventory"],
+            postconditions=["design_unchanged", "setup_and_sweep_names_returned"],
+        ),
+        _cap(
             "hfss.geometry.inventory",
             "read_only",
             ["live"],
@@ -89,6 +96,15 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             approval="external_host_token",
             side_effects=["project_becomes_dirty"],
             postconditions=["setup_snapshot_unchanged", "readback_verified", "rollback_on_failure"],
+        ),
+        _cap(
+            "aedt.frequency_sweep.create",
+            "reversible_edit",
+            ["live"],
+            ["preview_live_frequency_sweep_create", "apply_live_frequency_sweep_create"],
+            approval="external_host_token",
+            side_effects=["project_becomes_dirty"],
+            postconditions=["bounded_range", "setup_snapshot_unchanged", "readback_verified", "rollback_on_failure"],
         ),
         _cap(
             "hfss.report.create",

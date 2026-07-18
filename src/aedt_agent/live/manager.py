@@ -302,6 +302,20 @@ class LiveAedtSessionManager:
             {"project_name": project_name, "design_name": design_name},
         )
 
+    def setup_inventory(
+        self,
+        session_id: str,
+        *,
+        product: str,
+        project_name: str,
+        design_name: str,
+    ) -> dict[str, Any]:
+        return self._execute(
+            session_id,
+            "setup_inventory",
+            {"product": product, "project_name": project_name, "design_name": design_name},
+        )
+
     def hfss_geometry_inventory(
         self,
         session_id: str,
@@ -375,6 +389,57 @@ class LiveAedtSessionManager:
     ) -> dict[str, Any]:
         self._require_approval(session_id, "hfss.setup.update", preview_id, approval_token)
         result = self._execute(session_id, "hfss_setup_update_apply", {"preview_id": preview_id})
+        self._approval_contexts.pop((session_id, preview_id), None)
+        return result
+
+    def preview_frequency_sweep_create(
+        self,
+        session_id: str,
+        *,
+        product: str,
+        project_name: str,
+        design_name: str,
+        setup_name: str,
+        sweep_name: str,
+        range_type: str,
+        sweep_type: str,
+        unit: str,
+        start_frequency: float,
+        stop_frequency: float,
+        count: int | None = None,
+        step_size: float | None = None,
+        save_fields: bool = True,
+    ) -> dict[str, Any]:
+        result = self._execute(
+            session_id,
+            "frequency_sweep_create_preview",
+            {
+                "product": product,
+                "project_name": project_name,
+                "design_name": design_name,
+                "setup_name": setup_name,
+                "sweep_name": sweep_name,
+                "range_type": range_type,
+                "sweep_type": sweep_type,
+                "unit": unit,
+                "start_frequency": start_frequency,
+                "stop_frequency": stop_frequency,
+                "count": count,
+                "step_size": step_size,
+                "save_fields": save_fields,
+            },
+        )
+        return self._register_approval(session_id, "aedt.frequency_sweep.create", result)
+
+    def apply_frequency_sweep_create(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict[str, Any]:
+        self._require_approval(session_id, "aedt.frequency_sweep.create", preview_id, approval_token)
+        result = self._execute(session_id, "frequency_sweep_create_apply", {"preview_id": preview_id})
         self._approval_contexts.pop((session_id, preview_id), None)
         return result
 

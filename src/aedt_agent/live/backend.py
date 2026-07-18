@@ -72,6 +72,8 @@ class LiveAedtBackend:
                 return self._hfss_design_create(target, arguments)
             if command == "hfss_design_inventory":
                 return self._hfss_design_inventory(target, arguments)
+            if command == "setup_inventory":
+                return self._setup_inventory(target, arguments)
             if command == "hfss_geometry_inventory":
                 return self._hfss_geometry_inventory(target, arguments)
             if command == "hfss_setup_preview":
@@ -82,6 +84,10 @@ class LiveAedtBackend:
                 return self._hfss_setup_update_preview(target, arguments)
             if command == "hfss_setup_update_apply":
                 return self._hfss_setup_update_apply(target, arguments)
+            if command == "frequency_sweep_create_preview":
+                return self._frequency_sweep_create_preview(target, arguments)
+            if command == "frequency_sweep_create_apply":
+                return self._frequency_sweep_create_apply(target, arguments)
             if command == "hfss_report_preview":
                 return self._hfss_report_preview(target, arguments)
             if command == "hfss_report_apply":
@@ -364,6 +370,25 @@ class LiveAedtBackend:
             "reports": [str(item) for item in reports],
         }
 
+    def _setup_inventory(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
+        product = _variable_product(args)
+        app = self._app(target, product, _required(args, "project_name"), _required(args, "design_name"))
+        names = _setup_names(app)
+        details = []
+        for name in names:
+            try:
+                details.append({"name": name, "sweeps": _sweep_names(app, name)})
+            except Exception:
+                details.append({"name": name, "sweeps": [], "status": "unavailable"})
+        return {
+            "product": product,
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "setup_count": len(names),
+            "setups": details,
+            "design_unchanged": True,
+        }
+
     def _hfss_geometry_inventory(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
         app = self._app(target, "hfss", _required(args, "project_name"), _required(args, "design_name"))
         requested = {str(item) for item in args.get("object_names") or []}
@@ -561,6 +586,123 @@ class LiveAedtBackend:
             "setup_name": preview["setup_name"],
             "before": preview["before"],
             "after": after,
+            "project_dirty": True,
+            "project_saved": False,
+        }
+
+    def _frequency_sweep_create_preview(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
+        product = _variable_product(args)
+        app = self._app(target, product, _required(args, "project_name"), _required(args, "design_name"))
+        setup_name = _required(args, "setup_name")
+        sweep_name = _required(args, "sweep_name")
+        range_type = str(args.get("range_type") or "LinearCount")
+        if range_type not in {"LinearCount", "LinearStep"}:
+            raise LiveBackendError("range_type must be LinearCount or LinearStep")
+        sweep_type = str(args.get("sweep_type") or "Interpolating")
+        if sweep_type not in {"Discrete", "Interpolating", "Fast"}:
+            raise LiveBackendError("sweep_type must be Discrete, Interpolating, or Fast")
+        unit = str(args.get("unit") or "GHz")
+        if unit not in {"Hz", "kHz", "MHz", "GHz", "THz"}:
+            raise LiveBackendError("unsupported frequency unit")
+        start = _positive_number(args, "start_frequency")
+        stop = _positive_number(args, "stop_frequency")
+        if stop <= start:
+            raise LiveBackendError("stop_frequency must be greater than start_frequency")
+        count = args.get("count")
+        step = args.get("step_size")
+        if range_type == "LinearCount":
+            if type(count) is not int or not 2 <= count <= 100001:
+                raise LiveBackendError("count must be an integer between 2 and 100001")
+            step = None
+        else:
+            step = _positive_number(args, "step_size")
+            if step >= stop - start:
+                raise LiveBackendError("step_size must be smaller than the sweep span")
+            count = None
+        if setup_name not in _setup_names(app):
+            raise LiveBackendError(f"unknown setup: {setup_name}")
+        sweep_names = _sweep_names(app, setup_name)
+        if sweep_name in sweep_names:
+            raise LiveBackendError(f"frequency sweep already exists: {sweep_name}")
+        state = {"setup_names": _setup_names(app), "setup_name": setup_name, "sweep_names": sweep_names}
+        digest = _digest(state)
+        spec = {
+            "product": product,
+            "setup_name": setup_name,
+            "sweep_name": sweep_name,
+            "range_type": range_type,
+            "sweep_type": sweep_type,
+            "unit": unit,
+            "start_frequency": start,
+            "stop_frequency": stop,
+            "count": count,
+            "step_size": step,
+            "save_fields": bool(args.get("save_fields", True)),
+        }
+        preview_id = "sweep-create-preview-" + _digest({**spec, "state": digest})[:24]
+        self._previews[preview_id] = {
+            "kind": "frequency_sweep_create",
+            "target": target,
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "spec": spec,
+            "digest": digest,
+        }
+        return {
+            "preview_id": preview_id,
+            **spec,
+            "snapshot_digest": digest,
+            "approval_required": True,
+            "project_dirty": False,
+        }
+
+    def _frequency_sweep_create_apply(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
+        preview_id = _required(args, "preview_id")
+        preview = self._preview(preview_id, "frequency_sweep_create", target)
+        spec = preview["spec"]
+        app = self._app(target, spec["product"], preview["project_name"], preview["design_name"])
+        current = {
+            "setup_names": _setup_names(app),
+            "setup_name": spec["setup_name"],
+            "sweep_names": _sweep_names(app, spec["setup_name"]),
+        }
+        if _digest(current) != preview["digest"]:
+            raise LiveBackendError("stale frequency sweep preview")
+        sweep = None
+        try:
+            common = {
+                "setup": spec["setup_name"],
+                "unit": spec["unit"],
+                "start_frequency": spec["start_frequency"],
+                "stop_frequency": spec["stop_frequency"],
+                "name": spec["sweep_name"],
+                "save_fields": spec["save_fields"],
+                "sweep_type": spec["sweep_type"],
+            }
+            if spec["range_type"] == "LinearCount":
+                sweep = app.create_linear_count_sweep(
+                    **common,
+                    num_of_freq_points=spec["count"],
+                )
+            else:
+                sweep = app.create_linear_step_sweep(
+                    **common,
+                    step_size=spec["step_size"],
+                )
+            if not sweep or spec["sweep_name"] not in _sweep_names(app, spec["setup_name"]):
+                raise LiveBackendError("frequency sweep readback verification failed")
+        except Exception:
+            if spec["sweep_name"] in _sweep_names(app, spec["setup_name"]):
+                try:
+                    app.get_setup(spec["setup_name"]).delete_sweep(spec["sweep_name"])
+                except Exception:
+                    pass
+            raise
+        del self._previews[preview_id]
+        return {
+            "status": "verified",
+            "preview_id": preview_id,
+            **spec,
             "project_dirty": True,
             "project_saved": False,
         }
@@ -1514,6 +1656,20 @@ _SAFE_ARTIFACT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,127}")
 def _setup_names(app: Any) -> list[str]:
     attribute = "existing_analysis_setups" if hasattr(app, "existing_analysis_setups") else "setup_names"
     return sorted(str(item) for item in list(_read(app, attribute)))
+
+
+def _sweep_names(app: Any, setup_name: str) -> list[str]:
+    if setup_name not in _setup_names(app):
+        return []
+    setup = app.get_setup(setup_name)
+    return sorted(str(getattr(item, "name", item)) for item in list(getattr(setup, "sweeps", []) or []))
+
+
+def _positive_number(arguments: dict[str, Any], name: str) -> float:
+    value = arguments.get(name)
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        raise LiveBackendError(f"{name} must be a positive number")
+    return float(value)
 
 
 def _report_names(app: Any) -> list[str]:

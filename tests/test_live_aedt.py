@@ -120,9 +120,19 @@ class FakeSetup:
     def __init__(self, name, properties=None):
         self.name = name
         self.props = dict(properties or {})
+        self.sweeps = []
 
     def update(self):
         return True
+
+    def delete_sweep(self, name):
+        self.sweeps = [item for item in self.sweeps if item.name != name]
+        return True
+
+
+class FakeSweep:
+    def __init__(self, name):
+        self.name = name
 
 
 class FakePost:
@@ -208,6 +218,16 @@ class FakeHfss:
     def delete_setup(self, name):
         self._setups.pop(name, None)
         return True
+
+    def create_linear_count_sweep(self, *, setup, name, **kwargs):
+        sweep = FakeSweep(name)
+        self._setups[setup].sweeps.append(sweep)
+        return sweep
+
+    def create_linear_step_sweep(self, *, setup, name, **kwargs):
+        sweep = FakeSweep(name)
+        self._setups[setup].sweeps.append(sweep)
+        return sweep
 
     def assign_radiation_boundary_to_faces(self, assignment, name=None):
         boundary = FakeBoundary(self, name, "Radiation")
@@ -403,6 +423,39 @@ def test_backend_reuses_wrappers_and_lists_live_layout_paths():
     )
     assert setup_update_result["after"] == {"Frequency": "28GHz", "MaximumPasses": 8}
     assert setup_update_result["project_saved"] is False
+    sweep_preview = backend.execute(
+        target,
+        "frequency_sweep_create_preview",
+        {
+            "product": "hfss",
+            "project_name": "Board",
+            "design_name": "HFSS1",
+            "setup_name": "Setup1",
+            "sweep_name": "Sweep28G",
+            "range_type": "LinearCount",
+            "sweep_type": "Interpolating",
+            "unit": "GHz",
+            "start_frequency": 1,
+            "stop_frequency": 40,
+            "count": 401,
+        },
+    )
+    sweep_result = backend.execute(
+        target,
+        "frequency_sweep_create_apply",
+        {"preview_id": sweep_preview["preview_id"]},
+    )
+    assert sweep_result["status"] == "verified"
+    assert sweep_result["sweep_name"] == "Sweep28G"
+    assert sweep_result["project_saved"] is False
+    setup_inventory = backend.execute(
+        target,
+        "setup_inventory",
+        {"product": "hfss", "project_name": "Board", "design_name": "HFSS1"},
+    )
+    assert setup_inventory["setup_count"] == 2
+    assert setup_inventory["setups"][0] == {"name": "Setup1", "sweeps": ["Sweep28G"]}
+    assert setup_inventory["design_unchanged"] is True
     report_preview = backend.execute(
         target,
         "hfss_report_preview",

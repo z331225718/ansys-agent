@@ -307,6 +307,21 @@ def create_server(
         )
 
     @server.tool()
+    async def get_live_aedt_setup_inventory(
+        live_session_id: str,
+        product: str,
+        project_name: str,
+        design_name: str,
+    ) -> dict:
+        """List setup and sweep names for one existing HFSS or HFSS 3D Layout design."""
+        return live.setup_inventory(
+            live_session_id,
+            product=product,
+            project_name=project_name,
+            design_name=design_name,
+        )
+
+    @server.tool()
     async def get_live_hfss_geometry_inventory(
         live_session_id: str,
         project_name: str,
@@ -378,6 +393,54 @@ def create_server(
     ) -> dict:
         """Apply a setup update with native approval, stale-state checks, readback, and rollback."""
         return live.apply_hfss_setup_update(
+            live_session_id,
+            preview_id=preview_id,
+            approval_token=approval_token,
+        )
+
+    @server.tool()
+    async def preview_live_frequency_sweep_create(
+        live_session_id: str,
+        product: str,
+        project_name: str,
+        design_name: str,
+        setup_name: str,
+        sweep_name: str,
+        range_type: str = "LinearCount",
+        sweep_type: str = "Interpolating",
+        unit: str = "GHz",
+        start_frequency: float = 1.0,
+        stop_frequency: float = 10.0,
+        count: int | None = 401,
+        step_size: float | None = None,
+        save_fields: bool = True,
+    ) -> dict:
+        """Preview a bounded linear-count or linear-step sweep for HFSS or HFSS 3D Layout."""
+        return live.preview_frequency_sweep_create(
+            live_session_id,
+            product=product,
+            project_name=project_name,
+            design_name=design_name,
+            setup_name=setup_name,
+            sweep_name=sweep_name,
+            range_type=range_type,
+            sweep_type=sweep_type,
+            unit=unit,
+            start_frequency=start_frequency,
+            stop_frequency=stop_frequency,
+            count=count,
+            step_size=step_size,
+            save_fields=save_fields,
+        )
+
+    @server.tool()
+    async def apply_live_frequency_sweep_create(
+        live_session_id: str,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        """Create and verify one previewed sweep with native approval and rollback on failure."""
+        return live.apply_frequency_sweep_create(
             live_session_id,
             preview_id=preview_id,
             approval_token=approval_token,

@@ -453,6 +453,18 @@ HFSS 3D object/face inventory；应使用 layout path inventory。
 没有变化，成功后 readback；失败时恢复每个属性的原值或删除本次新增属性。创建新 Setup 仍使用独立的
 `preview_live_hfss_setup_create`，避免“更新拼错名称”意外创建第二个 Setup。
 
+HFSS 3D 和 HFSS 3D Layout 都支持受控创建频率 Sweep：
+
+```text
+在 Setup1 下创建 Sweep28G：1GHz 到 40GHz，LinearCount 401 点，Interpolating。
+先确认 Setup 和已有 Sweep，preview 后等待审批，不要自动保存。
+```
+
+先使用 `get_live_aedt_setup_inventory` 获取准确的 Setup/Sweep 名称，再调用
+`preview_live_frequency_sweep_create -> wait_for_live_approval -> apply_live_frequency_sweep_create`。
+Harness 会限制频率单位、范围、点数、step 和 sweep type；同名 Sweep、未知 Setup、负频率、反向范围和过大点数
+会在 preview 阶段拒绝。apply 发生异常时会删除本次创建的 Sweep。
+
 受支持的写操作都必须经过 preview 和原生审批。例如创建 setup：
 
 ```text
