@@ -397,6 +397,8 @@ class LiveAedtBackend:
             "design_name": app.design_name,
             "setup_count": len(names),
             "setups": details,
+            "ports": _port_names(app),
+            "port_order_source": _port_order_source(app),
             "design_unchanged": True,
         }
 
@@ -1129,6 +1131,8 @@ class LiveAedtBackend:
             "snapshot_digest": digest,
             "approval_required": True,
             "export_root": str(self._export_root),
+            "ports": list(state["ports"]),
+            "port_order_source": _port_order_source(app),
             "path_policy": "server_managed_directory_only",
             "project_unchanged": True,
         }
@@ -1186,6 +1190,8 @@ class LiveAedtBackend:
                 "project_name": app.project_name,
                 "design_name": app.design_name,
                 "snapshot_digest": preview["digest"],
+                "ports": list(current["ports"]),
+                "port_order_source": _port_order_source(app),
                 "spec": spec,
                 "artifact": artifact,
             }
@@ -1924,11 +1930,19 @@ def _port_names(app: Any) -> list[str]:
     for attribute in ("ports", "excitation_names", "port_list"):
         values = getattr(app, attribute, None)
         if values is not None:
-            normalized = sorted(str(item) for item in list(values or []))
+            normalized = [str(item) for item in list(values or [])]
             if normalized:
                 return normalized
             fallback = normalized
     return fallback
+
+
+def _port_order_source(app: Any) -> str:
+    for attribute in ("ports", "excitation_names", "port_list"):
+        values = getattr(app, attribute, None)
+        if values is not None and list(values or []):
+            return f"pyaedt.{attribute}"
+    return "unavailable"
 
 
 def _boundary_names(app: Any) -> list[str]:

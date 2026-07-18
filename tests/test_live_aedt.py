@@ -517,6 +517,8 @@ def test_backend_reuses_wrappers_and_lists_live_layout_paths():
     )
     assert setup_inventory["setup_count"] == 2
     assert setup_inventory["setups"][0] == {"name": "Setup1", "sweeps": ["Sweep28G"]}
+    assert setup_inventory["ports"] == ["P1", "P2"]
+    assert setup_inventory["port_order_source"] == "pyaedt.ports"
     assert setup_inventory["design_unchanged"] is True
     report_preview = backend.execute(
         target,
@@ -869,11 +871,15 @@ def test_backend_approved_analysis_cancel_and_restricted_exports(tmp_path: Path,
         {"preview_id": touchstone_preview["preview_id"]},
     )
     artifact_path = Path(touchstone["artifact"]["path"])
+    assert touchstone_preview["ports"] == ["P1", "P2"]
+    assert touchstone_preview["port_order_source"] == "pyaedt.ports"
     assert artifact_path.suffix == ".s2p"
     assert artifact_path.is_relative_to(tmp_path / "exports")
     assert len(touchstone["artifact"]["sha256"]) == 64
     manifest = json.loads(Path(touchstone["manifest_path"]).read_text(encoding="utf-8"))
     assert manifest["artifact"]["sha256"] == touchstone["artifact"]["sha256"]
+    assert manifest["ports"] == ["P1", "P2"]
+    assert manifest["port_order_source"] == "pyaedt.ports"
 
     report_preview = backend.execute(
         target,
@@ -910,6 +916,8 @@ def test_backend_exports_layout_results_with_product_bound_evidence(tmp_path: Pa
     )
 
     assert preview["product"] == "layout"
+    assert preview["ports"] == ["P1", "P2", "P3", "P4"]
+    assert preview["port_order_source"] == "pyaedt.excitation_names"
     exported = backend.execute(target, "hfss_export_apply", {"preview_id": preview["preview_id"]})
 
     artifact_path = Path(exported["artifact"]["path"])
@@ -918,6 +926,7 @@ def test_backend_exports_layout_results_with_product_bound_evidence(tmp_path: Pa
     assert artifact_path.suffix == ".s4p"
     assert manifest["spec"]["product"] == "layout"
     assert manifest["artifact"]["sha256"] == exported["artifact"]["sha256"]
+    assert manifest["ports"] == ["P1", "P2", "P3", "P4"]
 
 
 def test_backend_keeps_submitted_solve_pending_before_export_grace(tmp_path: Path, monkeypatch):

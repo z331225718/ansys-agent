@@ -1,0 +1,57 @@
+id: layout_live_touchstone_score
+version: 1
+description: Export and deterministically score one solved live HFSS 3D Layout Touchstone result using an explicit AEDT port order and port mapping.
+nodes:
+  - id: validate_score_request
+    role: validator
+    kind: program
+    handler: assistant.live.layout.validate_touchstone_score
+    input_schema: live_touchstone_score_request
+    output_schema: live_touchstone_score_validated
+    max_runs: 1
+  - id: preview_export
+    role: preview
+    kind: program
+    handler: assistant.live.layout.preview_results_export
+    input_schema: live_touchstone_score_validated
+    output_schema: live_touchstone_score_preview
+    max_runs: 1
+  - id: apply_export
+    role: apply
+    kind: program
+    handler: assistant.live.layout.apply_results_export
+    input_schema: live_touchstone_score_preview
+    output_schema: live_touchstone_score_exported
+    max_runs: 1
+  - id: score_touchstone
+    role: scorecard
+    kind: program
+    handler: assistant.live.layout.touchstone_scorecard
+    input_schema: live_touchstone_score_exported
+    output_schema: live_touchstone_scorecard
+    max_runs: 1
+edges:
+  - {id: validate-to-preview, from: validate_score_request, to: preview_export, on: succeeded, max_traversals: 1}
+  - {id: preview-to-apply, from: preview_export, to: apply_export, on: succeeded, max_traversals: 1}
+  - {id: apply-to-score, from: apply_export, to: score_touchstone, on: succeeded, max_traversals: 1}
+handoffs:
+  live_touchstone_score_request:
+    required_fields:
+      - setup_name
+      - expected_port_order
+      - sparameter_mode
+      - source_ports
+      - destination_ports
+      - frequency_start_ghz
+      - frequency_stop_ghz
+      - rl_target_db
+      - insertion_loss_min_db
+      - reference_impedance_ohm
+  live_touchstone_score_validated:
+    required_fields: [export_kind, export_spec, score_spec, analysis_status, setup_inventory, live_session_reused]
+  live_touchstone_score_preview:
+    required_fields: [export_spec, score_spec, operation_preview_id, operation_approval, operation_preview, live_session_reused]
+  live_touchstone_score_exported:
+    required_fields: [export_spec, score_spec, export_result, operation_preview, live_session_reused]
+  live_touchstone_scorecard:
+    required_fields: [status, checks, score, summary, artifact_refs, live_session_reused]

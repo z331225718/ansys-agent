@@ -64,6 +64,9 @@ def create_server(
             "advance, wait for native approval, and execute at most one graph step per approved apply."
             " A live workflow operation token is distinct from its graph-step token and may only be passed in "
             "operation_approval_token after wait_for_live_approval approves the operation preview."
+            " For layout_live_touchstone_score, read the current setup inventory first and pass the exact AEDT "
+            "port order plus explicit source/destination mapping; never infer a differential pair or claim TDR "
+            "verification from its frequency-domain score."
         ),
     )
 

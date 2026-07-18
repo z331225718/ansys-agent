@@ -64,6 +64,8 @@ class _Live:
         return {
             "setup_count": 1,
             "setups": [{"name": "SetupL", "sweeps": ["Sweep1"]}],
+            "ports": ["P1", "P2"],
+            "port_order_source": "pyaedt.excitation_names",
             "design_unchanged": True,
         }
 
@@ -126,6 +128,8 @@ class _Live:
         return {
             "preview_id": "export-preview-1",
             **self.export_spec,
+            "ports": ["P1", "P2"],
+            "port_order_source": "pyaedt.excitation_names",
             "approval_request": {"action": "hfss.results.export"},
             "approval_required": True,
             "project_unchanged": True,
@@ -138,7 +142,12 @@ class _Live:
         output = self.export_root / preview_id
         output.mkdir(parents=True)
         artifact_path = output / f"{self.export_spec['artifact_name']}.s2p"
-        artifact_path.write_text("# Hz S RI R 50\n", encoding="ascii")
+        artifact_path.write_text(
+            "# GHZ S RI R 50\n"
+            "1 0.1 0 0.8 0 0.8 0 0.1 0\n"
+            "2 0.12 0 0.7 0 0.7 0 0.12 0\n",
+            encoding="ascii",
+        )
         digest = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
         artifact = {"path": str(artifact_path), "sha256": digest, "bytes": artifact_path.stat().st_size}
         spec = {
@@ -153,6 +162,8 @@ class _Live:
             "project_name": "demo",
             "design_name": "layout",
             "spec": spec,
+            "ports": ["P1", "P2"],
+            "port_order_source": "pyaedt.excitation_names",
             "artifact": artifact,
         }
         manifest_path = output / f"{artifact_path.name}.evidence.json"
@@ -204,6 +215,20 @@ def test_default_workflow_catalog_includes_live_monitor_and_export(tmp_path: Pat
     assert descriptors["layout_live_solve_export"]["risk"] == "expensive"
     assert descriptors["layout_live_solve_export"]["attached_live_session_reuse"] is True
     assert descriptors["layout_live_solve_export"]["recommended_initial_fields"] == ["export_kind", "setup_name"]
+    assert descriptors["layout_live_touchstone_score"]["risk"] == "persistent_write"
+    assert descriptors["layout_live_touchstone_score"]["attached_live_session_reuse"] is True
+    assert descriptors["layout_live_touchstone_score"]["recommended_initial_fields"] == [
+        "destination_ports",
+        "expected_port_order",
+        "frequency_start_ghz",
+        "frequency_stop_ghz",
+        "insertion_loss_min_db",
+        "reference_impedance_ohm",
+        "rl_target_db",
+        "setup_name",
+        "source_ports",
+        "sparameter_mode",
+    ]
     assert manager.inspect_workflow("layout_live_solve_monitor")["graph"]["edges"][1]["on"] == "running"
 
 
@@ -483,6 +508,62 @@ def test_live_layout_results_export_workflow_writes_verified_artifacts(tmp_path:
     assert scorecard["output_payload"]["status"] == "passed"
     assert scorecard["output_payload"]["summary"]["artifact_path"].endswith("SetupL.s2p")
     assert len(scorecard["artifact_refs"]) == 2
+    assert "export-approved" not in str(report)
+
+
+def test_live_layout_touchstone_score_uses_verified_port_mapping(tmp_path: Path):
+    live = _Live()
+    live.export_root = tmp_path / "score-exports"
+    live.analysis_statuses = [
+        {"product": "layout", "running": False, "setup_name": "SetupL", "latest_run": {"run_id": "run-1", "state": "not_running"}}
+    ]
+    manager = AssistantWorkflowManager(
+        live_manager=live,
+        db_path=tmp_path / "score-missions.db",
+        template_ids=("layout_live_touchstone_score",),
+        runtime_factory=lambda path: AgentRuntime(SQLiteMissionStore(path)),
+    )
+    start = manager.preview_start(
+        "live-1",
+        workflow_id="layout_live_touchstone_score",
+        goal="Export and score an explicitly mapped layout channel",
+        initial_payload={
+            "setup_name": "SetupL",
+            "sweep_name": "Sweep1",
+            "artifact_name": "mapped-channel",
+            "expected_port_order": ["P1", "P2"],
+            "sparameter_mode": "single_ended",
+            "source_ports": ["P1"],
+            "destination_ports": ["P2"],
+            "frequency_start_ghz": 1.0,
+            "frequency_stop_ghz": 2.0,
+            "rl_target_db": -15.0,
+            "insertion_loss_min_db": -4.0,
+            "reference_impedance_ohm": 50.0,
+        },
+    )
+    started = manager.apply_start("live-1", preview_id=start["preview_id"], approval_token="approved")
+
+    report = None
+    for index in range(4):
+        advance = manager.preview_advance("live-1", graph_run_id=started["graph_run_id"])
+        if index == 2:
+            assert advance["operation_approval_required"]["preview_id"] == "export-preview-1"
+        report = manager.apply_advance(
+            "live-1",
+            preview_id=advance["preview_id"],
+            approval_token="approved",
+            operation_approval_token="export-approved" if index == 2 else "",
+        )
+
+    assert report is not None and report["status"] == "succeeded"
+    scorecard = report["node_runs"][-1]
+    assert scorecard["output_payload"]["status"] == "passed"
+    assert scorecard["output_payload"]["summary"]["return_loss_trace"] == "S(P1,P1)"
+    assert scorecard["output_payload"]["summary"]["insertion_loss_trace"] == "S(P2,P1)"
+    assert scorecard["output_payload"]["summary"]["tdr_evaluated"] is False
+    assert len(scorecard["artifact_refs"]) == 3
+    assert Path(scorecard["output_payload"]["summary"]["score_evidence_path"]).is_file()
     assert "export-approved" not in str(report)
 
 

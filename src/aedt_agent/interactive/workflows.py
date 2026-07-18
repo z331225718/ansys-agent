@@ -19,6 +19,7 @@ _DEFAULT_TEMPLATE_IDS = (
     "layout_live_solve_export",
     "layout_live_solve_monitor",
     "layout_live_solve_start",
+    "layout_live_touchstone_score",
     "brd_before_after_compare",
     "brd_channel_optimize",
     "brd_iterative_optimize",
@@ -38,6 +39,7 @@ _LIVE_SESSION_WORKFLOWS = frozenset(
         "layout_live_solve_export",
         "layout_live_solve_monitor",
         "layout_live_solve_start",
+        "layout_live_touchstone_score",
     }
 )
 _LIVE_WORKFLOW_RISKS = {
@@ -47,6 +49,7 @@ _LIVE_WORKFLOW_RISKS = {
     "layout_live_solve_export": "expensive",
     "layout_live_solve_monitor": "read_only",
     "layout_live_solve_start": "expensive",
+    "layout_live_touchstone_score": "persistent_write",
 }
 
 
@@ -387,6 +390,7 @@ def _operation_approval_requirement(report: dict[str, Any]) -> dict[str, Any] | 
         "layout_live_results_export": {"preview_export"},
         "layout_live_solve_export": {"preview_analysis", "preview_export"},
         "layout_live_solve_start": {"preview_analysis"},
+        "layout_live_touchstone_score": {"preview_export"},
     }
     expected_nodes = preview_nodes.get(str(report.get("template_id") or ""))
     if expected_nodes is None:

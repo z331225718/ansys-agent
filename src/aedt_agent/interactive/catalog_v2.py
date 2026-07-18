@@ -70,7 +70,11 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             "read_only",
             ["live"],
             ["get_live_aedt_setup_inventory"],
-            postconditions=["design_unchanged", "setup_and_sweep_names_returned"],
+            postconditions=[
+                "design_unchanged",
+                "setup_and_sweep_names_returned",
+                "aedt_port_order_returned",
+            ],
         ),
         _cap(
             "hfss.geometry.inventory",
@@ -287,6 +291,27 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             approval="external_host_token_per_start_and_step",
             side_effects=["mission_state_written", "approved_graph_step_may_run_workers"],
             postconditions=["target_binding_verified", "one_scheduler_step_per_apply"],
+        ),
+        _cap(
+            "layout.results.touchstone_score",
+            "persistent_write",
+            ["workflow"],
+            [
+                "inspect_ansys_workflow",
+                "preview_ansys_workflow_start",
+                "apply_ansys_workflow_start",
+                "preview_ansys_workflow_advance",
+                "apply_ansys_workflow_advance",
+            ],
+            approval="external_host_token_per_step_and_export",
+            side_effects=["touchstone_and_score_evidence_written_to_managed_export_root"],
+            postconditions=[
+                "workflow_id_layout_live_touchstone_score",
+                "explicit_port_order_and_mapping_verified",
+                "source_artifact_sha256_verified",
+                "project_unchanged_and_not_saved",
+            ],
+            products=["layout"],
         ),
     ]
     unavailable = []

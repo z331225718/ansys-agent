@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from pathlib import Path
 from typing import Any
 
+from aedt_agent.agent.evaluation import build_sparameter_evidence
 from aedt_agent.agent.graph_executors import GraphNodeExecutionContext, GraphNodeExecutorRegistry
+from aedt_agent.layout.mapped_touchstone import score_mapped_touchstone
 
 
 def register_live_workflow_handlers(
@@ -80,6 +83,14 @@ def register_live_workflow_handlers(
     registry.register(
         "assistant.live.layout.results_export_scorecard",
         lambda context: _results_export_scorecard(context, live_manager, binding_resolver),
+    )
+    registry.register(
+        "assistant.live.layout.validate_touchstone_score",
+        lambda context: _validate_touchstone_score(context, live_manager, binding_resolver),
+    )
+    registry.register(
+        "assistant.live.layout.touchstone_scorecard",
+        lambda context: _touchstone_scorecard(context, live_manager, binding_resolver),
     )
 
 
@@ -633,6 +644,239 @@ def _results_export_scorecard(context, live_manager, binding_resolver) -> dict[s
     )
 
 
+def _validate_touchstone_score(context, live_manager, binding_resolver) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, project_name, design_name, _ = _live_target(context, binding_resolver)
+    mode = str(payload.get("sparameter_mode") or "").strip().casefold()
+    if mode not in {"single_ended", "differential"}:
+        raise ValueError("sparameter_mode must be single_ended or differential")
+    expected_port_order = _name_list(payload.get("expected_port_order"), "expected_port_order")
+    expected_count = 1 if mode == "single_ended" else 2
+    source_ports = _name_list(payload.get("source_ports"), "source_ports", expected_count)
+    destination_ports = _name_list(
+        payload.get("destination_ports"),
+        "destination_ports",
+        expected_count,
+    )
+    if set(source_ports).intersection(destination_ports):
+        raise ValueError("source_ports and destination_ports must not overlap")
+    missing_ports = [
+        item
+        for item in [*source_ports, *destination_ports]
+        if item not in expected_port_order
+    ]
+    if missing_ports:
+        raise ValueError(f"scoring ports are absent from expected_port_order: {missing_ports}")
+    score_spec = {
+        "sparameter_mode": mode,
+        "expected_port_order": expected_port_order,
+        "source_ports": source_ports,
+        "destination_ports": destination_ports,
+        "frequency_start_ghz": _finite_number(payload, "frequency_start_ghz"),
+        "frequency_stop_ghz": _finite_number(payload, "frequency_stop_ghz"),
+        "rl_target_db": _finite_number(payload, "rl_target_db"),
+        "insertion_loss_min_db": _finite_number(payload, "insertion_loss_min_db"),
+        "reference_impedance_ohm": _finite_number(payload, "reference_impedance_ohm"),
+    }
+    if score_spec["frequency_start_ghz"] < 0 or score_spec["frequency_stop_ghz"] <= score_spec["frequency_start_ghz"]:
+        raise ValueError("frequency range must satisfy 0 <= start < stop")
+    if score_spec["rl_target_db"] > 0 or score_spec["insertion_loss_min_db"] > 0:
+        raise ValueError("RL and insertion-loss limits must be non-positive dB values")
+    if score_spec["reference_impedance_ohm"] <= 0:
+        raise ValueError("reference_impedance_ohm must be positive")
+
+    status = live_manager.hfss_analysis_status(
+        session_id,
+        product="layout",
+        project_name=project_name,
+        design_name=design_name,
+        setup_name=str(payload.get("setup_name") or "").strip(),
+    )
+    latest_run = dict(status.get("latest_run") or {})
+    if status.get("running") is True or latest_run.get("state") in {"submitted", "running"}:
+        raise ValueError("cannot score live layout results while AEDT solve is running or pending")
+    inventory = live_manager.setup_inventory(
+        session_id,
+        product="layout",
+        project_name=project_name,
+        design_name=design_name,
+    )
+    actual_port_order = [str(item) for item in inventory.get("ports") or []]
+    if actual_port_order != expected_port_order:
+        raise ValueError(
+            "expected_port_order does not match the current AEDT excitation order; refresh setup inventory"
+        )
+    setup_name = str(payload.get("setup_name") or "").strip()
+    sweep_name = str(payload.get("sweep_name") or "").strip()
+    setup = next((item for item in inventory.get("setups", []) if item.get("name") == setup_name), None)
+    if setup is None:
+        raise ValueError("Touchstone score requires an existing setup_name")
+    if sweep_name and sweep_name not in set(setup.get("sweeps") or []):
+        raise ValueError(f"unknown sweep {sweep_name} in setup {setup_name}")
+    export_spec = {
+        "product": "layout",
+        "export_kind": "touchstone",
+        "setup_name": setup_name,
+        "sweep_name": sweep_name,
+        "report_name": "",
+        "artifact_name": str(payload.get("artifact_name") or "").strip(),
+    }
+    return _success(
+        {
+            **payload,
+            "export_kind": "touchstone",
+            "score_spec": score_spec,
+            "export_spec": export_spec,
+            "analysis_status": status,
+            "setup_inventory": inventory,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _touchstone_scorecard(context, live_manager, binding_resolver) -> dict[str, Any]:
+    payload = _payload(context)
+    _, project_name, design_name, _ = _live_target(context, binding_resolver)
+    result = dict(payload.get("export_result") or payload.get("operation_result") or {})
+    artifact = dict(result.get("artifact") or {})
+    artifact_path = Path(str(artifact.get("path") or ""))
+    manifest_path = Path(str(result.get("manifest_path") or ""))
+    artifact_exists = artifact_path.is_file()
+    manifest_exists = manifest_path.is_file()
+    actual_sha256 = _file_sha256(artifact_path) if artifact_exists else ""
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_exists else {}
+    except (OSError, ValueError, TypeError):
+        manifest = {}
+    manifest_artifact = dict(manifest.get("artifact") or {})
+    score_spec = dict(payload.get("score_spec") or {})
+    expected_ports = list(score_spec.get("expected_port_order") or [])
+    preview_ports = list((payload.get("operation_preview") or {}).get("ports") or [])
+    manifest_ports = list(manifest.get("ports") or [])
+    checks = [
+        _check("verified_export", result.get("status") == "verified"),
+        _check("layout_product", result.get("product") == "layout"),
+        _check("touchstone_export", payload.get("export_kind") == "touchstone"),
+        _check("artifact_exists", artifact_exists),
+        _check("artifact_nonempty", artifact_exists and artifact_path.stat().st_size > 0),
+        _check("artifact_sha256", bool(actual_sha256) and artifact.get("sha256") == actual_sha256),
+        _check("manifest_exists", manifest_exists),
+        _check(
+            "manifest_artifact",
+            manifest_artifact.get("path") == str(artifact_path)
+            and manifest_artifact.get("sha256") == actual_sha256
+            and manifest_artifact.get("bytes") == artifact.get("bytes"),
+        ),
+        _check("manifest_colocated", manifest_exists and artifact_exists and manifest_path.parent == artifact_path.parent),
+        _check("manifest_target", manifest.get("project_name") == project_name and manifest.get("design_name") == design_name),
+        _check("manifest_spec", manifest.get("spec") == payload.get("export_spec")),
+        _check("preview_port_order", preview_ports == expected_ports),
+        _check("manifest_port_order", manifest_ports == expected_ports),
+        _check("project_unchanged", result.get("project_unchanged") is True),
+        _check("project_not_saved", result.get("project_saved") is False),
+    ]
+    if not all(item["passed"] for item in checks):
+        artifact_refs = [str(path) for path in (artifact_path, manifest_path) if path.is_file()]
+        return _success(
+            {
+                **payload,
+                "status": "failed",
+                "checks": checks,
+                "summary": {"reason": "export evidence or port order verification failed"},
+                "artifact_refs": artifact_refs,
+                "live_session_reused": True,
+            },
+            outcome="failed",
+            artifact_refs=artifact_refs,
+        )
+
+    score = score_mapped_touchstone(
+        artifact_path,
+        port_order=expected_ports,
+        sparameter_mode=str(score_spec["sparameter_mode"]),
+        source_ports=list(score_spec["source_ports"]),
+        destination_ports=list(score_spec["destination_ports"]),
+        frequency_start_ghz=float(score_spec["frequency_start_ghz"]),
+        frequency_stop_ghz=float(score_spec["frequency_stop_ghz"]),
+        rl_target_db=float(score_spec["rl_target_db"]),
+        insertion_loss_min_db=float(score_spec["insertion_loss_min_db"]),
+        reference_impedance_ohm=float(score_spec["reference_impedance_ohm"]),
+    )
+    bounded_samples = list(score.pop("bounded_samples"))
+    spectral_evidence = build_sparameter_evidence(
+        trace_id=f"{context.graph_run.graph_run_id}:{score['return_loss_trace']}",
+        samples=bounded_samples,
+        artifact_ref=str(artifact_path),
+        rl_target_db=float(score["rl_target_db"]),
+        bucket_count=min(128, max(1, len(bounded_samples))),
+    )
+    evidence_path = artifact_path.parent / f"{artifact_path.stem}.touchstone-score.json"
+    evidence_payload = {
+        "schema_version": 1,
+        "source_artifact": {
+            "path": str(artifact_path),
+            "sha256": actual_sha256,
+            "bytes": artifact_path.stat().st_size,
+        },
+        "export_manifest": str(manifest_path),
+        "score_spec": score_spec,
+        "score": score,
+        "sparameter_evidence": spectral_evidence,
+    }
+    temporary_path = evidence_path.with_suffix(evidence_path.suffix + ".tmp")
+    temporary_path.write_text(
+        json.dumps(evidence_payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    temporary_path.replace(evidence_path)
+    evidence_sha256 = _file_sha256(evidence_path)
+    checks.extend(
+        [
+            _check("score_evidence_exists", evidence_path.is_file()),
+            _check("score_evidence_nonempty", evidence_path.stat().st_size > 0),
+            _check("score_source_sha256", evidence_payload["source_artifact"]["sha256"] == actual_sha256),
+        ]
+    )
+    passed = all(item["passed"] for item in checks) and score["status"] == "pass"
+    artifact_refs = [str(artifact_path), str(manifest_path), str(evidence_path)]
+    output = {
+        **payload,
+        "status": "passed" if passed else "failed",
+        "checks": checks,
+        "score": score,
+        "sparameter_evidence": spectral_evidence,
+        "summary": {
+            "score_status": score["status"],
+            "touchstone_kind": score["touchstone_kind"],
+            "sparameter_mode": score["sparameter_mode"],
+            "port_order": score["port_order"],
+            "source_ports": score["source_ports"],
+            "destination_ports": score["destination_ports"],
+            "return_loss_trace": score["return_loss_trace"],
+            "insertion_loss_trace": score["insertion_loss_trace"],
+            "rl_target_db": score["rl_target_db"],
+            "rl_worst_db": score["rl_worst_db"],
+            "rl_worst_frequency_ghz": score["rl_worst_frequency_ghz"],
+            "insertion_loss_min_db": score["insertion_loss_min_db"],
+            "insertion_worst_db_in_band": score["insertion_worst_db_in_band"],
+            "insertion_worst_frequency_ghz": score["insertion_worst_frequency_ghz"],
+            "reference_impedance_ohm": score["reference_impedance_ohm"],
+            "tdr_evaluated": False,
+            "artifact_path": str(artifact_path),
+            "manifest_path": str(manifest_path),
+            "score_evidence_path": str(evidence_path),
+            "score_evidence_sha256": evidence_sha256,
+        },
+        "artifact_refs": artifact_refs,
+        "live_session_reused": True,
+    }
+    return _success(
+        output,
+        outcome="passed" if passed else "failed",
+        artifact_refs=artifact_refs,
+    )
+
+
 def _live_target(context, binding_resolver) -> tuple[str, str, str, dict[str, Any]]:
     binding = binding_resolver(context.graph_run.graph_run_id)
     session_id = str(binding.get("live_session_id") or "")
@@ -646,6 +890,32 @@ def _live_target(context, binding_resolver) -> tuple[str, str, str, dict[str, An
 
 def _check(name: str, passed: bool) -> dict[str, Any]:
     return {"name": name, "passed": bool(passed)}
+
+
+def _name_list(value: Any, field: str, expected_count: int | None = None) -> list[str]:
+    if not isinstance(value, list) or not value:
+        raise ValueError(f"{field} must be a non-empty list")
+    names = [str(item).strip() for item in value]
+    if any(not item for item in names):
+        raise ValueError(f"{field} contains an empty name")
+    if len(set(names)) != len(names):
+        raise ValueError(f"{field} contains duplicate names")
+    if expected_count is not None and len(names) != expected_count:
+        raise ValueError(f"{field} must contain exactly {expected_count} port name(s)")
+    return names
+
+
+def _finite_number(payload: dict[str, Any], field: str) -> float:
+    value = payload.get(field)
+    if isinstance(value, bool):
+        raise ValueError(f"{field} must be numeric")
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field} must be numeric") from exc
+    if not math.isfinite(result):
+        raise ValueError(f"{field} must be finite")
+    return result
 
 
 def _payload(context: GraphNodeExecutionContext) -> dict[str, Any]:
