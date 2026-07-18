@@ -48,6 +48,7 @@ def test_successful_worker_execution_creates_succeeded_attempt(tmp_path):
     assert attempts[0].status.value == "succeeded"
     assert attempts[0].attempt_number == 1
     assert attempts[0].worker_id == "worker-1"
+    assert attempts[0].lease_id is not None
     assert attempts[0].retry_decision == "none"
 
 

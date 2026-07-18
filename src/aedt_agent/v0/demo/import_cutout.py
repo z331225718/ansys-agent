@@ -985,7 +985,7 @@ def apply_cadence_launcher_environment(launcher: Path) -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
     for key, value in assignments.items():
         if key.startswith(("AWP_ROOT", "ANSYSEM_ROOT")) and value:
-            os.environ[key] = value
+            os.environ[key] = os.path.normpath(os.path.expanduser(value))
 
 
 def apply_aedt_environment(version: str, *, ansysem_root: str = "", awp_root: str = "") -> None:

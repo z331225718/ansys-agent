@@ -1,0 +1,33 @@
+{
+  "version": "synthetic-test-fixture-v1",
+  "tasks": {
+    "L1_create_wave_port": {
+      "metadata": {
+        "level": "L1"
+      },
+      "C": {
+        "final_pass": false,
+        "failure_type": "runtime_error",
+        "attempts": [
+          {
+            "attempt": 1
+          },
+          {
+            "attempt": 2
+          }
+        ],
+        "node_steps": [
+          {
+            "node_id": "create_conductor_or_geometry_group"
+          },
+          {
+            "node_id": "select_face"
+          },
+          {
+            "node_id": "create_port"
+          }
+        ]
+      }
+    }
+  }
+}

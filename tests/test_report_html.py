@@ -1,5 +1,3 @@
-import json
-from pathlib import Path
 
 from aedt_agent.benchmark.report_html import render_html_report, write_html_report
 

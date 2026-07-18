@@ -96,6 +96,32 @@ def build_parser() -> argparse.ArgumentParser:
     graph_status_parser = mission_commands.add_parser("graph-status")
     graph_status_parser.add_argument("--graph-run-id", required=True)
 
+    replay_parser = mission_commands.add_parser("replay")
+    replay_parser.add_argument("--graph-run-id", required=True)
+    replay_parser.add_argument("--format", choices=["text", "json"], default="text")
+
+    intervene_parser = mission_commands.add_parser("intervene")
+    intervene_parser.add_argument("--graph-run-id", required=True)
+    intervene_parser.add_argument(
+        "--action",
+        required=True,
+        choices=["retry-node", "cancel-branch"],
+    )
+    intervene_parser.add_argument("--node-id", required=True)
+    intervene_parser.add_argument("--expected-event-cursor", required=True, type=int)
+    intervene_parser.add_argument("--idempotency-key", required=True)
+    intervene_parser.add_argument("--reason", required=True)
+
+    artifact_prune_parser = mission_commands.add_parser("artifact-prune")
+    artifact_prune_parser.add_argument("--mission-id", required=True)
+    artifact_prune_parser.add_argument("--root", required=True, type=Path)
+    artifact_prune_parser.add_argument("--older-than-hours", type=float, default=24.0)
+    artifact_prune_parser.add_argument("--apply", action="store_true")
+
+    real_acceptance_parser = mission_commands.add_parser("real-acceptance")
+    real_acceptance_parser.add_argument("--graph-run-id", required=True)
+    real_acceptance_parser.add_argument("--output", type=Path)
+
     graph_visualize_parser = mission_commands.add_parser("graph-visualize")
     graph_visualize_parser.add_argument("--graph-run-id", required=True)
     graph_visualize_parser.add_argument("--format", choices=["ascii", "mermaid"], default="ascii")
@@ -465,6 +491,121 @@ def run(argv: Sequence[str] | None = None) -> int:
 
         _print_json(graph_status(runtime, args.graph_run_id))
         return 0
+
+    if args.group == "mission" and args.mission_command == "replay":
+        from aedt_agent.agent.event_replay import replay_graph_run, render_replay_text
+
+        replay = replay_graph_run(runtime, args.graph_run_id)
+        if args.format == "json":
+            _print_json(replay)
+        else:
+            print(render_replay_text(replay))
+        return 0
+
+    if args.group == "mission" and args.mission_command == "intervene":
+        from aedt_agent.agent.graph_interventions import intervene_graph
+
+        result = intervene_graph(
+            runtime,
+            graph_run_id=args.graph_run_id,
+            action=args.action,
+            node_id=args.node_id,
+            expected_event_cursor=args.expected_event_cursor,
+            idempotency_key=args.idempotency_key,
+            reason=args.reason,
+        )
+        _print_json(result)
+        return 0 if result.get("ok") else 2
+
+    if args.group == "mission" and args.mission_command == "artifact-prune":
+        from aedt_agent.agent.artifact_retention import prune_mission_artifacts
+
+        try:
+            report = prune_mission_artifacts(
+                runtime,
+                args.mission_id,
+                args.root,
+                older_than_hours=args.older_than_hours,
+                apply=args.apply,
+            )
+        except Exception as exc:
+            report = {
+                "status": "blocked",
+                "dry_run": not args.apply,
+                "mission_id": args.mission_id,
+                "root": str(args.root),
+                "candidate_count": 0,
+                "candidate_bytes": 0,
+                "deleted_count": 0,
+                "deleted_bytes": 0,
+                "candidates": [],
+                "skipped": [],
+                "failures": [
+                    {
+                        "reason": "internal_error",
+                        "error_type": type(exc).__name__,
+                        "message": str(exc),
+                    }
+                ],
+            }
+        _print_json(report)
+        return 0 if report["status"] in {"dry_run", "applied"} else 2
+
+    if args.group == "mission" and args.mission_command == "real-acceptance":
+        from aedt_agent.agent.mission import utc_now_iso
+        from aedt_agent.agent.real_aedt_acceptance import (
+            validate_real_aedt_acceptance,
+            write_real_aedt_acceptance_report,
+        )
+
+        try:
+            report = validate_real_aedt_acceptance(
+                runtime,
+                args.graph_run_id,
+            )
+        except Exception as exc:
+            report = {
+                "status": "failed",
+                "graph_run_id": args.graph_run_id,
+                "mission_id": "",
+                "checks": [
+                    {
+                        "id": "acceptance_validation_completed",
+                        "passed": False,
+                        "details": {
+                            "error_type": type(exc).__name__,
+                            "message": str(exc),
+                        },
+                    }
+                ],
+                "failed_check_ids": ["acceptance_validation_completed"],
+                "artifact_refs": [],
+                "generated_at": utc_now_iso(),
+            }
+        if args.output is not None:
+            try:
+                write_real_aedt_acceptance_report(report, args.output)
+            except Exception as exc:
+                report["checks"].append(
+                    {
+                        "id": "acceptance_report_written",
+                        "passed": False,
+                        "details": {
+                            "path": str(args.output),
+                            "error_type": type(exc).__name__,
+                            "message": str(exc),
+                        },
+                    }
+                )
+                report["status"] = "failed"
+                report["failed_check_ids"] = sorted(
+                    {
+                        *report["failed_check_ids"],
+                        "acceptance_report_written",
+                    }
+                )
+        _print_json(report)
+        return 0 if report["status"] == "passed" else 2
 
     if args.group == "mission" and args.mission_command == "graph-visualize":
         from aedt_agent.agent.graph_runner import graph_status

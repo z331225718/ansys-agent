@@ -1,5 +1,10 @@
 # ansys-agent
 
+AEDT Automation Tab 的 Claude Code 入口见
+[`docs/aedt-desktop-claude-entry.md`](docs/aedt-desktop-claude-entry.md)。
+未知能力的 API Memory、受控探索与 Harness 晋升设计见
+[`docs/ansys-capability-evolution.md`](docs/ansys-capability-evolution.md)。
+
 ansys-agent 是面向高速 BRD / AEDT 仿真的工程 agent 系统。当前重点不是旧的
 Stage C demo，而是把“脚本式仿真工具”升级为可编排、可审计、可接管的工程
 闭环：
@@ -11,6 +16,11 @@ User goal
   -> agent / program / worker / human_gate / scorecard nodes
   -> AEDT artifacts + bounded evidence + optimization report
 ```
+
+对于没有预定义 Workflow 的临时 Ansys 查询和受控修改，仓库另提供加法式
+[`ansys-assistant`](docs/interactive-ansys-assistant.md) 入口。它当前可以枚举 HFSS 3D
+Layout 走线，并在自动创建的工作副本中把指定线宽参数化；现有 YAML Graph 和 BRD
+Worker 行为保持不变。
 
 ## 当前核心原则
 

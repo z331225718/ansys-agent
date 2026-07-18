@@ -14,7 +14,12 @@ from urllib import request as urlrequest
 
 from aedt_agent.v0.chat.workflow_planner import _parameter_overrides
 from aedt_agent.v0.demo.config import AedtConfig, PlannerConfig
-from aedt_agent.v0.demo.import_cutout import build_import_cutout_request, read_tdr_csv, run_fake_import_cutout, run_real_import_cutout
+from aedt_agent.v0.demo.import_cutout import (
+    build_import_cutout_request,
+    read_tdr_csv,
+    run_fake_import_cutout,
+    run_real_import_cutout,  # noqa: F401 - compatibility hook for integration guards
+)
 from aedt_agent.v0.demo.planner import PlannerRunner, WorkflowProposalClient, _parse_json_content
 from aedt_agent.v0.demo.tuning import _advisor_advice, _parse_frequency_hz, find_s11_resonance, next_dipole_arm_length, run_fake_dipole_tuning
 from aedt_agent.layout.progress import BrdWorkflowProgressWriter
@@ -977,19 +982,6 @@ def _target_frequency_hz(parameters: Any) -> float | None:
     if not isinstance(parameters, dict):
         return None
     return _parse_frequency_hz(parameters.get("frequency"))
-
-
-def _parse_frequency_hz(value: Any) -> float | None:
-    if isinstance(value, (int, float)):
-        return float(value)
-    if not isinstance(value, str):
-        return None
-    import re
-
-    match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*([GMK]?Hz)\s*", value, re.IGNORECASE)
-    if not match:
-        return None
-    return _frequency_to_hz(float(match.group(1)), match.group(2))
 
 
 def _frequency_to_hz(value: float, unit: str) -> float:

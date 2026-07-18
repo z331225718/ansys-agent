@@ -187,7 +187,7 @@ def compare_channel_scores(before: dict[str, Any], after: dict[str, Any]) -> dic
     rl_improved = rl_delta < 0
     tdr_improved = tdr_delta < 0
     objective_improved = objective_delta is not None and objective_delta < 0
-    if rl_improved and (tdr_improved or objective_improved):
+    if rl_improved and tdr_delta <= 0 and (tdr_improved or objective_improved):
         status = "improved"
         summary = "RL 改善，TDR 目标函数也改善。"
     elif not rl_improved and not tdr_improved and not objective_improved:

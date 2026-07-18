@@ -32,7 +32,6 @@ def test_run_offline_benchmark_reports_group_results(tmp_path):
 
 
 def test_run_offline_benchmark_can_generate_candidates(tmp_path):
-    from aedt_agent.benchmark.generator import CodeGenerator
 
     class StubGenerator:
         def generate(self, context: str, filename: str | None = None) -> str:

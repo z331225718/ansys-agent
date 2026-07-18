@@ -1,0 +1,251 @@
+# 通用交互式 Ansys 助手
+
+`ansys-assistant` 是现有 YAML Workflow 之外的加法式交互入口。它面向临时查询和受控模型
+修改，不改变已有 BRD 优化图、worker 或 mission 状态机。
+
+当前稳定纵向切片支持 HFSS 3D Layout：
+
+- 打开 `.aedt` 加同名 `.aedb` sidecar，或直接打开 `.aedb`。
+- 枚举 Path/trace，并按线宽、net、layer、primitive id 筛选。
+- 预览把一组 Path 的宽度绑定到 design parameter。
+- 仅在自动创建的工作副本中应用修改。
+- 回读表达式和 primitive 参数化状态，失败时回滚。
+
+新增 live control plane 还能受控启动 AEDT，或发现并显式连接正在运行的 AEDT，会话内复用
+PyAEDT broker，读取工程信息、HFSS geometry/setup/port/boundary/report inventory、受控创建
+setup、radiation boundary、wave/lumped port 和 report、驱动 analysis，并查询 live 3D Layout Path。
+在 Desktop-bound strict 会话和推荐的生产链路中，live edit、setup/boundary/report、solve/cancel/export
+与 project save 都采用 preview/apply 两阶段操作，并使用外部 Host 签发的短期批准令牌。通用 MCP
+仍保留 `create_live_hfss_design` 和 `start_live_hfss_analysis` 兼容入口；它们不属于 Desktop 生产链路，
+strict Desktop 会拒绝直接写入路径。
+
+## 安装
+
+CLI 使用项目基础依赖；MCP server 还需要 `mcp` extra：
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[mcp]"
+```
+
+也可以不安装 console script，直接使用模块入口：
+
+```powershell
+$env:PYTHONPATH = "src"
+.\.venv\Scripts\python.exe -m aedt_agent.interactive capabilities
+```
+
+## CLI
+
+列出 Agent 可见的机器可读能力和 schema：
+
+```powershell
+ansys-assistant capabilities
+```
+
+查看兼容的统一 live/artifact v2 catalog：
+
+```powershell
+ansys-assistant capabilities-v2
+```
+
+发现运行中的 AEDT，不建立连接：
+
+```powershell
+ansys-assistant live-sessions
+```
+
+启动一个非图形 AEDT gRPC 会话；CLI 释放 wrapper，但 AEDT 继续运行：
+
+```powershell
+ansys-assistant live-launch --aedt-version 2026.1 --non-graphical
+```
+
+显式连接一个 PID，读取工程信息后释放 wrapper；不会关闭 AEDT 或工程：
+
+```powershell
+ansys-assistant live-info --pid 12345
+```
+
+查看所有 `0.1mm` 走线：
+
+```powershell
+ansys-assistant inspect-layout `
+  --project C:\cases\board.aedt `
+  --target-width 0.1mm `
+  --tolerance 0.1um
+```
+
+只生成参数化预览，不应用：
+
+```powershell
+ansys-assistant parameterize-width `
+  --project C:\cases\board.aedt `
+  --target-width 0.1mm `
+  --tolerance 0.1um `
+  --variable-name trace_w
+```
+
+确认预览逻辑后应用到自动创建的工作副本：
+
+```powershell
+ansys-assistant parameterize-width `
+  --project C:\cases\board.aedt `
+  --target-width 0.1mm `
+  --tolerance 0.1um `
+  --net DDR_DQ0 `
+  --layer L1 `
+  --variable-name trace_w `
+  --variable-value 0.1mm `
+  --workspace C:\cases\assistant-runs `
+  --apply
+```
+
+命令始终输出 JSON。成功结果中的 `working_project_path` 是应当在 AEDT 中打开和检查的
+副本；源工程不会被覆盖。
+
+## MCP
+
+仓库提供 [`config/harness/interactive_ansys_assistant_mcp.json`](../config/harness/interactive_ansys_assistant_mcp.json)
+示例。Server 暴露：
+
+```text
+list_ansys_capabilities
+list_ansys_capabilities_v2
+open_layout_session
+list_layout_paths
+preview_parameterize_path_width
+apply_parameterize_path_width
+close_layout_session
+list_live_aedt_sessions
+launch_live_aedt_session
+attach_live_aedt_session
+get_live_aedt_project_info
+preview_live_project_save
+apply_live_project_save
+create_live_hfss_design
+get_live_hfss_design_inventory
+get_live_hfss_geometry_inventory
+preview_live_hfss_setup_create
+apply_live_hfss_setup_create
+preview_live_hfss_boundary_create
+apply_live_hfss_boundary_create
+preview_live_hfss_report_create
+apply_live_hfss_report_create
+start_live_hfss_analysis
+preview_live_hfss_analysis_start
+apply_live_hfss_analysis_start
+get_live_hfss_analysis_status
+preview_live_hfss_analysis_cancel
+apply_live_hfss_analysis_cancel
+preview_live_hfss_results_export
+apply_live_hfss_results_export
+list_live_layout_paths
+preview_live_parameterize_path_width
+apply_live_parameterize_path_width
+wait_for_live_approval
+release_live_aedt_session
+get_ansys_operation_plan_schema
+propose_ansys_operation
+validate_ansys_operation
+preview_exploratory_operation
+apply_exploratory_operation
+capture_capability_trace
+promote_ansys_capability
+```
+
+独立只读 `ansys-api-memory` MCP 暴露 `get_ansys_api_memory_status`、`search_ansys_api`、
+`inspect_ansys_symbol`、`trace_ansys_call`、`search_ansys_source` 和 `find_ansys_example`。
+`inspect_ansys_symbol` 返回可直接复制到 operation plan 的 `operation_evidence`；Runtime 会重放
+inspect 并核验全部证据字段，而不是只相信 Agent 提交的版本号。
+
+MCP server 会把 PyEDB 会话放在独立 worker process 中运行，避免 PyEDB/gRPC 输出污染
+stdio 协议。关闭 MCP server 时 worker 会随父进程退出。
+
+推荐 Agent 调用顺序：
+
+```text
+open_layout_session(writable=true)
+  -> list_layout_paths
+  -> preview_parameterize_path_width
+  -> 向用户展示命中对象和工作副本
+  -> apply_parameterize_path_width
+  -> 检查 verified_count 和 evidence
+  -> close_layout_session
+```
+
+Live 修改的推荐顺序：
+
+```text
+list_live_aedt_sessions
+  -> attach_live_aedt_session(pid|port)
+  -> list_live_layout_paths
+  -> preview_live_parameterize_path_width
+  -> Host/UI 审阅 approval_request 并在 MCP 之外签发 token
+  -> apply_live_parameterize_path_width
+  -> 按需 preview_live_project_save + 独立批准 + apply_live_project_save
+  -> release_live_aedt_session
+```
+
+HFSS 建模写操作遵循同样边界：
+
+```text
+get_live_hfss_geometry_inventory
+  -> 使用返回的显式 face_id 构造 boundary/port selector
+  -> preview_live_hfss_boundary_create
+  -> Host approval
+  -> apply_live_hfss_boundary_create
+  -> preview/apply setup 或 report
+  -> 按需独立批准 project save
+  -> release_live_aedt_session
+```
+
+setup properties 使用白名单；boundary 当前支持 `radiation`、`wave_port`、`lumped_port`。
+preview 会同时冻结 geometry、已有 boundary/setup/report 状态，apply 前变化会返回 stale preview。
+
+生产求解应使用批准链路，而不是兼容入口 `start_live_hfss_analysis`：
+
+```text
+preview_live_hfss_analysis_start(cores/tasks/gpus)
+  -> Host approval
+  -> apply_live_hfss_analysis_start
+  -> get_live_hfss_analysis_status
+  -> 可选 preview/apply_live_hfss_analysis_cancel
+  -> preview/apply_live_hfss_results_export
+```
+
+批准后的求解固定非阻塞，资源预算有上限。结果导出只允许写入
+`AEDT_AGENT_EXPORT_ROOT`（默认 `.aedt-agent/exports`）下的 server-managed 目录，支持
+Touchstone 和 report CSV，并生成包含 artifact SHA-256 的 evidence manifest。
+
+批准令牌绑定 `action + live_session_id + preview_id + snapshot_digest`，默认有效期 5 分钟且只能使用一次。
+MCP 不暴露签发工具。部署时可用 `HmacApprovalAuthority` 在可信 Host 进程签发，并通过
+`AEDT_AGENT_APPROVAL_SECRET` 让 MCP server 验证；密钥至少 32 字节。
+
+从 AEDT Automation Tab 启动时使用独立 loopback approval Host。preview 会触发原生确认框；
+Claude 只能通过 `wait_for_live_approval` 获取用户批准后的 token，Host 不提供 approve API。
+
+可信 Host 在展示并确认 preview 后签发，不要把这段逻辑注册成 MCP tool：
+
+```python
+from aedt_agent.live import HmacApprovalAuthority
+
+authority = HmacApprovalAuthority(host_secret)
+token = authority.issue(**preview["approval_request"])
+```
+
+不要跳过 preview，也不要把 `apply` 的成功返回当作充分证据。只有 `status=verified`、
+`verified_count=target_count`、`variable_is_parameter=true` 且 `source_unchanged=true` 时，
+才应向用户报告完成。
+
+## 当前边界
+
+- 写操作暂不支持覆盖源工程。
+- 只读查询也打开临时快照副本，关闭会话后自动清理，避免 EDB lock/tmp 文件触碰源目录。
+- `.aedt` 输入必须存在同名 `.aedb` sidecar。
+- Live HFSS 当前支持 design create、geometry/setup/port/boundary/report inventory、受控 setup、
+  radiation/wave/lumped port、report 创建、批准式 analysis start/cancel/status、受限结果导出和受控 project save。
+- `create_live_hfss_design` 与 `start_live_hfss_analysis` 仅为通用 MCP 兼容入口；Desktop strict 模式禁用直接写入，生产求解使用批准链路。
+- `launch_live_aedt_session` 返回 `owned_by_assistant=true`；release 仍不关闭 AEDT。
+- Live apply/save 在未配置 Host approval verifier 时固定返回 `approval_required`。
+- 自由 Python、shell 和 COM fallback 始终关闭。只有 API Memory ready 且 Exploration policy
+  enabled 时，Router 才允许声明式 `code_fallback`；已有 Workflow/Harness 始终优先。

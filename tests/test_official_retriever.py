@@ -1,4 +1,3 @@
-from pathlib import Path
 
 from aedt_agent.benchmark.models import BenchmarkTask
 from aedt_agent.benchmark.official_retriever import GitNexusOfficialRetriever

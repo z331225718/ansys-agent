@@ -8,7 +8,6 @@ def _recorded_analysis():
         "paths": {"brd": "/boards/case.brd", "aedb": "/runs/case.aedb", "aedt_project": "/runs/case.aedt"},
         "nets": {"signal": ["SRDS_0_RX0_N", "SRDS_0_RX0_P"], "reference": ["GND"]},
         "component": "U1",
-        "setup": {"name": "Setup1", "frequency": "10GHz"},
         "design_options": {"MeshingMethod": "PhiPlus", "PhiMesherDeltaZRatio": 100000},
         "hfss_extents": {
             "AirHorExt": {"Ext": "3mm", "Dim": True},

@@ -1,4 +1,3 @@
-from pathlib import Path
 
 from aedt_agent.demo.config import DemoConfig, load_demo_config
 

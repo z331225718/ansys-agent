@@ -558,8 +558,6 @@ def test_apply_layout_port_actions_defers_component_endpoint_when_api_is_unavail
 
 
 def test_apply_layout_port_actions_converts_meter_positions_to_layout_units_for_edge_lookup():
-    calls = []
-
     class FakeGeometry:
         name = "trace"
         net_name = "SRDS_3_RX1_N"

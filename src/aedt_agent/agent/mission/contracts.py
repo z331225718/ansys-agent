@@ -52,8 +52,14 @@ class EventType(StrEnum):
     GRAPH_HANDOFF_CREATED = "graph_handoff_created"
     GRAPH_HANDOFF_CONSUMED = "graph_handoff_consumed"
     GRAPH_NODE_JOB_BOUND = "graph_node_job_bound"
+    GRAPH_INTERVENTION_CREATED = "graph_intervention_created"
+    GRAPH_INTERVENTION_APPLIED = "graph_intervention_applied"
+    GRAPH_INTERVENTION_REJECTED = "graph_intervention_rejected"
     ARTIFACT_MANIFEST_CREATED = "artifact_manifest_created"
     ARTIFACT_QUERY_COMPLETED = "artifact_query_completed"
+    ARTIFACT_RETENTION_PLANNED = "artifact_retention_planned"
+    ARTIFACT_RETENTION_APPLIED = "artifact_retention_applied"
+    ARTIFACT_RETENTION_FAILED = "artifact_retention_failed"
     EVIDENCE_PACKAGE_CREATED = "evidence_package_created"
     JOB_ATTEMPT_CREATED = "job_attempt_created"
     JOB_ATTEMPT_UPDATED = "job_attempt_updated"
@@ -764,6 +770,7 @@ class JobAttemptRecord:
     error: JsonDict | None = None
     retry_decision: str | None = None
     metadata: JsonDict = field(default_factory=dict)
+    lease_id: str | None = None
 
     @classmethod
     def create(
@@ -774,6 +781,7 @@ class JobAttemptRecord:
         attempt_number: int,
         worker_id: str,
         metadata: JsonDict | None = None,
+        lease_id: str | None = None,
     ) -> "JobAttemptRecord":
         now = utc_now_iso()
         return cls(
@@ -786,6 +794,7 @@ class JobAttemptRecord:
             started_at=now,
             updated_at=now,
             metadata=dict(metadata or {}),
+            lease_id=lease_id,
         )
 
     def with_completion(
@@ -820,4 +829,5 @@ class JobAttemptRecord:
             "error": self.error,
             "retry_decision": self.retry_decision,
             "metadata": self.metadata,
+            "lease_id": self.lease_id,
         }

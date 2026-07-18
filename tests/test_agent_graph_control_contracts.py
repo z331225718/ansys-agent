@@ -6,7 +6,6 @@ from aedt_agent.agent.mission import (
     GraphHandoffRecord,
     GraphHandoffStatus,
     GraphRunRecord,
-    GraphRunStatus,
     JobAttemptRecord,
     JobAttemptStatus,
     NodeRunRecord,

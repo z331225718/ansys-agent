@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ansys Capability Promoter"
+  short_description: "Turn verified AEDT traces into review-only candidates."
+  default_prompt: "Use $ansys-capability-promoter to classify a verified AEDT trace and generate a review-only promotion candidate."

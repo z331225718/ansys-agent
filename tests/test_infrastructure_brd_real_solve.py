@@ -421,6 +421,16 @@ def test_real_solve_copies_checkpoint_solves_and_exports_artifacts(
     assert result.summary["touchstone_sample_count"] == 2
     assert result.summary["tdr_sample_count"] > 0
     assert result.summary["tdr_export_method"] == "skrf_touchstone_step_response"
+    expected_attestation = {
+        "kind": "real_aedt",
+        "adapter": "BrdRealSolveAdapter",
+        "backend": "ansys.aedt.core.Hfss3dLayout",
+        "aedt_version": "2026.1",
+        "non_graphical": True,
+        "analyze_executed": True,
+    }
+    assert result.summary["execution_attestation"] == expected_attestation
+    assert manifest["summary"]["execution_attestation"] == expected_attestation
 
 
 def test_real_solve_treats_release_crash_as_warning_after_artifacts(tmp_path):

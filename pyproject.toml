@@ -17,12 +17,32 @@ dev = [
     "pytest>=8.0.0",
 ]
 mcp = [
-    "fastmcp>=2.0.0",
+    "fastmcp==3.4.4",
+]
+aedt = [
+    "pyaedt==1.3.0",
+    "pyedb[dotnet]==0.80.2",
+]
+desktop = [
+    "pyaedt==1.3.0",
+    "pyedb[dotnet]==0.80.2",
+    "fastmcp==3.4.4",
+    "codebase-memory-mcp==0.9.0",
+]
+knowledge = [
+    "codebase-memory-mcp==0.9.0",
+    "fastmcp==3.4.4",
 ]
 
 [project.scripts]
 aedt-agent = "aedt_agent.agent.cli:main"
 ansys-agent = "aedt_agent.ansys_agent.__main__:main"
+ansys-assistant = "aedt_agent.interactive.cli:main"
+ansys-assistant-mcp = "aedt_agent.interactive.server:main"
+ansys-agent-desktop = "aedt_agent.desktop.cli:main"
+ansys-api-memory = "aedt_agent.knowledge.api_memory_cli:main"
+ansys-api-memory-mcp = "aedt_agent.knowledge.server:main"
+ansys-capability-promoter = "aedt_agent.capability_learning.cli:main"
 aedt-agent-v0 = "aedt_agent.v0.cli:main"
 
 [tool.setuptools.packages.find]

@@ -68,9 +68,6 @@ def render_graph_live(
     # Layout: assign each node a row based on topological depth
     depth, node_order = _topological_layout(nodes, edges)
 
-    # Find max depth for horizontal spacing
-    max_depth = max(depth.values()) if depth else 1
-
     # Build a grid: rows are depth layers, columns are nodes at that depth
     rows: dict[int, list[dict[str, Any]]] = {}
     for node in nodes:
@@ -159,8 +156,6 @@ def render_graph_mermaid(
     """Render a Mermaid flowchart showing node states with colors."""
     nodes = template.get("nodes", [])
     edges = template.get("edges", [])
-    template_id = template.get("template_id", template.get("id", ""))
-
     state_map: dict[str, dict[str, Any]] = {}
     for run in sorted(node_runs, key=lambda r: r.get("sequence", 0)):
         state_map[run["node_id"]] = run

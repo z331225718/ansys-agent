@@ -195,3 +195,43 @@ def test_cli_validate_loop_config_without_machine_paths(tmp_path):
     payload = json.loads(result.stdout)
     assert payload["status"] == "passed"
     assert "touchstone_is_s4p" not in payload["failed_checks"]
+
+
+def test_cli_replay_json_is_parseable_and_graph_scoped(tmp_path):
+    waiting = _create_waiting_local_cut_graph(tmp_path)
+    graph_run_id = waiting["graph_run"]["graph_run_id"]
+
+    result = _run(
+        tmp_path,
+        "mission",
+        "replay",
+        "--graph-run-id",
+        graph_run_id,
+        "--format",
+        "json",
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["graph_run_id"] == graph_run_id
+    assert payload["status"] == "waiting_approval"
+    assert payload["events"]
+    assert all("scope" in event for event in payload["events"])
+
+
+def test_cli_replay_defaults_to_compact_text(tmp_path):
+    waiting = _create_waiting_local_cut_graph(tmp_path)
+    graph_run_id = waiting["graph_run"]["graph_run_id"]
+
+    result = _run(
+        tmp_path,
+        "mission",
+        "replay",
+        "--graph-run-id",
+        graph_run_id,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert f"graph_run_id={graph_run_id}" in result.stdout
+    assert "scope=approval approval_requested" in result.stdout
+    assert '"payload"' not in result.stdout

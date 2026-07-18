@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ansys BRD Via Optimization"
+  short_description: "Plan and run BRD local-cut via optimization with AEDT workers."
+  default_prompt: "Use this skill to plan a Cadence BRD local-cut, enforce human model review, run AEDT solve/score workers, and propose bounded TDR-driven via geometry changes."

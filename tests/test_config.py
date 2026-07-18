@@ -1,7 +1,6 @@
 import json
-from pathlib import Path
 
-from aedt_agent.benchmark.config import BenchmarkConfig, load_benchmark_config
+from aedt_agent.benchmark.config import load_benchmark_config
 from aedt_agent.benchmark.generator import OpenAIGenerator
 from aedt_agent.benchmark.harness_generator import HarnessGenerator
 from aedt_agent.benchmark.official_retriever import GitNexusOfficialRetriever

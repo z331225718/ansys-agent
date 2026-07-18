@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "ansys-assistant": {
+      "command": ".\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "aedt_agent.interactive.server"]
+    },
+    "ansys-api-memory": {
+      "command": ".\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "aedt_agent.knowledge.server"]
+    }
+  }
+}

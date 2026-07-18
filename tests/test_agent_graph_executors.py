@@ -5,13 +5,13 @@ from aedt_agent.agent.graph_executors import (
     GraphNodeExecutionContext,
     GraphNodeExecutorRegistry,
     execute_graph_node,
+    set_agent_knowledge_provider,
 )
 from aedt_agent.agent.graph_template import GraphNode, GraphTemplate
 from aedt_agent.agent.handoff import HandoffSchema
 from aedt_agent.agent.mission import (
     GraphRunRecord,
     JobStatus,
-    MissionRecord,
     NodeRunRecord,
     NodeRunStatus,
 )
@@ -416,6 +416,114 @@ def test_agent_node_uses_decision_as_edge_outcome(tmp_path, monkeypatch):
     assert result.status == NodeRunStatus.SUCCEEDED
     assert result.outcome == "continue"
     assert result.output_payload["reason"] == "bounded next step"
+
+
+def test_reviewed_brd_decider_receives_playbook_knowledge_without_provider(
+    tmp_path,
+    monkeypatch,
+):
+    runtime, _, graph_run = _runtime(tmp_path)
+    graph_run = GraphRunRecord.create(
+        graph_run.graph_run_id,
+        graph_run.mission_id,
+        "brd_reviewed_model_optimize_loop",
+        1,
+        1,
+    )
+    node = GraphNode(
+        "optimization_decider",
+        "decision_maker",
+        "agent",
+        handler="brd.optimization.decide_next_action",
+        system_prompt="decide",
+        profile="low_cost",
+        constraints={"allowed_decisions": ["continue", "complete"]},
+    )
+    template = GraphTemplate(
+        "brd_reviewed_model_optimize_loop",
+        1,
+        "",
+        [node],
+        [],
+        {},
+        profiles={"low_cost": {"model": "test-model", "max_tokens": 256}},
+    )
+    captured = {}
+
+    def fake_complete(system, user, **kwargs):
+        captured["user"] = user
+        return '{"decision":"complete","reason":"baseline captured"}'
+
+    set_agent_knowledge_provider(None)
+    monkeypatch.setenv("AEDT_AGENT_LLM_API_KEY", "test")
+    monkeypatch.setattr("aedt_agent.agent.llm.llm_complete", fake_complete)
+
+    result = execute_graph_node(
+        _context(
+            runtime,
+            graph_run,
+            node,
+            template,
+            {
+                "touchstone_kind": "s4p",
+                "return_loss_trace": "SDD11",
+                "tdr_observation_port": "Diff1",
+            },
+        )
+    )
+
+    assert result.status == NodeRunStatus.SUCCEEDED
+    assert result.outcome == "complete"
+    assert "knowledge" in captured["user"]
+    assert "reviewed_brd_playbook" in captured["user"]
+    assert "SDD11" in captured["user"]
+    assert "candidate_action_inventory" in captured["user"]
+
+
+def test_non_code_agent_receives_provider_knowledge(tmp_path, monkeypatch):
+    runtime, _, graph_run = _runtime(tmp_path)
+    node = GraphNode(
+        "decider",
+        "decision_maker",
+        "agent",
+        system_prompt="decide",
+        profile="low_cost",
+    )
+    template = _template(node)
+    captured = {}
+
+    class Api:
+        fqname = "ansys.aedt.core.Hfss3dLayout"
+        signature = "Hfss3dLayout(...)"
+        docstring = "Open HFSS 3D Layout projects."
+        common_errors = ["project locked"]
+        constraints = ["same user session"]
+
+    class Provider:
+        def search_api(self, query, limit=8):
+            return [Api()]
+
+        def list_common_traps(self, filter_ids=None):
+            return []
+
+        def list_workflow_cases(self):
+            return []
+
+    def fake_complete(system, user, **kwargs):
+        captured["user"] = user
+        return '{"decision":"complete","reason":"provider knowledge captured"}'
+
+    set_agent_knowledge_provider(Provider())
+    monkeypatch.setenv("AEDT_AGENT_LLM_API_KEY", "test")
+    monkeypatch.setattr("aedt_agent.agent.llm.llm_complete", fake_complete)
+
+    result = execute_graph_node(
+        _context(runtime, graph_run, node, template, {"goal": "hfss 3d layout"})
+    )
+
+    set_agent_knowledge_provider(None)
+    assert result.status == NodeRunStatus.SUCCEEDED
+    assert "ansys.aedt.core.Hfss3dLayout" in captured["user"]
 
 
 def test_agent_node_uses_handler_fallback_after_llm_error(tmp_path, monkeypatch):

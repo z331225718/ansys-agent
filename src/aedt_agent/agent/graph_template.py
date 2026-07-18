@@ -6,7 +6,11 @@ from typing import Any
 
 import yaml
 
-from aedt_agent.agent.handoff import HandoffSchema
+from aedt_agent.agent.handoff import (
+    HandoffSchema,
+    HandoffSchemaDefinitionError,
+    handoff_schema_from_mapping,
+)
 
 
 class GraphTemplateError(ValueError):
@@ -260,11 +264,14 @@ def _handoffs_from_mapping(value: object) -> dict[str, HandoffSchema]:
     output: dict[str, HandoffSchema] = {}
     for schema_id, schema_value in value.items():
         if not isinstance(schema_value, dict):
-            raise GraphTemplateError(f"handoff schema must be a mapping: {schema_id}")
-        required = schema_value.get("required_fields") or []
-        if not isinstance(required, list):
-            raise GraphTemplateError(f"handoff required_fields must be a list: {schema_id}")
-        output[str(schema_id)] = HandoffSchema(str(schema_id), [str(item) for item in required])
+            raise GraphTemplateError(
+                f"handoff schema {schema_id} invalid at $: schema must be a mapping"
+            )
+        normalized_id = str(schema_id)
+        try:
+            output[normalized_id] = handoff_schema_from_mapping(normalized_id, schema_value)
+        except HandoffSchemaDefinitionError as exc:
+            raise GraphTemplateError(str(exc)) from exc
     return output
 
 

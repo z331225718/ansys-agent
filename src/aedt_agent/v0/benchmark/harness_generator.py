@@ -215,9 +215,13 @@ class HarnessGenerator:
 
     def _expand_value(self, value: str, prompt: str) -> str:
         expanded = value.replace("{prompt}", prompt)
+        path_template = False
         for key, replacement in self.variables.items():
-            expanded = expanded.replace("{" + key + "}", replacement)
-        return expanded
+            token = "{" + key + "}"
+            if value == token or value.startswith((token + "/", token + "\\")):
+                path_template = True
+            expanded = expanded.replace(token, replacement)
+        return os.path.normpath(expanded) if path_template else expanded
 
 
 def extract_code(output: str) -> str:

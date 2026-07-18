@@ -47,7 +47,6 @@ def test_create_generator_from_env_defaults(monkeypatch):
 
 
 def test_openai_generator_reads_chat_completions(monkeypatch):
-    import io
     import json
 
     captured = {}

@@ -21,6 +21,7 @@ from aedt_agent.agent.mission import (
     MissionState,
 )
 from aedt_agent.agent.workers import InMemoryWorkerRegistry, WorkerContext, WorkerExecutionResult
+from aedt_agent.infrastructure.sqlite_mission_store import JobExecutionConflictError
 
 
 class AgentRuntime:
@@ -96,6 +97,7 @@ class AgentRuntime:
                 job_id=job.job_id,
                 attempt_number=attempt_number,
                 worker_id=worker_id,
+                lease_id=lease.lease_id,
             )
         )
         try:
@@ -132,7 +134,12 @@ class AgentRuntime:
                 result.artifact_refs,
             )
             if result.status == JobStatus.SUCCEEDED:
-                self.store.complete_job(job.job_id, result.output_payload, result.artifact_refs)
+                self.store.complete_job(
+                    job.job_id,
+                    result.output_payload,
+                    result.artifact_refs,
+                    lease_id=lease.lease_id,
+                )
                 self.store.complete_job_attempt(
                     attempt.attempt_id,
                     JobAttemptStatus.SUCCEEDED,
@@ -153,7 +160,11 @@ class AgentRuntime:
                     self.store.update_mission_state(mission_id, MissionState.EVALUATING)
             elif result.status == JobStatus.CANCELED:
                 assert result.error is not None
-                self.store.cancel_job(job.job_id, result.error)
+                self.store.cancel_job(
+                    job.job_id,
+                    result.error,
+                    lease_id=lease.lease_id,
+                )
                 self.store.complete_job_attempt(
                     attempt.attempt_id,
                     JobAttemptStatus.CANCELED,
@@ -163,7 +174,11 @@ class AgentRuntime:
                 )
             else:
                 assert result.error is not None
-                self.store.fail_job(job.job_id, result.error)
+                self.store.fail_job(
+                    job.job_id,
+                    result.error,
+                    lease_id=lease.lease_id,
+                )
                 retry_available = result.error.retryable and attempt_number <= leased_job.retry_limit
                 retry_decision = "retry_available" if retry_available else "no_retry"
                 self.store.complete_job_attempt(
@@ -174,20 +189,33 @@ class AgentRuntime:
                     metadata=result.metadata,
                 )
                 if retry_available:
+                    self.store.release_job_lease(lease.lease_id)
                     self.store.requeue_failed_job(job.job_id)
+        except JobExecutionConflictError as conflict:
+            self._complete_stale_fenced_attempt(attempt, conflict)
+            raise
         finally:
             self.store.release_job_lease(lease.lease_id)
         return result
 
     def _ensure_mission_ready_for_worker(self, mission_id: str) -> None:
-        mission = self.get_mission(mission_id)
+        mission = self._validate_mission_ready_for_worker(mission_id)
         if mission.state == MissionState.CREATED:
             self.store.update_mission_state(mission_id, MissionState.PLANNING)
             self.store.update_mission_state(mission_id, MissionState.WAITING_WORKER)
         elif mission.state in {MissionState.PLANNING, MissionState.EVALUATING}:
             self.store.update_mission_state(mission_id, MissionState.WAITING_WORKER)
-        elif mission.state != MissionState.WAITING_WORKER:
+
+    def _validate_mission_ready_for_worker(self, mission_id: str) -> MissionRecord:
+        mission = self.get_mission(mission_id)
+        if mission.state not in {
+            MissionState.CREATED,
+            MissionState.PLANNING,
+            MissionState.WAITING_WORKER,
+            MissionState.EVALUATING,
+        }:
             raise ValueError(f"mission is not ready for worker execution: {mission.state.value}")
+        return mission
 
     def recover_expired_leases(self, now: datetime | None = None) -> list[str]:
         return self.store.recover_expired_leases(now or datetime.now(UTC))
@@ -221,6 +249,7 @@ class AgentRuntime:
             "adopted_completed_attempt_ids": [],
             "active_attempt_ids": [],
             "stale_attempt_ids": [],
+            "stale_fenced_attempt_ids": [],
             "interrupted_attempt_ids": [],
             "invalid_workspaces": [],
             "terminated_pids": [],
@@ -285,83 +314,98 @@ class AgentRuntime:
             "termination_reason": result.termination_reason,
             "recovery_classification": "completed",
         }
-        self.store.release_active_job_leases(job.job_id)
+        lease_id = self._require_attempt_lease_id(attempt)
         mission_canceled = (
             self.get_mission(job.mission_id).state == MissionState.CANCELED
         )
-        if result.status == HarnessStatus.SUCCEEDED and not mission_canceled:
-            self._ensure_mission_ready_for_worker(job.mission_id)
-            self.store.complete_job(job.job_id, result.output_payload, artifact_refs)
-            self.store.complete_job_attempt(
-                attempt.attempt_id,
-                JobAttemptStatus.SUCCEEDED,
-                retry_decision="none",
-                metadata=metadata,
-            )
-            self._register_artifact_manifests(job.mission_id, job.job_id, artifact_refs)
-            self.store.create_checkpoint(
-                job.mission_id,
-                job.job_id,
-                artifact_refs,
-                {"output": result.output_payload},
-            )
-            approval_required = result.output_payload.get("approval_required")
-            if isinstance(approval_required, dict):
-                from aedt_agent.agent.approvals import ApprovalService
-
-                ApprovalService(self.store).request_approval(
+        try:
+            if result.status == HarnessStatus.SUCCEEDED and not mission_canceled:
+                self._validate_mission_ready_for_worker(job.mission_id)
+                self.store.complete_job(
+                    job.job_id,
+                    result.output_payload,
+                    artifact_refs,
+                    lease_id=lease_id,
+                )
+                self._ensure_mission_ready_for_worker(job.mission_id)
+                self.store.complete_job_attempt(
+                    attempt.attempt_id,
+                    JobAttemptStatus.SUCCEEDED,
+                    retry_decision="none",
+                    metadata=metadata,
+                )
+                self.store.release_job_lease(lease_id)
+                self._register_artifact_manifests(job.mission_id, job.job_id, artifact_refs)
+                self.store.create_checkpoint(
                     job.mission_id,
-                    str(approval_required.get("reason") or "approval_required"),
-                    list(approval_required.get("options") or []),
+                    job.job_id,
+                    artifact_refs,
+                    {"output": result.output_payload},
                 )
+                approval_required = result.output_payload.get("approval_required")
+                if isinstance(approval_required, dict):
+                    from aedt_agent.agent.approvals import ApprovalService
+
+                    ApprovalService(self.store).request_approval(
+                        job.mission_id,
+                        str(approval_required.get("reason") or "approval_required"),
+                        list(approval_required.get("options") or []),
+                    )
+                else:
+                    self.store.update_mission_state(job.mission_id, MissionState.EVALUATING)
             else:
-                self.store.update_mission_state(job.mission_id, MissionState.EVALUATING)
-        else:
-            harness_error = result.error
-            if mission_canceled:
-                error = JobError(
-                    ErrorClass.CANCELED,
-                    "mission was canceled before recovered worker result was committed",
-                    retryable=False,
-                )
-                metadata["termination_reason"] = "mission_canceled_before_commit"
-            else:
-                error = JobError(
-                    _harness_error_class(
-                        harness_error.error_class if harness_error else "worker_crash"
-                    ),
-                    (
-                        harness_error.message
-                        if harness_error
-                        else f"harness failed: {result.status.value}"
-                    ),
-                    harness_error.retryable if harness_error else True,
-                    {} if harness_error is None else dict(harness_error.details),
-                )
-            if result.status == HarnessStatus.CANCELED or mission_canceled:
-                self.store.cancel_job(job.job_id, error)
-                self.store.complete_job_attempt(
-                    attempt.attempt_id,
-                    JobAttemptStatus.CANCELED,
-                    error.to_json_dict(),
-                    "canceled",
-                    metadata=metadata,
-                )
-            else:
-                self.store.fail_job(job.job_id, error)
-                retry_available = (
-                    error.retryable and attempt.attempt_number <= job.retry_limit
-                )
-                self.store.complete_job_attempt(
-                    attempt.attempt_id,
-                    JobAttemptStatus.FAILED,
-                    error.to_json_dict(),
-                    "retry_available" if retry_available else "no_retry",
-                    metadata=metadata,
-                )
-                if retry_available:
-                    self.store.requeue_failed_job(job.job_id)
-                    report["requeued_job_ids"].append(job.job_id)
+                harness_error = result.error
+                if mission_canceled:
+                    error = JobError(
+                        ErrorClass.CANCELED,
+                        "mission was canceled before recovered worker result was committed",
+                        retryable=False,
+                    )
+                    metadata["termination_reason"] = "mission_canceled_before_commit"
+                else:
+                    error = JobError(
+                        _harness_error_class(
+                            harness_error.error_class if harness_error else "worker_crash"
+                        ),
+                        (
+                            harness_error.message
+                            if harness_error
+                            else f"harness failed: {result.status.value}"
+                        ),
+                        harness_error.retryable if harness_error else True,
+                        {} if harness_error is None else dict(harness_error.details),
+                    )
+                if result.status == HarnessStatus.CANCELED or mission_canceled:
+                    self.store.cancel_job(job.job_id, error, lease_id=lease_id)
+                    self.store.complete_job_attempt(
+                        attempt.attempt_id,
+                        JobAttemptStatus.CANCELED,
+                        error.to_json_dict(),
+                        "canceled",
+                        metadata=metadata,
+                    )
+                    self.store.release_job_lease(lease_id)
+                else:
+                    self.store.fail_job(job.job_id, error, lease_id=lease_id)
+                    retry_available = (
+                        error.retryable and attempt.attempt_number <= job.retry_limit
+                    )
+                    self.store.complete_job_attempt(
+                        attempt.attempt_id,
+                        JobAttemptStatus.FAILED,
+                        error.to_json_dict(),
+                        "retry_available" if retry_available else "no_retry",
+                        metadata=metadata,
+                    )
+                    self.store.release_job_lease(lease_id)
+                    if retry_available:
+                        self.store.requeue_failed_job(job.job_id)
+                        report["requeued_job_ids"].append(job.job_id)
+        except JobExecutionConflictError as conflict:
+            self._complete_stale_fenced_attempt(attempt, conflict, metadata=metadata)
+            self.store.release_job_lease(lease_id)
+            report["stale_fenced_attempt_ids"].append(attempt.attempt_id)
+            return
         report["adopted_completed_attempt_ids"].append(attempt.attempt_id)
 
     def _recover_interrupted_attempt(self, record, report: dict) -> None:
@@ -422,8 +466,22 @@ class AgentRuntime:
             job.job_id,
             protocol_artifacts,
         )
-        self.store.release_active_job_leases(job.job_id)
-        self.store.fail_job(job.job_id, error)
+        lease_id = self._require_attempt_lease_id(attempt)
+        try:
+            self.store.fail_job(job.job_id, error, lease_id=lease_id)
+        except JobExecutionConflictError as conflict:
+            self._complete_stale_fenced_attempt(
+                attempt,
+                conflict,
+                metadata={
+                    "harness_run_id": record.harness_run_id,
+                    "workspace": record.workspace,
+                    "recovery_classification": "interrupted",
+                },
+            )
+            self.store.release_job_lease(lease_id)
+            report["stale_fenced_attempt_ids"].append(attempt.attempt_id)
+            return
         retry_available = attempt.attempt_number <= job.retry_limit
         self.store.complete_job_attempt(
             attempt.attempt_id,
@@ -436,10 +494,54 @@ class AgentRuntime:
                 "recovery_classification": "interrupted",
             },
         )
+        self.store.release_job_lease(lease_id)
         report["interrupted_attempt_ids"].append(attempt.attempt_id)
         if retry_available:
             self.store.requeue_failed_job(job.job_id)
             report["requeued_job_ids"].append(job.job_id)
+
+    @staticmethod
+    def _require_attempt_lease_id(attempt: JobAttemptRecord) -> str:
+        if attempt.lease_id is None:
+            raise RuntimeError(
+                f"job attempt has no execution lease fence: {attempt.attempt_id}"
+            )
+        return attempt.lease_id
+
+    def _complete_stale_fenced_attempt(
+        self,
+        attempt: JobAttemptRecord,
+        conflict: JobExecutionConflictError,
+        *,
+        metadata: dict | None = None,
+    ) -> None:
+        current_attempt = self.store.get_job_attempt(attempt.attempt_id)
+        if current_attempt.status != JobAttemptStatus.RUNNING:
+            return
+        fence_details = {
+            "reason": "stale_fenced",
+            "operation": conflict.operation,
+            "lease_id": conflict.lease_id,
+            "current_job_status": conflict.current_status,
+            "active_lease_ids": list(conflict.active_lease_ids),
+        }
+        self.store.complete_job_attempt(
+            attempt.attempt_id,
+            JobAttemptStatus.CANCELED,
+            error={
+                "error_class": ErrorClass.CANCELED.value,
+                "code": "stale_fenced",
+                "message": "stale job attempt result rejected by execution fence",
+                "retryable": False,
+                "details": fence_details,
+            },
+            retry_decision="stale_fenced",
+            metadata={
+                **(metadata or {}),
+                "termination_reason": "stale_fenced",
+                "stale_fence": fence_details,
+            },
+        )
 
     def _register_artifact_manifests(self, mission_id: str, job_id: str, artifact_refs: list[str]) -> None:
         for artifact_ref in artifact_refs:

@@ -205,7 +205,6 @@ def test_builtin_graph_templates_use_explicit_stable_edges(template_id, expected
 
 
 def test_all_yaml_templates_load_without_error():
-    import os
     from pathlib import Path
 
     templates_dir = (
