@@ -198,6 +198,20 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             postconditions=["design_unchanged", "variables_and_routing_dimensions_returned"],
         ),
         _cap(
+            "layout.technology.inventory",
+            "read_only",
+            ["live"],
+            ["get_live_layout_technology_inventory"],
+            postconditions=[
+                "design_unchanged",
+                "stackup_and_padstack_records_bounded",
+                "aedt_port_order_returned",
+                "differential_pair_terminal_mapping_returned_when_available",
+                "temporary_diff_pair_file_removed",
+            ],
+            products=["layout"],
+        ),
+        _cap(
             "layout.objects.inventory",
             "read_only",
             ["live"],

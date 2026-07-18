@@ -131,6 +131,13 @@ def _collect_layout_inventory(
         project_name=project_name,
         design_name=design_name,
     )
+    technology = live_manager.layout_technology_inventory(
+        session_id,
+        project_name=project_name,
+        design_name=design_name,
+        max_items=500,
+        include_padstack_layers=False,
+    )
     output = {
         **payload,
         "status": "collected",
@@ -140,6 +147,7 @@ def _collect_layout_inventory(
         "objects": objects,
         "variables": variables,
         "setups": setups,
+        "technology": technology,
         "live_session_reused": True,
     }
     return _success(output)
@@ -151,12 +159,14 @@ def _audit_layout_inventory(context: GraphNodeExecutionContext) -> dict[str, Any
     objects = dict(payload.get("objects") or {})
     variables = dict(payload.get("variables") or {})
     setups = dict(payload.get("setups") or {})
+    technology = dict(payload.get("technology") or {})
     checks = [
         _check("live_session_reused", payload.get("live_session_reused") is True),
         _check("routing_inventory", routing.get("design_unchanged") is True),
         _check("object_inventory", objects.get("design_unchanged") is True),
         _check("variable_inventory", variables.get("design_unchanged") is True),
         _check("setup_inventory", setups.get("design_unchanged") is True),
+        _check("technology_inventory", technology.get("design_unchanged") is True),
     ]
     passed = all(item["passed"] for item in checks)
     summary = {
@@ -165,6 +175,15 @@ def _audit_layout_inventory(context: GraphNodeExecutionContext) -> dict[str, Any
         "layer_count": len(routing.get("layers") or []),
         "variable_count": int(variables.get("count") or 0),
         "setup_count": int(setups.get("setup_count") or 0),
+        "stackup_layer_count": int((technology.get("counts") or {}).get("stackup_layers") or 0),
+        "padstack_count": int((technology.get("counts") or {}).get("padstacks") or 0),
+        "port_count": int((technology.get("counts") or {}).get("ports") or 0),
+        "differential_pair_count": int(
+            (technology.get("counts") or {}).get("differential_pairs") or 0
+        ),
+        "unavailable_technology_sections": list(
+            technology.get("unavailable_sections") or []
+        ),
         "unavailable_object_categories": list(objects.get("unavailable_categories") or []),
     }
     output = {
@@ -679,6 +698,9 @@ def _validate_touchstone_score(context, live_manager, binding_resolver) -> dict[
     ]
     if missing_ports:
         raise ValueError(f"scoring ports are absent from expected_port_order: {missing_ports}")
+    require_defined_pairs = payload.get("require_defined_differential_pairs", False)
+    if type(require_defined_pairs) is not bool:
+        raise ValueError("require_defined_differential_pairs must be a boolean")
     score_spec = {
         "sparameter_mode": mode,
         "expected_port_order": expected_port_order,
@@ -689,6 +711,7 @@ def _validate_touchstone_score(context, live_manager, binding_resolver) -> dict[
         "rl_target_db": _finite_number(payload, "rl_target_db"),
         "insertion_loss_min_db": _finite_number(payload, "insertion_loss_min_db"),
         "reference_impedance_ohm": _finite_number(payload, "reference_impedance_ohm"),
+        "require_defined_differential_pairs": require_defined_pairs,
     }
     if score_spec["frequency_start_ghz"] < 0 or score_spec["frequency_stop_ghz"] <= score_spec["frequency_start_ghz"]:
         raise ValueError("frequency range must satisfy 0 <= start < stop")
@@ -717,6 +740,28 @@ def _validate_touchstone_score(context, live_manager, binding_resolver) -> dict[
     if actual_port_order != expected_port_order:
         raise ValueError(
             "expected_port_order does not match the current AEDT excitation order; refresh setup inventory"
+        )
+    technology_inventory = live_manager.layout_technology_inventory(
+        session_id,
+        project_name=project_name,
+        design_name=design_name,
+        max_items=2_000,
+        include_padstack_layers=False,
+    )
+    if list(technology_inventory.get("ports") or []) != expected_port_order:
+        raise ValueError(
+            "expected_port_order does not match the current Layout technology inventory"
+        )
+    pair_validation = _differential_pair_validation(
+        list(technology_inventory.get("differential_pairs") or []),
+        source_ports=source_ports,
+        destination_ports=destination_ports,
+        mode=mode,
+    )
+    score_spec["differential_pair_validation"] = pair_validation
+    if require_defined_pairs and not pair_validation.get("all_pairs_defined_and_active"):
+        raise ValueError(
+            "the requested differential source/destination pairs are not both active AEDT differential pairs"
         )
     setup_name = str(payload.get("setup_name") or "").strip()
     sweep_name = str(payload.get("sweep_name") or "").strip()
@@ -752,6 +797,7 @@ def _validate_touchstone_score(context, live_manager, binding_resolver) -> dict[
             "export_spec": export_spec,
             "analysis_status": status,
             "setup_inventory": inventory,
+            "technology_inventory": technology_inventory,
             "solution_inventory": solution_inventory,
             "live_session_reused": True,
         }
@@ -795,6 +841,7 @@ def _touchstone_scorecard(context, live_manager, binding_resolver) -> dict[str, 
     expected_ports = list(score_spec.get("expected_port_order") or [])
     preview_ports = list((payload.get("operation_preview") or {}).get("ports") or [])
     manifest_ports = list(manifest.get("ports") or [])
+    technology_ports = list((payload.get("technology_inventory") or {}).get("ports") or [])
     checks = [
         _check("verified_export", result.get("status") == "verified"),
         _check("layout_product", result.get("product") == "layout"),
@@ -814,6 +861,7 @@ def _touchstone_scorecard(context, live_manager, binding_resolver) -> dict[str, 
         _check("manifest_spec", manifest.get("spec") == payload.get("export_spec")),
         _check("preview_port_order", preview_ports == expected_ports),
         _check("manifest_port_order", manifest_ports == expected_ports),
+        _check("technology_port_order", technology_ports == expected_ports),
         _check("project_unchanged", result.get("project_unchanged") is True),
         _check("project_not_saved", result.get("project_saved") is False),
         _check("solver_not_running", analysis_status.get("running") is False),
@@ -926,6 +974,9 @@ def _touchstone_scorecard(context, live_manager, binding_resolver) -> dict[str, 
             "port_order": score["port_order"],
             "source_ports": score["source_ports"],
             "destination_ports": score["destination_ports"],
+            "differential_pair_validation": score_spec.get(
+                "differential_pair_validation"
+            ),
             "return_loss_trace": score["return_loss_trace"],
             "insertion_loss_trace": score["insertion_loss_trace"],
             "rl_target_db": score["rl_target_db"],
@@ -990,6 +1041,48 @@ def _name_list(value: Any, field: str, expected_count: int | None = None) -> lis
     if expected_count is not None and len(names) != expected_count:
         raise ValueError(f"{field} must contain exactly {expected_count} port name(s)")
     return names
+
+
+def _differential_pair_validation(
+    records: list[dict[str, Any]],
+    *,
+    source_ports: list[str],
+    destination_ports: list[str],
+    mode: str,
+) -> dict[str, Any]:
+    if mode != "differential":
+        return {
+            "status": "not_applicable",
+            "source_pair": "not_applicable",
+            "destination_pair": "not_applicable",
+            "all_pairs_defined_and_active": True,
+        }
+
+    def match_pair(ports: list[str]) -> tuple[str, str]:
+        for record in records:
+            if (
+                record.get("positive_terminal") == ports[0]
+                and record.get("negative_terminal") == ports[1]
+            ):
+                return (
+                    "defined_active" if record.get("active") is True else "defined_inactive",
+                    str(record.get("differential_mode") or ""),
+                )
+        if any(record.get("terminal_mapping_status") == "unavailable" for record in records):
+            return "terminal_mapping_unavailable", ""
+        return "not_defined", ""
+
+    source_status, source_mode = match_pair(source_ports)
+    destination_status, destination_mode = match_pair(destination_ports)
+    all_active = source_status == "defined_active" and destination_status == "defined_active"
+    return {
+        "status": "verified" if all_active else "unverified",
+        "source_pair": source_status,
+        "source_differential_mode": source_mode,
+        "destination_pair": destination_status,
+        "destination_differential_mode": destination_mode,
+        "all_pairs_defined_and_active": all_active,
+    }
 
 
 def _finite_number(payload: dict[str, Any], field: str) -> float:

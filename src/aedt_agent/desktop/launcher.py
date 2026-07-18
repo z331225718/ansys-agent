@@ -71,6 +71,7 @@ _DESKTOP_ASSISTANT_MCP_TOOLS = (
     "apply_live_hfss_results_export",
     "list_live_layout_paths",
     "get_live_layout_routing_inventory",
+    "get_live_layout_technology_inventory",
     "get_live_layout_object_inventory",
     "get_live_layout_object_property_inventory",
     "preview_live_layout_object_property_update",

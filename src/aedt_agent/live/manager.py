@@ -680,6 +680,26 @@ class LiveAedtSessionManager:
             {"project_name": project_name, "design_name": design_name, "selector": selector or {}},
         )
 
+    def layout_technology_inventory(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+        max_items: int = 500,
+        include_padstack_layers: bool = False,
+    ) -> dict[str, Any]:
+        return self._execute(
+            session_id,
+            "layout_technology_inventory",
+            {
+                "project_name": project_name,
+                "design_name": design_name,
+                "max_items": max_items,
+                "include_padstack_layers": include_padstack_layers,
+            },
+        )
+
     def layout_object_inventory(
         self,
         session_id: str,

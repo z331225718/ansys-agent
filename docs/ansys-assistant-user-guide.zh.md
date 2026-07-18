@@ -615,6 +615,31 @@ HFSS 3D object/face inventory；应使用 layout path inventory。
 该工具最多扫描 20000 个结果文件，返回 `truncated` 和 `scan_error`。发生截断、访问失败或结果目录不存在时，
 Harness 会保守地把新鲜度视为未验证，不会通过猜测补齐证据。
 
+### 12.4 查询 Layout 技术数据库
+
+需要确认层叠、过孔定义、端口顺序或差分对时，不要从对象名称猜测，调用：
+
+```text
+get_live_layout_technology_inventory(
+  live_session_id,
+  project_name,
+  design_name,
+  max_items=500,
+  include_padstack_layers=false)
+```
+
+返回内容包括：
+
+- 按 AEDT 顺序排列的 signal/dielectric/via stackup layer，以及厚度、标高、材料、fill、粗糙度和 etch；
+- Padstack 的孔形、尺寸、镀层、hole range 和 layer 名称；需要 pad/antipad/thermal 细节时打开
+  `include_padstack_layers`；
+- AEDT 原始端口顺序和来源属性；
+- 差分对的正负端、active/matched、差分/共模名称和参考阻抗；
+- `snapshot_digest`、各部分计数和 `unavailable_sections`。
+
+`max_items` 范围为 1 到 2000。读取差分对时 PyAEDT 需要短暂导出一个临时 CSV，Harness 在系统临时目录中完成
+并立即删除，不修改 Layout 工程。某个 PyAEDT API 不可用时只将对应 section 标为 unavailable，不伪造空数据。
+
 ## 13. 创建和求解任务
 
 已有 HFSS Setup 的常用求解参数也可以受控更新。例如：
@@ -807,7 +832,7 @@ ansys-assistant parameterize-width `
 
 | Workflow | 用途 |
 |---|---|
-| `layout_live_audit` | 复用当前已 attach 会话，对活动 3D Layout 执行 routing/object/variable/setup 只读审计 |
+| `layout_live_audit` | 对活动 3D Layout 执行 routing/object/variable/setup/stackup/padstack/port/diff-pair 只读审计 |
 | `layout_live_parameterize_width` | 在当前 3D Layout 中选择 Path、冻结线宽参数化 preview、审批后 apply 并生成 readback scorecard |
 | `layout_live_parameterize_solve_touchstone_score` | 参数化线宽并验证后，继续求解、监控、导出和显式端口映射评分，包含三次独立 operation 审批 |
 | `layout_live_solve_monitor` | 通过最多 64 次的有界 Graph loop 单步观察求解，直到 AEDT 不再运行；不冒充求解成功判定 |
@@ -907,6 +932,7 @@ wait_for_live_approval(live_session_id, operation_preview_id)
   "sparameter_mode": "differential",
   "source_ports": ["TX_P", "TX_N"],
   "destination_ports": ["RX_P", "RX_N"],
+  "require_defined_differential_pairs": true,
   "frequency_start_ghz": 1.0,
   "frequency_stop_ghz": 28.0,
   "rl_target_db": -15.0,
@@ -914,6 +940,10 @@ wait_for_live_approval(live_session_id, operation_preview_id)
   "reference_impedance_ohm": 100.0
 }
 ```
+
+设置 `require_defined_differential_pairs=true` 后，validate 节点会要求源端和目的端的正负极性都与 AEDT 当前
+active Differential Pair 定义完全一致。定义缺失、inactive、正负端反向或只能读到 pair 名而无法取得端口映射时，
+Workflow 会在导出和评分前停止。保持默认 `false` 时仍会返回 `differential_pair_validation` 供工程师复核。
 
 Workflow 在 validate 节点再次读取端口顺序；如果 AEDT 当前顺序与 `expected_port_order` 不一致，会在导出前失败。
 导出 preview 和 evidence manifest 也各自记录端口顺序，scorecard 必须三方一致才评分。单端评分使用显式
@@ -990,6 +1020,7 @@ Workflow start preview 会冻结以下内容并计算 SHA-256 digest：
 Workflow 现在分为两类。`inspect_ansys_workflow` 中 `attached_live_session_reuse=true` 的 Workflow 会通过
 server-owned binding 和 live graph handler 复用当前已 attach 的 AEDT 会话。首个实现是
 `layout_live_audit`：它在两个受控 graph step 中读取 routing、对象分类、变量、Setup/Sweep，并输出 scorecard；
+当前 v2 还会读取 stackup、padstack、端口顺序和差分对映射；任何不可用 section 都会出现在 summary 中。
 `layout_live_parameterize_width` 则把本手册的核心线宽参数化用例提升为四步 live Workflow。
 `layout_live_solve_start` 使用相同的 server-owned binding 和双层审批模型：先验证 Setup/Sweep，再冻结 cores、
 tasks、gpus 和 auto settings，最后以非阻塞方式提交求解并读取运行状态。它不会把“API 返回成功”单独当成

@@ -111,6 +111,53 @@ class FakeLayout:
             "line1": FakeLine("line1", "N1", "L1", "0.1mm"),
             "line2": FakeLine("line2", "N2", "L2", "0.2mm"),
         }
+        stackup_layers = [
+            SimpleNamespace(
+                name="TOP",
+                type="signal",
+                id=1,
+                thickness=0.035,
+                thickness_units="mm",
+                lower_elevation=0.2,
+                material="copper",
+                fill_material="FR4_epoxy",
+                roughness="0mm",
+                etch=0.0,
+                is_negative=False,
+                top_bottom="top",
+            ),
+            SimpleNamespace(
+                name="D1",
+                type="dielectric",
+                id=2,
+                thickness=0.2,
+                thickness_units="mm",
+                lower_elevation=0.0,
+                material="FR4_epoxy",
+                fill_material="FR4_epoxy",
+                roughness="0mm",
+                etch=0.0,
+                is_negative=False,
+                top_bottom="neither",
+            ),
+        ]
+        hole = SimpleNamespace(shape="Cir", sizes=["0.2mm"], x="0mm", y="0mm", rot="0deg")
+        pad_layer = SimpleNamespace(
+            id=1,
+            pad=SimpleNamespace(shape="Cir", sizes=["0.4mm"], x="0mm", y="0mm", rot="0deg"),
+            antipad=SimpleNamespace(shape="Cir", sizes=["0.6mm"], x="0mm", y="0mm", rot="0deg"),
+            thermal=None,
+            connectiondir=0,
+        )
+        padstacks = {
+            "VIA": SimpleNamespace(
+                mat="copper",
+                plating=100,
+                holerange="UTL",
+                hole=hole,
+                layers={"TOP": pad_layer},
+            )
+        }
         self.modeler = SimpleNamespace(
             line_names=list(lines),
             lines=lines,
@@ -125,6 +172,8 @@ class FakeLayout:
             line_voids_names=[],
             rectangle_void_names=[],
             circle_voids_names=[],
+            layers=SimpleNamespace(stackup_layers=stackup_layers),
+            padstacks=padstacks,
         )
         self.variable_manager = SimpleNamespace(
             variables={"$pitch": SimpleNamespace(expression="1mm")},
@@ -133,6 +182,7 @@ class FakeLayout:
         )
         self._setups = {"SetupL": FakeSetup("SetupL", {"Frequency": "10GHz"})}
         self.are_there_simulations_running = False
+        self.excitation_names = ["P1", "P2", "P3", "P4"]
 
     def release_desktop(self, **kwargs):
         return True
@@ -153,6 +203,13 @@ class FakeLayout:
     def stop_simulations(self, clean_stop=True):
         self.are_there_simulations_running = False
         return "stopped"
+
+    def save_diff_pairs_to_file(self, output_file):
+        Path(output_file).write_text(
+            "P1,P2,1,0,Diff1,100,Comm1,25\n",
+            encoding="ascii",
+        )
+        return True
 
     def _set_variable(self, name, value):
         self.variable_manager.variables[name] = value
@@ -579,6 +636,67 @@ def test_backend_reuses_wrappers_and_lists_live_layout_paths():
     assert routing["variable_count"] == 2
     assert routing["variables"][0] == {"name": "$pitch", "expression": "1mm", "scope": "project"}
     assert routing["design_unchanged"] is True
+    technology = backend.execute(
+        target,
+        "layout_technology_inventory",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "max_items": 100,
+            "include_padstack_layers": True,
+        },
+    )
+    assert technology["counts"] == {
+        "stackup_layers": 2,
+        "padstacks": 1,
+        "ports": 4,
+        "differential_pairs": 1,
+    }
+    assert technology["stackup"][0]["name"] == "TOP"
+    assert technology["stackup"][0]["material"] == "copper"
+    assert technology["padstacks"][0]["hole"]["sizes"] == ["0.2mm"]
+    assert technology["padstacks"][0]["layers"][0]["antipad"]["sizes"] == ["0.6mm"]
+    assert technology["ports"] == ["P1", "P2", "P3", "P4"]
+    assert technology["differential_pairs"] == [
+        {
+            "positive_terminal": "P1",
+            "negative_terminal": "P2",
+            "active": True,
+            "matched": False,
+            "differential_mode": "Diff1",
+            "differential_reference_ohm": 100.0,
+            "common_mode": "Comm1",
+            "common_reference_ohm": 25.0,
+        }
+    ]
+    assert technology["unavailable_sections"] == []
+    assert technology["design_unchanged"] is True
+    bounded_technology = backend.execute(
+        target,
+        "layout_technology_inventory",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "max_items": 1,
+            "include_padstack_layers": False,
+        },
+    )
+    assert bounded_technology["counts"]["stackup_layers"] == 1
+    assert bounded_technology["counts"]["ports"] == 1
+    assert {item["section"] for item in bounded_technology["unavailable_sections"]} == {
+        "stackup",
+        "ports",
+    }
+    with pytest.raises(LiveBackendError, match="max_items"):
+        backend.execute(
+            target,
+            "layout_technology_inventory",
+            {
+                "project_name": "Board",
+                "design_name": "Layout1",
+                "max_items": 0,
+            },
+        )
     objects = backend.execute(
         target,
         "layout_object_inventory",

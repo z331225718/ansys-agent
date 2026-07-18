@@ -65,6 +65,18 @@ class _SmokeLive:
     def setup_inventory(self, session_id, **kwargs):
         return {"setup_count": 1, "design_unchanged": True}
 
+    def layout_technology_inventory(self, session_id, **kwargs):
+        return {
+            "counts": {
+                "stackup_layers": 2,
+                "padstacks": 1,
+                "ports": 2,
+                "differential_pairs": 0,
+            },
+            "unavailable_sections": [],
+            "design_unchanged": True,
+        }
+
     def list_layout_paths(self, session_id, **kwargs):
         return {
             "count": 2,

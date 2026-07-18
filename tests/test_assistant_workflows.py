@@ -57,6 +57,22 @@ class _Live:
     def layout_object_inventory(self, session_id: str, **kwargs) -> dict:
         return {"categories": {}, "unavailable_categories": [], "design_unchanged": True}
 
+    def layout_technology_inventory(self, session_id: str, **kwargs) -> dict:
+        return {
+            "stackup": [{"name": "TOP"}, {"name": "D1"}, {"name": "BOTTOM"}],
+            "padstacks": [{"name": "VIA"}],
+            "ports": ["P1", "P2"],
+            "differential_pairs": [],
+            "counts": {
+                "stackup_layers": 3,
+                "padstacks": 1,
+                "ports": 2,
+                "differential_pairs": 0,
+            },
+            "unavailable_sections": [],
+            "design_unchanged": True,
+        }
+
     def variable_inventory(self, session_id: str, **kwargs) -> dict:
         return {"count": 1, "variables": [], "design_unchanged": True}
 
@@ -361,6 +377,8 @@ def test_live_layout_audit_workflow_reuses_bound_session_for_graph_handlers(tmp_
     assert "_assistant_live" not in report["node_runs"][0]["input_payload"]
     assert report["node_runs"][0]["output_payload"]["live_session_reused"] is True
     assert report["node_runs"][1]["output_payload"]["summary"]["path_count"] == 2
+    assert report["node_runs"][1]["output_payload"]["summary"]["stackup_layer_count"] == 3
+    assert report["node_runs"][1]["output_payload"]["summary"]["padstack_count"] == 1
 
     with pytest.raises(ValueError, match="reserved server-owned field"):
         manager.preview_start(
@@ -605,6 +623,92 @@ def test_live_layout_touchstone_score_uses_verified_port_mapping(tmp_path: Path)
     assert len(scorecard["artifact_refs"]) == 3
     assert Path(scorecard["output_payload"]["summary"]["score_evidence_path"]).is_file()
     assert "export-approved" not in str(report)
+
+
+def test_touchstone_score_can_require_active_aedt_differential_pairs(tmp_path: Path):
+    class _DifferentialLive(_Live):
+        def setup_inventory(self, session_id: str, **kwargs) -> dict:
+            inventory = super().setup_inventory(session_id, **kwargs)
+            return {**inventory, "ports": ["TX_P", "TX_N", "RX_P", "RX_N"]}
+
+        def layout_technology_inventory(self, session_id: str, **kwargs) -> dict:
+            inventory = super().layout_technology_inventory(session_id, **kwargs)
+            return {
+                **inventory,
+                "ports": ["TX_P", "TX_N", "RX_P", "RX_N"],
+                "differential_pairs": [
+                    {
+                        "positive_terminal": "TX_P",
+                        "negative_terminal": "TX_N",
+                        "active": True,
+                        "differential_mode": "DiffTX",
+                    },
+                    {
+                        "positive_terminal": "RX_P",
+                        "negative_terminal": "RX_N",
+                        "active": True,
+                        "differential_mode": "DiffRX",
+                    },
+                ],
+            }
+
+    live = _DifferentialLive()
+    live.analysis_statuses = [
+        {
+            "product": "layout",
+            "running": False,
+            "setup_name": "SetupL",
+            "latest_run": {"run_id": "run-1", "state": "not_running"},
+        }
+    ]
+    manager = AssistantWorkflowManager(
+        live_manager=live,
+        db_path=tmp_path / "differential-validation.db",
+        template_ids=("layout_live_touchstone_score",),
+        runtime_factory=lambda path: AgentRuntime(SQLiteMissionStore(path)),
+    )
+    preview = manager.preview_start(
+        "live-1",
+        workflow_id="layout_live_touchstone_score",
+        goal="Require the exact active AEDT differential pairs",
+        initial_payload={
+            "setup_name": "SetupL",
+            "sweep_name": "Sweep1",
+            "expected_port_order": ["TX_P", "TX_N", "RX_P", "RX_N"],
+            "sparameter_mode": "differential",
+            "source_ports": ["TX_P", "TX_N"],
+            "destination_ports": ["RX_P", "RX_N"],
+            "frequency_start_ghz": 1.0,
+            "frequency_stop_ghz": 2.0,
+            "rl_target_db": -15.0,
+            "insertion_loss_min_db": -4.0,
+            "reference_impedance_ohm": 100.0,
+            "require_defined_differential_pairs": True,
+        },
+    )
+    started = manager.apply_start(
+        "live-1",
+        preview_id=preview["preview_id"],
+        approval_token="approved",
+    )
+    advance = manager.preview_advance("live-1", graph_run_id=started["graph_run_id"])
+    report = manager.apply_advance(
+        "live-1",
+        preview_id=advance["preview_id"],
+        approval_token="approved",
+    )
+
+    validation = report["node_runs"][0]["output_payload"]["score_spec"][
+        "differential_pair_validation"
+    ]
+    assert validation == {
+        "status": "verified",
+        "source_pair": "defined_active",
+        "source_differential_mode": "DiffTX",
+        "destination_pair": "defined_active",
+        "destination_differential_mode": "DiffRX",
+        "all_pairs_defined_and_active": True,
+    }
 
 
 def test_live_layout_solve_touchstone_score_composes_two_operation_approvals(tmp_path: Path):

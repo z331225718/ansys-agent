@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import threading
+import csv
 import hashlib
 import json
 import os
@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 import re
 import shutil
+import tempfile
+import threading
 import time
 from typing import Any
 
@@ -123,6 +125,8 @@ class LiveAedtBackend:
                 return self._layout_paths_list(target, arguments)
             if command == "layout_routing_inventory":
                 return self._layout_routing_inventory(target, arguments)
+            if command == "layout_technology_inventory":
+                return self._layout_technology_inventory(target, arguments)
             if command == "layout_object_inventory":
                 return self._layout_object_inventory(target, arguments)
             if command == "layout_object_property_inventory":
@@ -1286,6 +1290,69 @@ class LiveAedtBackend:
             "design_unchanged": True,
         }
 
+    def _layout_technology_inventory(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
+        app = self._app(
+            target,
+            "layout",
+            _required(args, "project_name"),
+            _required(args, "design_name"),
+        )
+        max_items = args.get("max_items", 500)
+        if type(max_items) is not int or not 1 <= max_items <= 2_000:
+            raise LiveBackendError("max_items must be an integer between 1 and 2000")
+        include_padstack_layers = args.get("include_padstack_layers", False)
+        if type(include_padstack_layers) is not bool:
+            raise LiveBackendError("include_padstack_layers must be a boolean")
+
+        unavailable = []
+        stackup, stackup_error = _layout_stackup_records(app, max_items=max_items)
+        if stackup_error:
+            unavailable.append({"section": "stackup", "reason": stackup_error})
+        padstacks, padstack_error = _layout_padstack_records(
+            app,
+            max_items=max_items,
+            include_layers=include_padstack_layers,
+        )
+        if padstack_error:
+            unavailable.append({"section": "padstacks", "reason": padstack_error})
+        differential_pairs, differential_error = _layout_differential_pair_records(
+            app,
+            max_items=max_items,
+        )
+        if differential_error:
+            unavailable.append(
+                {"section": "differential_pairs", "reason": differential_error}
+            )
+        ports = _port_names(app)
+        bounded_ports = ports[:max_items]
+        if len(ports) > max_items:
+            unavailable.append(
+                {"section": "ports", "reason": "truncated_by_max_items"}
+            )
+        technology = {
+            "stackup": stackup,
+            "padstacks": padstacks,
+            "ports": bounded_ports,
+            "port_order_source": _port_order_source(app),
+            "differential_pairs": differential_pairs,
+        }
+        return {
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            **technology,
+            "counts": {
+                "stackup_layers": len(stackup),
+                "padstacks": len(padstacks),
+                "ports": len(bounded_ports),
+                "differential_pairs": len(differential_pairs),
+            },
+            "max_items": max_items,
+            "include_padstack_layers": include_padstack_layers,
+            "unavailable_sections": unavailable,
+            "snapshot_digest": _digest(technology),
+            "design_unchanged": True,
+        }
+
     def _layout_object_inventory(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
         app = self._app(target, "layout", _required(args, "project_name"), _required(args, "design_name"))
         attributes = {
@@ -1951,6 +2018,178 @@ def _property_values_equal(actual: Any, expected: Any) -> bool:
     if isinstance(actual, str) and isinstance(expected, str):
         return _normalized_expression(actual) == _normalized_expression(expected)
     return actual == expected
+
+
+def _layout_stackup_records(
+    app: Any,
+    *,
+    max_items: int,
+) -> tuple[list[dict[str, Any]], str]:
+    try:
+        layers = list(app.modeler.layers.stackup_layers or [])
+    except Exception as exc:
+        return [], f"{type(exc).__name__}: stackup API unavailable"
+    records = []
+    for index, layer in enumerate(layers[:max_items]):
+        records.append(
+            {
+                "order": index,
+                "name": str(getattr(layer, "name", "")),
+                "type": str(getattr(layer, "type", "")),
+                "id": _safe_json_attribute(layer, "id"),
+                "thickness": _safe_json_attribute(layer, "thickness"),
+                "thickness_units": _safe_json_attribute(layer, "thickness_units"),
+                "lower_elevation": _safe_json_attribute(layer, "lower_elevation"),
+                "material": _safe_json_attribute(layer, "material"),
+                "fill_material": _safe_json_attribute(layer, "fill_material"),
+                "roughness": _safe_json_attribute(layer, "roughness"),
+                "etch": _safe_json_attribute(layer, "etch"),
+                "is_negative": _safe_json_attribute(layer, "is_negative"),
+                "top_bottom": _safe_json_attribute(layer, "top_bottom"),
+            }
+        )
+    error = "truncated_by_max_items" if len(layers) > max_items else ""
+    return records, error
+
+
+def _layout_padstack_records(
+    app: Any,
+    *,
+    max_items: int,
+    include_layers: bool,
+) -> tuple[list[dict[str, Any]], str]:
+    try:
+        padstacks = dict(app.modeler.padstacks or {})
+    except Exception as exc:
+        return [], f"{type(exc).__name__}: padstack API unavailable"
+    records = []
+    items = sorted(
+        ((str(name), padstack) for name, padstack in padstacks.items()),
+        key=lambda item: item[0],
+    )
+    for name, padstack in items[:max_items]:
+        layer_records = []
+        layers_value = _safe_attribute(padstack, "layers")
+        layers = dict(layers_value or {}) if isinstance(layers_value, dict) else {}
+        if include_layers:
+            for layer_name in sorted(str(item) for item in layers)[:max_items]:
+                layer = layers[layer_name]
+                layer_records.append(
+                    {
+                        "name": layer_name,
+                        "id": _safe_json_attribute(layer, "id"),
+                        "pad": _padstack_hole_record(_safe_attribute(layer, "pad")),
+                        "antipad": _padstack_hole_record(_safe_attribute(layer, "antipad")),
+                        "thermal": _padstack_hole_record(_safe_attribute(layer, "thermal")),
+                        "connection_direction": _safe_json_attribute(layer, "connectiondir"),
+                    }
+                )
+        records.append(
+            {
+                "name": name,
+                "material": _safe_json_attribute(padstack, "mat"),
+                "plating_percent": _safe_json_attribute(padstack, "plating"),
+                "hole_range": _safe_json_attribute(padstack, "holerange"),
+                "hole": _padstack_hole_record(_safe_attribute(padstack, "hole")),
+                "layer_count": len(layers),
+                "layer_names": sorted(str(item) for item in layers)[:max_items],
+                "layers": layer_records,
+            }
+        )
+    truncated = len(items) > max_items or any(
+        item["layer_count"] > max_items for item in records
+    )
+    return records, "truncated_by_max_items" if truncated else ""
+
+
+def _padstack_hole_record(hole: Any) -> dict[str, Any] | None:
+    if hole is None:
+        return None
+    return {
+        "shape": _safe_json_attribute(hole, "shape"),
+        "sizes": _safe_json_attribute(hole, "sizes"),
+        "x": _safe_json_attribute(hole, "x"),
+        "y": _safe_json_attribute(hole, "y"),
+        "rotation": _safe_json_attribute(hole, "rot"),
+    }
+
+
+def _layout_differential_pair_records(
+    app: Any,
+    *,
+    max_items: int,
+) -> tuple[list[dict[str, Any]], str]:
+    saver = getattr(app, "save_diff_pairs_to_file", None)
+    if callable(saver):
+        try:
+            with tempfile.TemporaryDirectory(prefix="ansys-agent-diff-pairs-") as directory:
+                path = Path(directory) / "pairs.csv"
+                if not saver(str(path)):
+                    return [], "SaveDiffPairsToFile returned false"
+                if not path.is_file():
+                    return [], "SaveDiffPairsToFile did not create a file"
+                with path.open("r", encoding="utf-8", errors="replace", newline="") as handle:
+                    rows = list(csv.reader(handle))
+        except Exception as exc:
+            return [], f"{type(exc).__name__}: differential pair export failed"
+        records = []
+        malformed = False
+        for row in rows[:max_items]:
+            if len(row) < 8:
+                malformed = True
+                continue
+            records.append(
+                {
+                    "positive_terminal": row[0].strip(),
+                    "negative_terminal": row[1].strip(),
+                    "active": row[2].strip() == "1",
+                    "matched": row[3].strip() == "1",
+                    "differential_mode": row[4].strip(),
+                    "differential_reference_ohm": _optional_float(row[5]),
+                    "common_mode": row[6].strip(),
+                    "common_reference_ohm": _optional_float(row[7]),
+                }
+            )
+        errors = []
+        if len(rows) > max_items:
+            errors.append("truncated_by_max_items")
+        if malformed:
+            errors.append("malformed_diff_pair_rows_skipped")
+        return records, "; ".join(errors)
+
+    getter = getattr(app, "get_differential_pairs", None)
+    if not callable(getter):
+        return [], "differential pair API unavailable"
+    try:
+        names = [str(item) for item in list(getter() or [])]
+    except Exception as exc:
+        return [], f"{type(exc).__name__}: differential pair API failed"
+    return (
+        [{"differential_mode": item, "terminal_mapping_status": "unavailable"} for item in names[:max_items]],
+        "terminal_mapping_unavailable" if names else "",
+    )
+
+
+def _safe_json_attribute(owner: Any, attribute: str) -> Any:
+    value = _safe_attribute(owner, attribute)
+    return _json_value(value) if value is not None else None
+
+
+def _safe_attribute(owner: Any, attribute: str) -> Any:
+    try:
+        value = getattr(owner, attribute)
+        if callable(value):
+            value = value()
+        return value
+    except Exception:
+        return None
+
+
+def _optional_float(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _report_names(app: Any) -> list[str]:

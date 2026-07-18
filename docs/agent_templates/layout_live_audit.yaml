@@ -1,6 +1,6 @@
 id: layout_live_audit
-version: 1
-description: Audit the currently attached HFSS 3D Layout design through the live Assistant Harness.
+version: 2
+description: Audit routing, objects, variables, setups, stackup, padstacks, ports, and differential pairs in the attached HFSS 3D Layout design.
 nodes:
   - id: collect_live_inventory
     role: live_inventory
@@ -34,6 +34,7 @@ handoffs:
       - objects
       - variables
       - setups
+      - technology
       - live_session_reused
   live_layout_audit_report:
     required_fields:
