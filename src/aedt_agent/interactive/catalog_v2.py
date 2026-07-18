@@ -306,7 +306,7 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             approval="external_host_token_per_step_and_export",
             side_effects=["touchstone_and_score_evidence_written_to_managed_export_root"],
             postconditions=[
-                "workflow_id_layout_live_touchstone_score",
+                "workflow_ids_layout_live_touchstone_score_and_compositions",
                 "explicit_port_order_and_mapping_verified",
                 "source_artifact_sha256_verified",
                 "project_unchanged_and_not_saved",

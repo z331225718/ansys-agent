@@ -187,6 +187,23 @@ def _manager(tmp_path: Path) -> AssistantWorkflowManager:
     )
 
 
+def _mapped_score_payload() -> dict:
+    return {
+        "setup_name": "SetupL",
+        "sweep_name": "Sweep1",
+        "artifact_name": "mapped-channel",
+        "expected_port_order": ["P1", "P2"],
+        "sparameter_mode": "single_ended",
+        "source_ports": ["P1"],
+        "destination_ports": ["P2"],
+        "frequency_start_ghz": 1.0,
+        "frequency_stop_ghz": 2.0,
+        "rl_target_db": -15.0,
+        "insertion_loss_min_db": -4.0,
+        "reference_impedance_ohm": 50.0,
+    }
+
+
 def test_workflow_catalog_exposes_existing_graph_without_mutating_it(tmp_path: Path):
     manager = _manager(tmp_path)
 
@@ -229,6 +246,10 @@ def test_default_workflow_catalog_includes_live_monitor_and_export(tmp_path: Pat
         "source_ports",
         "sparameter_mode",
     ]
+    assert descriptors["layout_live_solve_touchstone_score"]["risk"] == "expensive"
+    assert descriptors["layout_live_solve_touchstone_score"]["attached_live_session_reuse"] is True
+    assert descriptors["layout_live_parameterize_solve_touchstone_score"]["risk"] == "expensive"
+    assert descriptors["layout_live_parameterize_solve_touchstone_score"]["attached_live_session_reuse"] is True
     assert manager.inspect_workflow("layout_live_solve_monitor")["graph"]["edges"][1]["on"] == "running"
 
 
@@ -528,18 +549,7 @@ def test_live_layout_touchstone_score_uses_verified_port_mapping(tmp_path: Path)
         workflow_id="layout_live_touchstone_score",
         goal="Export and score an explicitly mapped layout channel",
         initial_payload={
-            "setup_name": "SetupL",
-            "sweep_name": "Sweep1",
-            "artifact_name": "mapped-channel",
-            "expected_port_order": ["P1", "P2"],
-            "sparameter_mode": "single_ended",
-            "source_ports": ["P1"],
-            "destination_ports": ["P2"],
-            "frequency_start_ghz": 1.0,
-            "frequency_stop_ghz": 2.0,
-            "rl_target_db": -15.0,
-            "insertion_loss_min_db": -4.0,
-            "reference_impedance_ohm": 50.0,
+            **_mapped_score_payload(),
         },
     )
     started = manager.apply_start("live-1", preview_id=start["preview_id"], approval_token="approved")
@@ -565,6 +575,193 @@ def test_live_layout_touchstone_score_uses_verified_port_mapping(tmp_path: Path)
     assert len(scorecard["artifact_refs"]) == 3
     assert Path(scorecard["output_payload"]["summary"]["score_evidence_path"]).is_file()
     assert "export-approved" not in str(report)
+
+
+def test_live_layout_solve_touchstone_score_composes_two_operation_approvals(tmp_path: Path):
+    live = _Live()
+    live.export_root = tmp_path / "solve-score-exports"
+    live.analysis_statuses = [
+        {"product": "layout", "running": False, "setup_name": "SetupL", "latest_run": {"run_id": "run-1", "state": "submitted"}},
+        {"product": "layout", "running": True, "setup_name": "SetupL", "latest_run": {"run_id": "run-1", "state": "running"}},
+        {"product": "layout", "running": False, "setup_name": "SetupL", "latest_run": {"run_id": "run-1", "state": "not_running"}},
+        {"product": "layout", "running": False, "setup_name": "SetupL", "latest_run": {"run_id": "run-1", "state": "not_running"}},
+    ]
+    manager = AssistantWorkflowManager(
+        live_manager=live,
+        db_path=tmp_path / "solve-score-missions.db",
+        template_ids=("layout_live_solve_touchstone_score",),
+        runtime_factory=lambda path: AgentRuntime(SQLiteMissionStore(path)),
+    )
+    start = manager.preview_start(
+        "live-1",
+        workflow_id="layout_live_solve_touchstone_score",
+        goal="Solve and score one explicitly mapped live layout channel",
+        initial_payload={**_mapped_score_payload(), "cores": 4, "tasks": 1, "gpus": 0},
+        max_steps=20,
+    )
+    started = manager.apply_start("live-1", preview_id=start["preview_id"], approval_token="approved")
+
+    report = None
+    for index in range(10):
+        advance = manager.preview_advance("live-1", graph_run_id=started["graph_run_id"])
+        operation_token = ""
+        if index == 2:
+            assert advance["operation_approval_required"]["preview_id"] == "solve-preview-1"
+            operation_token = "solve-approved"
+        elif index == 8:
+            assert advance["operation_approval_required"]["preview_id"] == "export-preview-1"
+            operation_token = "export-approved"
+        report = manager.apply_advance(
+            "live-1",
+            preview_id=advance["preview_id"],
+            approval_token="approved",
+            operation_approval_token=operation_token,
+        )
+
+    assert report is not None and report["status"] == "succeeded"
+    assert [item["node_id"] for item in report["node_runs"]] == [
+        "validate_setup",
+        "preview_analysis",
+        "apply_analysis",
+        "poll_analysis",
+        "poll_analysis",
+        "poll_analysis",
+        "validate_score_request",
+        "preview_export",
+        "apply_export",
+        "score_touchstone",
+    ]
+    summary = report["node_runs"][-1]["output_payload"]["summary"]
+    assert summary["score_status"] == "pass"
+    assert summary["solve_run_id"] == "run-1"
+    assert summary["solve_submission_verified"] is True
+    assert summary["solve_success_verified"] is False
+    assert summary["result_freshness_verified"] is False
+    assert summary["solve_running_observed"] is True
+    assert summary["poll_count"] == 3
+    assert summary["parameterization_verified"] is False
+    assert "solve-approved" not in str(report)
+    assert "export-approved" not in str(report)
+
+
+def test_live_layout_parameterize_solve_score_composes_three_operation_approvals(tmp_path: Path):
+    live = _Live()
+    live.export_root = tmp_path / "parameterize-solve-score-exports"
+    live.analysis_statuses = [
+        {"product": "layout", "running": False, "setup_name": "SetupL", "latest_run": {"run_id": "run-1", "state": "submitted"}},
+        {"product": "layout", "running": True, "setup_name": "SetupL", "latest_run": {"run_id": "run-1", "state": "running"}},
+        {"product": "layout", "running": False, "setup_name": "SetupL", "latest_run": {"run_id": "run-1", "state": "not_running"}},
+        {"product": "layout", "running": False, "setup_name": "SetupL", "latest_run": {"run_id": "run-1", "state": "not_running"}},
+    ]
+    manager = AssistantWorkflowManager(
+        live_manager=live,
+        db_path=tmp_path / "parameterize-solve-score-missions.db",
+        template_ids=("layout_live_parameterize_solve_touchstone_score",),
+        runtime_factory=lambda path: AgentRuntime(SQLiteMissionStore(path)),
+    )
+    start = manager.preview_start(
+        "live-1",
+        workflow_id="layout_live_parameterize_solve_touchstone_score",
+        goal="Parameterize matching lines, solve, and score the mapped channel",
+        initial_payload={
+            **_mapped_score_payload(),
+            "selector": {"target_width": "4.3mil"},
+            "variable_name": "W_line",
+            "variable_value": "4.3mil",
+            "cores": 4,
+            "tasks": 1,
+            "gpus": 0,
+        },
+        max_steps=24,
+    )
+    started = manager.apply_start("live-1", preview_id=start["preview_id"], approval_token="approved")
+
+    report = None
+    for index in range(14):
+        advance = manager.preview_advance("live-1", graph_run_id=started["graph_run_id"])
+        operation_token = ""
+        if index == 2:
+            assert advance["operation_approval_required"]["preview_id"] == "width-preview-1"
+            operation_token = "operation-approved"
+        elif index == 6:
+            assert advance["operation_approval_required"]["preview_id"] == "solve-preview-1"
+            operation_token = "solve-approved"
+        elif index == 12:
+            assert advance["operation_approval_required"]["preview_id"] == "export-preview-1"
+            operation_token = "export-approved"
+        report = manager.apply_advance(
+            "live-1",
+            preview_id=advance["preview_id"],
+            approval_token="approved",
+            operation_approval_token=operation_token,
+        )
+
+    assert report is not None and report["status"] == "succeeded"
+    summary = report["node_runs"][-1]["output_payload"]["summary"]
+    assert summary["score_status"] == "pass"
+    assert summary["solve_submission_verified"] is True
+    assert summary["solve_success_verified"] is False
+    assert summary["result_freshness_verified"] is False
+    assert summary["parameterization_verified"] is True
+    assert summary["parameterized_target_count"] == 2
+    serialized = str(report)
+    assert "operation-approved" not in serialized
+    assert "solve-approved" not in serialized
+    assert "export-approved" not in serialized
+
+
+def test_parameterize_solve_score_stops_before_solve_when_readback_fails(tmp_path: Path):
+    class _ReadbackMismatchLive(_Live):
+        def apply_layout_width(self, session_id: str, *, preview_id: str, approval_token: str) -> dict:
+            result = super().apply_layout_width(
+                session_id,
+                preview_id=preview_id,
+                approval_token=approval_token,
+            )
+            return {**result, "verified_count": 1}
+
+        def preview_hfss_analysis_start(self, session_id: str, **kwargs) -> dict:
+            raise AssertionError("solve preview must not run after failed width readback")
+
+    live = _ReadbackMismatchLive()
+    manager = AssistantWorkflowManager(
+        live_manager=live,
+        db_path=tmp_path / "readback-stop-missions.db",
+        template_ids=("layout_live_parameterize_solve_touchstone_score",),
+        runtime_factory=lambda path: AgentRuntime(SQLiteMissionStore(path)),
+    )
+    start = manager.preview_start(
+        "live-1",
+        workflow_id="layout_live_parameterize_solve_touchstone_score",
+        goal="Do not solve unless parameterization readback passes",
+        initial_payload={
+            **_mapped_score_payload(),
+            "selector": {"target_width": "4.3mil"},
+            "variable_name": "W_line",
+            "variable_value": "4.3mil",
+        },
+    )
+    started = manager.apply_start("live-1", preview_id=start["preview_id"], approval_token="approved")
+
+    report = None
+    for index in range(4):
+        advance = manager.preview_advance("live-1", graph_run_id=started["graph_run_id"])
+        report = manager.apply_advance(
+            "live-1",
+            preview_id=advance["preview_id"],
+            approval_token="approved",
+            operation_approval_token="operation-approved" if index == 2 else "",
+        )
+
+    assert report is not None and report["status"] == "succeeded"
+    assert [item["node_id"] for item in report["node_runs"]] == [
+        "select_paths",
+        "preview_parameterization",
+        "apply_parameterization",
+        "verify_parameterization",
+    ]
+    assert report["node_runs"][-1]["edge_decision"] == "failed"
+    assert report["node_runs"][-1]["output_payload"]["status"] == "failed"
 
 
 def test_live_layout_solve_export_workflow_uses_two_independent_operation_approvals(tmp_path: Path):

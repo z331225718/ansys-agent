@@ -796,8 +796,10 @@ ansys-assistant parameterize-width `
 |---|---|
 | `layout_live_audit` | 复用当前已 attach 会话，对活动 3D Layout 执行 routing/object/variable/setup 只读审计 |
 | `layout_live_parameterize_width` | 在当前 3D Layout 中选择 Path、冻结线宽参数化 preview、审批后 apply 并生成 readback scorecard |
+| `layout_live_parameterize_solve_touchstone_score` | 参数化线宽并验证后，继续求解、监控、导出和显式端口映射评分，包含三次独立 operation 审批 |
 | `layout_live_solve_monitor` | 通过最多 64 次的有界 Graph loop 单步观察求解，直到 AEDT 不再运行；不冒充求解成功判定 |
 | `layout_live_solve_start` | 核对当前 3D Layout Setup/Sweep 和资源预算，审批后非阻塞启动求解并验证提交状态 |
+| `layout_live_solve_touchstone_score` | 启动并监控求解，停止后导出 Touchstone 并按显式端口映射评分，包含两次独立 operation 审批 |
 | `layout_live_solve_export` | 在一个 Graph 中启动、循环监控并导出结果，求解和导出分别使用独立 operation 审批 |
 | `layout_live_results_export` | 在求解停止后导出 Touchstone 或 report CSV，并复核 artifact、SHA256 和 evidence manifest |
 | `layout_live_touchstone_score` | 按 AEDT 当前端口顺序和显式源/目的端口映射导出、校验并确定性评分 Touchstone |
@@ -909,6 +911,46 @@ Touchstone 中的任意位置，不再依赖“前四个端口”的隐含假设
 RL/IL 最差点、频点、超限点数、压缩频谱 evidence 和 SHA-256。这个 Workflow 只评估频域 RL/IL，输出中
 `tdr_evaluated=false`；Agent 不得把它描述成 TDR、阻抗连续性或完整求解成功证明。
 
+已经有可复用结果时使用 `layout_live_touchstone_score`；需要从求解开始时使用
+`layout_live_solve_touchstone_score`。后者依次执行 Setup/Sweep 和资源验证、求解 preview/apply、有界状态轮询、
+端口映射复核、Touchstone preview/apply 和评分。求解与导出分别要求 operation token，任一个 token 都不能授权
+另一个阶段。
+
+对于“把所有 4.3mil 线宽改为 `W_line`，然后求解并评分”的完整任务，使用
+`layout_live_parameterize_solve_touchstone_score`，其 payload 是线宽参数化字段和评分字段的并集：
+
+```json
+{
+  "selector": {"target_width": "4.3mil"},
+  "variable_name": "W_line",
+  "variable_value": "4.3mil",
+  "setup_name": "SetupL",
+  "sweep_name": "Sweep1",
+  "cores": 4,
+  "tasks": 1,
+  "gpus": 0,
+  "expected_port_order": ["TX_P", "TX_N", "RX_P", "RX_N"],
+  "sparameter_mode": "differential",
+  "source_ports": ["TX_P", "TX_N"],
+  "destination_ports": ["RX_P", "RX_N"],
+  "frequency_start_ghz": 1.0,
+  "frequency_stop_ghz": 28.0,
+  "rl_target_db": -15.0,
+  "insertion_loss_min_db": -12.0,
+  "reference_impedance_ohm": 100.0
+}
+```
+
+这个组合 Workflow 有三次互不替代的 operation 审批：线宽修改、求解提交、结果导出。每个 Graph step 仍另有
+一次推进审批。线宽 readback 未通过时不会进入求解；求解还在运行或端口顺序发生变化时不会进入评分。最终
+scorecard 同时报告 `parameterization_verified`、`solve_submission_verified`、轮询次数、端口映射和评分结果。
+工程保持 dirty 但不会自动保存，用户复核后再决定调用项目保存 Harness。
+当前 AEDT 状态接口不能直接证明“本次 run 已成功完成且导出结果一定来自该 run”，因此组合 scorecard 会明确返回
+`solve_success_verified=false` 和 `result_freshness_verified=false`。它证明的是求解已提交、曾观察运行状态、当前已
+停止以及随后导出的 artifact 完整；Agent 不得把这些证据升级描述为求解收敛或结果新鲜度已验证。
+求解可能持续较久时，启动这两个组合 Workflow 应显式设置 `max_steps=128`；每次轮询只消耗一个经审批的 Graph
+step，绝不会在 MCP 内部无限等待。上限仍为 256，超过后必须查看状态并创建新的受控监控流程，而不是绕过上限。
+
 ### 16.3 审批和目标绑定
 
 Workflow start preview 会冻结以下内容并计算 SHA-256 digest：
@@ -940,6 +982,9 @@ advance 审批；组合并不扩大任何一次 token 的权限范围。
 `layout_live_touchstone_score` 复用相同的受控导出链，并在服务端根据 Setup inventory、导出 preview 和 evidence
 manifest 三次核对端口顺序，然后用明确的单端或差分端口映射评分。它不会从文件扩展名猜测差分对，也不会把
 频域评分冒充 TDR 证据。
+`layout_live_solve_touchstone_score` 和 `layout_live_parameterize_solve_touchstone_score` 是对上述原子节点的组合，
+不是一段临时生成的自由脚本。前者把求解闭环接到评分，后者再把经过 readback 的线宽参数化接到最前面；每个
+副作用阶段仍保留自己的 operation preview、原生审批和目标快照校验。
 用户不能在 `initial_payload` 中伪造 `_assistant_live`。Runtime 会拒绝该保留字段，并把可执行
 `live_session_id` 只保存在当前 MCP 进程的 server-owned graph binding 中，不写进 Mission payload；
 Mission 只持久化端口、PID、工程和设计身份用于后续重新绑定校验。

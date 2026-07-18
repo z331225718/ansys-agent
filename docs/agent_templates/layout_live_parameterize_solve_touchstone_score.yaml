@@ -1,0 +1,142 @@
+id: layout_live_parameterize_solve_touchstone_score
+version: 1
+description: Parameterize selected live 3D Layout path widths, verify readback, solve, monitor, export, and score a mapped Touchstone result through three independent operation approvals.
+nodes:
+  - id: select_paths
+    role: live_inventory
+    kind: program
+    handler: assistant.live.layout.select_paths
+    input_schema: live_parameterize_solve_score_request
+    output_schema: live_parameterize_solve_score_selection
+    max_runs: 1
+  - id: preview_parameterization
+    role: preview
+    kind: program
+    handler: assistant.live.layout.preview_width_parameterization
+    input_schema: live_parameterize_solve_score_selection
+    output_schema: live_parameterize_solve_score_preview
+    max_runs: 1
+  - id: apply_parameterization
+    role: apply
+    kind: program
+    handler: assistant.live.layout.apply_width_parameterization
+    input_schema: live_parameterize_solve_score_preview
+    output_schema: live_parameterize_solve_score_applied
+    max_runs: 1
+  - id: verify_parameterization
+    role: scorecard
+    kind: program
+    handler: assistant.live.layout.width_scorecard
+    input_schema: live_parameterize_solve_score_applied
+    output_schema: live_parameterize_solve_score_verified
+    max_runs: 1
+  - id: validate_setup
+    role: validator
+    kind: program
+    handler: assistant.live.layout.validate_solve_setup
+    input_schema: live_parameterize_solve_score_verified
+    output_schema: live_parameterize_solve_setup_validated
+    max_runs: 1
+  - id: preview_analysis
+    role: preview
+    kind: program
+    handler: assistant.live.layout.preview_analysis_start
+    input_schema: live_parameterize_solve_setup_validated
+    output_schema: live_parameterize_solve_analysis_preview
+    max_runs: 1
+  - id: apply_analysis
+    role: apply
+    kind: program
+    handler: assistant.live.layout.apply_analysis_start
+    input_schema: live_parameterize_solve_analysis_preview
+    output_schema: live_parameterize_solve_started
+    max_runs: 1
+  - id: poll_analysis
+    role: monitor
+    kind: program
+    handler: assistant.live.layout.poll_analysis_status
+    input_schema: live_parameterize_solve_started
+    output_schema: live_parameterize_solve_observation
+    join: any
+    max_runs: 64
+  - id: validate_score_request
+    role: validator
+    kind: program
+    handler: assistant.live.layout.validate_touchstone_score
+    input_schema: live_parameterize_solve_observation
+    output_schema: live_parameterize_touchstone_score_validated
+    max_runs: 1
+  - id: preview_export
+    role: preview
+    kind: program
+    handler: assistant.live.layout.preview_results_export
+    input_schema: live_parameterize_touchstone_score_validated
+    output_schema: live_parameterize_touchstone_score_preview
+    max_runs: 1
+  - id: apply_export
+    role: apply
+    kind: program
+    handler: assistant.live.layout.apply_results_export
+    input_schema: live_parameterize_touchstone_score_preview
+    output_schema: live_parameterize_touchstone_score_exported
+    max_runs: 1
+  - id: score_touchstone
+    role: scorecard
+    kind: program
+    handler: assistant.live.layout.touchstone_scorecard
+    input_schema: live_parameterize_touchstone_score_exported
+    output_schema: live_parameterize_solve_touchstone_scorecard
+    max_runs: 1
+edges:
+  - {id: select-to-width-preview, from: select_paths, to: preview_parameterization, on: succeeded, max_traversals: 1}
+  - {id: width-preview-to-apply, from: preview_parameterization, to: apply_parameterization, on: succeeded, max_traversals: 1}
+  - {id: width-apply-to-verify, from: apply_parameterization, to: verify_parameterization, on: succeeded, max_traversals: 1}
+  - {id: width-verify-to-setup, from: verify_parameterization, to: validate_setup, on: passed, max_traversals: 1}
+  - {id: setup-to-solve-preview, from: validate_setup, to: preview_analysis, on: succeeded, max_traversals: 1}
+  - {id: solve-preview-to-apply, from: preview_analysis, to: apply_analysis, on: succeeded, max_traversals: 1}
+  - {id: solve-apply-to-poll, from: apply_analysis, to: poll_analysis, on: succeeded, max_traversals: 1}
+  - {id: poll-again, from: poll_analysis, to: poll_analysis, on: running, max_traversals: 63}
+  - {id: poll-to-score-validation, from: poll_analysis, to: validate_score_request, on: stopped, max_traversals: 1}
+  - {id: score-validation-to-preview, from: validate_score_request, to: preview_export, on: succeeded, max_traversals: 1}
+  - {id: export-preview-to-apply, from: preview_export, to: apply_export, on: succeeded, max_traversals: 1}
+  - {id: export-apply-to-score, from: apply_export, to: score_touchstone, on: succeeded, max_traversals: 1}
+handoffs:
+  live_parameterize_solve_score_request:
+    required_fields:
+      - selector
+      - variable_name
+      - variable_value
+      - setup_name
+      - expected_port_order
+      - sparameter_mode
+      - source_ports
+      - destination_ports
+      - frequency_start_ghz
+      - frequency_stop_ghz
+      - rl_target_db
+      - insertion_loss_min_db
+      - reference_impedance_ohm
+  live_parameterize_solve_score_selection:
+    required_fields: [selector, variable_name, variable_value, setup_name, selection, live_session_reused]
+  live_parameterize_solve_score_preview:
+    required_fields: [selector, variable_name, variable_value, selection, operation_preview_id, operation_approval, live_session_reused]
+  live_parameterize_solve_score_applied:
+    required_fields: [setup_name, operation_result, live_session_reused]
+  live_parameterize_solve_score_verified:
+    required_fields: [status, checks, summary, setup_name, live_session_reused]
+  live_parameterize_solve_setup_validated:
+    required_fields: [setup_name, resources, setup_inventory, live_session_reused]
+  live_parameterize_solve_analysis_preview:
+    required_fields: [setup_name, resources, operation_preview_id, operation_approval, live_session_reused]
+  live_parameterize_solve_started:
+    required_fields: [setup_name, solve_result, live_session_reused]
+  live_parameterize_solve_observation:
+    required_fields: [setup_name, solve_result, analysis_status, poll_count, observed_running, live_session_reused]
+  live_parameterize_touchstone_score_validated:
+    required_fields: [export_kind, export_spec, score_spec, solve_result, analysis_status, setup_inventory, live_session_reused]
+  live_parameterize_touchstone_score_preview:
+    required_fields: [export_spec, score_spec, solve_result, operation_preview_id, operation_approval, operation_preview, live_session_reused]
+  live_parameterize_touchstone_score_exported:
+    required_fields: [export_spec, score_spec, solve_result, export_result, operation_preview, live_session_reused]
+  live_parameterize_solve_touchstone_scorecard:
+    required_fields: [status, checks, score, summary, artifact_refs, live_session_reused]

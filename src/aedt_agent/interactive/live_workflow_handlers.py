@@ -244,6 +244,7 @@ def _width_scorecard(context: GraphNodeExecutionContext) -> dict[str, Any]:
         **payload,
         "status": "passed" if passed else "failed",
         "checks": checks,
+        "parameterization_result": result,
         "summary": {
             "target_count": int(result.get("target_count") or 0),
             "verified_count": int(result.get("verified_count") or 0),
@@ -749,6 +750,22 @@ def _touchstone_scorecard(context, live_manager, binding_resolver) -> dict[str, 
     except (OSError, ValueError, TypeError):
         manifest = {}
     manifest_artifact = dict(manifest.get("artifact") or {})
+    analysis_status = dict(payload.get("analysis_status") or {})
+    latest_run = dict(analysis_status.get("latest_run") or {})
+    solve_result = dict(payload.get("solve_result") or {})
+    parameterization_result = dict(payload.get("parameterization_result") or {})
+    solve_submission_verified = bool(solve_result) and (
+        solve_result.get("status") == "submitted"
+        and solve_result.get("started") is True
+        and solve_result.get("blocking") is False
+        and solve_result.get("project_saved") is False
+    )
+    parameterization_verified = bool(parameterization_result) and (
+        parameterization_result.get("status") == "verified"
+        and parameterization_result.get("verified_count")
+        == parameterization_result.get("target_count")
+        and parameterization_result.get("project_saved") is False
+    )
     score_spec = dict(payload.get("score_spec") or {})
     expected_ports = list(score_spec.get("expected_port_order") or [])
     preview_ports = list((payload.get("operation_preview") or {}).get("ports") or [])
@@ -774,7 +791,35 @@ def _touchstone_scorecard(context, live_manager, binding_resolver) -> dict[str, 
         _check("manifest_port_order", manifest_ports == expected_ports),
         _check("project_unchanged", result.get("project_unchanged") is True),
         _check("project_not_saved", result.get("project_saved") is False),
+        _check("solver_not_running", analysis_status.get("running") is False),
+        _check("solve_not_known_canceled", latest_run.get("state") != "canceled"),
     ]
+    if solve_result:
+        checks.extend(
+            [
+                _check(
+                    "solve_submitted",
+                    solve_result.get("status") == "submitted" and solve_result.get("started") is True,
+                ),
+                _check("solve_non_blocking", solve_result.get("blocking") is False),
+                _check("solve_project_not_saved", solve_result.get("project_saved") is False),
+            ]
+        )
+    if parameterization_result:
+        checks.extend(
+            [
+                _check("parameterization_verified", parameterization_result.get("status") == "verified"),
+                _check(
+                    "parameterization_readback_count",
+                    parameterization_result.get("verified_count")
+                    == parameterization_result.get("target_count"),
+                ),
+                _check(
+                    "parameterization_project_not_saved",
+                    parameterization_result.get("project_saved") is False,
+                ),
+            ]
+        )
     if not all(item["passed"] for item in checks):
         artifact_refs = [str(path) for path in (artifact_path, manifest_path) if path.is_file()]
         return _success(
@@ -866,6 +911,14 @@ def _touchstone_scorecard(context, live_manager, binding_resolver) -> dict[str, 
             "manifest_path": str(manifest_path),
             "score_evidence_path": str(evidence_path),
             "score_evidence_sha256": evidence_sha256,
+            "solve_run_id": solve_result.get("run_id"),
+            "solve_submission_verified": solve_submission_verified,
+            "solve_success_verified": False,
+            "result_freshness_verified": False,
+            "solve_running_observed": bool(payload.get("observed_running")),
+            "poll_count": int(payload.get("poll_count") or 0),
+            "parameterization_verified": parameterization_verified,
+            "parameterized_target_count": int(parameterization_result.get("target_count") or 0),
         },
         "artifact_refs": artifact_refs,
         "live_session_reused": True,
