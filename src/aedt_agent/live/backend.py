@@ -104,6 +104,8 @@ class LiveAedtBackend:
                 return self._hfss_export_apply(target, arguments)
             if command == "layout_paths_list":
                 return self._layout_paths_list(target, arguments)
+            if command == "layout_routing_inventory":
+                return self._layout_routing_inventory(target, arguments)
             if command == "layout_width_preview":
                 return self._layout_width_preview(target, arguments)
             if command == "layout_width_apply":
@@ -919,6 +921,33 @@ class LiveAedtBackend:
                 continue
             paths.append(record)
         return {"project_name": app.project_name, "design_name": app.design_name, "count": len(paths), "paths": paths}
+
+    def _layout_routing_inventory(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
+        inventory = self._layout_paths_list(target, args)
+        app = self._app(target, "layout", _required(args, "project_name"), _required(args, "design_name"))
+        variables = []
+        for name, value in sorted(dict(getattr(app.variable_manager, "variables", {}) or {}).items()):
+            expression = getattr(value, "expression", None)
+            if expression is None:
+                expression = getattr(value, "value", value)
+            variables.append(
+                {
+                    "name": str(name),
+                    "expression": str(expression),
+                    "scope": "project" if str(name).startswith("$") else "design",
+                }
+            )
+        paths = inventory["paths"]
+        return {
+            **inventory,
+            "path_count": inventory["count"],
+            "nets": sorted({item["net"] for item in paths}),
+            "layers": sorted({item["layer"] for item in paths}),
+            "width_expressions": sorted({item["width_expression"] for item in paths}),
+            "variables": variables,
+            "variable_count": len(variables),
+            "design_unchanged": True,
+        }
 
     def _layout_width_preview(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
         project = _required(args, "project_name")

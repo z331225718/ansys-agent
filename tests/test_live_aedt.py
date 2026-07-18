@@ -89,7 +89,7 @@ class FakeLayout:
         }
         self.modeler = SimpleNamespace(line_names=list(lines), lines=lines)
         self.variable_manager = SimpleNamespace(
-            variables={},
+            variables={"$pitch": SimpleNamespace(expression="1mm")},
             set_variable=lambda name, value, sweep=True: self._set_variable(name, value),
             delete_variable=lambda name: self.variable_manager.variables.pop(name, None) is not None,
         )
@@ -419,6 +419,16 @@ def test_backend_reuses_wrappers_and_lists_live_layout_paths():
     applied = backend.execute(target, "layout_width_apply", {"preview_id": preview["preview_id"]})
     assert applied["status"] == "verified"
     assert applied["project_saved"] is False
+    routing = backend.execute(
+        target,
+        "layout_routing_inventory",
+        {"project_name": "Board", "design_name": "Layout1", "selector": {}},
+    )
+    assert routing["nets"] == ["N1", "N2"]
+    assert routing["layers"] == ["L1", "L2"]
+    assert routing["variable_count"] == 2
+    assert routing["variables"][0] == {"name": "$pitch", "expression": "1mm", "scope": "project"}
+    assert routing["design_unchanged"] is True
     backend.release()
     assert desktop.releases[-1] == {"close_projects": False, "close_on_exit": False}
 

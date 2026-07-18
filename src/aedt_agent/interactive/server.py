@@ -13,6 +13,7 @@ def create_server(
     *,
     kernel: InteractiveKernel | None = None,
     live_manager: LiveAedtSessionManager | None = None,
+    workflow_manager=None,
 ):
     try:
         from fastmcp import FastMCP
@@ -36,6 +37,11 @@ def create_server(
         required_version=expected_version,
         strict_desktop=strict_desktop,
     )
+    if workflow_manager is None:
+        from aedt_agent.interactive.workflows import AssistantWorkflowManager
+
+        workflow_manager = AssistantWorkflowManager(live_manager=live)
+    workflows = workflow_manager
     scope_instructions = (
         "This Desktop-bound server can operate only on its preselected AEDT port, project, and design. "
         "Artifact sessions, target discovery, and AEDT launch are unavailable. "
@@ -54,6 +60,8 @@ def create_server(
             "When a Desktop approval dialog is configured, wait_for_live_approval only returns a token after "
             "the user clicks Approve; a rejected or expired request must not be retried implicitly. "
             "Report missing capabilities and backend failures truthfully."
+            " Existing graph workflows are guarded Harness capabilities: inspect them first, preview start or "
+            "advance, wait for native approval, and execute at most one graph step per approved apply."
         ),
     )
 
@@ -91,6 +99,71 @@ def create_server(
         from aedt_agent.interactive.catalog_v2 import capability_catalog_v2
 
         return capability_catalog_v2(desktop_bound=strict_desktop)
+
+    @server.tool()
+    async def list_ansys_workflows() -> dict:
+        """List the allowlisted, reusable graph workflows available through the Runtime Harness."""
+        return workflows.list_workflows()
+
+    @server.tool()
+    async def inspect_ansys_workflow(workflow_id: str) -> dict:
+        """Inspect a workflow graph, required inputs, workers, risk, and approval policy."""
+        return workflows.inspect_workflow(workflow_id)
+
+    @server.tool()
+    async def preview_ansys_workflow_start(
+        live_session_id: str,
+        workflow_id: str,
+        goal: str,
+        initial_payload: dict,
+        max_steps: int = 32,
+    ) -> dict:
+        """Freeze a session-bound workflow start; no graph node executes during preview."""
+        return workflows.preview_start(
+            live_session_id,
+            workflow_id=workflow_id,
+            goal=goal,
+            initial_payload=initial_payload,
+            max_steps=max_steps,
+        )
+
+    @server.tool()
+    async def apply_ansys_workflow_start(
+        live_session_id: str,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        """Create an approved mission and graph run without executing its first node."""
+        return workflows.apply_start(
+            live_session_id,
+            preview_id=preview_id,
+            approval_token=approval_token,
+        )
+
+    @server.tool()
+    async def get_ansys_workflow_status(graph_run_id: str) -> dict:
+        """Read graph, node, job, handoff, and supervision state without advancing it."""
+        return workflows.status(graph_run_id)
+
+    @server.tool()
+    async def preview_ansys_workflow_advance(live_session_id: str, graph_run_id: str) -> dict:
+        """Freeze the next single graph scheduler step for native user approval."""
+        return workflows.preview_advance(live_session_id, graph_run_id=graph_run_id)
+
+    @server.tool()
+    async def apply_ansys_workflow_advance(
+        live_session_id: str,
+        preview_id: str,
+        approval_token: str,
+        max_workers: int = 1,
+    ) -> dict:
+        """Execute exactly one approved graph scheduler step and return its full status."""
+        return workflows.apply_advance(
+            live_session_id,
+            preview_id=preview_id,
+            approval_token=approval_token,
+            max_workers=max_workers,
+        )
 
     @register_tool(not strict_desktop)
     async def open_layout_session(
@@ -495,6 +568,21 @@ def create_server(
     ) -> dict:
         """List Path/line objects in a live 3D Layout design; selector supports names, nets, layers, target_width."""
         return live.list_layout_paths(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            selector=selector,
+        )
+
+    @server.tool()
+    async def get_live_layout_routing_inventory(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        selector: dict | None = None,
+    ) -> dict:
+        """Inventory live layout paths plus nets, layers, width expressions, and design/project variables."""
+        return live.layout_routing_inventory(
             live_session_id,
             project_name=project_name,
             design_name=design_name,

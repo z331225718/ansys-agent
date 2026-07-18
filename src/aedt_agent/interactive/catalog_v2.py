@@ -141,6 +141,13 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             postconditions=["design_unchanged"],
         ),
         _cap(
+            "layout.routing.inventory",
+            "read_only",
+            ["live"],
+            ["get_live_layout_routing_inventory"],
+            postconditions=["design_unchanged", "variables_and_routing_dimensions_returned"],
+        ),
+        _cap(
             "layout.path_width.parameterize",
             "reversible_edit",
             ["artifact", "live"],
@@ -184,6 +191,27 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             side_effects=["writes_disabled_candidate_under_managed_review_root"],
             postconditions=["verified_trace_only", "no_auto_apply", "no_hot_registration", "no_commit"],
         ),
+        _cap(
+            "workflow.graph.catalog",
+            "read_only",
+            ["workflow"],
+            ["list_ansys_workflows", "inspect_ansys_workflow", "get_ansys_workflow_status"],
+            postconditions=["allowlisted_templates_only", "graph_state_unchanged"],
+        ),
+        _cap(
+            "workflow.graph.execute",
+            "expensive",
+            ["workflow"],
+            [
+                "preview_ansys_workflow_start",
+                "apply_ansys_workflow_start",
+                "preview_ansys_workflow_advance",
+                "apply_ansys_workflow_advance",
+            ],
+            approval="external_host_token_per_start_and_step",
+            side_effects=["mission_state_written", "approved_graph_step_may_run_workers"],
+            postconditions=["target_binding_verified", "one_scheduler_step_per_apply"],
+        ),
     ]
     unavailable = []
     if desktop_bound:
@@ -206,7 +234,11 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
     return {
         "version": "2",
         "scope": "desktop_bound" if desktop_bound else "unified",
-        "compatibility": {"v1_unchanged": True, "workflow_graph_unchanged": True},
+        "compatibility": {
+            "v1_unchanged": True,
+            "workflow_graph_unchanged": True,
+            "workflow_mcp_added": True,
+        },
         "defaults": {
             "implicit_live_target": False,
             "release_required": True,

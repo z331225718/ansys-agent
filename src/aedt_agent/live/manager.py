@@ -225,6 +225,41 @@ class LiveAedtSessionManager:
     def project_info(self, session_id: str) -> dict[str, Any]:
         return self._execute(session_id, "project_info", {})
 
+    def workflow_binding(self, session_id: str) -> dict[str, Any]:
+        """Return the stable target identity used to bind guarded graph workflows."""
+        session = self._session(session_id)
+        project = self.project_info(session_id)
+        return {
+            "version": session.version,
+            "pid": session.pid,
+            "port": session.port,
+            "active_project": project.get("active_project"),
+            "active_design": project.get("active_design"),
+        }
+
+    def register_guarded_preview(
+        self,
+        session_id: str,
+        *,
+        action: str,
+        result: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Register a non-backend preview with the same native approval host."""
+        self._session(session_id)
+        return self._register_approval(session_id, action, result)
+
+    def authorize_guarded_preview(
+        self,
+        session_id: str,
+        *,
+        action: str,
+        preview_id: str,
+        approval_token: str,
+    ) -> None:
+        """Verify and consume a one-use native approval for an external harness action."""
+        self._require_approval(session_id, action, preview_id, approval_token)
+        self._approval_contexts.pop((session_id, preview_id), None)
+
     def preview_project_save(self, session_id: str, *, project_name: str) -> dict[str, Any]:
         result = self._execute(session_id, "project_save_preview", {"project_name": project_name})
         return self._register_approval(session_id, "project.save", result)
@@ -502,6 +537,20 @@ class LiveAedtSessionManager:
         return self._execute(
             session_id,
             "layout_paths_list",
+            {"project_name": project_name, "design_name": design_name, "selector": selector or {}},
+        )
+
+    def layout_routing_inventory(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+        selector: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self._execute(
+            session_id,
+            "layout_routing_inventory",
             {"project_name": project_name, "design_name": design_name, "selector": selector or {}},
         )
 

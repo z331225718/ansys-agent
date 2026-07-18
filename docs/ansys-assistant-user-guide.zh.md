@@ -400,6 +400,15 @@ attach_live_aedt_session（一次）
 返回对象名和宽度表达式，只读，不要修改。
 ```
 
+需要先了解可选网络、层、线宽表达式和现有变量时，可以说：
+
+```text
+请只读获取当前 3D Layout 的 routing inventory，列出 Path 数、net、layer、width expression，
+以及 design/project variable；不要修改工程。
+```
+
+这会调用 `get_live_layout_routing_inventory`，适合在构造精确 selector 前使用。
+
 ### 12.2 查询 HFSS 3D 几何
 
 ```text
@@ -497,7 +506,102 @@ ansys-assistant parameterize-width `
 检查 JSON 中的 `working_project_path`、`verified_count`、`source_unchanged` 和 evidence，再在 AEDT 中
 打开工作副本复核。
 
-## 16. 未知能力与 API Memory
+## 16. 严格 Workflow
+
+复杂任务如果包含循环、分支、多个 Worker、审批门、失败恢复或证据汇总，不应让 Claude Code 临时拼接
+一串自由脚本。当前版本已经把原有 YAML Graph Workflow 接入 Assistant Runtime Harness。
+
+### 16.1 可用工作流
+
+在对话里说“列出可用的 Ansys 工作流”，Claude Code 会调用 `list_ansys_workflows`。当前 allowlist 包含：
+
+| Workflow | 用途 |
+|---|---|
+| `brd_local_cut_build` | 构建局部裁切模型，停在模型复核，不直接求解 |
+| `brd_real_solve_evidence` | 真实求解并生成证据包 |
+| `brd_local_cut_solve_evidence` | 局部裁切、求解和证据链 |
+| `brd_before_after_compare` | 对比修改前后的通道结果 |
+| `brd_channel_optimize` | 通道分析、建模、评分和决策循环 |
+| `brd_iterative_optimize` | 记录式迭代优化 |
+| `brd_reviewed_model_optimize_loop` | 带模型复核、求解、导出、评分、编辑和报告的完整循环 |
+| `brd_multi_channel_demo` | 多通道并行评分示例 |
+| `brd_recorded_void_action` | 执行并审计已记录的 void 修改动作 |
+| `via_optimize_demo` | Via 优化示例流程 |
+
+用 `inspect_ansys_workflow` 查看完整 DAG、Worker capability、节点数、输入字段、风险和审批策略。
+只能使用 allowlist 中的 ID，不能通过 MCP 传入任意 YAML 路径。
+
+### 16.2 推荐对话方式
+
+例如：
+
+```text
+请检查 brd_local_cut_build 工作流需要的输入。先只做 start preview，列出将绑定的 AEDT
+工程、设计、初始 payload、缺失字段和风险，等我在原生确认框批准后再创建 graph run。
+创建后每次只推进一个 graph step，每步都先报告当前节点、可能调用的 Worker 和副作用。
+```
+
+Claude Code 应按固定顺序调用：
+
+```text
+list_ansys_workflows
+  -> inspect_ansys_workflow
+  -> preview_ansys_workflow_start
+  -> wait_for_live_approval
+  -> apply_ansys_workflow_start
+  -> get_ansys_workflow_status
+  -> preview_ansys_workflow_advance
+  -> wait_for_live_approval
+  -> apply_ansys_workflow_advance
+  -> get_ansys_workflow_status
+```
+
+`apply_ansys_workflow_start` 只创建 Mission 和 Graph Run，不执行首个节点。每次
+`apply_ansys_workflow_advance` 最多推进一个调度 step；不能一次审批后静默跑完整个循环。
+
+### 16.3 审批和目标绑定
+
+Workflow start preview 会冻结以下内容并计算 SHA-256 digest：
+
+- Workflow ID 和版本；
+- 用户目标、初始 payload 和 `max_steps`；
+- AEDT 版本、PID、gRPC 端口；
+- 当前活动工程和活动设计。
+
+后续 advance 必须连接同一目标。Graph 已经被其它进程推进、活动工程变化、端口变化、审批过期或 token
+被重放时，apply 会拒绝执行并要求重新 preview。Mission 状态持久化在
+`.aedt-agent\assistant-workflows\missions.db`，可用 `get_ansys_workflow_status` 查看节点、handoff、job、
+错误和 supervision 建议。
+
+### 16.4 Process Workflow 与活动 AEDT 会话的边界
+
+当前接入的是原有 Mission Process Harness。原生审批会绑定正在打开的 AEDT 会话，但这些 YAML Workflow
+中的 Worker 仍按各自的文件/进程契约运行，**不会自动复用已 attach 的 PyAEDT Desktop 对象**。
+需要直接修改当前打开工程的原子任务，继续使用 `list_live_*`、`preview_live_*` 和 `apply_live_*`。
+需要循环和恢复的任务才选择 Workflow。后续会逐个把适合的 Worker 改造成显式 live-session capability，
+不能把“已绑定审批目标”误报成“Worker 已复用该 Desktop 对象”。
+
+默认 Workflow profile 是 `safe-recorded`，不会启动真实 AEDT Worker。要运行真实求解或模型编辑 Workflow，
+先准备经过审核的 `ExecutionProfile` JSON，再在启动 AEDT 前设置：
+
+```powershell
+$env:AEDT_AGENT_WORKFLOW_PROFILE = "C:\AnsysAgent\profiles\aedt-2024r2-local.json"
+```
+
+该 profile 必须显式设置 `allow_real_aedt=true`、正确的 `aedt_version`、超时、并发、Harness 根目录和允许传入
+Worker 的环境变量。修改环境变量后应关闭并重新打开本次 Ansys Agent PowerShell 会话。
+
+### 16.5 状态处理
+
+| 状态 | 处理方式 |
+|---|---|
+| `running` | 查看下一节点，重新 preview 并批准一个 step |
+| `waiting_approval` | 查看节点输出中的审批原因，不要盲目重试 |
+| `succeeded` | 检查 scorecard、artifact 和 evidence，再决定是否保存源工程 |
+| `failed` | 阅读 `graph_run.error` 和 `supervision`，修正输入或人工 takeover |
+| `canceled` | 停止推进，确认是否已有新的替代 graph run |
+
+## 17. 未知能力与 API Memory
 
 当已注册 Harness 不支持某项任务时，Agent 应按以下顺序处理：
 
@@ -527,7 +631,7 @@ ansys-assistant parameterize-width `
 
 成功走通且可重复使用的 trace 可以生成 Harness 或 Skill 候选，但不会自动修改仓库、热注册工具或提交代码。
 
-## 17. 常用诊断命令
+## 18. 常用诊断命令
 
 查看能力：
 
@@ -567,14 +671,14 @@ ansys-assistant parameterize-width `
 .\.venv\Scripts\python.exe -m aedt_agent.desktop install --help
 ```
 
-## 18. 故障排查
+## 19. 故障排查
 
-### 18.1 出现 `Computer` 或 `Chrome` permission deny 警告
+### 19.1 出现 `Computer` 或 `Chrome` permission deny 警告
 
 这是旧 launcher 向 Claude Code 传入了已经不存在的 deny tool 名称。更新到当前发布版本，并从新安装
 目录重新安装 Automation Tab 入口。当前版本不会再传这两个名称。
 
-### 18.2 设计名出现 `0;`
+### 19.2 设计名出现 `0;`
 
 立即停止当前 PowerShell，不要继续调用 layout/HFSS wrapper。更新并重新安装入口。检查工程中是否已经
 出现空白的 `0;...` 设计：
@@ -583,7 +687,7 @@ ansys-assistant parameterize-width `
 - 如果有其他修改，先手工确认错误设计为空，再从 AEDT UI 删除；
 - 不要让助手自动删除设计。
 
-### 18.3 走线列表返回 0
+### 19.3 走线列表返回 0
 
 依次检查：
 
@@ -597,12 +701,12 @@ ansys-assistant parameterize-width `
 不要在返回 0 后通过创建同名设计来“重试”。当前 Runtime 会拒绝任何不存在的设计，防止 PyAEDT
 隐式创建设计。
 
-### 18.4 成功连接后反复 attach
+### 19.4 成功连接后反复 attach
 
 停止会话并更新 launcher。当前 system context 明确要求成功 attach 后复用同一个 `live_session_id`。
 如果 attach 本身失败，再检查端口、AEDT 版本和 MCP 日志，不要无条件循环。
 
-### 18.5 `target_forbidden`、`project_forbidden` 或 `design_forbidden`
+### 19.5 `target_forbidden`、`project_forbidden` 或 `design_forbidden`
 
 Desktop 会话被绑定到按钮来源：
 
@@ -612,7 +716,7 @@ Desktop 会话被绑定到按钮来源：
 
 回到 AEDT，激活正确工程和设计，然后关闭旧 PowerShell，从 Automation Tab 重新启动新会话。
 
-### 18.6 找不到端口或连接超时
+### 19.6 找不到端口或连接超时
 
 - 确认 AEDT 正在同一个 Windows/RDP 用户会话中运行；
 - 使用 `live-sessions` 读取实际端口；
@@ -621,17 +725,17 @@ Desktop 会话被绑定到按钮来源：
 - 检查本机安全软件是否阻止 loopback；
 - AEDT 2024 R2 早期 SP 可尝试 `PYAEDT_USE_PRE_GRPC_ARGS=True`。
 
-### 18.7 原生审批框不可见
+### 19.7 原生审批框不可见
 
 审批框属于当前交互式 Windows 用户。Windows 服务、计划任务、纯 SSH 会话或另一个 RDP session
 可能看不到它。确保 AEDT、Ansys Agent PowerShell 和用户桌面属于同一个会话。
 
-### 18.8 审批过期
+### 19.8 审批过期
 
 审批 token 默认五分钟过期，只能使用一次，并绑定 action、resource、preview 和 snapshot digest。
 过期后不要复用 token；让用户明确要求重新预览。
 
-### 18.9 `clr` 或 PyEDB 导入失败
+### 19.9 `clr` 或 PyEDB 导入失败
 
 确认安装的是：
 
@@ -642,7 +746,7 @@ ansys-pythonnet==3.1.0rc8
 
 然后运行环境验收脚本。不要把系统 Python 中能 import PyEDB 当作项目 `.venv` 已正确安装的证据。
 
-### 18.10 API Memory 不可用
+### 19.10 API Memory 不可用
 
 已知 Harness 仍可工作，只是未知能力 fallback 关闭。运行：
 
@@ -653,7 +757,7 @@ D:\ansys-agent\.venv\Scripts\python.exe `
 
 不要从另一台机器直接复制知识图，除非包版本、源码 digest 和路径全部一致。
 
-## 19. 升级与回滚
+## 20. 升级与回滚
 
 推荐并行安装，不覆盖旧目录：
 
@@ -676,7 +780,7 @@ D:\ansys-agent-0.1.0-preview1
 
 回滚时从旧目录重新执行 Desktop `install` 即可。不要在同一个目录里混装两个版本的源码和 `.venv`。
 
-## 20. 上线验收清单
+## 21. 上线验收清单
 
 ### 安装
 
@@ -712,7 +816,7 @@ D:\ansys-agent-0.1.0-preview1
 - [ ] 未明确要求时不保存；
 - [ ] 保存需要第二次独立审批。
 
-## 21. 安全边界摘要
+## 22. 安全边界摘要
 
 - 不自动选择其他 AEDT 进程；
 - 不自动创建不存在的 project/design；
@@ -724,7 +828,7 @@ D:\ansys-agent-0.1.0-preview1
 - 不自动把探索结果写进 Harness；
 - 不在未验证 readback 时报告成功。
 
-## 22. 相关文档
+## 23. 相关文档
 
 - [Windows Server 离线部署](offline-windows-server-deployment.md)
 - [AEDT Desktop Claude Code 入口](aedt-desktop-claude-entry.md)
