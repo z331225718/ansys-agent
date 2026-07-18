@@ -590,6 +590,66 @@ def create_server(
         )
 
     @server.tool()
+    async def get_live_layout_object_inventory(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+    ) -> dict:
+        """List 3D Layout components, pins, vias, nets, lines, shapes, and void categories read-only."""
+        return live.layout_object_inventory(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+        )
+
+    @server.tool()
+    async def get_live_aedt_variable_inventory(
+        live_session_id: str,
+        product: str,
+        project_name: str,
+        design_name: str,
+    ) -> dict:
+        """List design and project variables for one existing HFSS or 3D Layout design."""
+        return live.variable_inventory(
+            live_session_id,
+            product=product,
+            project_name=project_name,
+            design_name=design_name,
+        )
+
+    @server.tool()
+    async def preview_live_aedt_variable_upsert(
+        live_session_id: str,
+        product: str,
+        project_name: str,
+        design_name: str,
+        variable_name: str,
+        expression: str,
+    ) -> dict:
+        """Preview creating or updating one AEDT variable without changing the design."""
+        return live.preview_variable_upsert(
+            live_session_id,
+            product=product,
+            project_name=project_name,
+            design_name=design_name,
+            variable_name=variable_name,
+            expression=expression,
+        )
+
+    @server.tool()
+    async def apply_live_aedt_variable_upsert(
+        live_session_id: str,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        """Apply one previewed variable change with native approval, rollback, and readback."""
+        return live.apply_variable_upsert(
+            live_session_id,
+            preview_id=preview_id,
+            approval_token=approval_token,
+        )
+
+    @server.tool()
     async def preview_live_parameterize_path_width(
         live_session_id: str,
         project_name: str,

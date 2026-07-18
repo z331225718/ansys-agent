@@ -554,6 +554,68 @@ class LiveAedtSessionManager:
             {"project_name": project_name, "design_name": design_name, "selector": selector or {}},
         )
 
+    def layout_object_inventory(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+    ) -> dict[str, Any]:
+        return self._execute(
+            session_id,
+            "layout_object_inventory",
+            {"project_name": project_name, "design_name": design_name},
+        )
+
+    def variable_inventory(
+        self,
+        session_id: str,
+        *,
+        product: str,
+        project_name: str,
+        design_name: str,
+    ) -> dict[str, Any]:
+        return self._execute(
+            session_id,
+            "variable_inventory",
+            {"product": product, "project_name": project_name, "design_name": design_name},
+        )
+
+    def preview_variable_upsert(
+        self,
+        session_id: str,
+        *,
+        product: str,
+        project_name: str,
+        design_name: str,
+        variable_name: str,
+        expression: str,
+    ) -> dict[str, Any]:
+        result = self._execute(
+            session_id,
+            "variable_upsert_preview",
+            {
+                "product": product,
+                "project_name": project_name,
+                "design_name": design_name,
+                "variable_name": variable_name,
+                "expression": expression,
+            },
+        )
+        return self._register_approval(session_id, "aedt.variable.upsert", result)
+
+    def apply_variable_upsert(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict[str, Any]:
+        self._require_approval(session_id, "aedt.variable.upsert", preview_id, approval_token)
+        result = self._execute(session_id, "variable_upsert_apply", {"preview_id": preview_id})
+        self._approval_contexts.pop((session_id, preview_id), None)
+        return result
+
     def preview_layout_width(
         self,
         session_id: str,

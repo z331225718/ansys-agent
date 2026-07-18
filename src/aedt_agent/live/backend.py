@@ -106,6 +106,14 @@ class LiveAedtBackend:
                 return self._layout_paths_list(target, arguments)
             if command == "layout_routing_inventory":
                 return self._layout_routing_inventory(target, arguments)
+            if command == "layout_object_inventory":
+                return self._layout_object_inventory(target, arguments)
+            if command == "variable_inventory":
+                return self._variable_inventory(target, arguments)
+            if command == "variable_upsert_preview":
+                return self._variable_upsert_preview(target, arguments)
+            if command == "variable_upsert_apply":
+                return self._variable_upsert_apply(target, arguments)
             if command == "layout_width_preview":
                 return self._layout_width_preview(target, arguments)
             if command == "layout_width_apply":
@@ -925,18 +933,7 @@ class LiveAedtBackend:
     def _layout_routing_inventory(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
         inventory = self._layout_paths_list(target, args)
         app = self._app(target, "layout", _required(args, "project_name"), _required(args, "design_name"))
-        variables = []
-        for name, value in sorted(dict(getattr(app.variable_manager, "variables", {}) or {}).items()):
-            expression = getattr(value, "expression", None)
-            if expression is None:
-                expression = getattr(value, "value", value)
-            variables.append(
-                {
-                    "name": str(name),
-                    "expression": str(expression),
-                    "scope": "project" if str(name).startswith("$") else "design",
-                }
-            )
+        variables = _variable_records(app)
         paths = inventory["paths"]
         return {
             **inventory,
@@ -947,6 +944,160 @@ class LiveAedtBackend:
             "variables": variables,
             "variable_count": len(variables),
             "design_unchanged": True,
+        }
+
+    def _layout_object_inventory(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
+        app = self._app(target, "layout", _required(args, "project_name"), _required(args, "design_name"))
+        attributes = {
+            "components": "components",
+            "pins": "pins",
+            "vias": "vias",
+            "nets": "nets",
+            "lines": "line_names",
+            "polygons": "polygon_names",
+            "rectangles": "rectangle_names",
+            "circles": "circle_names",
+            "polygon_voids": "polygon_voids_names",
+            "line_voids": "line_voids_names",
+            "rectangle_voids": "rectangle_void_names",
+            "circle_voids": "circle_voids_names",
+        }
+        categories: dict[str, dict[str, Any]] = {}
+        unavailable: list[str] = []
+        for category, attribute in attributes.items():
+            try:
+                value = getattr(app.modeler, attribute)
+                names = sorted(str(item) for item in (value.keys() if isinstance(value, dict) else value or []))
+                categories[category] = {"count": len(names), "names": names}
+            except Exception:
+                categories[category] = {"count": 0, "names": [], "status": "unavailable"}
+                unavailable.append(category)
+        return {
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "categories": categories,
+            "unavailable_categories": unavailable,
+            "design_unchanged": True,
+        }
+
+    def _variable_inventory(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
+        product = _variable_product(args)
+        app = self._app(target, product, _required(args, "project_name"), _required(args, "design_name"))
+        variables = _variable_records(app)
+        return {
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "product": product,
+            "count": len(variables),
+            "variables": variables,
+            "design_unchanged": True,
+        }
+
+    def _variable_upsert_preview(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
+        product = _variable_product(args)
+        project = _required(args, "project_name")
+        design = _required(args, "design_name")
+        variable_name = _variable_name(args)
+        expression = _required(args, "expression")
+        app = self._app(target, product, project, design)
+        variables = dict(getattr(app.variable_manager, "variables", {}) or {})
+        existed = variable_name in variables
+        before_expression = _variable_expression(variables[variable_name]) if existed else None
+        snapshot = {
+            "product": product,
+            "project_name": project,
+            "design_name": design,
+            "variable_name": variable_name,
+            "existed": existed,
+            "before_expression": before_expression,
+        }
+        digest = _digest(snapshot)
+        preview_id = "live-preview-" + _digest({**snapshot, "expression": expression})[:24]
+        self._previews[preview_id] = {
+            "kind": "variable_upsert",
+            "target": target,
+            **snapshot,
+            "expression": expression,
+            "digest": digest,
+        }
+        return {
+            "preview_id": preview_id,
+            "snapshot_digest": digest,
+            "product": product,
+            "project_name": project,
+            "design_name": design,
+            "variable_name": variable_name,
+            "scope": "project" if variable_name.startswith("$") else "design",
+            "existed": existed,
+            "before_expression": before_expression,
+            "after_expression": expression,
+            "approval_required": True,
+            "project_dirty": False,
+        }
+
+    def _variable_upsert_apply(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
+        preview_id = _required(args, "preview_id")
+        preview = self._preview(preview_id, "variable_upsert", target)
+        app = self._app(
+            target,
+            preview["product"],
+            preview["project_name"],
+            preview["design_name"],
+        )
+        variables = dict(getattr(app.variable_manager, "variables", {}) or {})
+        existed = preview["variable_name"] in variables
+        before_expression = (
+            _variable_expression(variables[preview["variable_name"]]) if existed else None
+        )
+        current_snapshot = {
+            "product": preview["product"],
+            "project_name": preview["project_name"],
+            "design_name": preview["design_name"],
+            "variable_name": preview["variable_name"],
+            "existed": existed,
+            "before_expression": before_expression,
+        }
+        if _digest(current_snapshot) != preview["digest"]:
+            raise LiveBackendError("stale variable preview")
+        try:
+            updated = app.variable_manager.set_variable(
+                preview["variable_name"],
+                preview["expression"],
+                sweep=True,
+            )
+            if updated is False:
+                raise LiveBackendError("failed to set AEDT variable")
+            after_variables = dict(getattr(app.variable_manager, "variables", {}) or {})
+            if preview["variable_name"] not in after_variables:
+                raise LiveBackendError("AEDT variable readback is missing")
+            after_expression = _variable_expression(after_variables[preview["variable_name"]])
+            if _normalized_expression(after_expression) != _normalized_expression(preview["expression"]):
+                raise LiveBackendError("AEDT variable readback verification failed")
+        except Exception:
+            try:
+                if preview["existed"]:
+                    app.variable_manager.set_variable(
+                        preview["variable_name"],
+                        preview["before_expression"],
+                        sweep=True,
+                    )
+                else:
+                    app.variable_manager.delete_variable(preview["variable_name"])
+            except Exception:
+                pass
+            raise
+        del self._previews[preview_id]
+        return {
+            "status": "verified",
+            "preview_id": preview_id,
+            "product": preview["product"],
+            "project_name": preview["project_name"],
+            "design_name": preview["design_name"],
+            "variable_name": preview["variable_name"],
+            "before_expression": preview["before_expression"],
+            "after_expression": after_expression,
+            "project_dirty": True,
+            "project_saved": False,
         }
 
     def _layout_width_preview(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
@@ -1152,6 +1303,38 @@ def _design_display_name(desktop: Any, design: Any) -> str | None:
 
 def _normalized_expression(value: str) -> str:
     return re.sub(r"\s+", "", value).casefold()
+
+
+def _variable_product(arguments: dict[str, Any]) -> str:
+    product = str(arguments.get("product") or "").strip().casefold()
+    if product not in {"hfss", "layout"}:
+        raise LiveBackendError("product must be hfss or layout")
+    return product
+
+
+def _variable_name(arguments: dict[str, Any]) -> str:
+    name = _required(arguments, "variable_name")
+    if not re.fullmatch(r"\$?[A-Za-z_][A-Za-z0-9_]*", name):
+        raise LiveBackendError("variable_name must be a valid AEDT identifier")
+    return name
+
+
+def _variable_expression(value: Any) -> str:
+    expression = getattr(value, "expression", None)
+    if expression is None:
+        expression = getattr(value, "value", value)
+    return str(expression)
+
+
+def _variable_records(app: Any) -> list[dict[str, str]]:
+    return [
+        {
+            "name": str(name),
+            "expression": _variable_expression(value),
+            "scope": "project" if str(name).startswith("$") else "design",
+        }
+        for name, value in sorted(dict(getattr(app.variable_manager, "variables", {}) or {}).items())
+    ]
 
 
 def _desktop_aedt_version(desktop: Any) -> str | None:

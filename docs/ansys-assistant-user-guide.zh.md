@@ -409,6 +409,22 @@ attach_live_aedt_session（一次）
 
 这会调用 `get_live_layout_routing_inventory`，适合在构造精确 selector 前使用。
 
+如果不确定设计里到底有哪些对象类型，先调用 `get_live_layout_object_inventory`。它只读返回 component、pin、
+via、net、line、polygon、rectangle、circle 和各种 void 的名称与数量；某个 PyAEDT 版本不提供某类集合时，
+会在 `unavailable_categories` 中明确列出，而不是把整个设计误报为空。
+
+也可以单独查询或修改 HFSS/3D Layout 变量：
+
+```text
+先只读列出当前 Layout 的 design variable 和 project variable。然后 preview：把 design variable
+W_line 创建或更新为 4.3mil。不要保存工程，等我批准后再 apply。
+```
+
+变量读取调用 `get_live_aedt_variable_inventory`。创建或更新必须走
+`preview_live_aedt_variable_upsert -> wait_for_live_approval -> apply_live_aedt_variable_upsert`。
+变量名只接受 AEDT 标识符，project variable 使用 `$` 前缀；apply 前会检查原值未变化，失败时恢复原值或删除
+本次新建变量，成功后执行 readback，但仍不会自动保存工程。
+
 ### 12.2 查询 HFSS 3D 几何
 
 ```text

@@ -87,7 +87,21 @@ class FakeLayout:
             "line1": FakeLine("line1", "N1", "L1", "0.1mm"),
             "line2": FakeLine("line2", "N2", "L2", "0.2mm"),
         }
-        self.modeler = SimpleNamespace(line_names=list(lines), lines=lines)
+        self.modeler = SimpleNamespace(
+            line_names=list(lines),
+            lines=lines,
+            components={"U1": object()},
+            pins={"U1-1": object()},
+            vias={"V1": object()},
+            nets={"N1": object(), "N2": object()},
+            polygon_names=["poly1"],
+            rectangle_names=[],
+            circle_names=[],
+            polygon_voids_names=[],
+            line_voids_names=[],
+            rectangle_void_names=[],
+            circle_voids_names=[],
+        )
         self.variable_manager = SimpleNamespace(
             variables={"$pitch": SimpleNamespace(expression="1mm")},
             set_variable=lambda name, value, sweep=True: self._set_variable(name, value),
@@ -429,6 +443,41 @@ def test_backend_reuses_wrappers_and_lists_live_layout_paths():
     assert routing["variable_count"] == 2
     assert routing["variables"][0] == {"name": "$pitch", "expression": "1mm", "scope": "project"}
     assert routing["design_unchanged"] is True
+    objects = backend.execute(
+        target,
+        "layout_object_inventory",
+        {"project_name": "Board", "design_name": "Layout1"},
+    )
+    assert objects["categories"]["components"] == {"count": 1, "names": ["U1"]}
+    assert objects["categories"]["vias"] == {"count": 1, "names": ["V1"]}
+    assert objects["categories"]["polygons"] == {"count": 1, "names": ["poly1"]}
+    assert objects["unavailable_categories"] == []
+    variable_preview = backend.execute(
+        target,
+        "variable_upsert_preview",
+        {
+            "product": "layout",
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "variable_name": "W_test",
+            "expression": "4.3mil",
+        },
+    )
+    assert variable_preview["existed"] is False
+    variable_result = backend.execute(
+        target,
+        "variable_upsert_apply",
+        {"preview_id": variable_preview["preview_id"]},
+    )
+    assert variable_result["after_expression"] == "4.3mil"
+    assert variable_result["project_saved"] is False
+    variable_inventory = backend.execute(
+        target,
+        "variable_inventory",
+        {"product": "layout", "project_name": "Board", "design_name": "Layout1"},
+    )
+    assert variable_inventory["count"] == 3
+    assert variable_inventory["variables"][-1]["name"] == "trace_w"
     backend.release()
     assert desktop.releases[-1] == {"close_projects": False, "close_on_exit": False}
 
@@ -464,6 +513,44 @@ def test_backend_uses_display_design_name_and_refuses_internal_identifier_before
             {"project_name": "Board", "design_name": "0;Layout1", "selector": {}},
         )
     assert factory_calls == []
+
+
+def test_variable_upsert_rejects_stale_preview_and_rolls_back_failed_readback():
+    layout = FakeLayout(project="Board", design="Layout1")
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, layout_factory=lambda **kwargs: layout)
+    target = AedtTarget("pid", 42)
+    stale = backend.execute(
+        target,
+        "variable_upsert_preview",
+        {
+            "product": "layout",
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "variable_name": "$pitch",
+            "expression": "2mm",
+        },
+    )
+    layout.variable_manager.variables["$pitch"] = "1.5mm"
+    with pytest.raises(LiveBackendError, match="stale variable preview"):
+        backend.execute(target, "variable_upsert_apply", {"preview_id": stale["preview_id"]})
+
+    failed = backend.execute(
+        target,
+        "variable_upsert_preview",
+        {
+            "product": "layout",
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "variable_name": "W_bad",
+            "expression": "4.3mil",
+        },
+    )
+    layout.variable_manager.set_variable = (
+        lambda name, value, sweep=True: layout.variable_manager.variables.__setitem__(name, "wrong") is None
+    )
+    with pytest.raises(LiveBackendError, match="readback verification failed"):
+        backend.execute(target, "variable_upsert_apply", {"preview_id": failed["preview_id"]})
+    assert "W_bad" not in layout.variable_manager.variables
 
 
 def test_backend_refuses_missing_design_instead_of_allowing_pyaedt_to_create_it():
