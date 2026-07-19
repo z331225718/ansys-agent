@@ -2,6 +2,8 @@
 
 完整的安装、AEDT 连接、对话操作、审批、故障排查和升级说明见
 [`docs/ansys-assistant-user-guide.zh.md`](docs/ansys-assistant-user-guide.zh.md)。
+首次部署建议从手册的“十分钟上手”开始；维护者新增写入 Harness 时，还必须执行其中
+“新 Harness 的真实 AEDT 准入”，不能只依赖 mock/unit test。
 
 AEDT Automation Tab 的 Claude Code 入口见
 [`docs/aedt-desktop-claude-entry.md`](docs/aedt-desktop-claude-entry.md)。

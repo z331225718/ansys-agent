@@ -1140,8 +1140,6 @@ def test_backend_creates_typed_hfss_geometry_batch_with_readback():
             "orientation": "XY",
             "origin": ["-20mm", "-1mm", "1.6mm"],
             "size": ["40mm", "2mm"],
-            "material": "copper",
-            "solve_inside": False,
         },
         {
             "kind": "cylinder",
@@ -1191,7 +1189,6 @@ def test_backend_creates_typed_hfss_geometry_batch_with_readback():
     ]
     app = apps[0]
     assert app.modeler._objects["Substrate"].solve_inside is True
-    assert app.modeler._objects["Trace"].solve_inside is False
     assert [item[0] for item in app.modeler.calls] == ["box", "rectangle", "cylinder", "region"]
 
 
@@ -1284,6 +1281,32 @@ def test_backend_hfss_geometry_batch_rolls_back_and_rejects_stale_preview():
                 }
             ],
             "orientation",
+        ),
+        (
+            [
+                {
+                    "kind": "rectangle",
+                    "name": "R",
+                    "orientation": "XY",
+                    "origin": [0, 0, 0],
+                    "size": [1, 1],
+                    "solve_inside": True,
+                }
+            ],
+            "unsupported rectangle field: solve_inside",
+        ),
+        (
+            [
+                {
+                    "kind": "rectangle",
+                    "name": "R",
+                    "orientation": "XY",
+                    "origin": [0, 0, 0],
+                    "size": [1, 1],
+                    "material": "copper",
+                }
+            ],
+            "unsupported rectangle field: material",
         ),
         (
             [

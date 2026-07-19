@@ -770,9 +770,7 @@ hfss_live_geometry_create
       "name": "Trace",
       "orientation": "XY",
       "origin": ["-20mm", "-1mm", "1.6mm"],
-      "size": ["40mm", "2mm"],
-      "material": "copper",
-      "solve_inside": false
+      "size": ["40mm", "2mm"]
     },
     {
       "kind": "cylinder",
@@ -799,13 +797,15 @@ hfss_live_geometry_create
 | `kind` | 必需字段 | 可选字段 |
 |---|---|---|
 | `box` | `name`、三维 `origin`、三维 `size` | `material`、`solve_inside` |
-| `rectangle` | `name`、`orientation`、三维 `origin`、二维 `size` | `material`、`solve_inside` |
+| `rectangle` | `name`、`orientation`、三维 `origin`、二维 `size` | 无 |
 | `cylinder` | `name`、`axis`、三维 `origin`、`radius`、`height` | `num_sides`、`material`、`solve_inside` |
 | `region` | `name`、`padding` | `padding_type` |
 
 `orientation` 只接受 `XY/YZ/XZ/ZX`，cylinder `axis` 只接受 `X/Y/Z`。数字按当前 HFSS model unit
 解释；推荐显式使用带单位的 AEDT expression，例如 `1.6mm` 或设计变量 `substrate_h`。表达式长度和字符集受限，
 不会传递任意 Python。每批最多 32 个对象，默认 16；名称必须唯一且不能与现有对象冲突。
+`material` 和 `solve_inside` 只允许用于 solid `box/cylinder`。AEDT 的 rectangle sheet 没有可可靠
+回读的体材料和 `Solve Inside` 属性，preview 会直接拒绝；需要描述 sheet 电气属性时，应使用后续 boundary workflow。
 
 一个 batch 最多包含一个 `region`，并且必须放在列表最后，因为 region 的外包络取决于创建它时已经存在的几何。
 `padding_type` 只支持 PyAEDT 公共 API 的 `Absolute Offset`、`Percentage Offset` 和
@@ -1403,6 +1403,64 @@ Worker 的环境变量。修改环境变量后应关闭并重新打开本次 Ans
 成功走通且可重复使用的 trace 可以生成 Harness 或 Skill 候选，但不会自动修改仓库、热注册工具或提交代码。
 
 ## 18. 常用诊断命令
+
+### 18.1 新 Harness 的真实 AEDT 准入
+
+这一节面向维护者和部署验收人员。普通工程师使用已发布能力时不需要运行开发测试；但是任何新增或改变
+AEDT 写行为的 Harness，在合入和发布前都必须通过目标 AEDT 版本的真实验收。mock/unit test 只能证明
+参数校验和分支逻辑，不能证明 PyAEDT 属性、AEDT 对象类型、回读和 rollback 在真实 Desktop 中成立。
+
+最低准入标准如下：
+
+- 测试只连接由测试自己启动的非图形 AEDT，不连接用户正在工作的 GUI 会话；
+- 测试使用专用临时工程和设计，不打开、保存或覆盖生产工程；
+- 必须覆盖 `preview -> approval -> apply -> readback`；
+- 必须证明 preview 不修改工程、apply 默认不保存工程；
+- 必须验证对象数量、对象名和关键属性，而不是只判断 API 没有抛异常；
+- 必须验证 preview 后外部状态变化会触发 stale 拒绝；
+- 有部分写入风险的 Harness 必须验证失败 rollback；无法稳定制造真实故障时，要明确记录该缺口，不能用
+  unit test 冒充真实 rollback 证据；
+- 测试结束必须删除测试对象、关闭测试拥有的 AEDT 进程，并用 `live-sessions` 确认没有遗留会话；
+- 目标部署是 AEDT 2024 R2 时，2026 R1 的通过结果不能替代 2024 R2 验收，两者应分别留证。
+
+真实测试默认跳过，避免日常 `pytest` 意外启动 AEDT。HFSS typed geometry Harness 在 AEDT 2026 R1 上的
+验收命令为：
+
+```powershell
+Set-Location D:\ansys-agent
+$env:RUN_REAL_LIVE_AEDT = "1"
+$env:REAL_AEDT_VERSION = "2026.1"
+$env:ANSYSEM_ROOT261 = "C:\Program Files\ANSYS Inc\v261\AnsysEM"
+
+.\.venv\Scripts\python.exe -m pytest -q -s `
+  tests\test_live_hfss_geometry_real.py
+```
+
+在 AEDT 2024 R2 目标机上改为：
+
+```powershell
+$env:RUN_REAL_LIVE_AEDT = "1"
+$env:REAL_AEDT_VERSION = "2024.2"
+$env:ANSYSEM_ROOT242 = "C:\Program Files\ANSYS Inc\v242\AnsysEM"
+
+.\.venv\Scripts\python.exe -m pytest -q -s `
+  tests\test_live_hfss_geometry_real.py
+```
+
+如果 AEDT 安装路径不符合标准环境变量，可直接指定可执行文件：
+
+```powershell
+$env:REAL_AEDT_EXECUTABLE = "D:\ANSYS\v242\AnsysEM\ansysedt.exe"
+```
+
+合格结果必须是 pytest exit code `0`，并显示真实测试 `passed`。随后检查没有遗留会话：
+
+```powershell
+.\.venv\Scripts\python.exe -m aedt_agent.interactive live-sessions
+```
+
+只有 `sessions` 为空，或列表中仅有测试前已存在且经 PID 核对的用户会话，清理才算完成。真实测试失败时
+应按 AEDT 的实际行为修 Harness 或收紧 schema；不得删除断言、降级为“调用无异常”或直接跳过回读来换取通过。
 
 常用 CLI 总览：
 

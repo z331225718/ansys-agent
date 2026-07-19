@@ -2839,8 +2839,6 @@ _HFSS_PRIMITIVE_FIELDS = {
         "orientation",
         "origin",
         "size",
-        "material",
-        "solve_inside",
     },
     "cylinder": {
         "kind",
@@ -2934,12 +2932,13 @@ def _normalize_hfss_primitives(
             normalized.append(primitive)
             continue
 
-        material = str(raw.get("material") or "vacuum").strip()
-        if not _SAFE_AEDT_MATERIAL_NAME.fullmatch(material):
-            raise LiveBackendError(
-                f"primitives[{index}].material must be a safe AEDT material name"
-            )
-        primitive["material"] = material
+        if kind != "rectangle":
+            material = str(raw.get("material") or "vacuum").strip()
+            if not _SAFE_AEDT_MATERIAL_NAME.fullmatch(material):
+                raise LiveBackendError(
+                    f"primitives[{index}].material must be a safe AEDT material name"
+                )
+            primitive["material"] = material
         primitive["origin"] = _hfss_vector(
             raw.get("origin"),
             f"primitives[{index}].origin",
@@ -3061,7 +3060,6 @@ def _create_hfss_primitive(app: Any, primitive: dict[str, Any]) -> Any:
             primitive["origin"],
             primitive["size"],
             name=primitive["name"],
-            material=primitive["material"],
         )
     elif kind == "cylinder":
         created = modeler.create_cylinder(
@@ -3093,7 +3091,9 @@ def _verify_hfss_primitive_readback(
         record = by_name.get(primitive["name"])
         if record is None:
             raise LiveBackendError(f"HFSS object readback missing: {primitive['name']}")
-        if primitive["kind"] != "region" and str(record.get("material_name") or "").casefold() != str(
+        if primitive["kind"] in {"box", "cylinder"} and str(
+            record.get("material_name") or ""
+        ).casefold() != str(
             primitive["material"]
         ).casefold():
             raise LiveBackendError(f"HFSS material readback failed: {primitive['name']}")
@@ -3110,10 +3110,31 @@ def _rollback_hfss_objects(
     deletion_error = ""
     if created_names:
         try:
-            app.modeler.delete(list(reversed(created_names)))
+            deleted = app.modeler.delete(list(reversed(created_names)))
+            if deleted is False:
+                _raw_delete_hfss_objects(app, created_names)
         except Exception as exc:
-            deletion_error = f"{type(exc).__name__}: {exc}"
-    current_names = [str(item) for item in list(getattr(app.modeler, "object_names", []) or [])]
+            try:
+                _raw_delete_hfss_objects(app, created_names)
+            except Exception as fallback_exc:
+                deletion_error = (
+                    f"{type(exc).__name__}: {exc}; raw fallback failed: "
+                    f"{type(fallback_exc).__name__}: {fallback_exc}"
+                )
+    readback_error = ""
+    try:
+        current_names = [
+            str(item) for item in list(getattr(app.modeler, "object_names", []) or [])
+        ]
+    except Exception as exc:
+        try:
+            current_names = _raw_hfss_object_names(app)
+        except Exception as fallback_exc:
+            current_names = []
+            readback_error = (
+                f"{type(exc).__name__}: {exc}; raw fallback failed: "
+                f"{type(fallback_exc).__name__}: {fallback_exc}"
+            )
     before = set(before_names)
     current = set(current_names)
     created = set(created_names)
@@ -3121,13 +3142,44 @@ def _rollback_hfss_objects(
     remaining_created = sorted(created.intersection(current))
     unexpected = sorted(current.difference(before).difference(created))
     return {
-        "complete": not deletion_error and not missing_old and not remaining_created and not unexpected,
+        "complete": (
+            not deletion_error
+            and not readback_error
+            and not missing_old
+            and not remaining_created
+            and not unexpected
+        ),
         "deleted_objects": sorted(created.difference(current)),
         "remaining_created_objects": remaining_created,
         "missing_old_objects": missing_old,
         "unexpected_objects": unexpected,
         "delete_error": deletion_error,
+        "readback_error": readback_error,
     }
+
+
+def _raw_delete_hfss_objects(app: Any, names: list[str]) -> None:
+    editor = app.modeler.oeditor
+    editor.Delete(
+        [
+            "NAME:Selections",
+            "Selections:=",
+            ",".join(reversed(names)),
+        ]
+    )
+
+
+def _raw_hfss_object_names(app: Any) -> list[str]:
+    editor = app.modeler.oeditor
+    names: list[str] = []
+    seen = set()
+    for group in ("Solids", "Sheets", "Lines", "Unclassified"):
+        for item in list(editor.GetObjectsInGroup(group) or []):
+            name = str(item)
+            if name not in seen:
+                names.append(name)
+                seen.add(name)
+    return names
 
 
 def _setup_names(app: Any) -> list[str]:
