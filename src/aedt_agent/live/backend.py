@@ -91,6 +91,10 @@ class LiveAedtBackend:
                 return self._hfss_geometry_create_preview(target, arguments)
             if command == "hfss_geometry_create_apply":
                 return self._hfss_geometry_create_apply(target, arguments)
+            if command == "hfss_geometry_boundary_create_preview":
+                return self._hfss_geometry_boundary_create_preview(target, arguments)
+            if command == "hfss_geometry_boundary_create_apply":
+                return self._hfss_geometry_boundary_create_apply(target, arguments)
             if command == "hfss_setup_preview":
                 return self._hfss_setup_preview(target, arguments)
             if command == "hfss_setup_apply":
@@ -591,11 +595,12 @@ class LiveAedtBackend:
                 current_names = [
                     str(item) for item in list(getattr(app.modeler, "object_names", []) or [])
                 ]
+                if primitive["name"] in current_names:
+                    created_names.append(primitive["name"])
                 if created is None or primitive["name"] not in current_names:
                     raise LiveBackendError(
                         f"HFSS geometry readback failed after creating {primitive['name']}"
                     )
-                created_names.append(primitive["name"])
 
             requested_names = preview["spec"]["requested_object_names"]
             if created_names != requested_names:
@@ -638,6 +643,226 @@ class LiveAedtBackend:
             "objects": readback["objects"],
             "geometry_snapshot_digest": readback["snapshot_digest"],
             "automatic_rollback_on_failure": True,
+            "project_dirty": True,
+            "project_saved": False,
+        }
+
+    def _hfss_geometry_boundary_create_preview(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        app = self._app(
+            target,
+            "hfss",
+            _required(args, "project_name"),
+            _required(args, "design_name"),
+        )
+        if str(_safe_attribute(app, "design_type") or "").strip().casefold() != "hfss":
+            raise LiveBackendError("HFSS geometry and boundary creation requires an HFSS 3D design")
+        if _simulation_running(app):
+            raise LiveBackendError("cannot edit HFSS geometry while a simulation is running")
+        max_new_objects = _bounded_integer(
+            args.get("max_new_objects", 16),
+            "max_new_objects",
+            minimum=1,
+            maximum=32,
+        )
+        max_new_boundaries = _bounded_integer(
+            args.get("max_new_boundaries", 16),
+            "max_new_boundaries",
+            minimum=1,
+            maximum=32,
+        )
+        primitives = _normalize_hfss_primitives(
+            args.get("primitives"),
+            max_new_objects=max_new_objects,
+        )
+        existing_names = [str(item) for item in list(getattr(app.modeler, "object_names", []) or [])]
+        requested_names = [item["name"] for item in primitives]
+        existing_casefold = {item.casefold(): item for item in existing_names}
+        conflicts = sorted(
+            existing_casefold[item.casefold()]
+            for item in requested_names
+            if item.casefold() in existing_casefold
+        )
+        if conflicts:
+            raise LiveBackendError(f"HFSS object already exists: {conflicts[0]}")
+        existing_boundaries = _boundary_names(app)
+        boundaries = _normalize_hfss_geometry_boundaries(
+            args.get("boundaries"),
+            new_object_names=requested_names,
+            reference_object_names=existing_names + requested_names,
+            existing_boundary_names=existing_boundaries,
+            max_new_boundaries=max_new_boundaries,
+        )
+        model_units = str(_safe_attribute(app.modeler, "model_units") or "").strip()
+        if not model_units:
+            raise LiveBackendError("HFSS model units are unavailable")
+        geometry = self._hfss_geometry_inventory(
+            target,
+            {"project_name": app.project_name, "design_name": app.design_name},
+        )
+        state = {
+            "object_names": existing_names,
+            "geometry_digest": geometry["snapshot_digest"],
+            "boundary_names": existing_boundaries,
+            "model_units": model_units,
+        }
+        state_digest = _digest(state)
+        spec = {
+            "primitives": primitives,
+            "boundaries": boundaries,
+            "requested_object_names": requested_names,
+            "requested_boundary_names": [item["boundary_name"] for item in boundaries],
+            "expected_object_count": len(primitives),
+            "expected_boundary_count": len(boundaries),
+            "max_new_objects": max_new_objects,
+            "max_new_boundaries": max_new_boundaries,
+            "model_units": model_units,
+        }
+        preview_id = "geometry-boundary-preview-" + _digest(
+            spec | {"state": state_digest}
+        )[:24]
+        self._previews[preview_id] = {
+            "kind": "hfss_geometry_boundary_create",
+            "target": target,
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "spec": spec,
+            "state": state,
+            "digest": state_digest,
+        }
+        return {
+            "preview_id": preview_id,
+            **spec,
+            "existing_object_count": len(existing_names),
+            "existing_boundary_count": len(existing_boundaries),
+            "snapshot_digest": state_digest,
+            "approval_required": True,
+            "project_dirty": False,
+            "project_saved": False,
+        }
+
+    def _hfss_geometry_boundary_create_apply(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        preview_id = _required(args, "preview_id")
+        preview = self._preview(preview_id, "hfss_geometry_boundary_create", target)
+        app = self._app(target, "hfss", preview["project_name"], preview["design_name"])
+        if _simulation_running(app):
+            raise LiveBackendError("cannot edit HFSS geometry while a simulation is running")
+        geometry = self._hfss_geometry_inventory(
+            target,
+            {"project_name": app.project_name, "design_name": app.design_name},
+        )
+        current_state = {
+            "object_names": [str(item) for item in list(getattr(app.modeler, "object_names", []) or [])],
+            "geometry_digest": geometry["snapshot_digest"],
+            "boundary_names": _boundary_names(app),
+            "model_units": str(_safe_attribute(app.modeler, "model_units") or "").strip(),
+        }
+        if _digest(current_state) != preview["digest"]:
+            raise LiveBackendError("stale HFSS geometry and boundary create preview")
+
+        spec = preview["spec"]
+        created_names: list[str] = []
+        created_boundary_names: list[str] = []
+        resolved_boundaries: list[dict[str, Any]] = []
+        try:
+            for primitive in spec["primitives"]:
+                created = _create_hfss_primitive(app, primitive)
+                current_names = [
+                    str(item) for item in list(getattr(app.modeler, "object_names", []) or [])
+                ]
+                if primitive["name"] in current_names:
+                    created_names.append(primitive["name"])
+                if created is None or primitive["name"] not in current_names:
+                    raise LiveBackendError(
+                        f"HFSS geometry readback failed after creating {primitive['name']}"
+                    )
+
+            readback = self._hfss_geometry_inventory(
+                target,
+                {
+                    "project_name": app.project_name,
+                    "design_name": app.design_name,
+                    "object_names": spec["requested_object_names"],
+                },
+            )
+            readback_by_name = {str(item["name"]): item for item in readback["objects"]}
+            if set(readback_by_name) != set(spec["requested_object_names"]):
+                raise LiveBackendError("HFSS atomic geometry readback verification failed")
+            _verify_hfss_primitive_readback(spec["primitives"], readback["objects"])
+
+            for boundary_spec in spec["boundaries"]:
+                assignment = readback_by_name[boundary_spec["assignment_object"]]
+                face_ids = _resolve_hfss_face_selector(
+                    assignment,
+                    boundary_spec["face_selector"],
+                )
+                boundary = _create_hfss_boundary(app, boundary_spec, face_ids)
+                boundary_name = boundary_spec["boundary_name"]
+                if not boundary or boundary_name not in _boundary_names(app):
+                    raise LiveBackendError(
+                        f"HFSS boundary readback failed after creating {boundary_name}"
+                    )
+                readback_type = str(getattr(boundary, "type", ""))
+                if not _hfss_boundary_type_matches(
+                    boundary_spec["boundary_kind"],
+                    readback_type,
+                ):
+                    raise LiveBackendError(
+                        f"HFSS boundary type readback failed for {boundary_name}: {readback_type}"
+                    )
+                created_boundary_names.append(boundary_name)
+                resolved_boundaries.append(
+                    {
+                        **boundary_spec,
+                        "assignment_face_ids": face_ids,
+                        "readback_type": readback_type,
+                    }
+                )
+            if created_boundary_names != spec["requested_boundary_names"]:
+                raise LiveBackendError("HFSS boundary created order does not match preview")
+        except Exception as exc:
+            boundary_rollback = _rollback_hfss_boundaries(
+                app,
+                spec["requested_boundary_names"],
+                before_names=preview["state"]["boundary_names"],
+            )
+            geometry_rollback = _rollback_hfss_objects(
+                app,
+                created_names,
+                before_names=preview["state"]["object_names"],
+            )
+            if not boundary_rollback["complete"] or not geometry_rollback["complete"]:
+                raise LiveBackendError(
+                    "HFSS geometry and boundary creation failed and rollback is incomplete: "
+                    f"boundaries={boundary_rollback}; geometry={geometry_rollback}"
+                ) from exc
+            if isinstance(exc, LiveBackendError):
+                raise
+            raise LiveBackendError(
+                f"HFSS geometry and boundary creation failed: {type(exc).__name__}: {exc}"
+            ) from exc
+
+        del self._previews[preview_id]
+        return {
+            "status": "verified",
+            "preview_id": preview_id,
+            **spec,
+            "created_object_count": len(created_names),
+            "created_object_names": created_names,
+            "created_boundary_count": len(created_boundary_names),
+            "created_boundary_names": created_boundary_names,
+            "objects": readback["objects"],
+            "resolved_boundaries": resolved_boundaries,
+            "geometry_snapshot_digest": readback["snapshot_digest"],
+            "automatic_rollback_on_failure": True,
+            "atomic_geometry_boundary_transaction": True,
             "project_dirty": True,
             "project_saved": False,
         }
@@ -1013,7 +1238,11 @@ class LiveAedtBackend:
         references = list(args.get("references") or [])
         if any(not isinstance(item, (str, int)) or isinstance(item, bool) for item in references):
             raise LiveBackendError("references must contain only object names or face IDs")
-        options = dict(args.get("options") or {})
+        options = _normalize_hfss_boundary_options(
+            boundary_kind,
+            args.get("options"),
+            "options",
+        )
         unsupported = sorted(set(options).difference(_HFSS_BOUNDARY_OPTIONS[boundary_kind]))
         if unsupported:
             raise LiveBackendError(f"unsupported {boundary_kind} option: {unsupported[0]}")
@@ -1073,25 +1302,11 @@ class LiveAedtBackend:
         spec = preview["spec"]
         boundary = None
         try:
-            if spec["boundary_kind"] == "radiation":
-                boundary = app.assign_radiation_boundary_to_faces(
-                    spec["assignment_face_ids"],
-                    name=spec["boundary_name"],
-                )
-            elif spec["boundary_kind"] == "wave_port":
-                boundary = app.wave_port(
-                    assignment=spec["assignment_face_ids"][0],
-                    reference=spec["references"] or None,
-                    name=spec["boundary_name"],
-                    **spec["options"],
-                )
-            else:
-                boundary = app.lumped_port(
-                    assignment=spec["assignment_face_ids"][0],
-                    reference=spec["references"] or None,
-                    name=spec["boundary_name"],
-                    **spec["options"],
-                )
+            boundary = _create_hfss_boundary(
+                app,
+                spec,
+                spec["assignment_face_ids"],
+            )
             if not boundary or spec["boundary_name"] not in _boundary_names(app):
                 raise LiveBackendError("HFSS boundary readback verification failed")
         except Exception:
@@ -2830,6 +3045,16 @@ _HFSS_BOUNDARY_OPTIONS = {
     "wave_port": {"modes", "impedance", "renormalize", "deembed", "integration_line"},
     "lumped_port": {"impedance", "renormalize", "deembed", "integration_line"},
 }
+_HFSS_FACE_SELECTORS = {
+    "only_face",
+    "all_faces",
+    "x_min",
+    "x_max",
+    "y_min",
+    "y_max",
+    "z_min",
+    "z_max",
+}
 
 _HFSS_PRIMITIVE_FIELDS = {
     "box": {"kind", "name", "origin", "size", "material", "solve_inside"},
@@ -2999,6 +3224,188 @@ def _normalize_hfss_primitives(
     return normalized
 
 
+def _normalize_hfss_geometry_boundaries(
+    raw_boundaries: Any,
+    *,
+    new_object_names: list[str],
+    reference_object_names: list[str],
+    existing_boundary_names: list[str],
+    max_new_boundaries: int,
+) -> list[dict[str, Any]]:
+    if not isinstance(raw_boundaries, list) or not raw_boundaries:
+        raise LiveBackendError("boundaries must be a non-empty list")
+    if len(raw_boundaries) > max_new_boundaries:
+        raise LiveBackendError(
+            f"boundary count {len(raw_boundaries)} exceeds max_new_boundaries {max_new_boundaries}"
+        )
+    new_objects = {item.casefold(): item for item in new_object_names}
+    reference_objects = {item.casefold(): item for item in reference_object_names}
+    unavailable_names = {item.casefold(): item for item in existing_boundary_names}
+    normalized: list[dict[str, Any]] = []
+    names: set[str] = set()
+    for index, raw in enumerate(raw_boundaries):
+        if not isinstance(raw, dict):
+            raise LiveBackendError(f"boundaries[{index}] must be an object")
+        unsupported_fields = sorted(
+            set(raw).difference(
+                {
+                    "boundary_kind",
+                    "boundary_name",
+                    "assignment_object",
+                    "face_selector",
+                    "references",
+                    "options",
+                }
+            )
+        )
+        if unsupported_fields:
+            raise LiveBackendError(
+                f"unsupported boundaries[{index}] field: {unsupported_fields[0]}"
+            )
+        boundary_kind = str(raw.get("boundary_kind") or "").strip().casefold()
+        if boundary_kind not in _HFSS_BOUNDARY_OPTIONS:
+            raise LiveBackendError(f"unsupported HFSS boundary kind: {boundary_kind}")
+        boundary_name = str(raw.get("boundary_name") or "").strip()
+        if not _SAFE_AEDT_OBJECT_NAME.fullmatch(boundary_name):
+            raise LiveBackendError(
+                f"boundaries[{index}].boundary_name must be a safe AEDT name"
+            )
+        folded_name = boundary_name.casefold()
+        if folded_name in unavailable_names:
+            raise LiveBackendError(
+                f"HFSS boundary or port already exists: {unavailable_names[folded_name]}"
+            )
+        if folded_name in names:
+            raise LiveBackendError(f"boundaries must not contain duplicate names: {boundary_name}")
+        names.add(folded_name)
+        assignment_object = str(raw.get("assignment_object") or "").strip()
+        folded_assignment = assignment_object.casefold()
+        if folded_assignment not in new_objects:
+            raise LiveBackendError(
+                f"boundaries[{index}].assignment_object must name an object in this atomic batch"
+            )
+        face_selector = str(raw.get("face_selector") or "").strip().casefold()
+        if face_selector not in _HFSS_FACE_SELECTORS:
+            raise LiveBackendError(
+                f"boundaries[{index}].face_selector must be only_face, all_faces, or an axis extreme"
+            )
+        if boundary_kind != "radiation" and face_selector == "all_faces":
+            raise LiveBackendError(f"{boundary_kind} requires a selector that resolves to one face")
+        references = list(raw.get("references") or [])
+        normalized_references: list[str] = []
+        for reference in references:
+            if not isinstance(reference, str) or not _SAFE_AEDT_OBJECT_NAME.fullmatch(
+                reference.strip()
+            ):
+                raise LiveBackendError(
+                    f"boundaries[{index}].references must contain safe AEDT object names"
+                )
+            folded_reference = reference.strip().casefold()
+            if folded_reference not in reference_objects:
+                raise LiveBackendError(
+                    f"boundaries[{index}] references unknown HFSS object: {reference.strip()}"
+                )
+            normalized_references.append(reference_objects[folded_reference])
+        options = _normalize_hfss_boundary_options(
+            boundary_kind,
+            raw.get("options"),
+            f"boundaries[{index}].options",
+        )
+        unsupported_options = sorted(
+            set(options).difference(_HFSS_BOUNDARY_OPTIONS[boundary_kind])
+        )
+        if unsupported_options:
+            raise LiveBackendError(
+                f"unsupported {boundary_kind} option: {unsupported_options[0]}"
+            )
+        normalized.append(
+            {
+                "boundary_kind": boundary_kind,
+                "boundary_name": boundary_name,
+                "assignment_object": new_objects[folded_assignment],
+                "face_selector": face_selector,
+                "references": normalized_references,
+                "options": options,
+            }
+        )
+    return normalized
+
+
+def _normalize_hfss_boundary_options(
+    boundary_kind: str,
+    raw_options: Any,
+    field: str,
+) -> dict[str, Any]:
+    if raw_options is None:
+        options: dict[str, Any] = {}
+    elif isinstance(raw_options, dict):
+        options = dict(raw_options)
+    else:
+        raise LiveBackendError(f"{field} must be an object")
+    unsupported = sorted(set(options).difference(_HFSS_BOUNDARY_OPTIONS[boundary_kind]))
+    if unsupported:
+        raise LiveBackendError(f"unsupported {boundary_kind} option: {unsupported[0]}")
+    normalized: dict[str, Any] = {}
+    if "modes" in options:
+        normalized["modes"] = _bounded_integer(
+            options["modes"],
+            f"{field}.modes",
+            minimum=1,
+            maximum=16,
+        )
+    if "impedance" in options:
+        impedance = options["impedance"]
+        if (
+            isinstance(impedance, bool)
+            or not isinstance(impedance, (int, float))
+            or not math.isfinite(float(impedance))
+            or float(impedance) <= 0
+        ):
+            raise LiveBackendError(f"{field}.impedance must be a positive finite number")
+        normalized["impedance"] = impedance
+    if "renormalize" in options:
+        if type(options["renormalize"]) is not bool:
+            raise LiveBackendError(f"{field}.renormalize must be boolean")
+        normalized["renormalize"] = options["renormalize"]
+    if "deembed" in options:
+        deembed = options["deembed"]
+        if boundary_kind == "lumped_port":
+            if type(deembed) is not bool:
+                raise LiveBackendError(f"{field}.deembed must be boolean for lumped_port")
+        elif (
+            isinstance(deembed, bool)
+            or not isinstance(deembed, (int, float))
+            or not math.isfinite(float(deembed))
+            or float(deembed) < 0
+        ):
+            raise LiveBackendError(
+                f"{field}.deembed must be a non-negative finite number for wave_port"
+            )
+        normalized["deembed"] = deembed
+    if "integration_line" in options:
+        integration_line = options["integration_line"]
+        if type(integration_line) is int and 0 <= integration_line <= 5:
+            normalized["integration_line"] = integration_line
+        elif (
+            isinstance(integration_line, list)
+            and len(integration_line) == 2
+            and all(isinstance(point, list) and len(point) == 3 for point in integration_line)
+            and all(
+                not isinstance(value, bool)
+                and isinstance(value, (int, float))
+                and math.isfinite(float(value))
+                for point in integration_line
+                for value in point
+            )
+        ):
+            normalized["integration_line"] = integration_line
+        else:
+            raise LiveBackendError(
+                f"{field}.integration_line must be an axis integer 0..5 or two numeric 3D points"
+            )
+    return normalized
+
+
 def _hfss_vector(
     value: Any,
     field: str,
@@ -3082,6 +3489,83 @@ def _create_hfss_primitive(app: Any, primitive: dict[str, Any]) -> Any:
     return created
 
 
+def _resolve_hfss_face_selector(
+    object_record: dict[str, Any],
+    selector: str,
+) -> list[int]:
+    faces = list(object_record.get("faces") or [])
+    if not faces:
+        raise LiveBackendError(
+            f"HFSS object has no readable faces: {object_record.get('name', '')}"
+        )
+    if selector == "all_faces":
+        return [int(item["face_id"]) for item in faces]
+    if selector == "only_face":
+        if len(faces) != 1:
+            raise LiveBackendError(
+                f"only_face selector is ambiguous for {object_record.get('name', '')}: "
+                f"{len(faces)} faces"
+            )
+        return [int(faces[0]["face_id"])]
+    axis_index = {"x": 0, "y": 1, "z": 2}[selector[0]]
+    direction = selector.split("_", 1)[1]
+    coordinates: list[tuple[dict[str, Any], float]] = []
+    for face in faces:
+        center = face.get("center")
+        if not isinstance(center, list) or len(center) != 3:
+            raise LiveBackendError(
+                f"HFSS face center is unavailable for {object_record.get('name', '')}"
+            )
+        try:
+            coordinate = float(center[axis_index])
+        except (TypeError, ValueError) as exc:
+            raise LiveBackendError(
+                f"HFSS face center is not numeric for {object_record.get('name', '')}"
+            ) from exc
+        coordinates.append((face, coordinate))
+    target = min(value for _, value in coordinates) if direction == "min" else max(
+        value for _, value in coordinates
+    )
+    tolerance = max(1e-12, abs(target) * 1e-9)
+    selected = [face for face, value in coordinates if abs(value - target) <= tolerance]
+    if len(selected) != 1:
+        raise LiveBackendError(
+            f"{selector} selector is ambiguous for {object_record.get('name', '')}: "
+            f"{len(selected)} faces at the extreme"
+        )
+    return [int(selected[0]["face_id"])]
+
+
+def _create_hfss_boundary(
+    app: Any,
+    spec: dict[str, Any],
+    face_ids: list[int],
+) -> Any:
+    if spec["boundary_kind"] == "radiation":
+        return app.assign_radiation_boundary_to_faces(
+            face_ids,
+            name=spec["boundary_name"],
+        )
+    if len(face_ids) != 1:
+        raise LiveBackendError(f"{spec['boundary_kind']} requires exactly one resolved face")
+    method = app.wave_port if spec["boundary_kind"] == "wave_port" else app.lumped_port
+    return method(
+        assignment=face_ids[0],
+        reference=spec["references"] or None,
+        name=spec["boundary_name"],
+        **spec["options"],
+    )
+
+
+def _hfss_boundary_type_matches(boundary_kind: str, readback_type: str) -> bool:
+    normalized = readback_type.strip().casefold().replace("_", " ")
+    if boundary_kind == "radiation":
+        return "radiation" in normalized
+    if boundary_kind == "wave_port":
+        return "wave" in normalized and "port" in normalized
+    return "lumped" in normalized and "port" in normalized
+
+
 def _verify_hfss_primitive_readback(
     primitives: list[dict[str, Any]],
     objects: list[dict[str, Any]],
@@ -3155,6 +3639,47 @@ def _rollback_hfss_objects(
         "unexpected_objects": unexpected,
         "delete_error": deletion_error,
         "readback_error": readback_error,
+    }
+
+
+def _rollback_hfss_boundaries(
+    app: Any,
+    created_names: list[str],
+    *,
+    before_names: list[str],
+) -> dict[str, Any]:
+    errors: list[str] = []
+    current_before_delete = set(_boundary_names(app))
+    by_name = {
+        str(getattr(item, "name", item)): item
+        for item in list(getattr(app, "boundaries", []) or [])
+    }
+    for name in reversed(created_names):
+        if name not in current_before_delete:
+            continue
+        try:
+            boundary = by_name.get(name)
+            if boundary is not None and hasattr(boundary, "delete"):
+                deleted = boundary.delete()
+                if deleted is False:
+                    app.oboundary.DeleteBoundaries([name])
+            else:
+                app.oboundary.DeleteBoundaries([name])
+        except Exception as exc:
+            errors.append(f"{name}: {type(exc).__name__}: {exc}")
+    current = set(_boundary_names(app))
+    before = set(before_names)
+    created = set(created_names).intersection(current_before_delete)
+    missing_old = sorted(before.difference(current))
+    remaining_created = sorted(created.intersection(current))
+    unexpected = sorted(current.difference(before).difference(created))
+    return {
+        "complete": not errors and not missing_old and not remaining_created and not unexpected,
+        "deleted_boundaries": sorted(created.difference(current)),
+        "remaining_created_boundaries": remaining_created,
+        "missing_old_boundaries": missing_old,
+        "unexpected_boundaries": unexpected,
+        "delete_errors": errors,
     }
 
 

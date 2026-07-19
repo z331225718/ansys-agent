@@ -14,7 +14,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def test_real_live_hfss_geometry_harness(tmp_path: Path):
+def test_real_live_hfss_atomic_geometry_boundary_harness(tmp_path: Path):
     from ansys.aedt.core import Hfss
     from ansys.aedt.core.desktop import launch_aedt
 
@@ -37,12 +37,12 @@ def test_real_live_hfss_geometry_harness(tmp_path: Path):
         port=requested_port,
         student_version=False,
     )
-    authority = HmacApprovalAuthority("real-geometry-acceptance-secret-32")
+    authority = HmacApprovalAuthority("real-atomic-geometry-boundary-secret")
     manager = LiveAedtSessionManager(approval_verifier=authority)
     hfss_app = None
     launched_pid = None
     session_id = ""
-    project_path = tmp_path / "RealGeometryAcceptance.aedt"
+    project_path = tmp_path / "RealAtomicGeometryBoundaryAcceptance.aedt"
     try:
         hfss_app = Hfss(
             project=str(project_path),
@@ -61,59 +61,55 @@ def test_real_live_hfss_geometry_harness(tmp_path: Path):
         primitives = [
             {
                 "kind": "box",
-                "name": "HarnessBox",
+                "name": "AtomicPortBody",
                 "origin": ["0mm", "0mm", "0mm"],
                 "size": ["10mm", "5mm", "1mm"],
-                "material": "copper",
-                "solve_inside": False,
-            },
-            {
-                "kind": "rectangle",
-                "name": "HarnessSheet",
-                "orientation": "XY",
-                "origin": ["0mm", "0mm", "1mm"],
-                "size": ["10mm", "5mm"],
-            },
-            {
-                "kind": "cylinder",
-                "name": "HarnessCylinder",
-                "axis": "Z",
-                "origin": ["2mm", "2mm", "1mm"],
-                "radius": "0.25mm",
-                "height": "2mm",
-                "num_sides": 12,
-                "material": "copper",
-                "solve_inside": False,
+                "material": "vacuum",
             },
             {
                 "kind": "region",
-                "name": "HarnessRegion",
+                "name": "AtomicAirRegion",
                 "padding": ["5mm"] * 6,
                 "padding_type": "Absolute Offset",
             },
         ]
-        preview = manager.preview_hfss_geometry_create(
+        boundaries = [
+            {
+                "boundary_kind": "wave_port",
+                "boundary_name": "AtomicPort",
+                "assignment_object": "AtomicPortBody",
+                "face_selector": "x_min",
+            },
+            {
+                "boundary_kind": "radiation",
+                "boundary_name": "AtomicRadiation",
+                "assignment_object": "AtomicAirRegion",
+                "face_selector": "all_faces",
+            },
+        ]
+        preview = manager.preview_hfss_geometry_boundary_create(
             session_id,
-            project_name="RealGeometryAcceptance",
+            project_name="RealAtomicGeometryBoundaryAcceptance",
             design_name="HFSS1",
             primitives=primitives,
-            max_new_objects=4,
+            boundaries=boundaries,
+            max_new_objects=2,
+            max_new_boundaries=2,
         )
-        applied = manager.apply_hfss_geometry_create(
+        applied = manager.apply_hfss_geometry_boundary_create(
             session_id,
             preview_id=preview["preview_id"],
             approval_token=authority.issue(**preview["approval_request"]),
         )
-        inventory = manager.hfss_geometry_inventory(
+        design_inventory = manager.hfss_design_inventory(
             session_id,
-            project_name="RealGeometryAcceptance",
+            project_name="RealAtomicGeometryBoundaryAcceptance",
             design_name="HFSS1",
-            object_names=[item["name"] for item in primitives],
         )
 
-        stale_preview = manager.preview_hfss_geometry_create(
+        stale_preview = manager.preview_hfss_geometry_boundary_create(
             session_id,
-            project_name="RealGeometryAcceptance",
+            project_name="RealAtomicGeometryBoundaryAcceptance",
             design_name="HFSS1",
             primitives=[
                 {
@@ -121,51 +117,80 @@ def test_real_live_hfss_geometry_harness(tmp_path: Path):
                     "name": "MustNotBeCreated",
                     "origin": ["20mm", "0mm", "0mm"],
                     "size": ["1mm", "1mm", "1mm"],
-                    "material": "vacuum",
+                }
+            ],
+            boundaries=[
+                {
+                    "boundary_kind": "radiation",
+                    "boundary_name": "MustNotBeAssigned",
+                    "assignment_object": "MustNotBeCreated",
+                    "face_selector": "all_faces",
                 }
             ],
         )
         sentinel = hfss_app.modeler.create_box(
             ["30mm", "0mm", "0mm"],
             ["1mm", "1mm", "1mm"],
-            name="ExternalSentinel",
+            name="ExternalAtomicSentinel",
             material="vacuum",
         )
         assert sentinel
-        with pytest.raises(Exception, match="stale HFSS geometry create preview"):
-            manager.apply_hfss_geometry_create(
+        with pytest.raises(Exception, match="stale HFSS geometry and boundary create preview"):
+            manager.apply_hfss_geometry_boundary_create(
                 session_id,
                 preview_id=stale_preview["preview_id"],
                 approval_token=authority.issue(**stale_preview["approval_request"]),
             )
         names_after_stale = set(hfss_app.modeler.object_names)
-        hfss_app.modeler.delete(
-            [
-                "ExternalSentinel",
-                "HarnessRegion",
-                "HarnessCylinder",
-                "HarnessSheet",
-                "HarnessBox",
-            ]
-        )
+        boundaries_after_stale = {
+            str(getattr(item, "name", item)) for item in list(hfss_app.boundaries or [])
+        }
 
         assert launched is True
-        assert hfss_app.project_name == "RealGeometryAcceptance"
-        assert hfss_app.design_name == "HFSS1"
-        assert preview["model_units"]
         assert preview["project_dirty"] is False
+        assert preview["project_saved"] is False
         assert applied["status"] == "verified"
-        assert applied["created_object_count"] == 4
-        assert applied["created_object_names"] == [item["name"] for item in primitives]
+        assert applied["created_object_names"] == ["AtomicPortBody", "AtomicAirRegion"]
+        assert applied["created_boundary_names"] == ["AtomicPort", "AtomicRadiation"]
+        assert applied["created_object_count"] == 2
+        assert applied["created_boundary_count"] == 2
+        assert len(applied["resolved_boundaries"][0]["assignment_face_ids"]) == 1
+        assert len(applied["resolved_boundaries"][1]["assignment_face_ids"]) == 6
+        assert "wave" in applied["resolved_boundaries"][0]["readback_type"].casefold()
+        assert "radiation" in applied["resolved_boundaries"][1]["readback_type"].casefold()
+        assert applied["atomic_geometry_boundary_transaction"] is True
         assert applied["automatic_rollback_on_failure"] is True
         assert applied["project_saved"] is False
         assert _file_digest(project_path) == project_digest_before
-        assert inventory["object_count"] == 4
-        assert {item["name"] for item in inventory["objects"]} == {
-            item["name"] for item in primitives
+        inventory_names = {
+            str(item["name"]) for item in list(design_inventory.get("boundaries") or [])
         }
+        assert {"AtomicPort", "AtomicRadiation"}.issubset(inventory_names)
         assert "MustNotBeCreated" not in names_after_stale
+        assert "MustNotBeAssigned" not in boundaries_after_stale
     finally:
+        if hfss_app is not None:
+            for boundary in list(hfss_app.boundaries or []):
+                if str(getattr(boundary, "name", boundary)) in {
+                    "AtomicPort",
+                    "AtomicRadiation",
+                    "MustNotBeAssigned",
+                }:
+                    try:
+                        boundary.delete()
+                    except Exception:
+                        pass
+            try:
+                hfss_app.modeler.delete(
+                    [
+                        "ExternalAtomicSentinel",
+                        "MustNotBeCreated",
+                        "AtomicAirRegion",
+                        "AtomicPortBody",
+                    ]
+                )
+            except Exception:
+                pass
         if session_id:
             try:
                 manager.release(session_id)

@@ -406,11 +406,16 @@ class FakeObject:
         material_name="copper",
         solve_inside=False,
         face_id=101,
+        face_centers=None,
     ):
         self.id = object_id
         self.material_name = material_name
         self.solve_inside = solve_inside
-        self.faces = [SimpleNamespace(id=face_id, center=[0, 0, 0], area=1.5)]
+        centers = face_centers or [[0, 0, 0]]
+        self.faces = [
+            SimpleNamespace(id=face_id + index, center=center, area=1.5)
+            for index, center in enumerate(centers)
+        ]
 
 
 class FakeHfssModeler:
@@ -433,10 +438,16 @@ class FakeGeometryModeler(FakeHfssModeler):
         self.calls.append((kind, call))
         if name == self.fail_on:
             raise RuntimeError(f"synthetic {kind} failure")
+        face_centers = (
+            [[-1, 0, 0], [1, 0, 0], [0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1]]
+            if kind in {"box", "region"}
+            else [[0, 0, 0]]
+        )
         obj = FakeObject(
             object_id=10 + len(self.object_names),
             material_name=material,
-            face_id=102 + len(self.object_names),
+            face_id=200 + len(self.object_names) * 10,
+            face_centers=face_centers,
         )
         self.object_names.append(name)
         self._objects[name] = obj
@@ -586,10 +597,21 @@ class FakeControlledSolveHfss(FakeHfss):
 
 
 class FakeGeometryHfss(FakeHfss):
-    def __init__(self, *, geometry_fail_on="", **kwargs):
+    def __init__(self, *, geometry_fail_on="", boundary_fail_on="", **kwargs):
         super().__init__(**kwargs)
         self.are_there_simulations_running = False
         self.modeler = FakeGeometryModeler(fail_on=geometry_fail_on)
+        self.boundary_fail_on = boundary_fail_on
+
+    def wave_port(self, assignment, reference=None, name=None, **kwargs):
+        if name == self.boundary_fail_on:
+            raise RuntimeError("synthetic boundary failure")
+        return super().wave_port(
+            assignment,
+            reference=reference,
+            name=name,
+            **kwargs,
+        )
 
 
 class FakeSubmittedSolveHfss(FakeControlledSolveHfss):
@@ -635,6 +657,11 @@ class FakeRegistry:
             return {"preview_id": "export-preview-1", "snapshot_digest": "export-digest-1"}
         if command == "hfss_geometry_create_preview":
             return {"preview_id": "geometry-preview-1", "snapshot_digest": "geometry-digest-1"}
+        if command == "hfss_geometry_boundary_create_preview":
+            return {
+                "preview_id": "geometry-boundary-preview-1",
+                "snapshot_digest": "geometry-boundary-digest-1",
+            }
         if command == "layout_component_ports_create_preview":
             return {"preview_id": "layout-port-preview-1", "snapshot_digest": "layout-port-digest-1"}
         if command == "layout_edge_ports_create_preview":
@@ -1251,6 +1278,228 @@ def test_backend_hfss_geometry_batch_rolls_back_and_rejects_stale_preview():
             target,
             "hfss_geometry_create_apply",
             {"preview_id": stale["preview_id"]},
+        )
+
+
+def test_backend_atomically_creates_hfss_geometry_and_boundaries_with_readback():
+    apps = []
+
+    def factory(**kwargs):
+        app = FakeGeometryHfss(**kwargs)
+        apps.append(app)
+        return app
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, hfss_factory=factory)
+    target = AedtTarget("pid", 42)
+    preview = backend.execute(
+        target,
+        "hfss_geometry_boundary_create_preview",
+        {
+            "project_name": "Board",
+            "design_name": "HFSS1",
+            "primitives": [
+                {
+                    "kind": "box",
+                    "name": "AtomicBody",
+                    "origin": [0, 0, 0],
+                    "size": [10, 5, 1],
+                    "material": "vacuum",
+                },
+                {
+                    "kind": "region",
+                    "name": "AtomicRegion",
+                    "padding": [5] * 6,
+                    "padding_type": "Absolute Offset",
+                },
+            ],
+            "boundaries": [
+                {
+                    "boundary_kind": "wave_port",
+                    "boundary_name": "AtomicPort",
+                    "assignment_object": "AtomicBody",
+                    "face_selector": "x_min",
+                },
+                {
+                    "boundary_kind": "radiation",
+                    "boundary_name": "AtomicRadiation",
+                    "assignment_object": "AtomicRegion",
+                    "face_selector": "all_faces",
+                },
+            ],
+            "max_new_objects": 2,
+            "max_new_boundaries": 2,
+        },
+    )
+    assert preview["project_dirty"] is False
+    assert preview["requested_object_names"] == ["AtomicBody", "AtomicRegion"]
+    assert preview["requested_boundary_names"] == ["AtomicPort", "AtomicRadiation"]
+
+    result = backend.execute(
+        target,
+        "hfss_geometry_boundary_create_apply",
+        {"preview_id": preview["preview_id"]},
+    )
+    assert result["status"] == "verified"
+    assert result["created_object_names"] == ["AtomicBody", "AtomicRegion"]
+    assert result["created_boundary_names"] == ["AtomicPort", "AtomicRadiation"]
+    assert result["created_object_count"] == 2
+    assert result["created_boundary_count"] == 2
+    assert result["resolved_boundaries"][0]["face_selector"] == "x_min"
+    assert len(result["resolved_boundaries"][0]["assignment_face_ids"]) == 1
+    assert len(result["resolved_boundaries"][1]["assignment_face_ids"]) == 6
+    assert result["atomic_geometry_boundary_transaction"] is True
+    assert result["automatic_rollback_on_failure"] is True
+    assert result["project_saved"] is False
+    assert {item.name for item in apps[0].boundaries} >= {
+        "AtomicPort",
+        "AtomicRadiation",
+    }
+
+
+def test_backend_atomic_hfss_geometry_boundary_rolls_back_and_rejects_stale_preview():
+    apps = []
+
+    def factory(**kwargs):
+        app = FakeGeometryHfss(boundary_fail_on="BadPort", **kwargs)
+        apps.append(app)
+        return app
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, hfss_factory=factory)
+    target = AedtTarget("pid", 42)
+    request = {
+        "project_name": "Board",
+        "design_name": "HFSS1",
+        "primitives": [
+            {
+                "kind": "box",
+                "name": "AtomicBody",
+                "origin": [0, 0, 0],
+                "size": [10, 5, 1],
+            }
+        ],
+        "boundaries": [
+            {
+                "boundary_kind": "radiation",
+                "boundary_name": "TemporaryRadiation",
+                "assignment_object": "AtomicBody",
+                "face_selector": "x_max",
+            },
+            {
+                "boundary_kind": "wave_port",
+                "boundary_name": "BadPort",
+                "assignment_object": "AtomicBody",
+                "face_selector": "x_min",
+            },
+        ],
+    }
+    preview = backend.execute(target, "hfss_geometry_boundary_create_preview", request)
+    with pytest.raises(LiveBackendError, match="synthetic boundary failure"):
+        backend.execute(
+            target,
+            "hfss_geometry_boundary_create_apply",
+            {"preview_id": preview["preview_id"]},
+        )
+    assert apps[0].modeler.object_names == ["box1"]
+    assert {item.name for item in apps[0].boundaries} == {"rad1"}
+    assert apps[0].ports == ["P1", "P2"]
+
+    apps[0].boundary_fail_on = ""
+    stale = backend.execute(target, "hfss_geometry_boundary_create_preview", request)
+    apps[0].modeler._create("box", "External", "vacuum", ())
+    with pytest.raises(LiveBackendError, match="stale HFSS geometry and boundary"):
+        backend.execute(
+            target,
+            "hfss_geometry_boundary_create_apply",
+            {"preview_id": stale["preview_id"]},
+        )
+
+
+@pytest.mark.parametrize(
+    "boundaries,error",
+    [
+        ([], "non-empty list"),
+        (
+            [
+                {
+                    "boundary_kind": "wave_port",
+                    "boundary_name": "P3",
+                    "assignment_object": "ExistingObject",
+                    "face_selector": "only_face",
+                }
+            ],
+            "must name an object in this atomic batch",
+        ),
+        (
+            [
+                {
+                    "boundary_kind": "wave_port",
+                    "boundary_name": "P3",
+                    "assignment_object": "AtomicSheet",
+                    "face_selector": "all_faces",
+                }
+            ],
+            "requires a selector that resolves to one face",
+        ),
+        (
+            [
+                {
+                    "boundary_kind": "radiation",
+                    "boundary_name": "rad1",
+                    "assignment_object": "AtomicSheet",
+                    "face_selector": "only_face",
+                }
+            ],
+            "already exists",
+        ),
+        (
+            [
+                {
+                    "boundary_kind": "wave_port",
+                    "boundary_name": "P3",
+                    "assignment_object": "AtomicSheet",
+                    "face_selector": "only_face",
+                    "options": {"modes": 0},
+                }
+            ],
+            "modes must be an integer between 1 and 16",
+        ),
+        (
+            [
+                {
+                    "boundary_kind": "lumped_port",
+                    "boundary_name": "P3",
+                    "assignment_object": "AtomicSheet",
+                    "face_selector": "only_face",
+                    "options": {"deembed": 1},
+                }
+            ],
+            "deembed must be boolean for lumped_port",
+        ),
+    ],
+)
+def test_backend_atomic_hfss_geometry_boundary_preview_rejects_unsafe_requests(
+    boundaries,
+    error,
+):
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, hfss_factory=FakeGeometryHfss)
+    with pytest.raises(LiveBackendError, match=error):
+        backend.execute(
+            AedtTarget("pid", 42),
+            "hfss_geometry_boundary_create_preview",
+            {
+                "project_name": "Board",
+                "design_name": "HFSS1",
+                "primitives": [
+                    {
+                        "kind": "rectangle",
+                        "name": "AtomicSheet",
+                        "orientation": "YZ",
+                        "origin": [0, 0, 0],
+                        "size": [1, 1],
+                    }
+                ],
+                "boundaries": boundaries,
+            },
         )
 
 
@@ -2681,6 +2930,49 @@ def test_manager_requires_action_bound_one_use_approval_for_hfss_geometry():
     assert getattr(replay.value, "code", None) == "approval_required"
 
 
+def test_manager_requires_action_bound_one_use_approval_for_atomic_hfss_geometry_boundary():
+    registry = FakeRegistry()
+    authority = HmacApprovalAuthority("a" * 32)
+    manager = LiveAedtSessionManager(registry=registry, approval_verifier=authority)
+    session_id = manager.attach(pid=42)["live_session_id"]
+    preview = manager.preview_hfss_geometry_boundary_create(
+        session_id,
+        project_name="Board",
+        design_name="HFSS1",
+        primitives=[
+            {
+                "kind": "rectangle",
+                "name": "PortSheet",
+                "orientation": "YZ",
+                "origin": [0, 0, 0],
+                "size": [1, 1],
+            }
+        ],
+        boundaries=[
+            {
+                "boundary_kind": "wave_port",
+                "boundary_name": "P3",
+                "assignment_object": "PortSheet",
+                "face_selector": "only_face",
+            }
+        ],
+    )
+    token = authority.issue(**preview["approval_request"])
+    result = manager.apply_hfss_geometry_boundary_create(
+        session_id,
+        preview_id=preview["preview_id"],
+        approval_token=token,
+    )
+    assert result["command"] == "hfss_geometry_boundary_create_apply"
+    with pytest.raises(Exception) as replay:
+        manager.apply_hfss_geometry_boundary_create(
+            session_id,
+            preview_id=preview["preview_id"],
+            approval_token=token,
+        )
+    assert getattr(replay.value, "code", None) == "approval_required"
+
+
 def test_manager_requires_action_bound_approval_for_layout_edge_ports():
     registry = FakeRegistry()
     authority = HmacApprovalAuthority("e" * 32)
@@ -2930,6 +3222,8 @@ def test_mcp_registers_live_tools_without_changing_artifact_tools(monkeypatch):
     assert "get_live_hfss_geometry_inventory" in server.tools
     assert "preview_live_hfss_geometry_create" in server.tools
     assert "apply_live_hfss_geometry_create" in server.tools
+    assert "preview_live_hfss_geometry_boundary_create" in server.tools
+    assert "apply_live_hfss_geometry_boundary_create" in server.tools
     assert "preview_live_hfss_setup_create" in server.tools
     assert "apply_live_hfss_setup_create" in server.tools
     assert "preview_live_hfss_report_create" in server.tools

@@ -13,7 +13,8 @@
 
 新增 live control plane 还能受控启动 AEDT，或发现并显式连接正在运行的 AEDT，会话内复用
 PyAEDT broker，读取工程信息、HFSS geometry/setup/port/boundary/report inventory、受控创建
-setup、radiation boundary、wave/lumped port 和 report、驱动 analysis，并查询 live 3D Layout Path。
+typed geometry batch、setup、radiation boundary、wave/lumped port 和 report、驱动 analysis，
+并能在单一事务中原子创建新几何和 Boundary/Port，同时查询 live 3D Layout Path。
 在 Desktop-bound strict 会话和推荐的生产链路中，live edit、setup/boundary/report、solve/cancel/export
 与 project save 都采用 preview/apply 两阶段操作，并使用外部 Host 签发的短期批准令牌。通用 MCP
 仍保留 `create_live_hfss_design` 和 `start_live_hfss_analysis` 兼容入口；它们不属于 Desktop 生产链路，

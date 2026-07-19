@@ -391,6 +391,40 @@ def create_server(
         )
 
     @server.tool()
+    async def preview_live_hfss_geometry_boundary_create(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        primitives: list[dict],
+        boundaries: list[dict],
+        max_new_objects: int = 16,
+        max_new_boundaries: int = 16,
+    ) -> dict:
+        """Preview one atomic HFSS geometry-and-boundary batch using typed face selectors."""
+        return live.preview_hfss_geometry_boundary_create(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            primitives=primitives,
+            boundaries=boundaries,
+            max_new_objects=max_new_objects,
+            max_new_boundaries=max_new_boundaries,
+        )
+
+    @server.tool()
+    async def apply_live_hfss_geometry_boundary_create(
+        live_session_id: str,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        """Atomically create and verify HFSS geometry plus boundaries; rollback both on failure."""
+        return live.apply_hfss_geometry_boundary_create(
+            live_session_id,
+            preview_id=preview_id,
+            approval_token=approval_token,
+        )
+
+    @server.tool()
     async def preview_live_hfss_setup_create(
         live_session_id: str,
         project_name: str,

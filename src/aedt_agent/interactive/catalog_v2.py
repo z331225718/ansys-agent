@@ -116,6 +116,30 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             products=["hfss"],
         ),
         _cap(
+            "hfss.geometry_boundary.create",
+            "reversible_edit",
+            ["live"],
+            [
+                "preview_live_hfss_geometry_boundary_create",
+                "apply_live_hfss_geometry_boundary_create",
+            ],
+            approval="external_host_token",
+            side_effects=[
+                "project_becomes_dirty",
+                "hfss_objects_created",
+                "hfss_boundaries_created",
+            ],
+            postconditions=[
+                "typed_primitives_and_face_selectors_only",
+                "geometry_and_boundary_snapshot_unchanged",
+                "object_and_boundary_counts_bounded",
+                "geometry_and_boundary_readback_verified",
+                "atomic_rollback_on_failure",
+                "project_not_saved",
+            ],
+            products=["hfss"],
+        ),
+        _cap(
             "hfss.setup.create",
             "reversible_edit",
             ["live"],

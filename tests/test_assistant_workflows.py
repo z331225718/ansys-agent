@@ -159,6 +159,51 @@ class _Live:
             "project_saved": False,
         }
 
+    def preview_hfss_geometry_boundary_create(self, session_id: str, **kwargs) -> dict:
+        return {
+            "preview_id": "geometry-boundary-preview-1",
+            "primitives": list(kwargs["primitives"]),
+            "boundaries": list(kwargs["boundaries"]),
+            "requested_object_names": [item["name"] for item in kwargs["primitives"]],
+            "requested_boundary_names": [
+                item["boundary_name"] for item in kwargs["boundaries"]
+            ],
+            "approval_request": {"action": "hfss.geometry_boundary.create"},
+            "project_saved": False,
+        }
+
+    def apply_hfss_geometry_boundary_create(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        assert preview_id == "geometry-boundary-preview-1"
+        assert approval_token == "geometry-boundary-approved"
+        return {
+            "status": "verified",
+            "created_object_count": 2,
+            "created_object_names": ["PortBody", "AirRegion"],
+            "created_boundary_count": 2,
+            "created_boundary_names": ["P1", "Radiation1"],
+            "objects": [
+                {"name": "PortBody", "material_name": "vacuum"},
+                {"name": "AirRegion", "material_name": "vacuum"},
+            ],
+            "resolved_boundaries": [
+                {"boundary_name": "P1", "assignment_face_ids": [101]},
+                {
+                    "boundary_name": "Radiation1",
+                    "assignment_face_ids": [201, 202, 203, 204, 205, 206],
+                },
+            ],
+            "geometry_snapshot_digest": "geometry-boundary-after-1",
+            "automatic_rollback_on_failure": True,
+            "atomic_geometry_boundary_transaction": True,
+            "project_saved": False,
+        }
+
     def list_layout_paths(self, session_id: str, **kwargs) -> dict:
         return {
             "count": 2,
@@ -413,6 +458,12 @@ def test_default_workflow_catalog_includes_live_monitor_and_export(tmp_path: Pat
     assert descriptors["hfss_live_geometry_create"]["recommended_initial_fields"] == [
         "primitives"
     ]
+    assert descriptors["hfss_live_geometry_boundary_create"]["risk"] == "reversible_edit"
+    assert descriptors["hfss_live_geometry_boundary_create"]["attached_live_session_reuse"] is True
+    assert descriptors["hfss_live_geometry_boundary_create"]["recommended_initial_fields"] == [
+        "boundaries",
+        "primitives",
+    ]
     assert descriptors["layout_live_solve_monitor"]["risk"] == "read_only"
     assert descriptors["layout_live_solve_monitor"]["attached_live_session_reuse"] is True
     assert descriptors["layout_live_results_export"]["risk"] == "persistent_write"
@@ -566,6 +617,78 @@ def test_live_hfss_geometry_workflow_uses_nested_approval_and_scorecard(tmp_path
     scorecard = report["node_runs"][-1]["output_payload"]
     assert scorecard["status"] == "passed"
     assert scorecard["summary"]["created_object_names"] == ["Substrate", "AirBox"]
+    assert scorecard["summary"]["project_saved"] is False
+
+
+def test_live_hfss_geometry_boundary_workflow_is_atomic_and_scored(tmp_path: Path):
+    manager = AssistantWorkflowManager(
+        live_manager=_Live(),
+        db_path=tmp_path / "geometry-boundary-missions.db",
+        template_ids=("hfss_live_geometry_boundary_create",),
+        runtime_factory=lambda path: AgentRuntime(SQLiteMissionStore(path)),
+    )
+    primitives = [
+        {
+            "kind": "box",
+            "name": "PortBody",
+            "origin": [0, 0, 0],
+            "size": [10, 5, 1],
+        },
+        {
+            "kind": "region",
+            "name": "AirRegion",
+            "padding": "5mm",
+            "padding_type": "Absolute Offset",
+        },
+    ]
+    boundaries = [
+        {
+            "boundary_kind": "wave_port",
+            "boundary_name": "P1",
+            "assignment_object": "PortBody",
+            "face_selector": "x_min",
+        },
+        {
+            "boundary_kind": "radiation",
+            "boundary_name": "Radiation1",
+            "assignment_object": "AirRegion",
+            "face_selector": "all_faces",
+        },
+    ]
+    start = manager.preview_start(
+        "live-1",
+        workflow_id="hfss_live_geometry_boundary_create",
+        goal="Atomically create reviewed HFSS geometry and boundaries",
+        initial_payload={"primitives": primitives, "boundaries": boundaries},
+    )
+    started = manager.apply_start(
+        "live-1",
+        preview_id=start["preview_id"],
+        approval_token="approved",
+    )
+    report = None
+    for index in range(3):
+        advance = manager.preview_advance("live-1", graph_run_id=started["graph_run_id"])
+        if index == 1:
+            assert (
+                advance["operation_approval_required"]["preview_id"]
+                == "geometry-boundary-preview-1"
+            )
+        report = manager.apply_advance(
+            "live-1",
+            preview_id=advance["preview_id"],
+            approval_token="approved",
+            operation_approval_token=(
+                "geometry-boundary-approved" if index == 1 else ""
+            ),
+        )
+
+    assert report is not None and report["status"] == "succeeded"
+    assert "geometry-boundary-approved" not in str(report)
+    scorecard = report["node_runs"][-1]["output_payload"]
+    assert scorecard["status"] == "passed"
+    assert scorecard["summary"]["created_object_names"] == ["PortBody", "AirRegion"]
+    assert scorecard["summary"]["created_boundary_names"] == ["P1", "Radiation1"]
     assert scorecard["summary"]["project_saved"] is False
 
 
