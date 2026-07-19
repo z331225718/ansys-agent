@@ -2937,6 +2937,7 @@ D:\ansys-agent-0.1.0-preview1
 
 ## 23. 相关文档
 
+- [Ansys Assistant 部署与操作说明](ansys-assistant-operations-guide.zh.md)
 - [Windows Server 离线部署](offline-windows-server-deployment.md)
 - [AEDT Desktop Claude Code 入口](aedt-desktop-claude-entry.md)
 - [通用交互式 Ansys 助手](interactive-ansys-assistant.md)

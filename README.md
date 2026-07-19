@@ -1,6 +1,8 @@
 # ansys-agent
 
-完整的安装、首次上线、日常操作、可直接使用的对话模板、AEDT 连接、审批、故障排查和升级说明见
+面向 AEDT 2024 R2 远端服务器的安装、连接、Desktop 入口、日常对话、审批和验收步骤见
+[`docs/ansys-assistant-operations-guide.zh.md`](docs/ansys-assistant-operations-guide.zh.md)。完整能力、Workflow、
+故障排查和维护者说明见
 [`docs/ansys-assistant-user-guide.zh.md`](docs/ansys-assistant-user-guide.zh.md)。
 远端服务器可联网时按手册第 4.1 节从源码安装；完全离线时按第 4.2～5 节使用 GitHub Release
 发布包；上线交接时按第 4.3 节记录 commit、依赖版本、入口来源和 smoke evidence，避免 AEDT 按钮
