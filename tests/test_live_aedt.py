@@ -743,6 +743,72 @@ class FakeGeometryModeler(FakeHfssModeler):
         return True
 
 
+class FakeMoveEditor:
+    def __init__(self, modeler):
+        self.modeler = modeler
+
+    def GetActiveCoordinateSystem(self):
+        return self.modeler.active_coordinate_system
+
+
+class FakeMoveModeler(FakeHfssModeler):
+    def __init__(self, *, fail_on=""):
+        super().__init__()
+        self.object_names = ["box1", "sheet1", "fixed1"]
+        self._objects = {
+            "box1": FakeObject(
+                object_id=9,
+                material_name="copper",
+                solve_inside=False,
+                face_id=101,
+                face_centers=[[0, 0, 0], [2, 2, 2]],
+                volume=8.0,
+                bounding_box=[-1, -1, -1, 1, 1, 1],
+            ),
+            "sheet1": FakeObject(
+                object_id=10,
+                material_name="",
+                solve_inside=False,
+                face_id=201,
+                face_centers=[[5, 1, 0]],
+                volume=0.0,
+                bounding_box=[4, 0, 0, 6, 2, 0],
+            ),
+            "fixed1": FakeObject(
+                object_id=11,
+                material_name="vacuum",
+                solve_inside=True,
+                face_id=301,
+                face_centers=[[20, 0, 0]],
+                volume=1.0,
+                bounding_box=[19.5, -0.5, -0.5, 20.5, 0.5, 0.5],
+            ),
+        }
+        self.fail_on = fail_on
+        self.active_coordinate_system = "Global"
+        self.oeditor = FakeMoveEditor(self)
+        self.move_calls = []
+
+    def move(self, assignment, vector):
+        names = [str(item) for item in list(assignment)]
+        self.move_calls.append((names, list(vector)))
+        if any(name == self.fail_on for name in names):
+            return False
+        values = [float(item) for item in vector]
+        for name in names:
+            obj = self._objects[name]
+            obj.bounding_box = [
+                float(value) + values[index % 3]
+                for index, value in enumerate(obj.bounding_box)
+            ]
+            for face in obj.faces:
+                face.center = [
+                    float(value) + values[index]
+                    for index, value in enumerate(face.center)
+                ]
+        return True
+
+
 class FakeBoundary:
     def __init__(self, owner, name, boundary_type, *, port=False, props=None):
         self.owner = owner
@@ -1069,6 +1135,17 @@ class FakeGeometryHfss(FakeHfss):
             name=name,
             **kwargs,
         )
+
+
+class FakeMoveHfss(FakeHfss):
+    def __init__(self, *, move_fail_on="", **kwargs):
+        super().__init__(**kwargs)
+        self.are_there_simulations_running = False
+        self.modeler = FakeMoveModeler(fail_on=move_fail_on)
+        self.mesh = SimpleNamespace(meshoperation_names=[])
+        self.boundaries = [
+            FakeBoundary(self, "SheetPEC", "Perfect E", props={"Objects": ["sheet1"]})
+        ]
 
 
 class FakeAtomicSetupSweepHfss(FakeHfss):
@@ -1696,6 +1773,11 @@ class FakeRegistry:
             return {"preview_id": "export-preview-1", "snapshot_digest": "export-digest-1"}
         if command == "hfss_geometry_create_preview":
             return {"preview_id": "geometry-preview-1", "snapshot_digest": "geometry-digest-1"}
+        if command == "hfss_geometry_move_preview":
+            return {
+                "preview_id": "geometry-move-preview-1",
+                "snapshot_digest": "geometry-move-digest-1",
+            }
         if command == "hfss_geometry_boundary_create_preview":
             return {
                 "preview_id": "geometry-boundary-preview-1",
@@ -5339,6 +5421,148 @@ def test_backend_hfss_geometry_batch_rolls_back_and_rejects_stale_preview():
         )
 
 
+def test_backend_moves_exact_hfss_geometry_batch_with_typed_readback():
+    app = FakeMoveHfss(project="Board", design="HFSS1")
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=lambda **kwargs: app,
+    )
+    target = AedtTarget("pid", 42)
+    fixed_before = list(app.modeler["fixed1"].bounding_box)
+    preview = backend.execute(
+        target,
+        "hfss_geometry_move_preview",
+        {
+            "project_name": "Board",
+            "design_name": "HFSS1",
+            "moves": [
+                {"name": "box1", "vector": [1.25, -2.5, 3.75]},
+                {"name": "sheet1", "vector": [-4, 5, 0.25]},
+            ],
+        },
+    )
+    assert preview["names"] == ["box1", "sheet1"]
+    assert preview["model_units"] == "mm"
+    assert preview["coordinate_system"] == "Global"
+    assert preview["target_count"] == 2
+    assert preview["boundary_count"] == 1
+    assert preview["project_dirty"] is False
+
+    result = backend.execute(
+        target,
+        "hfss_geometry_move_apply",
+        {"preview_id": preview["preview_id"]},
+    )
+    assert result["status"] == "verified"
+    assert result["moved_object_names"] == ["box1", "sheet1"]
+    assert result["moved_object_count"] == 2
+    assert result["boundaries_preserved"] is True
+    assert result["mesh_operations_preserved"] is True
+    assert result["active_coordinate_system_preserved"] is True
+    assert result["automatic_rollback_on_failure"] is True
+    assert result["project_saved"] is False
+    assert app.modeler["box1"].bounding_box == [0.25, -3.5, 2.75, 2.25, -1.5, 4.75]
+    assert app.modeler["sheet1"].bounding_box == [0.0, 5.0, 0.25, 2.0, 7.0, 0.25]
+    assert app.modeler["fixed1"].bounding_box == fixed_before
+    assert [item[0] for item in app.modeler.move_calls] == [["box1"], ["sheet1"]]
+
+
+def test_backend_hfss_geometry_move_rejects_unsafe_specs_and_stale_state():
+    app = FakeMoveHfss(project="Board", design="HFSS1")
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=lambda **kwargs: app,
+    )
+    target = AedtTarget("pid", 42)
+    base = {"project_name": "Board", "design_name": "HFSS1"}
+    unsafe = [
+        [],
+        [{"name": "box1", "vector": [0, 0, 0]}],
+        [{"name": "BOX1", "vector": [1, 0, 0]}],
+        [
+            {"name": "box1", "vector": [1, 0, 0]},
+            {"name": "BOX1", "vector": [0, 1, 0]},
+        ],
+        [{"name": "missing", "vector": [1, 0, 0]}],
+        [{"name": "box1", "vector": [float("inf"), 0, 0]}],
+        [{"name": "box1", "vector": [1, 0, 0], "extra": True}],
+    ]
+    for moves in unsafe:
+        with pytest.raises(LiveBackendError):
+            backend.execute(target, "hfss_geometry_move_preview", {**base, "moves": moves})
+
+    app.modeler.active_coordinate_system = "RelativeCS"
+    with pytest.raises(LiveBackendError, match="requires Global"):
+        backend.execute(
+            target,
+            "hfss_geometry_move_preview",
+            {**base, "moves": [{"name": "box1", "vector": [1, 0, 0]}]},
+        )
+    app.modeler.active_coordinate_system = "Global"
+
+    stale = backend.execute(
+        target,
+        "hfss_geometry_move_preview",
+        {**base, "moves": [{"name": "box1", "vector": [1, 0, 0]}]},
+    )
+    app.modeler.move(["fixed1"], [0, 1, 0])
+    with pytest.raises(LiveBackendError, match="stale HFSS geometry move preview"):
+        backend.execute(
+            target,
+            "hfss_geometry_move_apply",
+            {"preview_id": stale["preview_id"]},
+        )
+
+
+def test_backend_hfss_geometry_move_rolls_back_partial_and_readback_failures(monkeypatch):
+    app = FakeMoveHfss(move_fail_on="sheet1", project="Board", design="HFSS1")
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=lambda **kwargs: app,
+    )
+    target = AedtTarget("pid", 42)
+    request = {
+        "project_name": "Board",
+        "design_name": "HFSS1",
+        "moves": [
+            {"name": "box1", "vector": [1, 2, 3]},
+            {"name": "sheet1", "vector": [-2, 4, 1]},
+        ],
+    }
+    before = {
+        name: list(app.modeler[name].bounding_box)
+        for name in app.modeler.object_names
+    }
+    preview = backend.execute(target, "hfss_geometry_move_preview", request)
+    with pytest.raises(LiveBackendError, match="returned false"):
+        backend.execute(
+            target,
+            "hfss_geometry_move_apply",
+            {"preview_id": preview["preview_id"]},
+        )
+    assert {
+        name: app.modeler[name].bounding_box for name in app.modeler.object_names
+    } == before
+
+    app.modeler.fail_on = ""
+    preview = backend.execute(target, "hfss_geometry_move_preview", request)
+    import aedt_agent.live.backend as backend_module
+
+    def fail_readback(*args, **kwargs):
+        raise LiveBackendError("synthetic geometry move readback failure")
+
+    monkeypatch.setattr(backend_module, "_verify_hfss_geometry_move_state", fail_readback)
+    with pytest.raises(LiveBackendError, match="synthetic geometry move readback failure"):
+        backend.execute(
+            target,
+            "hfss_geometry_move_apply",
+            {"preview_id": preview["preview_id"]},
+        )
+    assert {
+        name: app.modeler[name].bounding_box for name in app.modeler.object_names
+    } == before
+
+
 def test_backend_creates_and_reads_typed_hfss_wave_and_lumped_ports():
     apps = []
 
@@ -7361,6 +7585,33 @@ def test_manager_requires_action_bound_one_use_approval_for_hfss_geometry():
     assert getattr(replay.value, "code", None) == "approval_required"
 
 
+def test_manager_requires_action_bound_one_use_approval_for_hfss_geometry_move():
+    registry = FakeRegistry()
+    authority = HmacApprovalAuthority("m" * 32)
+    manager = LiveAedtSessionManager(registry=registry, approval_verifier=authority)
+    session_id = manager.attach(pid=42)["live_session_id"]
+    preview = manager.preview_hfss_geometry_move(
+        session_id,
+        project_name="Board",
+        design_name="HFSS1",
+        moves=[{"name": "Box1", "vector": [1, 2, 3]}],
+    )
+    token = authority.issue(**preview["approval_request"])
+    result = manager.apply_hfss_geometry_move(
+        session_id,
+        preview_id=preview["preview_id"],
+        approval_token=token,
+    )
+    assert result["command"] == "hfss_geometry_move_apply"
+    with pytest.raises(Exception) as replay:
+        manager.apply_hfss_geometry_move(
+            session_id,
+            preview_id=preview["preview_id"],
+            approval_token=token,
+        )
+    assert getattr(replay.value, "code", None) == "approval_required"
+
+
 def test_manager_requires_action_bound_one_use_approval_for_atomic_hfss_geometry_boundary():
     registry = FakeRegistry()
     authority = HmacApprovalAuthority("a" * 32)
@@ -8072,6 +8323,8 @@ def test_mcp_registers_live_tools_without_changing_artifact_tools(monkeypatch):
     assert "get_live_hfss_geometry_inventory" in server.tools
     assert "preview_live_hfss_geometry_create" in server.tools
     assert "apply_live_hfss_geometry_create" in server.tools
+    assert "preview_live_hfss_geometry_move" in server.tools
+    assert "apply_live_hfss_geometry_move" in server.tools
     assert "preview_live_hfss_geometry_boundary_create" in server.tools
     assert "apply_live_hfss_geometry_boundary_create" in server.tools
     assert "get_live_hfss_far_field_inventory" in server.tools
@@ -8186,6 +8439,8 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
         "get_live_aedt_project_info",
         "get_live_hfss_design_inventory",
         "get_live_hfss_geometry_inventory",
+        "preview_live_hfss_geometry_move",
+        "apply_live_hfss_geometry_move",
         "get_live_hfss_far_field_inventory",
         "preview_live_hfss_infinite_sphere_create",
         "apply_live_hfss_infinite_sphere_create",
@@ -8260,6 +8515,13 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
         "preview_live_hfss_material_delete",
         "apply_live_hfss_material_delete",
     ]
+    assert by_name["hfss.geometry.move"]["tools"] == [
+        "preview_live_hfss_geometry_move",
+        "apply_live_hfss_geometry_move",
+    ]
+    assert "typed_bounding_box_and_face_center_translation_verified" in by_name[
+        "hfss.geometry.move"
+    ]["postconditions"]
     assert by_name["layout.material.create_and_assign"]["tools"] == [
         "preview_live_layout_material_create_assign",
         "apply_live_layout_material_create_assign",

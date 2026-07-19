@@ -21,6 +21,7 @@
 | 每天操作 AEDT 的工程师 | 第 1、4～11 节 |
 | 只需要把 4.3mil 线宽参数化 | 第 4～8 节 |
 | 需要更新/删除 HFSS 材料，或创建 Layout 材料、创建/更新/删除 Via | 第 4～7、8A～8F 节 |
+| 需要严格移动已有 HFSS solid/sheet | 第 4～7、8G 节 |
 | Harness 没有现成能力 | 第 10 节 |
 | 升级、移交或故障恢复 | 第 12～16 节 |
 
@@ -662,6 +663,33 @@ rollback incomplete。
 该能力已通过隔离 AEDT 2026.1 + PyAEDT 1.3.0 实测：锁定和孔径 override Via、负角度 Via、无网络 Via、
 空源网络清理、外部 stale、磁盘工程 SHA-256 不变，以及锁定、独占网络和无网络三种 Via 在真实删除后的完整
 重建回滚。测试专属 AEDT 和 live session 均已清理。目标 AEDT 2024 R2 仍需在测试工程副本上复验。
+
+## 8G. 示例：严格批量平移已有 HFSS solid/sheet
+
+推荐请求：
+
+```text
+使用 hfss_live_geometry_move 在当前 HFSS 设计中移动两个既有对象：
+1. 精确名称 HarnessMoveBox，沿 Global 坐标移动 [1.25,-2.5,3.75]，单位使用当前 model_units；
+2. 精确名称 HarnessMoveSheet，沿 Global 坐标移动 [-4,5,0.25]。
+先冻结完整 geometry、全部 boundary、全部 mesh operation 和活动坐标系；仅在活动 WCS 为 Global 时继续。
+Windows 原生审批后按顺序移动，回读 bounding box、每个 face center、对象/面 ID、材料和 Solve Inside。
+Boundary 与 mesh assignment 必须完全不变；失败时用逆向量倒序恢复。不要保存工程。
+```
+
+`moves` 包含 1～32 个条目，每项只有精确 `name` 和三个有限数值组成的 `vector`。数值按当前 HFSS
+`model_units` 解释，例如模型单位为 `mm` 时 `[1,0,0]` 表示沿 Global X 移动 `1mm`。当前严格 Harness
+不接受带单位字符串、变量表达式、零向量、模糊名称、重复名称、line/unclassified object 或非 Global WCS；
+这些场景需要独立的表达式求值或坐标变换契约，不能混在本审批中猜测。
+
+preview 最多冻结 5000 个对象、500 个 mesh operation，以及所有 boundary 的原生属性 digest。apply 后要求
+对象 ID、face ID、材料、Solve Inside、volume/area、boundary 和 mesh 不变；只有目标对象的 bounding box 与
+face center 可以严格按各自向量平移。AEDT 会把例如 `5.999999999999999` 的面积规范化为 `6.0`，Harness
+按 12 位有界数值快照比较物理状态，不会因无意义的浮点重排误报失败。
+
+该能力已通过隔离 AEDT 2026.1 + PyAEDT 1.3.0 实测：solid/sheet 使用不同正负向量、对象/面 identity、
+Perfect E、Length Mesh、外部移动后的 stale、磁盘工程 SHA-256 不变，以及真实双对象移动后的故障注入和
+逆平移完整恢复。目标 AEDT 2024 R2 上线前仍需执行中文使用手册第 18.1 节的同名真实测试。
 
 ## 9. 保存工程
 

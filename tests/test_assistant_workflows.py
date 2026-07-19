@@ -216,6 +216,46 @@ class _Live:
             "project_saved": False,
         }
 
+    def preview_hfss_geometry_move(self, session_id: str, **kwargs) -> dict:
+        return {
+            "preview_id": "geometry-move-preview-1",
+            "moves": list(kwargs["moves"]),
+            "names": [item["name"] for item in kwargs["moves"]],
+            "expected_object_count": len(kwargs["moves"]),
+            "model_units": "mm",
+            "coordinate_system": "Global",
+            "approval_request": {"action": "hfss.geometry.move"},
+            "project_saved": False,
+        }
+
+    def apply_hfss_geometry_move(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        assert preview_id == "geometry-move-preview-1"
+        assert approval_token == "geometry-move-approved"
+        return {
+            "status": "verified",
+            "expected_object_count": 2,
+            "moved_object_count": 2,
+            "moved_object_names": ["Substrate", "PortSheet"],
+            "targets_after": [
+                {"name": "Substrate", "bounding_box": [1, 2, 3, 11, 7, 4]},
+                {"name": "PortSheet", "bounding_box": [-2, 1, 0, -2, 6, 5]},
+            ],
+            "model_units": "mm",
+            "coordinate_system": "Global",
+            "geometry_snapshot_digest": "geometry-move-after-1",
+            "boundaries_preserved": True,
+            "mesh_operations_preserved": True,
+            "active_coordinate_system_preserved": True,
+            "automatic_rollback_on_failure": True,
+            "project_saved": False,
+        }
+
     def preview_hfss_material_create(self, session_id: str, **kwargs) -> dict:
         return {
             "preview_id": "material-create-preview-1",
@@ -1168,6 +1208,11 @@ def test_default_workflow_catalog_includes_live_monitor_and_export(tmp_path: Pat
     assert descriptors["hfss_live_geometry_create"]["recommended_initial_fields"] == [
         "primitives"
     ]
+    assert descriptors["hfss_live_geometry_move"]["risk"] == "reversible_edit"
+    assert descriptors["hfss_live_geometry_move"]["attached_live_session_reuse"] is True
+    assert descriptors["hfss_live_geometry_move"]["recommended_initial_fields"] == [
+        "moves"
+    ]
     assert descriptors["hfss_live_material_create"]["risk"] == "reversible_edit"
     assert descriptors["hfss_live_material_create"]["attached_live_session_reuse"] is True
     assert descriptors["hfss_live_material_create"]["recommended_initial_fields"] == [
@@ -1409,6 +1454,55 @@ def test_live_hfss_geometry_workflow_uses_nested_approval_and_scorecard(tmp_path
     scorecard = report["node_runs"][-1]["output_payload"]
     assert scorecard["status"] == "passed"
     assert scorecard["summary"]["created_object_names"] == ["Substrate", "AirBox"]
+    assert scorecard["summary"]["project_saved"] is False
+
+
+def test_live_hfss_geometry_move_workflow_uses_nested_approval_and_scorecard(tmp_path: Path):
+    manager = AssistantWorkflowManager(
+        live_manager=_Live(),
+        db_path=tmp_path / "geometry-move-missions.db",
+        template_ids=("hfss_live_geometry_move",),
+        runtime_factory=lambda path: AgentRuntime(SQLiteMissionStore(path)),
+    )
+    moves = [
+        {"name": "Substrate", "vector": [1, 2, 3]},
+        {"name": "PortSheet", "vector": [-2, 1, 0]},
+    ]
+    start = manager.preview_start(
+        "live-1",
+        workflow_id="hfss_live_geometry_move",
+        goal="Move two reviewed HFSS objects in Global coordinates",
+        initial_payload={"moves": moves, "max_objects": 4},
+    )
+    started = manager.apply_start(
+        "live-1",
+        preview_id=start["preview_id"],
+        approval_token="approved",
+    )
+    report = None
+    for index in range(3):
+        advance = manager.preview_advance("live-1", graph_run_id=started["graph_run_id"])
+        if index == 1:
+            assert (
+                advance["operation_approval_required"]["preview_id"]
+                == "geometry-move-preview-1"
+            )
+        report = manager.apply_advance(
+            "live-1",
+            preview_id=advance["preview_id"],
+            approval_token="approved",
+            operation_approval_token=(
+                "geometry-move-approved" if index == 1 else ""
+            ),
+        )
+
+    assert report is not None and report["status"] == "succeeded"
+    assert "geometry-move-approved" not in str(report)
+    scorecard = report["node_runs"][-1]["output_payload"]
+    assert scorecard["status"] == "passed"
+    assert scorecard["summary"]["moved_object_names"] == ["Substrate", "PortSheet"]
+    assert scorecard["summary"]["model_units"] == "mm"
+    assert scorecard["summary"]["coordinate_system"] == "Global"
     assert scorecard["summary"]["project_saved"] is False
 
 

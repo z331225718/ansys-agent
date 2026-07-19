@@ -1069,6 +1069,43 @@ class LiveAedtSessionManager:
         self._approval_contexts.pop((session_id, preview_id), None)
         return result
 
+    def preview_hfss_geometry_move(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+        moves: list[dict[str, Any]],
+        max_objects: int = 16,
+    ) -> dict[str, Any]:
+        result = self._execute(
+            session_id,
+            "hfss_geometry_move_preview",
+            {
+                "project_name": project_name,
+                "design_name": design_name,
+                "moves": moves,
+                "max_objects": max_objects,
+            },
+        )
+        return self._register_approval(session_id, "hfss.geometry.move", result)
+
+    def apply_hfss_geometry_move(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict[str, Any]:
+        self._require_approval(session_id, "hfss.geometry.move", preview_id, approval_token)
+        result = self._execute(
+            session_id,
+            "hfss_geometry_move_apply",
+            {"preview_id": preview_id},
+        )
+        self._approval_contexts.pop((session_id, preview_id), None)
+        return result
+
     def preview_hfss_geometry_boundary_create(
         self,
         session_id: str,

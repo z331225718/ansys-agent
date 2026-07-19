@@ -168,6 +168,8 @@ apply_live_hfss_coordinate_system_create
 get_live_hfss_port_inventory
 preview_live_hfss_geometry_create
 apply_live_hfss_geometry_create
+preview_live_hfss_geometry_move
+apply_live_hfss_geometry_move
 preview_live_hfss_geometry_boundary_create
 apply_live_hfss_geometry_boundary_create
 preview_live_hfss_setup_create
@@ -283,6 +285,20 @@ preview 冻结设计/solution type、model unit、完整坐标系属性和变量
 Harness 会显式恢复 preview 前的活动 WCS；创建、typed readback 或恢复失败时删除新坐标系并比较完整旧快照。
 该链路已在隔离 AEDT 2026 R1、PyAEDT 1.3.0 上实测带变量 origin、父相对坐标系、非正交数值轴、stale、
 重复名、非法引用、工程 SHA-256 不变和创建后强制回读失败的真实 rollback；2024 R2 仍需目标机复验。
+
+严格平移已有 HFSS solid/sheet 时：
+
+```text
+get_live_hfss_geometry_inventory
+  -> preview_live_hfss_geometry_move（冻结完整 geometry、boundary、mesh 和活动 WCS）
+  -> Host approval
+  -> apply_live_hfss_geometry_move
+  -> 核对 bounding box、face center、对象/面 ID、attachment 和 project_saved=false
+```
+
+一次限 1～32 个精确对象，每个对象使用独立的三维有限非零向量，数值按当前 model unit 解释。当前只在
+Global 活动 WCS 下支持具有可读 bounding box/face center 的 solid 和 sheet。失败时对已经移动的对象倒序
+应用负向量，并要求完整 geometry、boundary 和 mesh 快照恢复。
 
 HFSS 建模写操作遵循同样边界。需要成对创建新 Setup 和 Sweep 时，使用原子接口，不要把两个独立写操作
 临时串联：

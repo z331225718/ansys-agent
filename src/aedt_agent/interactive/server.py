@@ -894,6 +894,36 @@ def create_server(
         )
 
     @server.tool()
+    async def preview_live_hfss_geometry_move(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        moves: list[dict],
+        max_objects: int = 16,
+    ) -> dict:
+        """Preview exact Global-coordinate translations for a bounded HFSS solid/sheet batch."""
+        return live.preview_hfss_geometry_move(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            moves=moves,
+            max_objects=max_objects,
+        )
+
+    @server.tool()
+    async def apply_live_hfss_geometry_move(
+        live_session_id: str,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        """Move and read back one HFSS geometry batch, preserving attachments and rolling back failure."""
+        return live.apply_hfss_geometry_move(
+            live_session_id,
+            preview_id=preview_id,
+            approval_token=approval_token,
+        )
+
+    @server.tool()
     async def preview_live_hfss_geometry_boundary_create(
         live_session_id: str,
         project_name: str,

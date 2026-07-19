@@ -133,6 +133,10 @@ class LiveAedtBackend:
                 return self._hfss_geometry_create_preview(target, arguments)
             if command == "hfss_geometry_create_apply":
                 return self._hfss_geometry_create_apply(target, arguments)
+            if command == "hfss_geometry_move_preview":
+                return self._hfss_geometry_move_preview(target, arguments)
+            if command == "hfss_geometry_move_apply":
+                return self._hfss_geometry_move_apply(target, arguments)
             if command == "hfss_geometry_boundary_create_preview":
                 return self._hfss_geometry_boundary_create_preview(target, arguments)
             if command == "hfss_geometry_boundary_create_apply":
@@ -2290,6 +2294,157 @@ class LiveAedtBackend:
             "created_object_names": created_names,
             "objects": readback["objects"],
             "geometry_snapshot_digest": readback["snapshot_digest"],
+            "automatic_rollback_on_failure": True,
+            "project_dirty": True,
+            "project_saved": False,
+        }
+
+    def _hfss_geometry_move_preview(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        app = self._app(
+            target,
+            "hfss",
+            _required(args, "project_name"),
+            _required(args, "design_name"),
+        )
+        if str(_safe_attribute(app, "design_type") or "").strip().casefold() != "hfss":
+            raise LiveBackendError("HFSS geometry movement requires an HFSS 3D design")
+        if _simulation_running(app):
+            raise LiveBackendError("cannot move HFSS geometry while a simulation is running")
+        spec = _normalize_hfss_geometry_moves(args)
+        active_coordinate_system = _hfss_active_coordinate_system(app)
+        if active_coordinate_system.casefold() != "global":
+            raise LiveBackendError(
+                "HFSS geometry movement requires Global to be the active coordinate system"
+            )
+        state = _hfss_geometry_move_state(app, spec["names"])
+        by_name = {item["name"].casefold(): item for item in state["geometry"]}
+        canonical_moves = []
+        targets = []
+        for move in spec["moves"]:
+            record = by_name.get(move["name"].casefold())
+            if record is None:
+                raise LiveBackendError(
+                    "HFSS geometry move names must already exist in the current design"
+                )
+            if record["name"] != move["name"]:
+                raise LiveBackendError(
+                    "HFSS geometry move names must preserve exact object-name case"
+                )
+            _validate_hfss_geometry_move_target(record)
+            canonical_moves.append({**move, "name": record["name"]})
+            targets.append(record)
+        spec = {
+            **spec,
+            "moves": canonical_moves,
+            "names": [item["name"] for item in canonical_moves],
+            "model_units": state["model_units"],
+            "coordinate_system": "Global",
+        }
+        state = _hfss_geometry_move_state(app, spec["names"])
+        state_digest = _digest(state)
+        preview_id = "geometry-move-preview-" + _digest(
+            spec | {"state": state_digest}
+        )[:24]
+        self._previews[preview_id] = {
+            "kind": "hfss_geometry_move",
+            "target": target,
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "spec": spec,
+            "state": state,
+            "digest": state_digest,
+        }
+        return {
+            "preview_id": preview_id,
+            **spec,
+            "target_count": len(targets),
+            "targets_before": targets,
+            "boundary_count": len(state["boundaries"]),
+            "mesh_operation_count": len(state["mesh_operations"]),
+            "snapshot_digest": state_digest,
+            "approval_required": True,
+            "project_dirty": False,
+            "project_saved": False,
+        }
+
+    def _hfss_geometry_move_apply(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        preview_id = _required(args, "preview_id")
+        preview = self._preview(preview_id, "hfss_geometry_move", target)
+        app = self._app(target, "hfss", preview["project_name"], preview["design_name"])
+        if _simulation_running(app):
+            raise LiveBackendError("cannot move HFSS geometry while a simulation is running")
+        names = list(preview["spec"]["names"])
+        current = _hfss_geometry_move_state(app, names)
+        if _digest(current) != preview["digest"]:
+            raise LiveBackendError("stale HFSS geometry move preview")
+
+        moved: list[dict[str, Any]] = []
+        try:
+            modeler = _safe_attribute(app, "modeler")
+            mover = getattr(modeler, "move", None)
+            if not callable(mover):
+                raise LiveBackendError("HFSS geometry move API is unavailable")
+            for move in preview["spec"]["moves"]:
+                if mover([move["name"]], move["vector"]) is not True:
+                    raise LiveBackendError(
+                        f"HFSS geometry move returned false: {move['name']}"
+                    )
+                moved.append(move)
+
+            after = _hfss_geometry_move_state(app, names)
+            expected_geometry = _translated_hfss_geometry_snapshot(
+                preview["state"]["geometry"],
+                preview["spec"]["moves"],
+            )
+            _verify_hfss_geometry_move_state(
+                preview["state"],
+                after,
+                expected_geometry=expected_geometry,
+            )
+        except Exception as exc:
+            rollback = _rollback_hfss_geometry_moves(
+                app,
+                moved,
+                before_state=preview["state"],
+            )
+            if not rollback["complete"]:
+                raise LiveBackendError(
+                    f"HFSS geometry movement failed and rollback is incomplete: {rollback}"
+                ) from exc
+            if isinstance(exc, LiveBackendError):
+                raise
+            raise LiveBackendError(
+                f"HFSS geometry movement failed: {type(exc).__name__}: {exc}"
+            ) from exc
+
+        del self._previews[preview_id]
+        after_by_name = {item["name"]: item for item in after["geometry"]}
+        targets_after = [after_by_name[name] for name in names]
+        return {
+            "status": "verified",
+            "preview_id": preview_id,
+            **preview["spec"],
+            "moved_object_count": len(moved),
+            "moved_object_names": names,
+            "targets_before": preview["state"]["targets"],
+            "targets_after": targets_after,
+            "geometry_snapshot_digest": _digest(after["geometry"]),
+            "boundaries_preserved": after["boundaries"] == preview["state"]["boundaries"],
+            "mesh_operations_preserved": (
+                after["mesh_operations"] == preview["state"]["mesh_operations"]
+            ),
+            "active_coordinate_system_preserved": (
+                after["active_coordinate_system"]
+                == preview["state"]["active_coordinate_system"]
+            ),
             "automatic_rollback_on_failure": True,
             "project_dirty": True,
             "project_saved": False,
@@ -10379,6 +10534,252 @@ def _verify_hfss_primitive_readback(
             raise LiveBackendError(f"HFSS material readback failed: {primitive['name']}")
         if "solve_inside" in primitive and record.get("solve_inside") is not primitive["solve_inside"]:
             raise LiveBackendError(f"HFSS solve_inside readback failed: {primitive['name']}")
+
+
+def _normalize_hfss_geometry_moves(args: dict[str, Any]) -> dict[str, Any]:
+    max_objects = _bounded_integer(
+        args.get("max_objects", 16),
+        "max_objects",
+        minimum=1,
+        maximum=32,
+    )
+    raw_moves = args.get("moves")
+    if not isinstance(raw_moves, list) or not raw_moves:
+        raise LiveBackendError("moves must be a non-empty list")
+    if len(raw_moves) > max_objects:
+        raise LiveBackendError(
+            f"geometry move count {len(raw_moves)} exceeds max_objects {max_objects}"
+        )
+    moves = []
+    seen = set()
+    for index, raw in enumerate(raw_moves):
+        if not isinstance(raw, dict):
+            raise LiveBackendError(f"moves[{index}] must be an object")
+        unsupported = sorted(set(raw).difference({"name", "vector"}))
+        if unsupported:
+            raise LiveBackendError(
+                f"unsupported moves[{index}] field: {unsupported[0]}"
+            )
+        name = str(raw.get("name") or "").strip()
+        if not _SAFE_AEDT_OBJECT_NAME.fullmatch(name):
+            raise LiveBackendError(f"moves[{index}].name must be a safe AEDT object name")
+        folded = name.casefold()
+        if folded in seen:
+            raise LiveBackendError(f"moves must not contain duplicate object names: {name}")
+        seen.add(folded)
+        vector = _finite_numeric_vector(raw.get("vector"), f"moves[{index}].vector")
+        if all(math.isclose(float(item), 0.0, rel_tol=0.0, abs_tol=0.0) for item in vector):
+            raise LiveBackendError(f"moves[{index}].vector must not be the zero vector")
+        moves.append({"name": name, "vector": vector})
+    return {
+        "moves": moves,
+        "names": [item["name"] for item in moves],
+        "expected_object_count": len(moves),
+        "max_objects": max_objects,
+    }
+
+
+def _hfss_active_coordinate_system(app: Any) -> str:
+    editor = _safe_attribute(_safe_attribute(app, "modeler"), "oeditor")
+    getter = getattr(editor, "GetActiveCoordinateSystem", None)
+    if not callable(getter):
+        raise LiveBackendError("HFSS active coordinate system readback is unavailable")
+    try:
+        active = str(getter() or "").strip()
+    except Exception as exc:
+        raise LiveBackendError(
+            "HFSS active coordinate system readback is unavailable"
+        ) from exc
+    if not active:
+        raise LiveBackendError("HFSS active coordinate system readback is unavailable")
+    return active
+
+
+def _hfss_geometry_move_state(app: Any, target_names: list[str]) -> dict[str, Any]:
+    modeler = _safe_attribute(app, "modeler")
+    model_units = str(_safe_attribute(modeler, "model_units") or "").strip()
+    if not re.fullmatch(r"[A-Za-z]+", model_units):
+        raise LiveBackendError("HFSS model units are unavailable for geometry movement")
+    names = [str(item) for item in list(getattr(modeler, "object_names", []) or [])]
+    if len(names) > 5000:
+        raise LiveBackendError("HFSS design has more than 5000 objects; bounded move is unavailable")
+    geometry = []
+    for name in names:
+        try:
+            obj = modeler[name]
+        except Exception as exc:
+            raise LiveBackendError(f"HFSS geometry object readback failed: {name}") from exc
+        faces = []
+        for face in list(getattr(obj, "faces", []) or []):
+            faces.append(
+                {
+                    "face_id": _json_value(getattr(face, "id", None)),
+                    "center": _json_value(_safe_attribute(face, "center")),
+                    "area": _json_value(_safe_attribute(face, "area")),
+                    "is_planar": _json_value(_safe_attribute(face, "is_planar")),
+                }
+            )
+        faces.sort(key=lambda item: str(item["face_id"]))
+        geometry.append(
+            _canonical_hfss_geometry_value(
+                {
+                    "name": name,
+                    "object_id": _json_value(getattr(obj, "id", None)),
+                    "material_name": str(getattr(obj, "material_name", "") or ""),
+                    "solve_inside": _json_value(_safe_attribute(obj, "solve_inside")),
+                    "bounding_box": _json_value(_safe_attribute(obj, "bounding_box")),
+                    "volume": _json_value(_safe_attribute(obj, "volume")),
+                    "faces": faces,
+                }
+            )
+        )
+    geometry.sort(key=lambda item: item["name"].casefold())
+    by_name = {item["name"]: item for item in geometry}
+    targets = [by_name[name] for name in target_names if name in by_name]
+    mesh_names = _hfss_mesh_operation_names(app)
+    if len(mesh_names) > 500:
+        raise LiveBackendError(
+            "HFSS design has more than 500 mesh operations; bounded move is unavailable"
+        )
+    return {
+        "design_type": str(_safe_attribute(app, "design_type") or "").strip(),
+        "solution_type": str(_safe_attribute(app, "solution_type") or "").strip(),
+        "model_units": model_units,
+        "active_coordinate_system": _hfss_active_coordinate_system(app),
+        "geometry": geometry,
+        "targets": targets,
+        "boundaries": _hfss_material_boundary_reference_snapshot(app, []),
+        "mesh_operations": _hfss_mesh_operation_snapshot(app, mesh_names),
+    }
+
+
+def _canonical_hfss_geometry_value(value: Any) -> Any:
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            return value
+        rounded = round(value, 12)
+        return 0.0 if rounded == 0 else rounded
+    if isinstance(value, list):
+        return [_canonical_hfss_geometry_value(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            str(key): _canonical_hfss_geometry_value(item)
+            for key, item in value.items()
+        }
+    return value
+
+
+def _validate_hfss_geometry_move_target(record: dict[str, Any]) -> None:
+    bounding_box = record.get("bounding_box")
+    if (
+        not isinstance(bounding_box, list)
+        or len(bounding_box) != 6
+        or any(type(item) not in {int, float} or not math.isfinite(float(item)) for item in bounding_box)
+    ):
+        raise LiveBackendError(
+            f"HFSS geometry move requires a numeric bounding box: {record.get('name', '')}"
+        )
+    faces = list(record.get("faces") or [])
+    if not faces:
+        raise LiveBackendError(
+            f"HFSS geometry move supports only solid or sheet objects: {record.get('name', '')}"
+        )
+    for face in faces:
+        center = face.get("center")
+        if (
+            not isinstance(center, list)
+            or len(center) != 3
+            or any(type(item) not in {int, float} or not math.isfinite(float(item)) for item in center)
+        ):
+            raise LiveBackendError(
+                f"HFSS face center is unavailable for geometry move: {record.get('name', '')}"
+            )
+        area = face.get("area")
+        if type(area) not in {int, float} or not math.isfinite(float(area)) or float(area) < 0:
+            raise LiveBackendError(
+                f"HFSS face area is unavailable for geometry move: {record.get('name', '')}"
+            )
+
+
+def _translated_hfss_geometry_snapshot(
+    before_geometry: list[dict[str, Any]],
+    moves: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    vectors = {item["name"]: [float(value) for value in item["vector"]] for item in moves}
+    translated = []
+    for original in before_geometry:
+        record = json.loads(json.dumps(original))
+        vector = vectors.get(record["name"])
+        if vector is not None:
+            bbox = list(record["bounding_box"])
+            record["bounding_box"] = [
+                float(value) + vector[index % 3] for index, value in enumerate(bbox)
+            ]
+            for face in record["faces"]:
+                face["center"] = [
+                    float(value) + vector[index]
+                    for index, value in enumerate(face["center"])
+                ]
+        translated.append(_canonical_hfss_geometry_value(record))
+    return translated
+
+
+def _verify_hfss_geometry_move_state(
+    before: dict[str, Any],
+    after: dict[str, Any],
+    *,
+    expected_geometry: list[dict[str, Any]],
+) -> None:
+    for field in (
+        "design_type",
+        "solution_type",
+        "model_units",
+        "active_coordinate_system",
+        "boundaries",
+        "mesh_operations",
+    ):
+        if after[field] != before[field]:
+            raise LiveBackendError(f"HFSS geometry move changed protected state: {field}")
+    if after["geometry"] != expected_geometry:
+        raise LiveBackendError("HFSS geometry move typed readback does not match requested vectors")
+
+
+def _rollback_hfss_geometry_moves(
+    app: Any,
+    moved: list[dict[str, Any]],
+    *,
+    before_state: dict[str, Any],
+) -> dict[str, Any]:
+    errors = []
+    modeler = _safe_attribute(app, "modeler")
+    mover = getattr(modeler, "move", None)
+    if not callable(mover):
+        errors.append("HFSS geometry move API is unavailable")
+    else:
+        for move in reversed(moved):
+            inverse = [-float(item) for item in move["vector"]]
+            try:
+                if mover([move["name"]], inverse) is not True:
+                    raise LiveBackendError("inverse move returned false")
+            except Exception as exc:
+                errors.append(f"{move['name']}: {type(exc).__name__}: {exc}")
+    readback_error = ""
+    try:
+        after = _hfss_geometry_move_state(
+            app,
+            [item["name"] for item in before_state["targets"]],
+        )
+    except Exception as exc:
+        after = {}
+        readback_error = f"{type(exc).__name__}: {exc}"
+    state_restored = bool(after) and after == before_state
+    return {
+        "complete": not errors and not readback_error and state_restored,
+        "restored_object_names": [item["name"] for item in moved] if state_restored else [],
+        "state_restored": state_restored,
+        "move_errors": errors,
+        "readback_error": readback_error,
+    }
 
 
 def _rollback_hfss_objects(
