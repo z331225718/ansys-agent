@@ -189,6 +189,10 @@ class LiveAedtBackend:
                 return self._layout_via_update_preview(target, arguments)
             if command == "layout_via_update_apply":
                 return self._layout_via_update_apply(target, arguments)
+            if command == "layout_via_delete_preview":
+                return self._layout_via_delete_preview(target, arguments)
+            if command == "layout_via_delete_apply":
+                return self._layout_via_delete_apply(target, arguments)
             if command == "layout_connectivity_inventory":
                 return self._layout_connectivity_inventory(target, arguments)
             if command == "layout_port_candidate_inventory":
@@ -3742,6 +3746,130 @@ class LiveAedtBackend:
             "project_saved": False,
         }
 
+    def _layout_via_delete_preview(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        project = _required(args, "project_name")
+        design = _required(args, "design_name")
+        app = self._app(target, "layout", project, design)
+        if _simulation_running(app):
+            raise LiveBackendError("cannot delete 3D Layout vias while a simulation is running")
+        spec = _normalize_layout_via_delete_spec(args)
+        state = _layout_via_delete_state(app, spec)
+        state_digest = _digest(state)
+        preview_id = "layout-via-delete-preview-" + _digest(
+            {"state": state, "spec": spec}
+        )[:24]
+        self._previews[preview_id] = {
+            "kind": "layout_via_delete",
+            "target": target,
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "spec": spec,
+            "state": state,
+            "digest": state_digest,
+        }
+        return {
+            "preview_id": preview_id,
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "names": spec["names"],
+            "before": state["vias"],
+            "via_count": len(spec["names"]),
+            "model_units": state["model_units"],
+            "snapshot_digest": state_digest,
+            "approval_required": True,
+            "automatic_rollback_on_failure": True,
+            "project_dirty": False,
+            "project_saved": False,
+        }
+
+    def _layout_via_delete_apply(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        preview_id = _required(args, "preview_id")
+        preview = self._preview(preview_id, "layout_via_delete", target)
+        app = self._app(
+            target,
+            "layout",
+            preview["project_name"],
+            preview["design_name"],
+        )
+        if _simulation_running(app):
+            raise LiveBackendError("cannot delete 3D Layout vias while a simulation is running")
+        spec = preview["spec"]
+        try:
+            current_state = _layout_via_delete_state(app, spec)
+        except LiveBackendError as exc:
+            raise LiveBackendError("stale 3D Layout via delete preview") from exc
+        if _digest(current_state) != preview["digest"]:
+            raise LiveBackendError("stale 3D Layout via delete preview")
+
+        deleted_names: list[str] = []
+        try:
+            editor = _layout_modeler_editor(app)
+            delete = getattr(editor, "Delete", None)
+            if not callable(delete):
+                raise LiveBackendError("3D Layout native via delete API is unavailable")
+            for name in spec["names"]:
+                try:
+                    delete([name])
+                except Exception:
+                    _invalidate_layout_via_cache(app, [name])
+                    if not _layout_native_name_matches(app, name):
+                        deleted_names.append(name)
+                    raise
+                _invalidate_layout_via_cache(app, [name])
+                if _layout_native_name_matches(app, name):
+                    raise LiveBackendError(f"3D Layout via remained after delete: {name}")
+                deleted_names.append(name)
+            _verify_layout_via_delete_readback(
+                app,
+                spec,
+                before_state=preview["state"],
+            )
+        except Exception as exc:
+            rollback = _rollback_layout_via_delete(
+                app,
+                spec,
+                deleted_names,
+                before_state=preview["state"],
+            )
+            if not rollback["complete"]:
+                raise LiveBackendError(
+                    "3D Layout via delete failed and rollback is incomplete: "
+                    f"{rollback}"
+                ) from exc
+            if isinstance(exc, LiveBackendError):
+                raise
+            raise LiveBackendError(
+                f"3D Layout via delete failed: {type(exc).__name__}: {exc}"
+            ) from exc
+
+        del self._previews[preview_id]
+        return {
+            "status": "verified",
+            "preview_id": preview_id,
+            "project_name": preview["project_name"],
+            "design_name": preview["design_name"],
+            "names": spec["names"],
+            "before": preview["state"]["vias"],
+            "deleted_names": deleted_names,
+            "via_count": len(deleted_names),
+            "model_units": preview["state"]["model_units"],
+            "snapshot_digest": preview["digest"],
+            "absence_digest": _digest(
+                {name: _layout_native_name_matches(app, name) for name in spec["names"]}
+            ),
+            "automatic_rollback_on_failure": True,
+            "project_dirty": True,
+            "project_saved": False,
+        }
+
     def _layout_connectivity_inventory(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
         app = self._app(
             target,
@@ -5542,6 +5670,24 @@ _LAYOUT_VIA_UPDATE_FIELDS = {
     "rotation_degrees",
     "lock_position",
 }
+_LAYOUT_RECONSTRUCTIBLE_VIA_NATIVE_FIELDS = {
+    "Type",
+    "LockPosition",
+    "Name",
+    "Net",
+    "Padstack Definition",
+    "Padstack Usage",
+    "Start Layer",
+    "Stop Layer",
+    "Backdrill Top",
+    "Top Offset",
+    "Backdrill Bottom",
+    "Bottom Offset",
+    "OverrideHoleDiameter",
+    "HoleDiameter",
+    "Location",
+    "Angle",
+}
 
 _SAFE_ARTIFACT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,127}")
 
@@ -5765,6 +5911,34 @@ def _normalize_layout_via_update_spec(args: dict[str, Any]) -> dict[str, Any]:
             update["lock_position"] = lock_position
         normalized.append(update)
     return {"updates": normalized, "max_vias": max_vias}
+
+
+def _normalize_layout_via_delete_spec(args: dict[str, Any]) -> dict[str, Any]:
+    max_vias = _bounded_integer(
+        args.get("max_vias", 16),
+        "max_vias",
+        minimum=1,
+        maximum=32,
+    )
+    raw_names = args.get("names")
+    if not isinstance(raw_names, list) or not raw_names:
+        raise LiveBackendError("names must contain at least one exact via name")
+    if len(raw_names) > max_vias:
+        raise LiveBackendError(f"names exceeds the approved maximum of {max_vias}")
+    names = []
+    seen = set()
+    for index, raw_name in enumerate(raw_names):
+        name = str(raw_name or "").strip()
+        if not _SAFE_AEDT_OBJECT_NAME.fullmatch(name):
+            raise LiveBackendError(
+                f"names[{index}] must be a safe exact AEDT object name"
+            )
+        folded = name.casefold()
+        if folded in seen:
+            raise LiveBackendError("via delete names must be unique case-insensitively")
+        seen.add(folded)
+        names.append(name)
+    return {"names": names, "max_vias": max_vias}
 
 
 def _normalize_layout_material_create_assign_spec(
@@ -9962,6 +10136,121 @@ def _layout_via_update_changes_record(
     return False
 
 
+def _layout_via_delete_dependencies(
+    app: Any,
+    padstack_names: list[str],
+) -> dict[str, Any]:
+    design_type = str(_safe_attribute(app, "design_type") or "").strip()
+    if design_type != "HFSS 3D Layout Design":
+        raise LiveBackendError("3D Layout via delete requires HFSS 3D Layout Design")
+    stackup = _layout_full_stackup_snapshot(app)
+    padstack_records, padstack_error = _layout_padstack_records(
+        app,
+        max_items=501,
+        include_layers=True,
+    )
+    if padstack_error or len(padstack_records) > 500:
+        raise LiveBackendError(
+            "3D Layout padstack catalog is unavailable or exceeds the 500 definition safety limit"
+        )
+    available_padstacks = [str(item["name"]) for item in padstack_records]
+    padstack_by_name = {str(item["name"]): item for item in padstack_records}
+    selected_padstacks = {}
+    for requested in padstack_names:
+        actual = _layout_exact_name(available_padstacks, requested, "padstack")
+        selected_padstacks[actual] = padstack_by_name[actual]
+    try:
+        net_names = sorted(str(item) for item in dict(app.modeler.nets or {}))
+    except Exception as exc:
+        raise LiveBackendError(
+            f"3D Layout net inventory is unavailable: {type(exc).__name__}: {exc}"
+        ) from exc
+    if len(net_names) > 100_000:
+        raise LiveBackendError("3D Layout net inventory exceeds the 100000 name safety limit")
+    model_units = str(
+        _safe_attribute(_safe_attribute(app, "modeler"), "model_units") or ""
+    ).strip()
+    if not model_units:
+        raise LiveBackendError("3D Layout model units are unavailable")
+    return {
+        "design_type": design_type,
+        "solution_type": str(_safe_attribute(app, "solution_type") or "").strip(),
+        "model_units": model_units,
+        "stackup": stackup,
+        "padstacks": selected_padstacks,
+        "net_names": net_names,
+    }
+
+
+def _layout_via_delete_state(app: Any, spec: dict[str, Any]) -> dict[str, Any]:
+    vias = []
+    for name in spec["names"]:
+        record = _layout_native_via_record(app, name)
+        if str(record["type"]).casefold() != "via":
+            raise LiveBackendError(f"3D Layout object is not a via: {name}")
+        _layout_via_object(app, name)
+        vias.append(record)
+    padstack_names = list(dict.fromkeys(item["padstack"] for item in vias))
+    state = _layout_via_delete_dependencies(app, padstack_names)
+    stackup_by_name = {str(item["name"]): item for item in state["stackup"]}
+    for record in vias:
+        for field in ("top_layer", "bottom_layer"):
+            layer_name = record[field]
+            layer = stackup_by_name.get(layer_name)
+            if layer is None:
+                raise LiveBackendError(
+                    f"3D Layout via {record['name']} references a missing {field}: {layer_name}"
+                )
+            if str(layer.get("type") or "").casefold() != "signal":
+                raise LiveBackendError(
+                    f"3D Layout via {record['name']} {field} is not a signal layer"
+                )
+        if not _layout_via_no_net(record["net_name"]):
+            _layout_exact_name(state["net_names"], record["net_name"], "net_name")
+        _validate_layout_via_reconstructible(
+            record,
+            model_units=state["model_units"],
+        )
+    return {**state, "vias": vias}
+
+
+def _layout_via_no_net(net_name: Any) -> bool:
+    return str(net_name or "").strip().casefold() in {
+        "",
+        "<no-net>",
+        "no-net",
+        "<none>",
+    }
+
+
+def _validate_layout_via_reconstructible(
+    record: dict[str, Any],
+    *,
+    model_units: str,
+) -> None:
+    native = dict(record["native_properties"])
+    unsupported = sorted(
+        set(native).difference(_LAYOUT_RECONSTRUCTIBLE_VIA_NATIVE_FIELDS)
+    )
+    if unsupported:
+        raise LiveBackendError(
+            f"3D Layout via {record['name']} has an unsupported native property: {unsupported[0]}"
+        )
+    for field in ("Backdrill Top", "Backdrill Bottom"):
+        if field in native and str(native[field]).strip() not in {"", "----"}:
+            raise LiveBackendError(
+                f"3D Layout via delete does not support custom {field}: {record['name']}"
+            )
+    for field in ("Top Offset", "Bottom Offset"):
+        if field not in native:
+            continue
+        value = _layout_length_in_model_units(native[field], model_units, field)
+        if not math.isclose(value, 0.0, rel_tol=0.0, abs_tol=1e-12):
+            raise LiveBackendError(
+                f"3D Layout via delete does not support nonzero {field}: {record['name']}"
+            )
+
+
 def _layout_native_via_record(app: Any, name: str) -> dict[str, Any]:
     matches = _layout_native_name_matches(app, name)
     if matches != [name]:
@@ -10274,6 +10563,51 @@ def _verify_layout_via_update_readback(
         )
 
 
+def _verify_layout_via_delete_readback(
+    app: Any,
+    spec: dict[str, Any],
+    *,
+    before_state: dict[str, Any],
+) -> None:
+    remaining = {
+        name: matches
+        for name in spec["names"]
+        if (matches := _layout_native_name_matches(app, name))
+    }
+    if remaining:
+        raise LiveBackendError(
+            f"3D Layout via delete target remains after apply: {next(iter(remaining))}"
+        )
+    after_dependencies = _layout_via_delete_dependencies(
+        app,
+        list(before_state["padstacks"]),
+    )
+    before_dependencies = dict(before_state)
+    before_vias = before_dependencies.pop("vias")
+    before_net_names = set(before_dependencies.pop("net_names"))
+    after_net_names = set(after_dependencies.pop("net_names"))
+    if _digest(after_dependencies) != _digest(before_dependencies):
+        raise LiveBackendError("3D Layout via delete changed a frozen dependency")
+    added_nets = sorted(after_net_names.difference(before_net_names))
+    if added_nets:
+        raise LiveBackendError(
+            f"3D Layout via delete unexpectedly added a net: {added_nets[0]}"
+        )
+    allowed_removed_nets = {
+        item["net_name"]
+        for item in before_vias
+        if not _layout_via_no_net(item["net_name"])
+    }
+    unexpected_removed_nets = sorted(
+        before_net_names.difference(after_net_names).difference(allowed_removed_nets)
+    )
+    if unexpected_removed_nets:
+        raise LiveBackendError(
+            "3D Layout via delete unexpectedly removed a net: "
+            f"{unexpected_removed_nets[0]}"
+        )
+
+
 def _invalidate_layout_via_cache(app: Any, names: list[str]) -> None:
     modeler = _safe_attribute(app, "modeler")
     cache = _safe_attribute(modeler, "_vias")
@@ -10381,6 +10715,104 @@ def _rollback_layout_via_update(
         "after_digest": _digest(restored_state) if restored_state else "",
         "errors": errors,
     }
+
+
+def _rollback_layout_via_delete(
+    app: Any,
+    spec: dict[str, Any],
+    deleted_names: list[str],
+    *,
+    before_state: dict[str, Any],
+) -> dict[str, Any]:
+    before_by_name = {item["name"]: item for item in before_state["vias"]}
+    deleted = set(deleted_names)
+    attempted_names = [name for name in spec["names"] if name in deleted]
+    restored_names = []
+    errors = []
+    for name in attempted_names:
+        try:
+            _recreate_layout_via_from_record(
+                app,
+                before_by_name[name],
+                model_units=before_state["model_units"],
+            )
+            restored_names.append(name)
+        except Exception as exc:
+            errors.append(f"restore {name} failed: {type(exc).__name__}: {exc}")
+
+    restored_state: dict[str, Any] = {}
+    try:
+        restored_state = _layout_via_delete_state(app, spec)
+        restored = _digest(restored_state) == _digest(before_state)
+    except Exception as exc:
+        restored = False
+        errors.append(f"rollback readback failed: {type(exc).__name__}: {exc}")
+    if not restored:
+        errors.append("full native via delete snapshot was not restored")
+    return {
+        "complete": not errors and restored,
+        "attempted_names": attempted_names,
+        "restored_names": restored_names,
+        "before_digest": _digest(before_state),
+        "after_digest": _digest(restored_state) if restored_state else "",
+        "errors": errors,
+    }
+
+
+def _recreate_layout_via_from_record(
+    app: Any,
+    record: dict[str, Any],
+    *,
+    model_units: str,
+) -> None:
+    name = record["name"]
+    if _layout_native_name_matches(app, name):
+        raise LiveBackendError(
+            f"cannot restore 3D Layout via because the name is occupied: {name}"
+        )
+    create_via = getattr(_safe_attribute(app, "modeler"), "create_via", None)
+    if not callable(create_via):
+        raise LiveBackendError("3D Layout via creation API is unavailable during rollback")
+    hole_diameter = None
+    if record["override_hole_diameter"]:
+        hole_diameter = _layout_length_in_model_units(
+            record["hole_diameter"],
+            model_units,
+            "HoleDiameter",
+        )
+    created_name = ""
+    try:
+        created = create_via(
+            name=name,
+            padstack=record["padstack"],
+            x=float(record["location"][0]),
+            y=float(record["location"][1]),
+            rotation=float(record["rotation_degrees"]),
+            hole_diam=hole_diameter,
+            top_layer=record["top_layer"],
+            bot_layer=record["bottom_layer"],
+            net=None if _layout_via_no_net(record["net_name"]) else record["net_name"],
+        )
+        created_name = str(_safe_attribute(created, "name") or "").strip()
+        if not created or created_name != name:
+            raise LiveBackendError(
+                f"3D Layout via rollback returned an unexpected name: {created_name or name}"
+            )
+        created.angle = f"{record['rotation_degrees']}deg"
+        created.lock_position = bool(record["lock_position"])
+        restored = _layout_native_via_record(app, name)
+        if restored["native_properties"] != record["native_properties"]:
+            raise LiveBackendError(
+                f"3D Layout via rollback native property mismatch: {name}"
+            )
+    except Exception:
+        if created_name:
+            try:
+                _layout_modeler_editor(app).Delete([created_name])
+            except Exception:
+                pass
+            _invalidate_layout_via_cache(app, [created_name])
+        raise
 
 
 def _layout_full_stackup_snapshot(app: Any) -> list[dict[str, Any]]:

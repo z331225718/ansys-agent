@@ -130,6 +130,26 @@ def register_live_workflow_handlers(
         _layout_via_update_scorecard,
     )
     registry.register(
+        "assistant.live.layout.preview_via_delete",
+        lambda context: _preview_layout_via_delete(
+            context,
+            live_manager,
+            binding_resolver,
+        ),
+    )
+    registry.register(
+        "assistant.live.layout.apply_via_delete",
+        lambda context: _apply_layout_via_delete(
+            context,
+            live_manager,
+            binding_resolver,
+        ),
+    )
+    registry.register(
+        "assistant.live.layout.via_delete_scorecard",
+        _layout_via_delete_scorecard,
+    )
+    registry.register(
         "assistant.live.hfss.preview_material_assign",
         lambda context: _preview_hfss_material_assign(
             context,
@@ -1151,6 +1171,103 @@ def _layout_via_update_scorecard(
                 "model_units": result.get("model_units"),
                 "snapshot_digest": result.get("snapshot_digest"),
                 "readback_digest": result.get("readback_digest"),
+                "project_saved": result.get("project_saved"),
+            },
+            "live_session_reused": True,
+        },
+        outcome="passed" if passed else "failed",
+    )
+
+
+def _preview_layout_via_delete(
+    context,
+    live_manager,
+    binding_resolver,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, project_name, design_name, _ = _live_target(context, binding_resolver)
+    preview = live_manager.preview_layout_via_delete(
+        session_id,
+        project_name=project_name,
+        design_name=design_name,
+        names=list(payload.get("names") or []),
+        max_vias=payload.get("max_vias", 16),
+    )
+    return _success(
+        {
+            **payload,
+            "operation_preview_id": preview["preview_id"],
+            "operation_approval": preview.get("approval_request") or {},
+            "operation_preview": preview,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _apply_layout_via_delete(
+    context,
+    live_manager,
+    binding_resolver,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, _, _, binding = _live_target(context, binding_resolver)
+    token = str(binding.get("operation_approval_token") or "")
+    if not token:
+        raise ValueError(
+            "operation_approval_token is required after wait_for_live_approval approves "
+            "the 3D Layout via delete preview"
+        )
+    result = live_manager.apply_layout_via_delete(
+        session_id,
+        preview_id=str(payload["operation_preview_id"]),
+        approval_token=token,
+    )
+    return _success(
+        {
+            **payload,
+            "operation_result": result,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _layout_via_delete_scorecard(
+    context: GraphNodeExecutionContext,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    result = dict(payload.get("operation_result") or {})
+    requested_names = [str(item) for item in list(payload.get("names") or [])]
+    deleted_names = [str(item) for item in list(result.get("deleted_names") or [])]
+    checks = [
+        _check("verified", result.get("status") == "verified"),
+        _check(
+            "exact_via_names_deleted",
+            bool(requested_names) and deleted_names == requested_names,
+        ),
+        _check(
+            "via_count_verified",
+            result.get("via_count") == len(requested_names) == len(deleted_names),
+        ),
+        _check("native_absence_verified", bool(result.get("absence_digest"))),
+        _check(
+            "automatic_rollback_on_failure",
+            result.get("automatic_rollback_on_failure") is True,
+        ),
+        _check("project_not_saved", result.get("project_saved") is False),
+        _check("live_session_reused", payload.get("live_session_reused") is True),
+    ]
+    passed = all(item["passed"] for item in checks)
+    return _success(
+        {
+            **payload,
+            "status": "passed" if passed else "failed",
+            "checks": checks,
+            "summary": {
+                "via_count": result.get("via_count"),
+                "deleted_names": deleted_names,
+                "model_units": result.get("model_units"),
+                "snapshot_digest": result.get("snapshot_digest"),
+                "absence_digest": result.get("absence_digest"),
                 "project_saved": result.get("project_saved"),
             },
             "live_session_reused": True,

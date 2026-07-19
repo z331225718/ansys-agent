@@ -572,6 +572,52 @@ class LiveAedtSessionManager:
         self._approval_contexts.pop((session_id, preview_id), None)
         return result
 
+    def preview_layout_via_delete(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+        names: list[str],
+        max_vias: int = 16,
+    ) -> dict[str, Any]:
+        result = self._execute(
+            session_id,
+            "layout_via_delete_preview",
+            {
+                "project_name": project_name,
+                "design_name": design_name,
+                "names": names,
+                "max_vias": max_vias,
+            },
+        )
+        return self._register_approval(
+            session_id,
+            "layout.vias.delete",
+            result,
+        )
+
+    def apply_layout_via_delete(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict[str, Any]:
+        self._require_approval(
+            session_id,
+            "layout.vias.delete",
+            preview_id,
+            approval_token,
+        )
+        result = self._execute(
+            session_id,
+            "layout_via_delete_apply",
+            {"preview_id": preview_id},
+        )
+        self._approval_contexts.pop((session_id, preview_id), None)
+        return result
+
     def preview_hfss_material_assign(
         self,
         session_id: str,

@@ -377,7 +377,7 @@ class FakeViaCreateLayout(FakeLayout):
         via.padstack = padstack
         via.start_layer = top_layer
         via.stop_layer = bot_layer
-        via.net_name = net
+        via.net_name = net if net is not None else "<NO-NET>"
         via.location = [float(x), float(y)]
         via.angle = "0.0deg"
         via.lock_position = False
@@ -1551,6 +1551,11 @@ class FakeRegistry:
             return {
                 "preview_id": "layout-via-update-preview-1",
                 "snapshot_digest": "layout-via-update-digest-1",
+            }
+        if command == "layout_via_delete_preview":
+            return {
+                "preview_id": "layout-via-delete-preview-1",
+                "snapshot_digest": "layout-via-delete-digest-1",
             }
         if command == "hfss_material_assign_preview":
             return {
@@ -3212,6 +3217,211 @@ def test_backend_layout_via_update_rollback_recreates_removed_source_net(monkeyp
     assert backend._previews[retry["preview_id"]]["state"] == before_state
     assert app.modeler.vias["V1"].net_name == "N_DROP"
     assert "N_DROP" in app.modeler.nets
+
+
+def _layout_via_delete_request():
+    return {
+        "project_name": "Board",
+        "design_name": "Layout1",
+        "names": ["V1", "V2"],
+        "max_vias": 4,
+    }
+
+
+def test_backend_layout_via_delete_batch_verifies_native_absence():
+    app = _fake_via_update_app()
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        layout_factory=lambda **kwargs: app,
+    )
+    target = AedtTarget("pid", 42)
+    preview = backend.execute(target, "layout_via_delete_preview", _layout_via_delete_request())
+    assert preview["names"] == ["V1", "V2"]
+    assert [item["name"] for item in preview["before"]] == ["V1", "V2"]
+    assert preview["via_count"] == 2
+    assert preview["project_dirty"] is False
+    assert preview["project_saved"] is False
+    assert set(app.modeler.vias) == {"V1", "V2"}
+
+    result = backend.execute(
+        target,
+        "layout_via_delete_apply",
+        {"preview_id": preview["preview_id"]},
+    )
+    assert result["status"] == "verified"
+    assert result["deleted_names"] == ["V1", "V2"]
+    assert result["via_count"] == 2
+    assert result["absence_digest"]
+    assert result["automatic_rollback_on_failure"] is True
+    assert result["project_saved"] is False
+    assert app.modeler.vias == {}
+
+
+def test_backend_layout_via_delete_rejects_stale_and_restores_full_native_batch(monkeypatch):
+    app = _fake_via_update_app()
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        layout_factory=lambda **kwargs: app,
+    )
+    target = AedtTarget("pid", 42)
+    request = _layout_via_delete_request()
+    stale_preview = backend.execute(target, "layout_via_delete_preview", request)
+    app.modeler.vias["V1"].angle = "10deg"
+    with pytest.raises(LiveBackendError, match="stale 3D Layout via delete preview"):
+        backend.execute(
+            target,
+            "layout_via_delete_apply",
+            {"preview_id": stale_preview["preview_id"]},
+        )
+    app.modeler.vias["V1"].angle = "0.0deg"
+
+    rollback_preview = backend.execute(target, "layout_via_delete_preview", request)
+    before_state = json.loads(
+        json.dumps(backend._previews[rollback_preview["preview_id"]]["state"])
+    )
+    monkeypatch.setattr(
+        "aedt_agent.live.backend._verify_layout_via_delete_readback",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            LiveBackendError("injected layout via delete readback failure")
+        ),
+    )
+    with pytest.raises(LiveBackendError, match="injected layout via delete readback failure"):
+        backend.execute(
+            target,
+            "layout_via_delete_apply",
+            {"preview_id": rollback_preview["preview_id"]},
+        )
+    monkeypatch.undo()
+    retry = backend.execute(target, "layout_via_delete_preview", request)
+    assert backend._previews[retry["preview_id"]]["state"] == before_state
+
+
+def test_backend_layout_via_delete_rolls_back_after_partial_native_failure():
+    app = _fake_via_update_app()
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        layout_factory=lambda **kwargs: app,
+    )
+    target = AedtTarget("pid", 42)
+    preview = backend.execute(target, "layout_via_delete_preview", _layout_via_delete_request())
+    before_state = backend._previews[preview["preview_id"]]["state"]
+    original_delete = app.modeler.oeditor.Delete
+
+    def fail_second(names):
+        if names == ["V2"]:
+            raise RuntimeError("injected second delete failure")
+        return original_delete(names)
+
+    app.modeler.oeditor.Delete = fail_second
+    with pytest.raises(LiveBackendError, match="injected second delete failure"):
+        backend.execute(
+            target,
+            "layout_via_delete_apply",
+            {"preview_id": preview["preview_id"]},
+        )
+    app.modeler.oeditor.Delete = original_delete
+    retry = backend.execute(target, "layout_via_delete_preview", _layout_via_delete_request())
+    assert backend._previews[retry["preview_id"]]["state"] == before_state
+
+
+def test_backend_layout_via_delete_never_overwrites_racing_external_name(monkeypatch):
+    app = _fake_via_update_app()
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        layout_factory=lambda **kwargs: app,
+    )
+    target = AedtTarget("pid", 42)
+    request = _layout_via_delete_request()
+    request["names"] = ["V1"]
+    preview = backend.execute(target, "layout_via_delete_preview", request)
+
+    def race_after_delete(*args, **kwargs):
+        external = FakeVia("V1")
+        external.padstack = "VIA"
+        external.start_layer = "TOP"
+        external.stop_layer = "BOT"
+        external.override_hole_diameter = False
+        external.location = [99.0, 99.0]
+        app.modeler.vias["V1"] = external
+        raise LiveBackendError("injected external via race")
+
+    monkeypatch.setattr(
+        "aedt_agent.live.backend._verify_layout_via_delete_readback",
+        race_after_delete,
+    )
+    with pytest.raises(LiveBackendError, match="rollback is incomplete"):
+        backend.execute(
+            target,
+            "layout_via_delete_apply",
+            {"preview_id": preview["preview_id"]},
+        )
+    assert app.modeler.vias["V1"].location == [99.0, 99.0]
+
+
+@pytest.mark.parametrize(
+    "mutate,error",
+    [
+        (lambda request: request.update(names=[]), "at least one exact via name"),
+        (lambda request: request.update(names=["missing"]), "via is missing or ambiguous"),
+        (
+            lambda request: request.update(names=["V1", "v1"]),
+            "unique case-insensitively",
+        ),
+        (
+            lambda request: request.update(names=["bad/name"]),
+            "safe exact AEDT object name",
+        ),
+        (
+            lambda request: request.update(max_vias=1),
+            "exceeds the approved maximum",
+        ),
+    ],
+)
+def test_backend_layout_via_delete_rejects_unsafe_requests(mutate, error):
+    request = _layout_via_delete_request()
+    mutate(request)
+    app = _fake_via_update_app()
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        layout_factory=lambda **kwargs: app,
+    )
+    with pytest.raises(LiveBackendError, match=error):
+        backend.execute(
+            AedtTarget("pid", 42),
+            "layout_via_delete_preview",
+            request,
+        )
+
+
+def test_backend_layout_via_delete_rejects_custom_backdrill():
+    app = _fake_via_update_app()
+    original_properties = app.modeler.oeditor.GetProperties
+    original_value = app.modeler.oeditor.GetPropertyValue
+
+    def properties(tab, name):
+        return [*original_properties(tab, name), "Backdrill Top"]
+
+    def value(tab, name, prop):
+        if prop == "Backdrill Top":
+            return "TOP"
+        return original_value(tab, name, prop)
+
+    app.modeler.oeditor.GetProperties = properties
+    app.modeler.oeditor.GetPropertyValue = value
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        layout_factory=lambda **kwargs: app,
+    )
+    with pytest.raises(LiveBackendError, match="does not support custom Backdrill Top"):
+        backend.execute(
+            AedtTarget("pid", 42),
+            "layout_via_delete_preview",
+            {
+                "project_name": "Board",
+                "design_name": "Layout1",
+                "names": ["V1"],
+            },
+        )
 
 
 def test_backend_assigns_existing_hfss_material_batch_with_solve_inside_readback():
@@ -6648,6 +6858,35 @@ def test_manager_requires_action_bound_one_use_approval_for_layout_via_update():
     assert getattr(replay.value, "code", None) == "approval_required"
 
 
+def test_manager_requires_action_bound_one_use_approval_for_layout_via_delete():
+    registry = FakeRegistry()
+    authority = HmacApprovalAuthority("d" * 32)
+    manager = LiveAedtSessionManager(registry=registry, approval_verifier=authority)
+    session_id = manager.attach(pid=42)["live_session_id"]
+    preview = manager.preview_layout_via_delete(
+        session_id,
+        project_name="Board",
+        design_name="Layout1",
+        names=["V1", "V2"],
+        max_vias=4,
+    )
+    assert preview["approval_request"]["action"] == "layout.vias.delete"
+    token = authority.issue(**preview["approval_request"])
+    result = manager.apply_layout_via_delete(
+        session_id,
+        preview_id=preview["preview_id"],
+        approval_token=token,
+    )
+    assert result["command"] == "layout_via_delete_apply"
+    with pytest.raises(Exception) as replay:
+        manager.apply_layout_via_delete(
+            session_id,
+            preview_id=preview["preview_id"],
+            approval_token=token,
+        )
+    assert getattr(replay.value, "code", None) == "approval_required"
+
+
 def test_manager_requires_action_bound_one_use_approval_for_hfss_length_mesh_create():
     registry = FakeRegistry()
     authority = HmacApprovalAuthority("h" * 32)
@@ -7062,6 +7301,8 @@ def test_mcp_registers_live_tools_without_changing_artifact_tools(monkeypatch):
     assert "apply_live_layout_via_create" in server.tools
     assert "preview_live_layout_via_update" in server.tools
     assert "apply_live_layout_via_update" in server.tools
+    assert "preview_live_layout_via_delete" in server.tools
+    assert "apply_live_layout_via_delete" in server.tools
     assert "preview_live_hfss_material_assign" in server.tools
     assert "apply_live_hfss_material_assign" in server.tools
     assert "get_live_hfss_material_inventory" in server.tools
@@ -7166,6 +7407,8 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
         "apply_live_layout_via_create",
         "preview_live_layout_via_update",
         "apply_live_layout_via_update",
+        "preview_live_layout_via_delete",
+        "apply_live_layout_via_delete",
         "list_live_layout_paths",
         "preview_live_parameterize_path_width",
         "apply_live_parameterize_path_width",
@@ -7227,6 +7470,13 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
     ]
     assert "only_requested_native_via_properties_changed" in by_name[
         "layout.vias.update"
+    ]["postconditions"]
+    assert by_name["layout.vias.delete"]["tools"] == [
+        "preview_live_layout_via_delete",
+        "apply_live_layout_via_delete",
+    ]
+    assert "full_native_batch_reconstruction_on_failure" in by_name[
+        "layout.vias.delete"
     ]["postconditions"]
     assert "typed_property_and_optional_appearance_readback_verified" in by_name[
         "hfss.material.create"

@@ -580,6 +580,31 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             products=["layout"],
         ),
         _cap(
+            "layout.vias.delete",
+            "reversible_edit",
+            ["live"],
+            [
+                "preview_live_layout_via_delete",
+                "apply_live_layout_via_delete",
+            ],
+            approval="external_host_token",
+            side_effects=[
+                "project_becomes_dirty",
+                "existing_layout_vias_deleted",
+                "empty_source_nets_may_be_removed_by_aedt",
+            ],
+            postconditions=[
+                "one_to_32_exact_existing_reconstructible_vias_only",
+                "custom_backdrill_vias_rejected",
+                "full_stackup_padstack_net_catalog_and_native_target_snapshot_unchanged_before_apply",
+                "native_target_absence_verified_after_delete",
+                "only_deleted_source_nets_may_disappear",
+                "full_native_batch_reconstruction_on_failure",
+                "project_not_saved",
+            ],
+            products=["layout"],
+        ),
+        _cap(
             "layout.connectivity.inventory",
             "read_only",
             ["live"],

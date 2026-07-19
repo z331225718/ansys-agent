@@ -1,0 +1,43 @@
+id: layout_live_via_delete
+version: 1
+description: Delete a bounded batch of exact reconstructible HFSS 3D Layout vias, verify native absence, and rebuild the full batch on failure without saving the project.
+nodes:
+  - id: preview_via_deletions
+    role: preview
+    kind: program
+    handler: assistant.live.layout.preview_via_delete
+    input_schema: live_layout_via_delete_request
+    output_schema: live_layout_via_delete_preview
+    max_runs: 1
+  - id: apply_via_deletions
+    role: apply
+    kind: program
+    handler: assistant.live.layout.apply_via_delete
+    input_schema: live_layout_via_delete_preview
+    output_schema: live_layout_via_delete_result
+    max_runs: 1
+  - id: verify_scorecard
+    role: scorecard
+    kind: program
+    handler: assistant.live.layout.via_delete_scorecard
+    input_schema: live_layout_via_delete_result
+    output_schema: live_layout_via_delete_scorecard
+    max_runs: 1
+edges:
+  - id: preview-to-apply
+    from: preview_via_deletions
+    to: apply_via_deletions
+    on: succeeded
+  - id: apply-to-scorecard
+    from: apply_via_deletions
+    to: verify_scorecard
+    on: succeeded
+handoffs:
+  live_layout_via_delete_request:
+    required_fields: [names]
+  live_layout_via_delete_preview:
+    required_fields: [names, operation_preview_id, operation_approval, operation_preview, live_session_reused]
+  live_layout_via_delete_result:
+    required_fields: [names, operation_result, live_session_reused]
+  live_layout_via_delete_scorecard:
+    required_fields: [status, checks, summary, live_session_reused]

@@ -102,6 +102,8 @@ _DESKTOP_ASSISTANT_MCP_TOOLS = (
     "apply_live_layout_via_create",
     "preview_live_layout_via_update",
     "apply_live_layout_via_update",
+    "preview_live_layout_via_delete",
+    "apply_live_layout_via_delete",
     "get_live_layout_connectivity_inventory",
     "get_live_layout_port_candidate_inventory",
     "preview_live_layout_component_ports_create",

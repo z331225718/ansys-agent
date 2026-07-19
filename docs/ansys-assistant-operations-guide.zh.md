@@ -20,7 +20,7 @@
 | 首次部署管理员 | 第 1～6、12～16 节 |
 | 每天操作 AEDT 的工程师 | 第 1、4～11 节 |
 | 只需要把 4.3mil 线宽参数化 | 第 4～8 节 |
-| 需要创建 Layout 材料、创建或更新 Via | 第 4～7、8A～8C 节 |
+| 需要创建 Layout 材料，创建、更新或删除 Via | 第 4～7、8A～8D 节 |
 | Harness 没有现成能力 | 第 10 节 |
 | 升级、移交或故障恢复 | 第 12～16 节 |
 
@@ -577,6 +577,35 @@ preview 阶段拒绝，不会为了制造“成功”而把相同值再写一遍
 该能力已通过隔离 AEDT 2026.1 + PyAEDT 1.3.0 实测：双 Via 批量移动、正负旋转、改网、锁定/保持锁定、
 空旧源网络清理、外部修改导致 stale、磁盘工程 SHA-256 不变，以及真实写入后的故障注入完整快照回滚。测试专属 AEDT 和
 live session 均已清理。目标 AEDT 2024 R2 仍需在测试工程副本上复验。
+
+## 8D. 示例：严格批量删除已有 Via
+
+推荐请求：
+
+```text
+使用 layout_live_via_delete 删除当前 3D Layout 中精确名称为 V_BAD1、V_BAD2 的两个 Via。
+先回读并冻结完整 stackup、所用 padstack、net 名称目录和两个目标的全部 BaseElementTab 原生属性；
+仅接受能够由公开 PyAEDT API 完整重建、没有自定义 backdrill 的 Via。Windows 原生审批后逐个删除，
+并用 AEDT FindObjects 验证两个名称都不存在。任一删除或最终验证失败时，按 preview 原生快照重建本批
+已删除 Via，并要求完整属性逐字恢复。成功删除后不要重建，也不要保存工程。
+```
+
+请求字段为 `names`，包含 1～32 个精确、大小写匹配且批内不重复的既有 Via 名。preview 会拒绝普通对象、
+缺失对象、名称冲突，以及带自定义 top/bottom backdrill 或非零 backdrill offset 的 Via，因为当前公开
+`create_via` 无法保证恢复这些加工属性。普通 Via 可以包含锁定、正负旋转、孔径 override、默认孔径和无网络状态。
+
+apply 逐个调用 AEDT 原生 Delete，并在每次调用后清理 PyAEDT `_vias` cache、通过 `FindObjects` 确认名称消失。
+成功结果中的 `deleted_names` 必须与请求顺序完全一致，并返回非空 `absence_digest`。若某个旧源网络因最后一个
+对象被删除而变空，允许 AEDT 清理该网络；禁止新增网络或删除本批无关网络。
+
+这里的“自动 rollback”只适用于事务失败。用户批准且 `status=verified` 后，Via 会保持从 AEDT 内存工程中删除；
+需要保留到磁盘仍必须另行申请保存。失败时 Harness 使用 preview 中的 padstack、层、net、位置、角度、锁定和
+孔径状态重建，并比较完整 `BaseElementTab` 属性；外部对象抢占原名称时不会覆盖或删除外部对象，而会明确报告
+rollback incomplete。
+
+该能力已通过隔离 AEDT 2026.1 + PyAEDT 1.3.0 实测：锁定和孔径 override Via、负角度 Via、无网络 Via、
+空源网络清理、外部 stale、磁盘工程 SHA-256 不变，以及锁定、独占网络和无网络三种 Via 在真实删除后的完整
+重建回滚。测试专属 AEDT 和 live session 均已清理。目标 AEDT 2024 R2 仍需在测试工程副本上复验。
 
 ## 9. 保存工程
 
