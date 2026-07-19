@@ -230,9 +230,10 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
                 "hfss_surface_boundary_created",
             ],
             postconditions=[
-                "perfect_e_h_finite_conductivity_or_impedance_only",
+                "perfect_e_h_finite_conductivity_impedance_or_lumped_rlc_only",
                 "explicit_object_names_or_face_ids_only",
                 "impedance_requires_sheet_objects",
+                "lumped_rlc_requires_one_planar_sheet_and_bounded_passive_values",
                 "infinite_ground_requires_planar_sheet_or_face",
                 "finite_conductivity_requires_existing_material",
                 "target_geometry_boundary_and_material_snapshot_unchanged",

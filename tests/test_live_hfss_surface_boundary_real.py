@@ -45,6 +45,7 @@ def test_real_live_hfss_surface_boundary_harness(tmp_path: Path):
         "PerfectHObject",
         "FiniteObject",
         "ImpedanceSheet",
+        "RlcSheet",
         "ExternalSheet",
     ]
     boundary_names = {
@@ -52,6 +53,7 @@ def test_real_live_hfss_surface_boundary_harness(tmp_path: Path):
         "HarnessPerfectH",
         "HarnessFinite",
         "HarnessImpedance",
+        "HarnessRLC",
         "ExternalPerfectE",
         "MustNotCreate",
     }
@@ -96,6 +98,12 @@ def test_real_live_hfss_surface_boundary_harness(tmp_path: Path):
             ["4mm", "4mm"],
             name="ImpedanceSheet",
         )
+        rlc_sheet = hfss_app.modeler.create_rectangle(
+            "XY",
+            ["12mm", "6mm", "0mm"],
+            ["4mm", "1mm"],
+            name="RlcSheet",
+        )
         external_sheet = hfss_app.modeler.create_rectangle(
             "XY",
             ["6mm", "6mm", "0mm"],
@@ -108,6 +116,7 @@ def test_real_live_hfss_surface_boundary_harness(tmp_path: Path):
                 perfect_h_object,
                 finite_object,
                 impedance_sheet,
+                rlc_sheet,
                 external_sheet,
             )
         )
@@ -150,6 +159,18 @@ def test_real_live_hfss_surface_boundary_harness(tmp_path: Path):
                     "is_infinite_ground": False,
                     "is_two_sided": False,
                     "is_internal": True,
+                },
+            },
+            {
+                "boundary_kind": "lumped_rlc",
+                "boundary_name": "HarnessRLC",
+                "object_names": ["RlcSheet"],
+                "options": {
+                    "rlc_type": "Serial",
+                    "integration_line_direction": "XPos",
+                    "resistance": 50,
+                    "inductance": 1e-9,
+                    "capacitance": 2e-12,
                 },
             },
             {
@@ -228,6 +249,26 @@ def test_real_live_hfss_surface_boundary_harness(tmp_path: Path):
                 object_names=["PerfectHObject"],
                 options={"is_infinite_ground": True},
             )
+        with pytest.raises(Exception, match="requires sheet objects"):
+            manager.preview_hfss_surface_boundary_create(
+                session_id,
+                project_name="RealSurfaceBoundaryAcceptance",
+                design_name="HFSS1",
+                boundary_kind="lumped_rlc",
+                boundary_name="InvalidSolidRLC",
+                object_names=["PerfectHObject"],
+                options={"resistance": 50},
+            )
+        with pytest.raises(Exception, match="requires at least one positive"):
+            manager.preview_hfss_surface_boundary_create(
+                session_id,
+                project_name="RealSurfaceBoundaryAcceptance",
+                design_name="HFSS1",
+                boundary_kind="lumped_rlc",
+                boundary_name="InvalidEmptyRLC",
+                object_names=["RlcSheet"],
+                options={},
+            )
 
         inventory_after = manager.hfss_surface_boundary_inventory(
             session_id,
@@ -237,11 +278,12 @@ def test_real_live_hfss_surface_boundary_harness(tmp_path: Path):
         assert launched is True
         assert inventory_before["boundary_count"] == 0
         assert inventory_before["supported_surface_boundary_count"] == 0
-        assert [item["status"] for item in results] == ["verified"] * 4
+        assert [item["status"] for item in results] == ["verified"] * 5
         assert [item["boundary"]["kind"] for item in results] == [
             "perfect_e",
             "perfect_h",
             "finite_conductivity",
+            "lumped_rlc",
             "impedance",
         ]
         assert results[0]["boundary"]["object_names"] == ["PerfectEObject"]
@@ -251,12 +293,21 @@ def test_real_live_hfss_surface_boundary_harness(tmp_path: Path):
         assert results[2]["boundary"]["options"]["material_name"] == "copper"
         assert results[2]["boundary"]["options"]["thickness"] == "35um"
         assert results[2]["boundary"]["options"]["roughness"] == "0.5um"
-        assert float(results[3]["boundary"]["options"]["resistance"]) == 75.0
-        assert float(results[3]["boundary"]["options"]["reactance"]) == -10.0
+        assert results[3]["boundary"]["object_names"] == ["RlcSheet"]
+        assert results[3]["boundary"]["options"]["rlc_type"] == "Serial"
+        assert results[3]["boundary"]["options"]["integration_line"] == {
+            "start": ["16.0mm", "6.5mm", "0.0mm"],
+            "end": ["12.0mm", "6.5mm", "0.0mm"],
+        }
+        assert results[3]["boundary"]["options"]["resistance"] == "50ohm"
+        assert results[3]["boundary"]["options"]["inductance"] == "1e-09H"
+        assert results[3]["boundary"]["options"]["capacitance"].casefold() == "2e-12f"
+        assert float(results[4]["boundary"]["options"]["resistance"]) == 75.0
+        assert float(results[4]["boundary"]["options"]["reactance"]) == -10.0
         assert all(item["automatic_rollback_on_failure"] is True for item in results)
         assert all(item["project_saved"] is False for item in results)
-        assert inventory_after["boundary_count"] == 5
-        assert inventory_after["supported_surface_boundary_count"] == 5
+        assert inventory_after["boundary_count"] == 6
+        assert inventory_after["supported_surface_boundary_count"] == 6
         assert "MustNotCreate" not in {
             item["name"] for item in inventory_after["boundaries"]
         }

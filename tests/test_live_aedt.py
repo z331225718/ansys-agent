@@ -831,6 +831,25 @@ class FakeSurfaceBoundaryHfss(FakeMaterialHfss):
         for obj in self.modeler._objects.values():
             for face in obj.faces:
                 face.is_planar = True
+        self.axis_directions = SimpleNamespace(
+            XNeg=0,
+            YNeg=1,
+            ZNeg=2,
+            XPos=3,
+            YPos=4,
+            ZPos=5,
+        )
+        integration_lines = {
+            0: ([-1.0, 0.0, 0.0], [1.0, 0.0, 0.0]),
+            1: ([0.0, -1.0, 0.0], [0.0, 1.0, 0.0]),
+            2: ([0.0, 0.0, -1.0], [0.0, 0.0, 1.0]),
+            3: ([1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]),
+            4: ([0.0, 1.0, 0.0], [0.0, -1.0, 0.0]),
+            5: ([0.0, 0.0, 1.0], [0.0, 0.0, -1.0]),
+        }
+        self.modeler.get_mid_points_on_dir = (
+            lambda assignment, direction: integration_lines[direction]
+        )
         self.mismatch_readback = mismatch_readback
         self.fail_create = fail_create
 
@@ -865,6 +884,18 @@ class FakeSurfaceBoundaryHfss(FakeMaterialHfss):
                     "Resistance": props["Resistance"],
                     "Reactance": props["Reactance"],
                     "Inf Ground Plane": props["InfGroundPlane"],
+                }
+            )
+        elif boundary_type == "Lumped RLC":
+            properties.update(
+                {
+                    "RLC Type": props["RLC Type"],
+                    "Use Resist": props.get("UseResist", False),
+                    "Resistance": props.get("Resistance", ""),
+                    "Use Induct": props.get("UseInduct", False),
+                    "Inductance": props.get("Inductance", ""),
+                    "Use Cap": props.get("UseCap", False),
+                    "Capacitance": props.get("Capacitance", ""),
                 }
             )
         if self.mismatch_readback:
@@ -941,6 +972,35 @@ class FakeSurfaceBoundaryHfss(FakeMaterialHfss):
                 "InfGroundPlane": is_infinite_ground,
             },
         )
+
+    def assign_lumped_rlc_to_sheet(
+        self,
+        assignment,
+        start_direction=0,
+        name=None,
+        rlc_type="Parallel",
+        resistance=None,
+        inductance=None,
+        capacitance=None,
+    ):
+        start, end = self.modeler.get_mid_points_on_dir(assignment, start_direction)
+        units = self.modeler.model_units
+        options = {
+            "CurrentLine": {
+                "Start": [str(float(item)) + units for item in start],
+                "End": [str(float(item)) + units for item in end],
+            },
+            "RLC Type": rlc_type,
+        }
+        for value, use_key, value_key, unit in (
+            (resistance, "UseResist", "Resistance", "ohm"),
+            (inductance, "UseInduct", "Inductance", "H"),
+            (capacitance, "UseCap", "Capacitance", "F"),
+        ):
+            if value is not None:
+                options[use_key] = True
+                options[value_key] = str(value) + unit
+        return self._surface_boundary(name, "Lumped RLC", assignment, options)
 
 
 class FakeMeshOperation:
@@ -2291,7 +2351,7 @@ def test_backend_hfss_infinite_sphere_preview_rejects_unsafe_requests(payload, e
         )
 
 
-def test_backend_lists_and_creates_four_typed_hfss_surface_boundaries():
+def test_backend_lists_and_creates_five_typed_hfss_surface_boundaries():
     app = FakeSurfaceBoundaryHfss(project="Board", design="HFSS1")
     app.solution_type = "Modal"
     backend = LiveAedtBackend(
@@ -2334,6 +2394,18 @@ def test_backend_lists_and_creates_four_typed_hfss_surface_boundaries():
             },
         },
         {
+            "boundary_kind": "lumped_rlc",
+            "boundary_name": "HarnessRLC",
+            "object_names": ["sheet1"],
+            "options": {
+                "rlc_type": "Serial",
+                "integration_line_direction": "XPos",
+                "resistance": 50,
+                "inductance": 1e-9,
+                "capacitance": 2e-12,
+            },
+        },
+        {
             "boundary_kind": "impedance",
             "boundary_name": "HarnessImpedance",
             "object_names": ["sheet1"],
@@ -2361,18 +2433,27 @@ def test_backend_lists_and_creates_four_typed_hfss_surface_boundaries():
             )
         )
 
-    assert [item["status"] for item in results] == ["verified"] * 4
+    assert [item["status"] for item in results] == ["verified"] * 5
     assert [item["boundary"]["kind"] for item in results] == [
         "perfect_e",
         "perfect_h",
         "finite_conductivity",
+        "lumped_rlc",
         "impedance",
     ]
     assert results[0]["boundary"]["object_names"] == ["sheet1"]
     assert results[1]["boundary"]["face_ids"] == [201]
     assert results[2]["boundary"]["options"]["material_name"] == "copper"
     assert results[2]["boundary"]["options"]["thickness"] == "35um"
-    assert float(results[3]["boundary"]["options"]["resistance"]) == 75.0
+    assert results[3]["boundary"]["options"]["rlc_type"] == "Serial"
+    assert results[3]["boundary"]["options"]["integration_line"] == {
+        "start": ["1.0mm", "0.0mm", "0.0mm"],
+        "end": ["-1.0mm", "0.0mm", "0.0mm"],
+    }
+    assert results[3]["boundary"]["options"]["resistance"] == "50.0ohm"
+    assert results[3]["boundary"]["options"]["inductance"] == "1e-09H"
+    assert results[3]["boundary"]["options"]["capacitance"] == "2e-12F"
+    assert float(results[4]["boundary"]["options"]["resistance"]) == 75.0
     assert all(item["automatic_rollback_on_failure"] is True for item in results)
     assert all(item["project_saved"] is False for item in results)
 
@@ -2417,6 +2498,65 @@ def test_backend_hfss_surface_boundary_rolls_back_readback_failure_and_rejects_s
     assert "ExternalPerfectH" in [item.name for item in app.boundaries]
 
 
+def test_backend_hfss_lumped_rlc_rolls_back_typed_readback_failure():
+    app = FakeSurfaceBoundaryHfss(
+        project="Board",
+        design="HFSS1",
+        mismatch_readback=True,
+    )
+    app.solution_type = "Modal"
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=lambda **kwargs: app,
+    )
+    target = AedtTarget("pid", 42)
+    preview = backend.execute(
+        target,
+        "hfss_surface_boundary_create_preview",
+        {
+            "project_name": "Board",
+            "design_name": "HFSS1",
+            "boundary_kind": "lumped_rlc",
+            "boundary_name": "MustRollbackRLC",
+            "object_names": ["sheet1"],
+            "options": {
+                "rlc_type": "Parallel",
+                "integration_line_direction": "YNeg",
+                "resistance": 25,
+            },
+        },
+    )
+    with pytest.raises(LiveBackendError, match="type readback failed"):
+        backend.execute(
+            target,
+            "hfss_surface_boundary_create_apply",
+            {"preview_id": preview["preview_id"]},
+        )
+    assert "MustRollbackRLC" not in [item.name for item in app.boundaries]
+
+
+def test_backend_hfss_lumped_rlc_rejects_unsupported_solution_type():
+    app = FakeSurfaceBoundaryHfss(project="Board", design="HFSS1")
+    app.solution_type = "Characteristic Mode"
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=lambda **kwargs: app,
+    )
+    with pytest.raises(LiveBackendError, match="does not support Lumped RLC"):
+        backend.execute(
+            AedtTarget("pid", 42),
+            "hfss_surface_boundary_create_preview",
+            {
+                "project_name": "Board",
+                "design_name": "HFSS1",
+                "boundary_kind": "lumped_rlc",
+                "boundary_name": "InvalidSolutionRLC",
+                "object_names": ["sheet1"],
+                "options": {"resistance": 50},
+            },
+        )
+
+
 @pytest.mark.parametrize(
     "payload,error",
     [
@@ -2444,6 +2584,60 @@ def test_backend_hfss_surface_boundary_rolls_back_readback_failure_and_rejects_s
                 "object_names": ["box1"],
             },
             "requires sheet objects",
+        ),
+        (
+            {
+                "boundary_kind": "lumped_rlc",
+                "boundary_name": "B",
+                "face_ids": [301],
+                "options": {"resistance": 50},
+            },
+            "requires explicit sheet object_names",
+        ),
+        (
+            {
+                "boundary_kind": "lumped_rlc",
+                "boundary_name": "B",
+                "object_names": ["sheet1", "box1"],
+                "options": {"resistance": 50},
+            },
+            "requires exactly one",
+        ),
+        (
+            {
+                "boundary_kind": "lumped_rlc",
+                "boundary_name": "B",
+                "object_names": ["box1"],
+                "options": {"resistance": 50},
+            },
+            "requires sheet objects",
+        ),
+        (
+            {
+                "boundary_kind": "lumped_rlc",
+                "boundary_name": "B",
+                "object_names": ["sheet1"],
+                "options": {},
+            },
+            "requires at least one positive",
+        ),
+        (
+            {
+                "boundary_kind": "lumped_rlc",
+                "boundary_name": "B",
+                "object_names": ["sheet1"],
+                "options": {"resistance": -1},
+            },
+            "must be a positive finite number",
+        ),
+        (
+            {
+                "boundary_kind": "lumped_rlc",
+                "boundary_name": "B",
+                "object_names": ["sheet1"],
+                "options": {"resistance": 50, "integration_line_direction": "Diagonal"},
+            },
+            "must be XNeg",
         ),
         (
             {

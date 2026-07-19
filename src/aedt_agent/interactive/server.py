@@ -552,7 +552,7 @@ def create_server(
         options: dict | None = None,
         max_assignments: int = 16,
     ) -> dict:
-        """Preview Perfect E/H, finite-conductivity, or sheet-impedance creation."""
+        """Preview Perfect E/H, finite-conductivity, impedance, or Lumped RLC creation."""
         return live.preview_hfss_surface_boundary_create(
             live_session_id,
             project_name=project_name,

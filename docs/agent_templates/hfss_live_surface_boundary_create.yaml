@@ -1,6 +1,6 @@
 id: hfss_live_surface_boundary_create
 version: 1
-description: Preview, approve, create, and verify one typed HFSS Perfect E, Perfect H, finite-conductivity, or sheet-impedance boundary without saving the live project.
+description: Preview, approve, create, and verify one typed HFSS Perfect E, Perfect H, finite-conductivity, sheet-impedance, or sheet Lumped RLC boundary without saving the live project.
 nodes:
   - id: preview_surface_boundary
     role: preview

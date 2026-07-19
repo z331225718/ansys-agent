@@ -14,7 +14,7 @@
 新增 live control plane 还能受控启动 AEDT，或发现并显式连接正在运行的 AEDT，会话内复用
 PyAEDT broker，读取工程信息、HFSS geometry/setup/port/boundary/report inventory、受控创建
 typed geometry batch、为显式 solid batch 分配已有工程材料、创建 setup、radiation boundary、wave/lumped port
-和 report、创建 Perfect E/Perfect H/Finite Conductivity/sheet Impedance 表面边界、受控 Length Based Mesh
+和 report、创建 Perfect E/Perfect H/Finite Conductivity/sheet Impedance/Lumped RLC 表面边界、受控 Length Based Mesh
 与有界 Infinite Sphere 远场设置、驱动 analysis，
 并能在单一事务中原子创建新几何和 Boundary/Port，或原子创建 Setup 和 Sweep，同时查询 live 3D Layout Path。
 在 Desktop-bound strict 会话和推荐的生产链路中，live edit、setup/boundary/report、solve/cancel/export
@@ -288,10 +288,14 @@ get_live_hfss_geometry_inventory
   -> 核对 kind、assignment、typed options 和 project_saved=false
 ```
 
-支持 Perfect E、Perfect H、Finite Conductivity 和 sheet Impedance。对象名与 face ID 必须二选一；
+支持 Perfect E、Perfect H、Finite Conductivity、sheet Impedance 和 sheet Lumped RLC。对象名与 face ID 必须二选一；
 Impedance 只接受 sheet object；Infinite Ground 只接受可确认的 planar sheet/face；Finite Conductivity
 只能引用当前工程已经存在的材料，厚度和粗糙度必须显式带单位。preview 会冻结 solution type、目标几何、
 全部现有 Boundary 和材料定义，任一状态变化都会触发 stale 拒绝。
+
+Lumped RLC 只接受一个 planar sheet。`rlc_type` 为 `Parallel` 或 `Serial`；integration line 方向限定为六个
+全局轴正负方向，preview 会把方向解析成带当前模型单位的 Start/End 三维点。R/L/C 分别按 Ω、H、F 接收正有限
+数值，至少启用一项；apply 后同时回读启用位、单位化数值和 integration line。
 
 几何和 Boundary/Port 的常规顺序为：
 

@@ -1184,6 +1184,12 @@ class LiveAedtBackend:
             raise LiveBackendError(
                 f"HFSS solution type does not support sheet impedance: {solution_type}"
             )
+        if spec["boundary_kind"] == "lumped_rlc" and not _lumped_rlc_solution_supported(
+            solution_type
+        ):
+            raise LiveBackendError(
+                f"HFSS solution type does not support Lumped RLC: {solution_type}"
+            )
         geometry = self._hfss_geometry_inventory(
             target,
             {"project_name": app.project_name, "design_name": app.design_name},
@@ -1191,7 +1197,7 @@ class LiveAedtBackend:
         target_records = _hfss_surface_boundary_targets(geometry, spec)
         _validate_hfss_infinite_ground_targets(geometry, spec, target_records)
         target_geometry = _hfss_surface_boundary_target_snapshot(target_records, spec)
-        if spec["boundary_kind"] == "impedance":
+        if spec["boundary_kind"] in {"impedance", "lumped_rlc"}:
             solids = [
                 item["name"]
                 for item in target_records
@@ -1199,8 +1205,15 @@ class LiveAedtBackend:
             ]
             if solids:
                 raise LiveBackendError(
-                    f"HFSS impedance boundary requires sheet objects: {solids[0]}"
+                    f"HFSS {spec['boundary_kind']} boundary requires sheet objects: {solids[0]}"
                 )
+        if spec["boundary_kind"] == "lumped_rlc":
+            _validate_hfss_lumped_rlc_target(target_records)
+            spec["options"]["integration_line"] = _hfss_lumped_rlc_integration_line(
+                app,
+                spec["object_names"][0],
+                spec["options"]["integration_line_direction"],
+            )
         boundaries = _hfss_surface_boundary_snapshot(app)
         boundary_names = _boundary_names(app)
         if len(boundary_names) > 500:
@@ -1221,6 +1234,7 @@ class LiveAedtBackend:
             spec["options"]["material_name"] = material["canonical_name"]
         state = {
             "solution_type": solution_type,
+            "model_units": str(_safe_attribute(app.modeler, "model_units") or "").strip(),
             "target_geometry": target_geometry,
             "boundary_names": boundary_names,
             "boundaries": boundaries,
@@ -1279,6 +1293,9 @@ class LiveAedtBackend:
                 )
             return {
                 "solution_type": str(_safe_attribute(app, "solution_type") or "").strip(),
+                "model_units": str(
+                    _safe_attribute(app.modeler, "model_units") or ""
+                ).strip(),
                 "target_geometry": _hfss_surface_boundary_target_snapshot(
                     _hfss_surface_boundary_targets(current_geometry, spec),
                     spec,
@@ -5462,6 +5479,7 @@ _HFSS_SURFACE_BOUNDARY_TYPES = {
     "perfect_h": "Perfect H",
     "finite_conductivity": "Finite Conductivity",
     "impedance": "Impedance",
+    "lumped_rlc": "Lumped RLC",
 }
 
 
@@ -5469,7 +5487,7 @@ def _normalize_hfss_surface_boundary_spec(args: dict[str, Any]) -> dict[str, Any
     boundary_kind = str(args.get("boundary_kind") or "").strip().casefold()
     if boundary_kind not in _HFSS_SURFACE_BOUNDARY_TYPES:
         raise LiveBackendError(
-            "boundary_kind must be perfect_e, perfect_h, finite_conductivity, or impedance"
+            "boundary_kind must be perfect_e, perfect_h, finite_conductivity, impedance, or lumped_rlc"
         )
     boundary_name = str(args.get("boundary_name") or "").strip()
     if not _SAFE_AEDT_OBJECT_NAME.fullmatch(boundary_name):
@@ -5505,8 +5523,12 @@ def _normalize_hfss_surface_boundary_spec(args: dict[str, Any]) -> dict[str, Any
             if item in face_ids:
                 raise LiveBackendError(f"face_ids must not contain duplicates: {item}")
             face_ids.append(item)
-    if boundary_kind == "impedance" and face_ids:
-        raise LiveBackendError("impedance requires explicit sheet object_names, not face_ids")
+    if boundary_kind in {"impedance", "lumped_rlc"} and face_ids:
+        raise LiveBackendError(
+            f"{boundary_kind} requires explicit sheet object_names, not face_ids"
+        )
+    if boundary_kind == "lumped_rlc" and len(object_names) != 1:
+        raise LiveBackendError("lumped_rlc requires exactly one explicit sheet object name")
     options = _normalize_hfss_surface_boundary_options(
         boundary_kind,
         args.get("options"),
@@ -5545,6 +5567,13 @@ def _normalize_hfss_surface_boundary_options(
             "is_shell_element",
         },
         "impedance": {"resistance", "reactance", "is_infinite_ground"},
+        "lumped_rlc": {
+            "rlc_type",
+            "integration_line_direction",
+            "resistance",
+            "inductance",
+            "capacitance",
+        },
     }[boundary_kind]
     unsupported = sorted(set(raw_options).difference(allowed))
     if unsupported:
@@ -5580,6 +5609,48 @@ def _normalize_hfss_surface_boundary_options(
                 "is_infinite_ground",
                 False,
             ),
+        }
+    if boundary_kind == "lumped_rlc":
+        rlc_type_by_name = {"parallel": "Parallel", "serial": "Serial"}
+        rlc_type = str(raw_options.get("rlc_type") or "Parallel").strip().casefold()
+        if rlc_type not in rlc_type_by_name:
+            raise LiveBackendError("options.rlc_type must be Parallel or Serial")
+        direction_by_name = {
+            name.casefold(): name
+            for name in ("XNeg", "YNeg", "ZNeg", "XPos", "YPos", "ZPos")
+        }
+        direction = str(
+            raw_options.get("integration_line_direction") or "XNeg"
+        ).strip().casefold()
+        if direction not in direction_by_name:
+            raise LiveBackendError(
+                "options.integration_line_direction must be XNeg, YNeg, ZNeg, XPos, YPos, or ZPos"
+            )
+        values = {
+            "resistance": _optional_positive_surface_value(
+                raw_options.get("resistance"),
+                "options.resistance",
+                maximum=1e12,
+            ),
+            "inductance": _optional_positive_surface_value(
+                raw_options.get("inductance"),
+                "options.inductance",
+                maximum=1e6,
+            ),
+            "capacitance": _optional_positive_surface_value(
+                raw_options.get("capacitance"),
+                "options.capacitance",
+                maximum=1e3,
+            ),
+        }
+        if all(value is None for value in values.values()):
+            raise LiveBackendError(
+                "lumped_rlc requires at least one positive resistance, inductance, or capacitance"
+            )
+        return {
+            "rlc_type": rlc_type_by_name[rlc_type],
+            "integration_line_direction": direction_by_name[direction],
+            **values,
         }
     material_name = str(raw_options.get("material_name") or "").strip()
     if not _SAFE_AEDT_MATERIAL_NAME.fullmatch(material_name):
@@ -5645,6 +5716,20 @@ def _surface_boundary_bool_option(
     return value
 
 
+def _optional_positive_surface_value(
+    value: Any,
+    field: str,
+    *,
+    maximum: float,
+) -> float | None:
+    if value is None:
+        return None
+    normalized = _positive_finite(value, field)
+    if normalized > maximum:
+        raise LiveBackendError(f"{field} must be at most {maximum:g}")
+    return normalized
+
+
 def _normalize_surface_length(value: Any, field: str, *, allow_zero: bool) -> str:
     if not isinstance(value, str):
         raise LiveBackendError(f"{field} must be an AEDT expression with explicit units")
@@ -5678,6 +5763,20 @@ def _impedance_solution_supported(solution_type: str) -> bool:
         "drivenmodal",
         "driventerminal",
         "transient",
+        "eigenmode",
+    }
+
+
+def _lumped_rlc_solution_supported(solution_type: str) -> bool:
+    normalized = re.sub(r"[\s_-]+", "", solution_type).casefold()
+    return normalized in {
+        "modal",
+        "terminal",
+        "drivenmodal",
+        "driventerminal",
+        "transient",
+        "sbr",
+        "sbr+",
         "eigenmode",
     }
 
@@ -5823,6 +5922,51 @@ def _validate_hfss_infinite_ground_targets(
         )
 
 
+def _validate_hfss_lumped_rlc_target(target_geometry: list[dict[str, Any]]) -> None:
+    target = target_geometry[0]
+    faces = list(target.get("faces") or [])
+    if not faces or any(face.get("is_planar") is not True for face in faces):
+        raise LiveBackendError(
+            "HFSS lumped_rlc boundary requires one planar sheet object: " + target["name"]
+        )
+
+
+def _hfss_lumped_rlc_integration_line(
+    app: Any,
+    object_name: str,
+    direction_name: str,
+) -> dict[str, list[str]]:
+    try:
+        directions = app.axis_directions
+    except Exception:
+        directions = None
+    direction = getattr(directions, direction_name, None) if directions else None
+    if direction is None:
+        raise LiveBackendError("HFSS axis direction inventory is unavailable")
+    try:
+        raw_start, raw_end = app.modeler.get_mid_points_on_dir(object_name, direction)
+        start = [float(item) for item in raw_start]
+        end = [float(item) for item in raw_end]
+    except Exception as exc:
+        raise LiveBackendError(
+            "HFSS lumped_rlc integration line could not be resolved"
+        ) from exc
+    if (
+        len(start) != 3
+        or len(end) != 3
+        or not all(math.isfinite(item) for item in start + end)
+        or all(math.isclose(a, b, rel_tol=0.0, abs_tol=1e-15) for a, b in zip(start, end))
+    ):
+        raise LiveBackendError("HFSS lumped_rlc integration line must have two distinct 3D points")
+    model_units = str(_safe_attribute(app.modeler, "model_units") or "").strip()
+    if not re.fullmatch(r"[A-Za-z]+", model_units):
+        raise LiveBackendError("HFSS model units are unavailable for Lumped RLC")
+    return {
+        "start": [str(item) + model_units for item in start],
+        "end": [str(item) + model_units for item in end],
+    }
+
+
 def _hfss_surface_boundary_snapshot(app: Any) -> list[dict[str, Any]]:
     try:
         boundaries = list(getattr(app, "boundaries", []) or [])
@@ -5864,6 +6008,7 @@ def _hfss_surface_boundary_record(
         "perfecth": "perfect_h",
         "finiteconductivity": "finite_conductivity",
         "impedance": "impedance",
+        "lumpedrlc": "lumped_rlc",
     }
     kind = kind_by_type.get(normalized_type, "other")
     object_names = _boundary_assignment_names(props.get("Objects"))
@@ -5926,6 +6071,34 @@ def _hfss_surface_boundary_record(
                 False,
             ),
         }
+    elif kind == "lumped_rlc":
+        record["options"] = {
+            "rlc_type": str(
+                _field_property(properties, "RLC Type") or props.get("RLC Type") or ""
+            ).strip(),
+            "use_resistance": _boundary_readback_bool(
+                props.get("UseResist", _field_property(properties, "Use Resist")),
+                False,
+            ),
+            "resistance": str(
+                _field_property(properties, "Resistance") or props.get("Resistance") or ""
+            ).strip(),
+            "use_inductance": _boundary_readback_bool(
+                props.get("UseInduct", _field_property(properties, "Use Induct")),
+                False,
+            ),
+            "inductance": str(
+                _field_property(properties, "Inductance") or props.get("Inductance") or ""
+            ).strip(),
+            "use_capacitance": _boundary_readback_bool(
+                props.get("UseCap", _field_property(properties, "Use Cap")),
+                False,
+            ),
+            "capacitance": str(
+                _field_property(properties, "Capacitance") or props.get("Capacitance") or ""
+            ).strip(),
+            "integration_line": _boundary_integration_line(props.get("CurrentLine")),
+        }
     else:
         record["options"] = {}
     return record
@@ -5969,6 +6142,15 @@ def _boundary_readback_bool(value: Any, default: bool) -> bool:
     return default
 
 
+def _boundary_integration_line(value: Any) -> dict[str, list[str]]:
+    if not isinstance(value, dict):
+        return {"start": [], "end": []}
+    return {
+        "start": [str(item).strip() for item in list(value.get("Start") or [])],
+        "end": [str(item).strip() for item in list(value.get("End") or [])],
+    }
+
+
 def _create_hfss_surface_boundary(app: Any, spec: dict[str, Any]) -> Any:
     assignment = spec["object_names"] or spec["face_ids"]
     options = spec["options"]
@@ -5993,6 +6175,17 @@ def _create_hfss_surface_boundary(app: Any, spec: dict[str, Any]) -> Any:
             is_internal=options["is_internal"],
             is_shell_element=options["is_shell_element"],
             name=name,
+        )
+    if spec["boundary_kind"] == "lumped_rlc":
+        direction = getattr(app.axis_directions, options["integration_line_direction"])
+        return app.assign_lumped_rlc_to_sheet(
+            spec["object_names"][0],
+            direction,
+            name=name,
+            rlc_type=options["rlc_type"],
+            resistance=options["resistance"],
+            inductance=options["inductance"],
+            capacitance=options["capacitance"],
         )
     return app.assign_impedance_to_sheet(
         assignment,
@@ -6020,6 +6213,34 @@ def _verify_hfss_surface_boundary_readback(
     actual = readback.get("options") or {}
     kind = spec["boundary_kind"]
     if kind == "perfect_h":
+        return
+    if kind == "lumped_rlc":
+        if actual.get("rlc_type") != expected["rlc_type"]:
+            raise LiveBackendError("HFSS Lumped RLC type readback failed")
+        if not _integration_line_readback_matches(
+            actual.get("integration_line"),
+            expected["integration_line"],
+        ):
+            raise LiveBackendError("HFSS Lumped RLC integration-line readback failed")
+        quantities = (
+            ("resistance", "use_resistance", "ohm"),
+            ("inductance", "use_inductance", "H"),
+            ("capacitance", "use_capacitance", "F"),
+        )
+        for value_field, use_field, unit in quantities:
+            enabled = expected[value_field] is not None
+            if actual.get(use_field) is not enabled:
+                raise LiveBackendError(
+                    f"HFSS Lumped RLC {value_field} enable readback failed"
+                )
+            if enabled and not _quantity_boundary_readback_matches(
+                actual.get(value_field),
+                expected[value_field],
+                unit,
+            ):
+                raise LiveBackendError(
+                    f"HFSS Lumped RLC {value_field} readback failed"
+                )
         return
     if actual.get("is_infinite_ground") is not expected["is_infinite_ground"]:
         raise LiveBackendError("HFSS surface boundary infinite-ground readback failed")
@@ -6063,6 +6284,41 @@ def _numeric_boundary_readback_matches(actual: Any, expected: float) -> bool:
     except (TypeError, ValueError):
         return False
     return math.isclose(value, expected, rel_tol=1e-9, abs_tol=1e-9)
+
+
+def _quantity_boundary_readback_matches(actual: Any, expected: float, unit: str) -> bool:
+    match = re.fullmatch(
+        r"\s*([+\-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+\-]?\d+)?)\s*([A-Za-z]+)\s*",
+        str(actual or ""),
+    )
+    if not match or match.group(2).casefold() != unit.casefold():
+        return False
+    try:
+        value = float(match.group(1))
+    except ValueError:
+        return False
+    return math.isclose(
+        value,
+        expected,
+        rel_tol=1e-9,
+        abs_tol=max(abs(expected) * 1e-12, 1e-30),
+    )
+
+
+def _integration_line_readback_matches(actual: Any, expected: Any) -> bool:
+    if not isinstance(actual, dict) or not isinstance(expected, dict):
+        return False
+    for endpoint in ("start", "end"):
+        actual_values = list(actual.get(endpoint) or [])
+        expected_values = list(expected.get(endpoint) or [])
+        if len(actual_values) != 3 or len(expected_values) != 3:
+            return False
+        if any(
+            _normalized_expression(str(value)) != _normalized_expression(str(wanted))
+            for value, wanted in zip(actual_values, expected_values)
+        ):
+            return False
+    return True
 
 
 def _rollback_hfss_surface_boundary(
