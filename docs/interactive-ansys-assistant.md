@@ -13,7 +13,8 @@
 
 新增 live control plane 还能受控启动 AEDT，或发现并显式连接正在运行的 AEDT，会话内复用
 PyAEDT broker，读取工程信息、HFSS geometry/setup/port/boundary/report inventory、受控创建
-typed geometry batch、setup、radiation boundary、wave/lumped port 和 report、驱动 analysis，
+typed geometry batch、为显式 solid batch 分配已有工程材料、创建 setup、radiation boundary、wave/lumped port
+和 report、驱动 analysis，
 并能在单一事务中原子创建新几何和 Boundary/Port，或原子创建 Setup 和 Sweep，同时查询 live 3D Layout Path。
 在 Desktop-bound strict 会话和推荐的生产链路中，live edit、setup/boundary/report、solve/cancel/export
 与 project save 都采用 preview/apply 两阶段操作，并使用外部 Host 签发的短期批准令牌。通用 MCP
@@ -134,6 +135,13 @@ create_live_hfss_design
 get_live_hfss_design_inventory
 get_live_aedt_setup_inventory
 get_live_hfss_geometry_inventory
+get_live_hfss_material_inventory
+preview_live_hfss_material_assign
+apply_live_hfss_material_assign
+preview_live_hfss_geometry_create
+apply_live_hfss_geometry_create
+preview_live_hfss_geometry_boundary_create
+apply_live_hfss_geometry_boundary_create
 preview_live_hfss_setup_create
 apply_live_hfss_setup_create
 preview_live_hfss_setup_sweep_create
@@ -220,6 +228,17 @@ get_live_aedt_setup_inventory
   -> 核对 setup_inventory、atomic_setup_sweep_transaction 和 project_saved=false
 ```
 
+为已有 solid 分配材料时，目标材料必须已经存在于当前工程 material catalog：
+
+```text
+get_live_hfss_material_inventory
+  -> get_live_hfss_geometry_inventory
+  -> preview_live_hfss_material_assign（冻结对象 ID、材料、Solve Inside 和材料定义）
+  -> Host approval
+  -> apply_live_hfss_material_assign
+  -> 核对 verified_count、material_name、solve_inside 和 project_saved=false
+```
+
 几何和 Boundary/Port 的常规顺序为：
 
 ```text
@@ -282,7 +301,7 @@ token = authority.issue(**preview["approval_request"])
 - 写操作暂不支持覆盖源工程。
 - 只读查询也打开临时快照副本，关闭会话后自动清理，避免 EDB lock/tmp 文件触碰源目录。
 - `.aedt` 输入必须存在同名 `.aedb` sidecar。
-- Live HFSS/3D Layout 当前支持 routing/object/variable/setup inventory、受控变量和对象属性更新、setup/sweep、
+- Live HFSS/3D Layout 当前支持 routing/object/variable/setup inventory、HFSS solid 材料批量分配、受控变量和对象属性更新、setup/sweep、
   radiation/wave/lumped port、report 创建、批准式 analysis start/cancel/status、Layout 有界求解监控、
   HFSS/Layout 受限结果导出和受控 project save。
 - `create_live_hfss_design` 与 `start_live_hfss_analysis` 仅为通用 MCP 兼容入口；Desktop strict 模式禁用直接写入，生产求解使用批准链路。

@@ -159,6 +159,47 @@ class _Live:
             "project_saved": False,
         }
 
+    def preview_hfss_material_assign(self, session_id: str, **kwargs) -> dict:
+        return {
+            "preview_id": "material-preview-1",
+            "object_names": list(kwargs["object_names"]),
+            "material_name": kwargs["material_name"],
+            "approval_request": {"action": "hfss.material.assign"},
+            "project_saved": False,
+        }
+
+    def apply_hfss_material_assign(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        assert preview_id == "material-preview-1"
+        assert approval_token == "material-approved"
+        return {
+            "status": "verified",
+            "object_names": ["box1", "box2"],
+            "material_name": "copper",
+            "target_solve_inside": False,
+            "target_count": 2,
+            "verified_count": 2,
+            "targets_after": [
+                {
+                    "name": "box1",
+                    "material_name": "copper",
+                    "solve_inside": False,
+                },
+                {
+                    "name": "box2",
+                    "material_name": "copper",
+                    "solve_inside": False,
+                },
+            ],
+            "automatic_rollback_on_failure": True,
+            "project_saved": False,
+        }
+
     def preview_hfss_geometry_boundary_create(self, session_id: str, **kwargs) -> dict:
         return {
             "preview_id": "geometry-boundary-preview-1",
@@ -501,6 +542,12 @@ def test_default_workflow_catalog_includes_live_monitor_and_export(tmp_path: Pat
     assert descriptors["hfss_live_geometry_create"]["recommended_initial_fields"] == [
         "primitives"
     ]
+    assert descriptors["hfss_live_material_assign"]["risk"] == "reversible_edit"
+    assert descriptors["hfss_live_material_assign"]["attached_live_session_reuse"] is True
+    assert descriptors["hfss_live_material_assign"]["recommended_initial_fields"] == [
+        "material_name",
+        "object_names",
+    ]
     assert descriptors["hfss_live_geometry_boundary_create"]["risk"] == "reversible_edit"
     assert descriptors["hfss_live_geometry_boundary_create"]["attached_live_session_reuse"] is True
     assert descriptors["hfss_live_geometry_boundary_create"]["recommended_initial_fields"] == [
@@ -666,6 +713,50 @@ def test_live_hfss_geometry_workflow_uses_nested_approval_and_scorecard(tmp_path
     scorecard = report["node_runs"][-1]["output_payload"]
     assert scorecard["status"] == "passed"
     assert scorecard["summary"]["created_object_names"] == ["Substrate", "AirBox"]
+    assert scorecard["summary"]["project_saved"] is False
+
+
+def test_live_hfss_material_workflow_assigns_and_scores_batch(tmp_path: Path):
+    manager = AssistantWorkflowManager(
+        live_manager=_Live(),
+        db_path=tmp_path / "material-missions.db",
+        template_ids=("hfss_live_material_assign",),
+        runtime_factory=lambda path: AgentRuntime(SQLiteMissionStore(path)),
+    )
+    start = manager.preview_start(
+        "live-1",
+        workflow_id="hfss_live_material_assign",
+        goal="Assign copper to two reviewed HFSS solids",
+        initial_payload={
+            "object_names": ["box1", "box2"],
+            "material_name": "copper",
+            "max_objects": 4,
+        },
+    )
+    started = manager.apply_start(
+        "live-1",
+        preview_id=start["preview_id"],
+        approval_token="approved",
+    )
+    report = None
+    for index in range(3):
+        advance = manager.preview_advance("live-1", graph_run_id=started["graph_run_id"])
+        if index == 1:
+            assert advance["operation_approval_required"]["preview_id"] == "material-preview-1"
+        report = manager.apply_advance(
+            "live-1",
+            preview_id=advance["preview_id"],
+            approval_token="approved",
+            operation_approval_token="material-approved" if index == 1 else "",
+        )
+
+    assert report is not None and report["status"] == "succeeded"
+    assert "material-approved" not in str(report)
+    scorecard = report["node_runs"][-1]["output_payload"]
+    assert scorecard["status"] == "passed"
+    assert scorecard["summary"]["target_count"] == 2
+    assert scorecard["summary"]["material_name"] == "copper"
+    assert scorecard["summary"]["target_solve_inside"] is False
     assert scorecard["summary"]["project_saved"] is False
 
 

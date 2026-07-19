@@ -87,6 +87,12 @@ class LiveAedtBackend:
                 return self._solution_inventory(target, arguments)
             if command == "hfss_geometry_inventory":
                 return self._hfss_geometry_inventory(target, arguments)
+            if command == "hfss_material_inventory":
+                return self._hfss_material_inventory(target, arguments)
+            if command == "hfss_material_assign_preview":
+                return self._hfss_material_assign_preview(target, arguments)
+            if command == "hfss_material_assign_apply":
+                return self._hfss_material_assign_apply(target, arguments)
             if command == "hfss_geometry_create_preview":
                 return self._hfss_geometry_create_preview(target, arguments)
             if command == "hfss_geometry_create_apply":
@@ -492,6 +498,227 @@ class LiveAedtBackend:
             "object_count": len(objects),
             "objects": objects,
             "snapshot_digest": _digest(objects),
+        }
+
+    def _hfss_material_inventory(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        app = self._app(
+            target,
+            "hfss",
+            _required(args, "project_name"),
+            _required(args, "design_name"),
+        )
+        if str(_safe_attribute(app, "design_type") or "").strip().casefold() != "hfss":
+            raise LiveBackendError("HFSS material inventory requires an HFSS 3D design")
+        max_items = _bounded_integer(
+            args.get("max_items", 100),
+            "max_items",
+            minimum=1,
+            maximum=500,
+        )
+        materials = _safe_attribute(app, "materials")
+        material_keys = _safe_attribute(materials, "material_keys") if materials else None
+        if not isinstance(material_keys, dict):
+            raise LiveBackendError("HFSS project material catalog is unavailable")
+        canonical_names = sorted(
+            {
+                str(_safe_attribute(item, "name") or key)
+                for key, item in material_keys.items()
+            },
+            key=str.casefold,
+        )
+        selected_names = canonical_names[:max_items]
+        records = [_hfss_material_snapshot(app, name) for name in selected_names]
+        return {
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "material_count": len(canonical_names),
+            "returned_count": len(records),
+            "truncated": len(canonical_names) > len(records),
+            "materials": records,
+            "snapshot_digest": _digest(records),
+            "design_unchanged": True,
+        }
+
+    def _hfss_material_assign_preview(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        app = self._app(
+            target,
+            "hfss",
+            _required(args, "project_name"),
+            _required(args, "design_name"),
+        )
+        if str(_safe_attribute(app, "design_type") or "").strip().casefold() != "hfss":
+            raise LiveBackendError("HFSS material assignment requires an HFSS 3D design")
+        if _simulation_running(app):
+            raise LiveBackendError("cannot assign HFSS materials while a simulation is running")
+        max_objects = _bounded_integer(
+            args.get("max_objects", 16),
+            "max_objects",
+            minimum=1,
+            maximum=32,
+        )
+        object_names = _normalize_explicit_names(
+            args.get("object_names"),
+            field="object_names",
+            maximum=max_objects,
+        )
+        material_name = str(args.get("material_name") or "").strip()
+        if not _SAFE_AEDT_MATERIAL_NAME.fullmatch(material_name):
+            raise LiveBackendError("material_name must be a safe AEDT material name")
+        target_material = _hfss_material_snapshot(app, material_name)
+        targets = _hfss_material_target_snapshot(app, object_names)
+        sheets = [item["name"] for item in targets if not item["is_solid"]]
+        if sheets:
+            raise LiveBackendError(
+                f"HFSS material assignment only supports solid objects: {sheets[0]}"
+            )
+        already_assigned = [
+            item["name"]
+            for item in targets
+            if item["material_name"].casefold()
+            == target_material["canonical_name"].casefold()
+        ]
+        if already_assigned:
+            raise LiveBackendError(
+                f"HFSS object already uses target material: {already_assigned[0]}"
+            )
+        state = {
+            "targets": targets,
+            "target_material": target_material,
+        }
+        state_digest = _digest(state)
+        spec = {
+            "object_names": object_names,
+            "material_name": target_material["canonical_name"],
+            "max_objects": max_objects,
+            "target_solve_inside": target_material["is_dielectric"],
+        }
+        preview_id = "material-preview-" + _digest(
+            spec | {"state": state_digest}
+        )[:24]
+        self._previews[preview_id] = {
+            "kind": "hfss_material_assign",
+            "target": target,
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "spec": spec,
+            "state": state,
+            "digest": state_digest,
+        }
+        return {
+            "preview_id": preview_id,
+            **spec,
+            "target_count": len(targets),
+            "targets_before": targets,
+            "target_material": target_material,
+            "snapshot_digest": state_digest,
+            "approval_required": True,
+            "project_dirty": False,
+            "project_saved": False,
+        }
+
+    def _hfss_material_assign_apply(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        preview_id = _required(args, "preview_id")
+        preview = self._preview(preview_id, "hfss_material_assign", target)
+        app = self._app(target, "hfss", preview["project_name"], preview["design_name"])
+        if _simulation_running(app):
+            raise LiveBackendError("cannot assign HFSS materials while a simulation is running")
+        try:
+            current = {
+                "targets": _hfss_material_target_snapshot(
+                    app,
+                    preview["spec"]["object_names"],
+                ),
+                "target_material": _hfss_material_snapshot(
+                    app,
+                    preview["spec"]["material_name"],
+                ),
+            }
+        except LiveBackendError as exc:
+            raise LiveBackendError("stale HFSS material assignment preview") from exc
+        if _digest(current) != preview["digest"]:
+            raise LiveBackendError("stale HFSS material assignment preview")
+
+        try:
+            assigned = app.assign_material(
+                preview["spec"]["object_names"],
+                preview["spec"]["material_name"],
+            )
+            if assigned is not True:
+                raise LiveBackendError("HFSS material assignment returned false")
+            targets_after = _hfss_material_target_snapshot(
+                app,
+                preview["spec"]["object_names"],
+            )
+            targets_before = {
+                item["name"]: item for item in preview["state"]["targets"]
+            }
+            for item in targets_after:
+                before = targets_before[item["name"]]
+                if (
+                    item["object_id"],
+                    item["bounding_box"],
+                    item["volume"],
+                    item["is_solid"],
+                ) != (
+                    before["object_id"],
+                    before["bounding_box"],
+                    before["volume"],
+                    before["is_solid"],
+                ):
+                    raise LiveBackendError(
+                        "HFSS object identity or geometry changed during material "
+                        f"assignment: {item['name']}"
+                    )
+                if item["material_name"].casefold() != preview["spec"][
+                    "material_name"
+                ].casefold():
+                    raise LiveBackendError(
+                        f"HFSS material readback failed: {item['name']}"
+                    )
+                if item["solve_inside"] is not preview["spec"]["target_solve_inside"]:
+                    raise LiveBackendError(
+                        f"HFSS solve_inside readback failed after material assignment: {item['name']}"
+                    )
+        except Exception as exc:
+            rollback = _rollback_hfss_material_assignment(
+                app,
+                preview["state"]["targets"],
+            )
+            if not rollback["complete"]:
+                raise LiveBackendError(
+                    f"HFSS material assignment failed and rollback is incomplete: {rollback}"
+                ) from exc
+            if isinstance(exc, LiveBackendError):
+                raise
+            raise LiveBackendError(
+                f"HFSS material assignment failed: {type(exc).__name__}: {exc}"
+            ) from exc
+
+        del self._previews[preview_id]
+        return {
+            "status": "verified",
+            "preview_id": preview_id,
+            **preview["spec"],
+            "target_count": len(targets_after),
+            "verified_count": len(targets_after),
+            "targets_before": preview["state"]["targets"],
+            "targets_after": targets_after,
+            "target_material": current["target_material"],
+            "automatic_rollback_on_failure": True,
+            "project_dirty": True,
+            "project_saved": False,
         }
 
     def _hfss_geometry_create_preview(
@@ -3778,6 +4005,198 @@ def _hfss_padding(value: Any) -> int | float | str | list[int | float | str]:
     return _hfss_dimension(value, "region padding", positive=True)
 
 
+def _hfss_material_snapshot(app: Any, requested_name: str) -> dict[str, Any]:
+    materials = _safe_attribute(app, "materials")
+    material_keys = _safe_attribute(materials, "material_keys") if materials else None
+    if not isinstance(material_keys, dict):
+        raise LiveBackendError("HFSS project material catalog is unavailable")
+    by_name = {str(key).casefold(): value for key, value in material_keys.items()}
+    material = by_name.get(requested_name.casefold())
+    if material is None:
+        raise LiveBackendError(
+            "material_name must already exist in the current HFSS project material catalog"
+        )
+    canonical_name = str(_safe_attribute(material, "name") or requested_name).strip()
+    if not _SAFE_AEDT_MATERIAL_NAME.fullmatch(canonical_name):
+        raise LiveBackendError("HFSS target material has an unsafe AEDT name")
+    is_dielectric = _safe_attribute(material, "is_dielectric")
+    if type(is_dielectric) is not bool:
+        raise LiveBackendError("HFSS target material dielectric classification is unavailable")
+    electrical_properties = {}
+    for name in (
+        "conductivity",
+        "permittivity",
+        "permeability",
+        "dielectric_loss_tangent",
+        "magnetic_loss_tangent",
+    ):
+        prop = _safe_attribute(material, name)
+        electrical_properties[name] = {
+            "type": _safe_json_attribute(prop, "type"),
+            "value": _safe_json_attribute(prop, "value"),
+            "unit": _safe_json_attribute(prop, "unit"),
+        }
+    raw_definition = None
+    definition_manager = _safe_attribute(materials, "odefinition_manager")
+    getter = getattr(definition_manager, "GetData", None)
+    if callable(getter):
+        try:
+            raw_definition = _json_value(getter(canonical_name))
+        except Exception:
+            raw_definition = None
+    definition_evidence = (
+        raw_definition
+        if raw_definition is not None
+        else {"electrical_properties": electrical_properties, "is_dielectric": is_dielectric}
+    )
+    return {
+        "canonical_name": canonical_name,
+        "is_dielectric": is_dielectric,
+        "electrical_properties": electrical_properties,
+        "definition_digest": _digest(definition_evidence),
+    }
+
+
+def _hfss_material_target_snapshot(
+    app: Any,
+    object_names: list[str],
+) -> list[dict[str, Any]]:
+    available = [str(item) for item in list(getattr(app.modeler, "object_names", []) or [])]
+    available_set = set(available)
+    records = []
+    for name in object_names:
+        if name not in available_set:
+            raise LiveBackendError(f"unknown exact HFSS object name: {name}")
+        obj = app.modeler[name]
+        object_id = _safe_json_attribute(obj, "id")
+        if object_id is None:
+            raise LiveBackendError(f"HFSS object ID is unavailable: {name}")
+        volume = _safe_json_attribute(obj, "volume")
+        try:
+            is_solid = abs(float(volume)) > 1e-18
+        except (TypeError, ValueError):
+            is_solid = False
+        if not is_solid:
+            records.append(
+                {
+                    "name": name,
+                    "object_id": object_id,
+                    "material_name": "",
+                    "solve_inside": None,
+                    "color": None,
+                    "transparency": None,
+                    "bounding_box": _safe_json_attribute(obj, "bounding_box"),
+                    "volume": volume,
+                    "is_solid": False,
+                }
+            )
+            continue
+        material_name = str(
+            _fresh_hfss_object_attribute(obj, "_material_name", "material_name") or ""
+        ).strip('"')
+        if not material_name:
+            raise LiveBackendError(f"HFSS object material is unavailable: {name}")
+        solve_inside = _fresh_hfss_object_attribute(
+            obj,
+            "_solve_inside",
+            "solve_inside",
+        )
+        if type(solve_inside) is not bool:
+            raise LiveBackendError(f"HFSS object solve_inside is unavailable: {name}")
+        color = _fresh_hfss_object_attribute(obj, "_color", "color")
+        transparency = _fresh_hfss_object_attribute(
+            obj,
+            "_transparency",
+            "transparency",
+        )
+        records.append(
+            {
+                "name": name,
+                "object_id": object_id,
+                "material_name": material_name,
+                "solve_inside": solve_inside,
+                "color": _json_value(color),
+                "transparency": _json_value(transparency),
+                "bounding_box": _safe_json_attribute(obj, "bounding_box"),
+                "volume": volume,
+                "is_solid": is_solid,
+            }
+        )
+    return records
+
+
+def _fresh_hfss_object_attribute(obj: Any, cache_name: str, attribute: str) -> Any:
+    try:
+        setattr(obj, cache_name, None)
+    except Exception:
+        pass
+    return _safe_attribute(obj, attribute)
+
+
+def _rollback_hfss_material_assignment(
+    app: Any,
+    targets_before: list[dict[str, Any]],
+) -> dict[str, Any]:
+    errors = []
+    restored_names = []
+    for before in targets_before:
+        name = before["name"]
+        try:
+            restored = app.assign_material(name, before["material_name"])
+            if restored is not True:
+                raise LiveBackendError("material restore returned false")
+            obj = app.modeler[name]
+            obj.solve_inside = before["solve_inside"]
+            if isinstance(before.get("color"), list) and len(before["color"]) == 3:
+                obj.color = tuple(before["color"])
+            if before.get("transparency") is not None:
+                obj.transparency = before["transparency"]
+            restored_names.append(name)
+        except Exception as exc:
+            errors.append(f"{name}: {type(exc).__name__}: {exc}")
+    readback_error = ""
+    try:
+        after = _hfss_material_target_snapshot(
+            app,
+            [item["name"] for item in targets_before],
+        )
+    except Exception as exc:
+        after = []
+        readback_error = f"{type(exc).__name__}: {exc}"
+    expected = {
+        item["name"]: (
+            item["object_id"],
+            item["material_name"].casefold(),
+            item["solve_inside"],
+            item.get("color"),
+            item.get("transparency"),
+            item.get("bounding_box"),
+            item.get("volume"),
+        )
+        for item in targets_before
+    }
+    actual = {
+        item["name"]: (
+            item["object_id"],
+            item["material_name"].casefold(),
+            item["solve_inside"],
+            item.get("color"),
+            item.get("transparency"),
+            item.get("bounding_box"),
+            item.get("volume"),
+        )
+        for item in after
+    }
+    mismatched = sorted(name for name, value in expected.items() if actual.get(name) != value)
+    return {
+        "complete": not errors and not readback_error and not mismatched,
+        "restored_object_names": restored_names,
+        "mismatched_object_names": mismatched,
+        "errors": errors,
+        "readback_error": readback_error,
+    }
+
+
 def _create_hfss_primitive(app: Any, primitive: dict[str, Any]) -> Any:
     modeler = app.modeler
     kind = primitive["kind"]
@@ -4166,6 +4585,18 @@ def _unique_nonempty_names(raw: Any, field: str) -> list[str]:
         values.append(value)
         seen.add(value)
         seen_casefold.add(value.casefold())
+    return values
+
+
+def _normalize_explicit_names(raw: Any, *, field: str, maximum: int) -> list[str]:
+    values = _unique_nonempty_names(raw, field)
+    if not values:
+        raise LiveBackendError(f"{field} must contain at least one exact AEDT name")
+    if len(values) > maximum:
+        raise LiveBackendError(f"{field} exceeds the approved maximum of {maximum}")
+    for value in values:
+        if not _SAFE_AEDT_OBJECT_NAME.fullmatch(value):
+            raise LiveBackendError(f"{field} must contain safe exact AEDT names")
     return values
 
 

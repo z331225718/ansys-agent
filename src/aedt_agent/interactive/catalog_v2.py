@@ -96,6 +96,42 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             postconditions=["design_unchanged", "face_selector_digest_returned"],
         ),
         _cap(
+            "hfss.material.inventory",
+            "read_only",
+            ["live"],
+            ["get_live_hfss_material_inventory"],
+            postconditions=[
+                "design_unchanged",
+                "bounded_project_material_catalog_returned",
+                "material_definition_digests_returned",
+            ],
+            products=["hfss"],
+        ),
+        _cap(
+            "hfss.material.assign",
+            "reversible_edit",
+            ["live"],
+            [
+                "preview_live_hfss_material_assign",
+                "apply_live_hfss_material_assign",
+            ],
+            approval="external_host_token",
+            side_effects=[
+                "project_becomes_dirty",
+                "hfss_object_material_and_solve_inside_changed",
+                "object_appearance_may_follow_material",
+            ],
+            postconditions=[
+                "exact_solid_object_names_only",
+                "existing_project_material_only",
+                "target_and_material_snapshot_unchanged",
+                "material_and_solve_inside_readback_verified",
+                "batch_rollback_on_failure",
+                "project_not_saved",
+            ],
+            products=["hfss"],
+        ),
+        _cap(
             "hfss.geometry.create",
             "reversible_edit",
             ["live"],

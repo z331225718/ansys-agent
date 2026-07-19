@@ -350,6 +350,68 @@ class LiveAedtSessionManager:
             {"project_name": project_name, "design_name": design_name, "object_names": object_names or []},
         )
 
+    def hfss_material_inventory(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+        max_items: int = 100,
+    ) -> dict[str, Any]:
+        return self._execute(
+            session_id,
+            "hfss_material_inventory",
+            {
+                "project_name": project_name,
+                "design_name": design_name,
+                "max_items": max_items,
+            },
+        )
+
+    def preview_hfss_material_assign(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+        object_names: list[str],
+        material_name: str,
+        max_objects: int = 16,
+    ) -> dict[str, Any]:
+        result = self._execute(
+            session_id,
+            "hfss_material_assign_preview",
+            {
+                "project_name": project_name,
+                "design_name": design_name,
+                "object_names": object_names,
+                "material_name": material_name,
+                "max_objects": max_objects,
+            },
+        )
+        return self._register_approval(session_id, "hfss.material.assign", result)
+
+    def apply_hfss_material_assign(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict[str, Any]:
+        self._require_approval(
+            session_id,
+            "hfss.material.assign",
+            preview_id,
+            approval_token,
+        )
+        result = self._execute(
+            session_id,
+            "hfss_material_assign_apply",
+            {"preview_id": preview_id},
+        )
+        self._approval_contexts.pop((session_id, preview_id), None)
+        return result
+
     def preview_hfss_geometry_create(
         self,
         session_id: str,

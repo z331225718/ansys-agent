@@ -407,10 +407,18 @@ class FakeObject:
         solve_inside=False,
         face_id=101,
         face_centers=None,
+        volume=1.0,
+        bounding_box=None,
+        color=(120, 130, 140),
+        transparency=0.1,
     ):
         self.id = object_id
         self.material_name = material_name
         self.solve_inside = solve_inside
+        self.volume = volume
+        self.bounding_box = bounding_box or [-1, -1, -1, 1, 1, 1]
+        self.color = color
+        self.transparency = transparency
         centers = face_centers or [[0, 0, 0]]
         self.faces = [
             SimpleNamespace(id=face_id + index, center=center, area=1.5)
@@ -631,6 +639,98 @@ class FakeAtomicSetupSweepHfss(FakeHfss):
         return super().create_linear_step_sweep(setup=setup, name=name, **kwargs)
 
 
+class FakeMaterialProperty:
+    def __init__(self, value, unit=""):
+        self.type = "simple"
+        self.value = value
+        self.unit = unit
+
+
+class FakeMaterial:
+    def __init__(self, name, *, dielectric, color, conductivity):
+        self.name = name
+        self._dielectric = dielectric
+        self.material_appearance = color
+        self.conductivity = FakeMaterialProperty(conductivity, "S_per_meter")
+        self.permittivity = FakeMaterialProperty(1.0)
+        self.permeability = FakeMaterialProperty(1.0)
+        self.dielectric_loss_tangent = FakeMaterialProperty(0.0)
+        self.magnetic_loss_tangent = FakeMaterialProperty(0.0)
+
+    def is_dielectric(self):
+        return self._dielectric
+
+
+class FakeDefinitionManager:
+    def __init__(self, materials):
+        self.materials = materials
+
+    def GetData(self, name):
+        material = next(item for item in self.materials.values() if item.name == name)
+        return ["NAME:" + name, "conductivity:=", material.conductivity.value]
+
+
+class FakeMaterials:
+    def __init__(self):
+        self.material_keys = {
+            "vacuum": FakeMaterial(
+                "vacuum",
+                dielectric=True,
+                color=(220, 220, 230),
+                conductivity=0.0,
+            ),
+            "copper": FakeMaterial(
+                "copper",
+                dielectric=False,
+                color=(184, 115, 51),
+                conductivity=58000000.0,
+            ),
+        }
+        self.odefinition_manager = FakeDefinitionManager(self.material_keys)
+
+
+class FakeMaterialHfss(FakeHfss):
+    def __init__(self, *, fail_material="", **kwargs):
+        super().__init__(**kwargs)
+        self.are_there_simulations_running = False
+        self.materials = FakeMaterials()
+        self.fail_material = fail_material
+        self.modeler.object_names = ["box1", "box2", "sheet1"]
+        self.modeler._objects = {
+            "box1": FakeObject(
+                object_id=11,
+                material_name="vacuum",
+                solve_inside=True,
+                color=(1, 2, 3),
+            ),
+            "box2": FakeObject(
+                object_id=12,
+                material_name="vacuum",
+                solve_inside=True,
+                color=(4, 5, 6),
+            ),
+            "sheet1": FakeObject(
+                object_id=13,
+                material_name="vacuum",
+                solve_inside=True,
+                volume=0.0,
+            ),
+        }
+
+    def assign_material(self, assignment, material):
+        names = [assignment] if isinstance(assignment, str) else list(assignment)
+        target = self.materials.material_keys[str(material).casefold()]
+        for name in names:
+            obj = self.modeler[name]
+            obj.material_name = target.name
+            obj.solve_inside = target.is_dielectric()
+            obj.color = target.material_appearance
+            if str(material).casefold() == self.fail_material.casefold():
+                self.fail_material = ""
+                raise RuntimeError("synthetic partial material assignment failure")
+        return True
+
+
 class FakeSubmittedSolveHfss(FakeControlledSolveHfss):
     def analyze_setup(self, setup, **kwargs):
         self.analysis_calls.append((setup, kwargs))
@@ -666,6 +766,11 @@ class FakeRegistry:
             return {
                 "preview_id": "setup-sweep-preview-1",
                 "snapshot_digest": "setup-sweep-digest-1",
+            }
+        if command == "hfss_material_assign_preview":
+            return {
+                "preview_id": "material-preview-1",
+                "snapshot_digest": "material-digest-1",
             }
         if command == "hfss_report_preview":
             return {"preview_id": "report-preview-1", "snapshot_digest": "report-digest-1"}
@@ -1383,6 +1488,159 @@ def test_backend_atomic_hfss_setup_sweep_preview_rejects_unsafe_requests(
 
 def _sweep_names_for_test(app, setup_name):
     return sorted(item.name for item in app.get_setup(setup_name).sweeps)
+
+
+def test_backend_lists_bounded_hfss_project_material_inventory_without_changes():
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=FakeMaterialHfss,
+    )
+    result = backend.execute(
+        AedtTarget("pid", 42),
+        "hfss_material_inventory",
+        {
+            "project_name": "Board",
+            "design_name": "HFSS1",
+            "max_items": 1,
+        },
+    )
+    assert result["material_count"] == 2
+    assert result["returned_count"] == 1
+    assert result["truncated"] is True
+    assert result["materials"][0]["canonical_name"] == "copper"
+    assert result["materials"][0]["definition_digest"]
+    assert result["design_unchanged"] is True
+
+
+def test_backend_assigns_existing_hfss_material_batch_with_solve_inside_readback():
+    apps = []
+
+    def factory(**kwargs):
+        app = FakeMaterialHfss(**kwargs)
+        apps.append(app)
+        return app
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, hfss_factory=factory)
+    target = AedtTarget("pid", 42)
+    preview = backend.execute(
+        target,
+        "hfss_material_assign_preview",
+        {
+            "project_name": "Board",
+            "design_name": "HFSS1",
+            "object_names": ["box1", "box2"],
+            "material_name": "copper",
+            "max_objects": 4,
+        },
+    )
+    assert preview["project_dirty"] is False
+    assert preview["project_saved"] is False
+    assert preview["target_count"] == 2
+    assert preview["target_solve_inside"] is False
+    assert preview["target_material"]["definition_digest"]
+    assert [item["material_name"] for item in preview["targets_before"]] == [
+        "vacuum",
+        "vacuum",
+    ]
+
+    result = backend.execute(
+        target,
+        "hfss_material_assign_apply",
+        {"preview_id": preview["preview_id"]},
+    )
+    assert result["status"] == "verified"
+    assert result["target_count"] == result["verified_count"] == 2
+    assert [item["name"] for item in result["targets_after"]] == ["box1", "box2"]
+    assert all(item["material_name"] == "copper" for item in result["targets_after"])
+    assert all(item["solve_inside"] is False for item in result["targets_after"])
+    assert result["automatic_rollback_on_failure"] is True
+    assert result["project_saved"] is False
+    assert apps[0].modeler["box1"].material_name == "copper"
+
+
+def test_backend_hfss_material_assignment_rolls_back_partial_failure_and_rejects_stale():
+    apps = []
+
+    def factory(**kwargs):
+        app = FakeMaterialHfss(fail_material="copper", **kwargs)
+        apps.append(app)
+        return app
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, hfss_factory=factory)
+    target = AedtTarget("pid", 42)
+    request = {
+        "project_name": "Board",
+        "design_name": "HFSS1",
+        "object_names": ["box1", "box2"],
+        "material_name": "copper",
+        "max_objects": 4,
+    }
+    preview = backend.execute(target, "hfss_material_assign_preview", request)
+    with pytest.raises(LiveBackendError, match="synthetic partial material assignment failure"):
+        backend.execute(
+            target,
+            "hfss_material_assign_apply",
+            {"preview_id": preview["preview_id"]},
+        )
+    for name, color in (("box1", (1, 2, 3)), ("box2", (4, 5, 6))):
+        assert apps[0].modeler[name].material_name == "vacuum"
+        assert apps[0].modeler[name].solve_inside is True
+        assert apps[0].modeler[name].color == color
+
+    stale = backend.execute(target, "hfss_material_assign_preview", request)
+    apps[0].modeler["box1"].solve_inside = False
+    with pytest.raises(LiveBackendError, match="stale HFSS material assignment preview"):
+        backend.execute(
+            target,
+            "hfss_material_assign_apply",
+            {"preview_id": stale["preview_id"]},
+        )
+    assert apps[0].modeler["box1"].material_name == "vacuum"
+
+
+@pytest.mark.parametrize(
+    "request_payload,error",
+    [
+        (
+            {"object_names": ["box1"], "material_name": "gold"},
+            "must already exist",
+        ),
+        (
+            {"object_names": ["sheet1"], "material_name": "copper"},
+            "only supports solid objects",
+        ),
+        (
+            {"object_names": ["box1", "BOX1"], "material_name": "copper"},
+            "must not contain duplicate names",
+        ),
+        (
+            {"object_names": ["missing"], "material_name": "copper"},
+            "unknown exact HFSS object name",
+        ),
+        (
+            {"object_names": ["box1", "box2"], "material_name": "copper", "max_objects": 1},
+            "exceeds the approved maximum",
+        ),
+    ],
+)
+def test_backend_hfss_material_assignment_preview_rejects_unsafe_targets(
+    request_payload,
+    error,
+):
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=FakeMaterialHfss,
+    )
+    with pytest.raises(LiveBackendError, match=error):
+        backend.execute(
+            AedtTarget("pid", 42),
+            "hfss_material_assign_preview",
+            {
+                "project_name": "Board",
+                "design_name": "HFSS1",
+                **request_payload,
+            },
+        )
 
 
 def test_backend_creates_typed_hfss_geometry_batch_with_readback():
@@ -3256,6 +3514,36 @@ def test_manager_requires_action_bound_one_use_approval_for_atomic_hfss_setup_sw
     assert getattr(replay.value, "code", None) == "approval_required"
 
 
+def test_manager_requires_action_bound_one_use_approval_for_hfss_material_assignment():
+    registry = FakeRegistry()
+    authority = HmacApprovalAuthority("m" * 32)
+    manager = LiveAedtSessionManager(registry=registry, approval_verifier=authority)
+    session_id = manager.attach(pid=42)["live_session_id"]
+    preview = manager.preview_hfss_material_assign(
+        session_id,
+        project_name="Board",
+        design_name="HFSS1",
+        object_names=["box1", "box2"],
+        material_name="copper",
+        max_objects=4,
+    )
+    assert preview["approval_request"]["action"] == "hfss.material.assign"
+    token = authority.issue(**preview["approval_request"])
+    result = manager.apply_hfss_material_assign(
+        session_id,
+        preview_id=preview["preview_id"],
+        approval_token=token,
+    )
+    assert result["command"] == "hfss_material_assign_apply"
+    with pytest.raises(Exception) as replay:
+        manager.apply_hfss_material_assign(
+            session_id,
+            preview_id=preview["preview_id"],
+            approval_token=token,
+        )
+    assert getattr(replay.value, "code", None) == "approval_required"
+
+
 def test_manager_requires_action_bound_approval_for_layout_edge_ports():
     registry = FakeRegistry()
     authority = HmacApprovalAuthority("e" * 32)
@@ -3511,6 +3799,9 @@ def test_mcp_registers_live_tools_without_changing_artifact_tools(monkeypatch):
     assert "apply_live_hfss_setup_create" in server.tools
     assert "preview_live_hfss_setup_sweep_create" in server.tools
     assert "apply_live_hfss_setup_sweep_create" in server.tools
+    assert "preview_live_hfss_material_assign" in server.tools
+    assert "apply_live_hfss_material_assign" in server.tools
+    assert "get_live_hfss_material_inventory" in server.tools
     assert "preview_live_hfss_report_create" in server.tools
     assert "apply_live_hfss_report_create" in server.tools
     assert "preview_live_hfss_boundary_create" in server.tools
@@ -3621,6 +3912,16 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
     assert by_name["layout.path_width.parameterize"]["tools"] == [
         "preview_live_parameterize_path_width",
         "apply_live_parameterize_path_width",
+    ]
+    assert by_name["hfss.material.assign"]["tools"] == [
+        "preview_live_hfss_material_assign",
+        "apply_live_hfss_material_assign",
+    ]
+    assert by_name["hfss.material.inventory"]["tools"] == [
+        "get_live_hfss_material_inventory"
+    ]
+    assert "existing_project_material_only" in by_name["hfss.material.assign"][
+        "postconditions"
     ]
     assert by_name["hfss.results.export"]["products"] == ["hfss", "layout"]
     unavailable = {item["name"] for item in v2["unavailable_capabilities"]}

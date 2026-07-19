@@ -361,6 +361,53 @@ def create_server(
         )
 
     @server.tool()
+    async def get_live_hfss_material_inventory(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        max_items: int = 100,
+    ) -> dict:
+        """List a bounded snapshot of materials already present in the HFSS project catalog."""
+        return live.hfss_material_inventory(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            max_items=max_items,
+        )
+
+    @server.tool()
+    async def preview_live_hfss_material_assign(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        object_names: list[str],
+        material_name: str,
+        max_objects: int = 16,
+    ) -> dict:
+        """Preview assigning one existing project material to an explicit HFSS solid batch."""
+        return live.preview_hfss_material_assign(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            object_names=object_names,
+            material_name=material_name,
+            max_objects=max_objects,
+        )
+
+    @server.tool()
+    async def apply_live_hfss_material_assign(
+        live_session_id: str,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        """Assign and read back one HFSS material batch with rollback; does not save."""
+        return live.apply_hfss_material_assign(
+            live_session_id,
+            preview_id=preview_id,
+            approval_token=approval_token,
+        )
+
+    @server.tool()
     async def preview_live_hfss_geometry_create(
         live_session_id: str,
         project_name: str,

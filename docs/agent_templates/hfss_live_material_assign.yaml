@@ -1,0 +1,43 @@
+id: hfss_live_material_assign
+version: 1
+description: Preview, approve, assign one existing project material to an explicit bounded HFSS solid batch, and verify material plus solve-inside readback without saving.
+nodes:
+  - id: preview_material_assignment
+    role: preview
+    kind: program
+    handler: assistant.live.hfss.preview_material_assign
+    input_schema: live_hfss_material_assign_request
+    output_schema: live_hfss_material_assign_preview
+    max_runs: 1
+  - id: apply_material_assignment
+    role: apply
+    kind: program
+    handler: assistant.live.hfss.apply_material_assign
+    input_schema: live_hfss_material_assign_preview
+    output_schema: live_hfss_material_assign_result
+    max_runs: 1
+  - id: verify_scorecard
+    role: scorecard
+    kind: program
+    handler: assistant.live.hfss.material_assign_scorecard
+    input_schema: live_hfss_material_assign_result
+    output_schema: live_hfss_material_assign_scorecard
+    max_runs: 1
+edges:
+  - id: preview-to-apply
+    from: preview_material_assignment
+    to: apply_material_assignment
+    on: succeeded
+  - id: apply-to-scorecard
+    from: apply_material_assignment
+    to: verify_scorecard
+    on: succeeded
+handoffs:
+  live_hfss_material_assign_request:
+    required_fields: [object_names, material_name]
+  live_hfss_material_assign_preview:
+    required_fields: [object_names, material_name, operation_preview_id, operation_approval, operation_preview, live_session_reused]
+  live_hfss_material_assign_result:
+    required_fields: [object_names, material_name, operation_result, live_session_reused]
+  live_hfss_material_assign_scorecard:
+    required_fields: [status, checks, summary, live_session_reused]
