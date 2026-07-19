@@ -1,0 +1,43 @@
+id: layout_live_via_update
+version: 1
+description: Update a bounded batch of exact existing HFSS 3D Layout vias with native readback and full rollback without saving the project.
+nodes:
+  - id: preview_via_updates
+    role: preview
+    kind: program
+    handler: assistant.live.layout.preview_via_update
+    input_schema: live_layout_via_update_request
+    output_schema: live_layout_via_update_preview
+    max_runs: 1
+  - id: apply_via_updates
+    role: apply
+    kind: program
+    handler: assistant.live.layout.apply_via_update
+    input_schema: live_layout_via_update_preview
+    output_schema: live_layout_via_update_result
+    max_runs: 1
+  - id: verify_scorecard
+    role: scorecard
+    kind: program
+    handler: assistant.live.layout.via_update_scorecard
+    input_schema: live_layout_via_update_result
+    output_schema: live_layout_via_update_scorecard
+    max_runs: 1
+edges:
+  - id: preview-to-apply
+    from: preview_via_updates
+    to: apply_via_updates
+    on: succeeded
+  - id: apply-to-scorecard
+    from: apply_via_updates
+    to: verify_scorecard
+    on: succeeded
+handoffs:
+  live_layout_via_update_request:
+    required_fields: [updates]
+  live_layout_via_update_preview:
+    required_fields: [updates, operation_preview_id, operation_approval, operation_preview, live_session_reused]
+  live_layout_via_update_result:
+    required_fields: [updates, operation_result, live_session_reused]
+  live_layout_via_update_scorecard:
+    required_fields: [status, checks, summary, live_session_reused]

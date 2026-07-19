@@ -185,6 +185,10 @@ class LiveAedtBackend:
                 return self._layout_via_create_preview(target, arguments)
             if command == "layout_via_create_apply":
                 return self._layout_via_create_apply(target, arguments)
+            if command == "layout_via_update_preview":
+                return self._layout_via_update_preview(target, arguments)
+            if command == "layout_via_update_apply":
+                return self._layout_via_update_apply(target, arguments)
             if command == "layout_connectivity_inventory":
                 return self._layout_connectivity_inventory(target, arguments)
             if command == "layout_port_candidate_inventory":
@@ -3602,6 +3606,142 @@ class LiveAedtBackend:
             "project_saved": False,
         }
 
+    def _layout_via_update_preview(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        project = _required(args, "project_name")
+        design = _required(args, "design_name")
+        app = self._app(target, "layout", project, design)
+        if _simulation_running(app):
+            raise LiveBackendError("cannot update 3D Layout vias while a simulation is running")
+        spec = _normalize_layout_via_update_spec(args)
+        state = _layout_via_update_state(app, spec)
+        state_digest = _digest(state)
+        preview_id = "layout-via-update-preview-" + _digest(
+            {"state": state, "spec": spec}
+        )[:24]
+        self._previews[preview_id] = {
+            "kind": "layout_via_update",
+            "target": target,
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "spec": spec,
+            "state": state,
+            "digest": state_digest,
+        }
+        return {
+            "preview_id": preview_id,
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "updates": spec["updates"],
+            "before": state["vias"],
+            "via_count": len(spec["updates"]),
+            "model_units": state["model_units"],
+            "snapshot_digest": state_digest,
+            "approval_required": True,
+            "automatic_rollback_on_failure": True,
+            "project_dirty": False,
+            "project_saved": False,
+        }
+
+    def _layout_via_update_apply(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        preview_id = _required(args, "preview_id")
+        preview = self._preview(preview_id, "layout_via_update", target)
+        app = self._app(
+            target,
+            "layout",
+            preview["project_name"],
+            preview["design_name"],
+        )
+        if _simulation_running(app):
+            raise LiveBackendError("cannot update 3D Layout vias while a simulation is running")
+        spec = preview["spec"]
+        try:
+            current_state = _layout_via_update_state(app, spec)
+        except LiveBackendError as exc:
+            raise LiveBackendError("stale 3D Layout via update preview") from exc
+        if _digest(current_state) != preview["digest"]:
+            raise LiveBackendError("stale 3D Layout via update preview")
+
+        before_by_name = {item["name"]: item for item in preview["state"]["vias"]}
+        touched_names: list[str] = []
+        try:
+            for update in spec["updates"]:
+                name = update["name"]
+                before = before_by_name[name]
+                via = _layout_via_object(app, name)
+                touched_names.append(name)
+                changes_position = "location" in update or "rotation_degrees" in update
+                if changes_position and before["lock_position"]:
+                    via.lock_position = False
+                if "net_name" in update and update["net_name"] != before["net_name"]:
+                    via.net_name = update["net_name"]
+                if "location" in update and not _layout_locations_equal(
+                    before["location"], update["location"]
+                ):
+                    via.location = list(update["location"])
+                if "rotation_degrees" in update and not _layout_angles_equal(
+                    float(before["rotation_degrees"]),
+                    float(update["rotation_degrees"]),
+                ):
+                    via.angle = f"{update['rotation_degrees']}deg"
+                if "lock_position" in update:
+                    via.lock_position = update["lock_position"]
+                elif changes_position and before["lock_position"]:
+                    via.lock_position = True
+
+            readback = [
+                _layout_native_via_record(app, update["name"])
+                for update in spec["updates"]
+            ]
+            _verify_layout_via_update_readback(
+                app,
+                spec,
+                readback,
+                before_state=preview["state"],
+            )
+        except Exception as exc:
+            rollback = _rollback_layout_via_update(
+                app,
+                spec,
+                touched_names,
+                before_state=preview["state"],
+            )
+            if not rollback["complete"]:
+                raise LiveBackendError(
+                    "3D Layout via update failed and rollback is incomplete: "
+                    f"{rollback}"
+                ) from exc
+            if isinstance(exc, LiveBackendError):
+                raise
+            raise LiveBackendError(
+                f"3D Layout via update failed: {type(exc).__name__}: {exc}"
+            ) from exc
+
+        del self._previews[preview_id]
+        return {
+            "status": "verified",
+            "preview_id": preview_id,
+            "project_name": preview["project_name"],
+            "design_name": preview["design_name"],
+            "updates": spec["updates"],
+            "before": preview["state"]["vias"],
+            "vias": readback,
+            "via_count": len(readback),
+            "model_units": preview["state"]["model_units"],
+            "snapshot_digest": preview["digest"],
+            "readback_digest": _digest(readback),
+            "automatic_rollback_on_failure": True,
+            "project_dirty": True,
+            "project_saved": False,
+        }
+
     def _layout_connectivity_inventory(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
         app = self._app(
             target,
@@ -5395,6 +5535,13 @@ _LAYOUT_VIA_CREATE_FIELDS = {
     "net_name",
     "lock_position",
 }
+_LAYOUT_VIA_UPDATE_FIELDS = {
+    "name",
+    "net_name",
+    "location",
+    "rotation_degrees",
+    "lock_position",
+}
 
 _SAFE_ARTIFACT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,127}")
 
@@ -5546,6 +5693,78 @@ def _normalize_layout_via_create_spec(args: dict[str, Any]) -> dict[str, Any]:
             }
         )
     return {"vias": normalized, "max_vias": max_vias}
+
+
+def _normalize_layout_via_update_spec(args: dict[str, Any]) -> dict[str, Any]:
+    max_vias = _bounded_integer(
+        args.get("max_vias", 16),
+        "max_vias",
+        minimum=1,
+        maximum=32,
+    )
+    raw_updates = args.get("updates")
+    if not isinstance(raw_updates, list) or not raw_updates:
+        raise LiveBackendError("updates must contain at least one typed via update")
+    if len(raw_updates) > max_vias:
+        raise LiveBackendError(f"updates exceeds the approved maximum of {max_vias}")
+    normalized = []
+    seen_names = set()
+    for index, raw in enumerate(raw_updates):
+        field = f"updates[{index}]"
+        if not isinstance(raw, dict):
+            raise LiveBackendError(f"{field} must be an object")
+        unsupported = sorted(set(raw).difference(_LAYOUT_VIA_UPDATE_FIELDS))
+        if unsupported:
+            raise LiveBackendError(f"unsupported {field} field: {unsupported[0]}")
+        name = str(raw.get("name") or "").strip()
+        if not _SAFE_AEDT_OBJECT_NAME.fullmatch(name):
+            raise LiveBackendError(f"{field}.name must be a safe exact AEDT object name")
+        folded_name = name.casefold()
+        if folded_name in seen_names:
+            raise LiveBackendError("via update names must be unique case-insensitively")
+        seen_names.add(folded_name)
+        mutable_fields = set(raw).difference({"name"})
+        if not mutable_fields:
+            raise LiveBackendError(
+                f"{field} must include net_name, location, rotation_degrees, or lock_position"
+            )
+        update: dict[str, Any] = {"name": name}
+        if "net_name" in raw:
+            net_name = str(raw.get("net_name") or "").strip()
+            if not _SAFE_AEDT_OBJECT_NAME.fullmatch(net_name):
+                raise LiveBackendError(
+                    f"{field}.net_name must be a safe exact existing net name"
+                )
+            update["net_name"] = net_name
+        if "location" in raw:
+            location = raw.get("location")
+            if not isinstance(location, list) or len(location) != 2:
+                raise LiveBackendError(
+                    f"{field}.location must contain two numeric model-unit coordinates"
+                )
+            update["location"] = [
+                _bounded_float(
+                    value,
+                    f"{field}.location[{coordinate_index}]",
+                    minimum=-1e9,
+                    maximum=1e9,
+                )
+                for coordinate_index, value in enumerate(location)
+            ]
+        if "rotation_degrees" in raw:
+            update["rotation_degrees"] = _bounded_float(
+                raw.get("rotation_degrees"),
+                f"{field}.rotation_degrees",
+                minimum=-3600.0,
+                maximum=3600.0,
+            )
+        if "lock_position" in raw:
+            lock_position = raw.get("lock_position")
+            if type(lock_position) is not bool:
+                raise LiveBackendError(f"{field}.lock_position must be boolean")
+            update["lock_position"] = lock_position
+        normalized.append(update)
+    return {"updates": normalized, "max_vias": max_vias}
 
 
 def _normalize_layout_material_create_assign_spec(
@@ -9655,6 +9874,94 @@ def _layout_via_create_state(app: Any, spec: dict[str, Any]) -> dict[str, Any]:
     return state
 
 
+def _layout_via_update_dependencies(
+    app: Any,
+    spec: dict[str, Any],
+) -> dict[str, Any]:
+    design_type = str(_safe_attribute(app, "design_type") or "").strip()
+    if design_type != "HFSS 3D Layout Design":
+        raise LiveBackendError("3D Layout via update requires HFSS 3D Layout Design")
+    stackup = _layout_full_stackup_snapshot(app)
+    try:
+        net_names = sorted(str(item) for item in dict(app.modeler.nets or {}))
+    except Exception as exc:
+        raise LiveBackendError(
+            f"3D Layout net inventory is unavailable: {type(exc).__name__}: {exc}"
+        ) from exc
+    if len(net_names) > 100_000:
+        raise LiveBackendError("3D Layout net inventory exceeds the 100000 name safety limit")
+    selected_nets = {}
+    for update in spec["updates"]:
+        if "net_name" not in update:
+            continue
+        net_name = _layout_exact_name(net_names, update["net_name"], "net_name")
+        selected_nets[net_name] = {"name": net_name}
+    model_units = str(
+        _safe_attribute(_safe_attribute(app, "modeler"), "model_units") or ""
+    ).strip()
+    if not model_units:
+        raise LiveBackendError("3D Layout model units are unavailable")
+    return {
+        "design_type": design_type,
+        "solution_type": str(_safe_attribute(app, "solution_type") or "").strip(),
+        "model_units": model_units,
+        "stackup": stackup,
+        "net_names": net_names,
+        "selected_nets": selected_nets,
+    }
+
+
+def _layout_via_update_state(app: Any, spec: dict[str, Any]) -> dict[str, Any]:
+    state = _layout_via_update_dependencies(app, spec)
+    vias = []
+    for update in spec["updates"]:
+        record = _layout_native_via_record(app, update["name"])
+        if str(record["type"]).casefold() != "via":
+            raise LiveBackendError(f"3D Layout object is not a via: {update['name']}")
+        _layout_via_object(app, update["name"])
+        if not _layout_via_update_changes_record(record, update):
+            raise LiveBackendError(
+                f"3D Layout via update is already equal to the requested values: {update['name']}"
+            )
+        vias.append(record)
+    return {**state, "vias": vias}
+
+
+def _layout_via_object(app: Any, name: str) -> Any:
+    try:
+        collection = dict(_safe_attribute(_safe_attribute(app, "modeler"), "vias") or {})
+    except Exception as exc:
+        raise LiveBackendError(
+            f"3D Layout via wrapper inventory is unavailable: {type(exc).__name__}: {exc}"
+        ) from exc
+    actual_name = _layout_exact_name(
+        [str(item) for item in collection],
+        name,
+        "via name",
+    )
+    return collection[actual_name]
+
+
+def _layout_via_update_changes_record(
+    record: dict[str, Any],
+    update: dict[str, Any],
+) -> bool:
+    if "net_name" in update and record["net_name"] != update["net_name"]:
+        return True
+    if "location" in update and not _layout_locations_equal(
+        record["location"], update["location"]
+    ):
+        return True
+    if "rotation_degrees" in update and not _layout_angles_equal(
+        float(record["rotation_degrees"]),
+        float(update["rotation_degrees"]),
+    ):
+        return True
+    if "lock_position" in update and record["lock_position"] is not update["lock_position"]:
+        return True
+    return False
+
+
 def _layout_native_via_record(app: Any, name: str) -> dict[str, Any]:
     matches = _layout_native_name_matches(app, name)
     if matches != [name]:
@@ -9773,6 +10080,20 @@ def _layout_angles_equal(actual: float, expected: float) -> bool:
     )
 
 
+def _layout_locations_equal(actual: Any, expected: Any) -> bool:
+    if not isinstance(actual, (list, tuple)) or not isinstance(expected, (list, tuple)):
+        return False
+    if len(actual) != 2 or len(expected) != 2:
+        return False
+    try:
+        return all(
+            math.isclose(float(actual_value), float(expected_value), rel_tol=0.0, abs_tol=1e-9)
+            for actual_value, expected_value in zip(actual, expected)
+        )
+    except (TypeError, ValueError):
+        return False
+
+
 def _verify_layout_via_create_readback(
     app: Any,
     spec: dict[str, Any],
@@ -9854,6 +10175,105 @@ def _verify_layout_via_create_readback(
         raise LiveBackendError("3D Layout via creation target presence readback mismatch")
 
 
+def _verify_layout_via_update_readback(
+    app: Any,
+    spec: dict[str, Any],
+    readback: list[dict[str, Any]],
+    *,
+    before_state: dict[str, Any],
+) -> None:
+    if len(readback) != len(spec["updates"]):
+        raise LiveBackendError("3D Layout via update readback count mismatch")
+    before_by_name = {item["name"]: item for item in before_state["vias"]}
+    after_by_name = {item["name"]: item for item in readback}
+    if len(after_by_name) != len(readback):
+        raise LiveBackendError("3D Layout via update readback contains duplicate names")
+    native_fields = {
+        "net_name": "Net",
+        "location": "Location",
+        "rotation_degrees": "Angle",
+        "lock_position": "LockPosition",
+    }
+    immutable_fields = (
+        "name",
+        "type",
+        "padstack",
+        "top_layer",
+        "bottom_layer",
+        "override_hole_diameter",
+        "hole_diameter",
+    )
+    for update in spec["updates"]:
+        name = update["name"]
+        before = before_by_name.get(name)
+        actual = after_by_name.get(name)
+        if before is None or actual is None:
+            raise LiveBackendError(f"3D Layout via update readback is missing: {name}")
+        for field in immutable_fields:
+            if actual[field] != before[field]:
+                raise LiveBackendError(
+                    f"3D Layout via update changed immutable {field}: {name}"
+                )
+        if "net_name" in update and actual["net_name"] != update["net_name"]:
+            raise LiveBackendError(f"3D Layout via {name} net_name readback mismatch")
+        if "location" in update and not _layout_locations_equal(
+            actual["location"], update["location"]
+        ):
+            raise LiveBackendError(f"3D Layout via {name} location readback mismatch")
+        if "rotation_degrees" in update and not _layout_angles_equal(
+            float(actual["rotation_degrees"]),
+            float(update["rotation_degrees"]),
+        ):
+            raise LiveBackendError(f"3D Layout via {name} rotation readback mismatch")
+        if "lock_position" in update and actual["lock_position"] is not update["lock_position"]:
+            raise LiveBackendError(f"3D Layout via {name} lock_position readback mismatch")
+
+        allowed_native = {
+            native_fields[field]
+            for field in update
+            if field in native_fields
+        }
+        before_native = dict(before["native_properties"])
+        after_native = dict(actual["native_properties"])
+        if set(after_native) != set(before_native):
+            raise LiveBackendError(
+                f"3D Layout via {name} native property schema changed during update"
+            )
+        for field in sorted(set(before_native).difference(allowed_native)):
+            if after_native[field] != before_native[field]:
+                raise LiveBackendError(
+                    f"3D Layout via {name} changed unrelated native property: {field}"
+                )
+
+    after_dependencies = _layout_via_update_dependencies(app, spec)
+    before_dependencies = dict(before_state)
+    before_vias = before_dependencies.pop("vias")
+    before_net_names = set(before_dependencies.pop("net_names"))
+    after_net_names = set(after_dependencies.pop("net_names"))
+    if _digest(after_dependencies) != _digest(before_dependencies):
+        raise LiveBackendError("3D Layout via update changed a frozen dependency")
+    added_nets = sorted(after_net_names.difference(before_net_names))
+    if added_nets:
+        raise LiveBackendError(
+            f"3D Layout via update unexpectedly added a net: {added_nets[0]}"
+        )
+    before_via_by_name = {item["name"]: item for item in before_vias}
+    allowed_removed_nets = {
+        before_via_by_name[update["name"]]["net_name"]
+        for update in spec["updates"]
+        if "net_name" in update
+        and update["net_name"] != before_via_by_name[update["name"]]["net_name"]
+    }
+    unexpected_removed_nets = sorted(
+        before_net_names.difference(after_net_names).difference(allowed_removed_nets)
+    )
+    if unexpected_removed_nets:
+        raise LiveBackendError(
+            "3D Layout via update unexpectedly removed a net: "
+            f"{unexpected_removed_nets[0]}"
+        )
+
+
 def _invalidate_layout_via_cache(app: Any, names: list[str]) -> None:
     modeler = _safe_attribute(app, "modeler")
     cache = _safe_attribute(modeler, "_vias")
@@ -9914,6 +10334,49 @@ def _rollback_layout_via_create(
         "complete": not errors and not remaining and dependencies_restored,
         "attempted_names": candidates,
         "remaining_names": remaining,
+        "before_digest": _digest(before_state),
+        "after_digest": _digest(restored_state) if restored_state else "",
+        "errors": errors,
+    }
+
+
+def _rollback_layout_via_update(
+    app: Any,
+    spec: dict[str, Any],
+    touched_names: list[str],
+    *,
+    before_state: dict[str, Any],
+) -> dict[str, Any]:
+    before_by_name = {item["name"]: item for item in before_state["vias"]}
+    attempted_names = list(dict.fromkeys(touched_names))
+    errors = []
+    for name in reversed(attempted_names):
+        before = before_by_name.get(name)
+        if before is None:
+            errors.append(f"missing rollback snapshot for {name}")
+            continue
+        try:
+            via = _layout_via_object(app, name)
+            via.lock_position = False
+            via.net_name = before["net_name"]
+            via.location = list(before["location"])
+            via.angle = f"{before['rotation_degrees']}deg"
+            via.lock_position = bool(before["lock_position"])
+        except Exception as exc:
+            errors.append(f"restore {name} failed: {type(exc).__name__}: {exc}")
+
+    restored_state: dict[str, Any] = {}
+    try:
+        restored_state = _layout_via_update_state(app, spec)
+        restored = _digest(restored_state) == _digest(before_state)
+    except Exception as exc:
+        restored = False
+        errors.append(f"rollback readback failed: {type(exc).__name__}: {exc}")
+    if not restored:
+        errors.append("full native via update snapshot was not restored")
+    return {
+        "complete": not errors and restored,
+        "attempted_names": attempted_names,
         "before_digest": _digest(before_state),
         "after_digest": _digest(restored_state) if restored_state else "",
         "errors": errors,

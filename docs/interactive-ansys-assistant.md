@@ -145,6 +145,8 @@ preview_live_layout_material_create_assign
 apply_live_layout_material_create_assign
 preview_live_layout_via_create
 apply_live_layout_via_create
+preview_live_layout_via_update
+apply_live_layout_via_update
 get_live_hfss_mesh_inventory
 preview_live_hfss_length_mesh_create
 apply_live_hfss_length_mesh_create
@@ -329,6 +331,22 @@ get_live_layout_technology_inventory + get_live_layout_connectivity_inventory
 layer 或 net。apply 显式补写 PyAEDT `CreateVia` 未可靠落下的 Angle，失败时删除整批新 Via，并用 AEDT 原生
 `FindObjects` 验证删除结果，不信任 wrapper 的旧 Via cache。
 
+更新一批既有精确 Via 时：
+
+```text
+get_live_layout_connectivity_inventory
+  -> preview_live_layout_via_update
+  -> wait_for_live_approval
+  -> apply_live_layout_via_update
+  -> 核对请求的 Net/Location/Angle/LockPosition、完整原生属性边界和 project_saved=false
+```
+
+一次限 1～32 个精确名称。目标和新 net 必须已存在；位置是当前 model unit 下的有限数值。preview 冻结完整
+stackup、net 名称目录和目标 Via 的全部 `BaseElementTab` 属性。锁定 Via 在移动或旋转时由事务临时解锁，
+最后恢复原状态或用户指定状态。除请求对应的原生字段外，任何其他属性变化都会使验证失败，并触发完整目标
+snapshot 回滚。AEDT 在最后一个对象移出后可以删除空旧源网络；Harness 仅允许本批实际改网的源网络消失，
+禁止新增或删除无关网络。
+
 为已有 solid 分配材料时，目标材料必须已经存在于当前工程 material catalog：
 
 ```text
@@ -457,7 +475,7 @@ token = authority.issue(**preview["approval_request"])
 - 写操作暂不支持覆盖源工程。
 - 只读查询也打开临时快照副本，关闭会话后自动清理，避免 EDB lock/tmp 文件触碰源目录。
 - `.aedt` 输入必须存在同名 `.aedb` sidecar。
-- Live HFSS/3D Layout 当前支持 routing/object/variable/setup inventory、有序变量原子批量事务、HFSS typed surface boundary、数值型各向同性电磁材料创建、solid 材料批量分配、3D Layout 工程材料原子创建和明确 stackup layer 分配、既有技术数据库上的精确 Via 批量创建、Length Based Mesh 和 Infinite Sphere 远场设置、受控变量和对象属性更新、setup/sweep、
+- Live HFSS/3D Layout 当前支持 routing/object/variable/setup inventory、有序变量原子批量事务、HFSS typed surface boundary、数值型各向同性电磁材料创建、solid 材料批量分配、3D Layout 工程材料原子创建和明确 stackup layer 分配、既有技术数据库上的精确 Via 批量创建和已有 Via 的严格批量更新、Length Based Mesh 和 Infinite Sphere 远场设置、受控变量和对象属性更新、setup/sweep、
   radiation/wave/lumped port、report 创建、批准式 analysis start/cancel/status、Layout 有界求解监控、
   HFSS/Layout 受限结果导出和受控 project save。
 - `create_live_hfss_design` 与 `start_live_hfss_analysis` 仅为通用 MCP 兼容入口；Desktop strict 模式禁用直接写入，生产求解使用批准链路。

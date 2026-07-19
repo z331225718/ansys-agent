@@ -556,6 +556,30 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             products=["layout"],
         ),
         _cap(
+            "layout.vias.update",
+            "reversible_edit",
+            ["live"],
+            [
+                "preview_live_layout_via_update",
+                "apply_live_layout_via_update",
+            ],
+            approval="external_host_token",
+            side_effects=[
+                "project_becomes_dirty",
+                "existing_layout_vias_changed",
+            ],
+            postconditions=[
+                "one_to_32_exact_existing_vias_only",
+                "existing_exact_net_names_only",
+                "numeric_model_unit_location_and_rotation_only",
+                "full_stackup_net_catalog_and_native_target_snapshot_unchanged_before_apply",
+                "only_requested_native_via_properties_changed",
+                "full_native_target_snapshot_rollback_on_failure",
+                "project_not_saved",
+            ],
+            products=["layout"],
+        ),
+        _cap(
             "layout.connectivity.inventory",
             "read_only",
             ["live"],

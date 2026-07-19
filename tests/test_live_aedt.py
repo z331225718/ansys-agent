@@ -87,7 +87,7 @@ class FakeVia:
         self.holediam = "0.2mm"
         self.net_name = "GND"
         self.location = [1.0, 2.0]
-        self.angle = "0deg"
+        self.angle = "0.0deg"
         self.lock_position = False
 
 
@@ -352,6 +352,11 @@ class FakeViaCreateLayout(FakeLayout):
         self.modeler.oeditor = FakeViaCreateEditor(self)
         self.modeler._vias = self.modeler.vias
         self.modeler.create_via = self.create_via
+        existing = self.modeler.vias["V1"]
+        existing.padstack = "VIA"
+        existing.start_layer = "TOP"
+        existing.stop_layer = "BOT"
+        existing.override_hole_diameter = False
 
     def create_via(
         self,
@@ -374,7 +379,7 @@ class FakeViaCreateLayout(FakeLayout):
         via.stop_layer = bot_layer
         via.net_name = net
         via.location = [float(x), float(y)]
-        via.angle = "0deg"
+        via.angle = "0.0deg"
         via.lock_position = False
         via.override_hole_diameter = hole_diam is not None
         via.holediam = f"{float(hole_diam)}mm" if hole_diam is not None else "0.2mm"
@@ -1541,6 +1546,11 @@ class FakeRegistry:
             return {
                 "preview_id": "layout-via-create-preview-1",
                 "snapshot_digest": "layout-via-create-digest-1",
+            }
+        if command == "layout_via_update_preview":
+            return {
+                "preview_id": "layout-via-update-preview-1",
+                "snapshot_digest": "layout-via-update-digest-1",
             }
         if command == "hfss_material_assign_preview":
             return {
@@ -2922,6 +2932,286 @@ def test_backend_layout_via_create_rejects_unsafe_requests(mutate, error):
             "layout_via_create_preview",
             request,
         )
+
+
+def _layout_via_update_request():
+    return {
+        "project_name": "Board",
+        "design_name": "Layout1",
+        "updates": [
+            {
+                "name": "V1",
+                "net_name": "N1",
+                "location": [5.0, 6.0],
+                "rotation_degrees": 45.0,
+                "lock_position": True,
+            },
+            {
+                "name": "V2",
+                "net_name": "N2",
+                "location": [-2.0, 8.0],
+                "rotation_degrees": -30.0,
+            },
+        ],
+        "max_vias": 4,
+    }
+
+
+def _fake_via_update_app():
+    app = FakeViaCreateLayout(project="Board", design="Layout1")
+    second = app.create_via(
+        name="V2",
+        padstack="VIA",
+        x=2.0,
+        y=3.0,
+        rotation=0.0,
+        hole_diam=None,
+        top_layer="TOP",
+        bot_layer="BOT",
+        net="N1",
+    )
+    second.angle = "15.0deg"
+    second.lock_position = True
+    return app
+
+
+def _fake_net_removing_via_update_app():
+    app = _fake_via_update_app()
+
+    class NetAwareVia:
+        def __init__(self):
+            self.name = "V1"
+            self.start_layer = "TOP"
+            self.stop_layer = "BOT"
+            self.holediam = "0.2mm"
+            self.padstack = "VIA"
+            self.override_hole_diameter = False
+            self.location = [1.0, 2.0]
+            self.angle = "0.0deg"
+            self.lock_position = False
+            self._net_name = "N_DROP"
+
+        @property
+        def net_name(self):
+            return self._net_name
+
+        @net_name.setter
+        def net_name(self, value):
+            old_name = self._net_name
+            self._net_name = value
+            if value not in app.modeler.nets:
+                app.modeler.nets[value] = FakeLayoutNet(value, [self.name])
+            if old_name and not any(
+                item is not self and item.net_name == old_name
+                for item in app.modeler.vias.values()
+            ):
+                app.modeler.nets.pop(old_name, None)
+
+    app.modeler.nets["N_DROP"] = FakeLayoutNet("N_DROP", ["V1"])
+    app.modeler.vias["V1"] = NetAwareVia()
+    return app
+
+
+def test_backend_layout_via_update_batch_has_exact_native_readback():
+    app = _fake_via_update_app()
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        layout_factory=lambda **kwargs: app,
+    )
+    target = AedtTarget("pid", 42)
+    request = _layout_via_update_request()
+    preview = backend.execute(target, "layout_via_update_preview", request)
+    assert preview["via_count"] == 2
+    assert preview["model_units"] == "mm"
+    assert preview["project_dirty"] is False
+    assert preview["project_saved"] is False
+    assert [item["name"] for item in preview["before"]] == ["V1", "V2"]
+    assert app.modeler.vias["V1"].location == [1.0, 2.0]
+    assert app.modeler.vias["V2"].lock_position is True
+
+    result = backend.execute(
+        target,
+        "layout_via_update_apply",
+        {"preview_id": preview["preview_id"]},
+    )
+    assert result["status"] == "verified"
+    assert result["via_count"] == 2
+    first, second = result["vias"]
+    assert first["name"] == "V1"
+    assert first["net_name"] == "N1"
+    assert first["location"] == [5.0, 6.0]
+    assert first["rotation_degrees"] == 45.0
+    assert first["lock_position"] is True
+    assert second["name"] == "V2"
+    assert second["net_name"] == "N2"
+    assert second["location"] == [-2.0, 8.0]
+    assert second["rotation_degrees"] == -30.0
+    assert second["lock_position"] is True
+    assert all(item["native_property_digest"] for item in result["vias"])
+    assert result["automatic_rollback_on_failure"] is True
+    assert result["project_saved"] is False
+
+
+def test_backend_layout_via_update_rejects_stale_and_restores_full_snapshot(monkeypatch):
+    app = _fake_via_update_app()
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        layout_factory=lambda **kwargs: app,
+    )
+    target = AedtTarget("pid", 42)
+    request = _layout_via_update_request()
+    stale_preview = backend.execute(target, "layout_via_update_preview", request)
+    app.modeler.vias["V1"].angle = "10deg"
+    with pytest.raises(LiveBackendError, match="stale 3D Layout via update preview"):
+        backend.execute(
+            target,
+            "layout_via_update_apply",
+            {"preview_id": stale_preview["preview_id"]},
+        )
+    app.modeler.vias["V1"].angle = "0.0deg"
+
+    rollback_preview = backend.execute(target, "layout_via_update_preview", request)
+    before_state = json.loads(
+        json.dumps(backend._previews[rollback_preview["preview_id"]]["state"])
+    )
+    monkeypatch.setattr(
+        "aedt_agent.live.backend._verify_layout_via_update_readback",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            LiveBackendError("injected layout via update readback failure")
+        ),
+    )
+    with pytest.raises(LiveBackendError, match="injected layout via update readback failure"):
+        backend.execute(
+            target,
+            "layout_via_update_apply",
+            {"preview_id": rollback_preview["preview_id"]},
+        )
+    monkeypatch.undo()
+    retry = backend.execute(target, "layout_via_update_preview", request)
+    assert backend._previews[retry["preview_id"]]["state"] == before_state
+
+
+@pytest.mark.parametrize(
+    "mutate,error",
+    [
+        (lambda request: request.update(updates=[]), "at least one typed via update"),
+        (
+            lambda request: request["updates"][0].update(name="missing"),
+            "via is missing or ambiguous",
+        ),
+        (
+            lambda request: request["updates"][0].update(net_name="missing"),
+            "net_name does not exist",
+        ),
+        (
+            lambda request: request["updates"][0].update(location=[1.0]),
+            "location must contain two",
+        ),
+        (
+            lambda request: request["updates"][0].update(lock_position="yes"),
+            "lock_position must be boolean",
+        ),
+        (
+            lambda request: request["updates"][0].update(unsupported=True),
+            "unsupported updates\\[0\\] field",
+        ),
+        (
+            lambda request: request["updates"].append(dict(request["updates"][0])),
+            "unique case-insensitively",
+        ),
+    ],
+)
+def test_backend_layout_via_update_rejects_unsafe_requests(mutate, error):
+    request = _layout_via_update_request()
+    request["updates"] = request["updates"][:1]
+    mutate(request)
+    app = _fake_via_update_app()
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        layout_factory=lambda **kwargs: app,
+    )
+    with pytest.raises(LiveBackendError, match=error):
+        backend.execute(
+            AedtTarget("pid", 42),
+            "layout_via_update_preview",
+            request,
+        )
+
+
+def test_backend_layout_via_update_rejects_noop():
+    app = _fake_via_update_app()
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        layout_factory=lambda **kwargs: app,
+    )
+    with pytest.raises(LiveBackendError, match="already equal"):
+        backend.execute(
+            AedtTarget("pid", 42),
+            "layout_via_update_preview",
+            {
+                "project_name": "Board",
+                "design_name": "Layout1",
+                "updates": [{"name": "V1", "rotation_degrees": 360.0}],
+            },
+        )
+
+
+def test_backend_layout_via_update_allows_only_changed_empty_source_net_removal():
+    app = _fake_net_removing_via_update_app()
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        layout_factory=lambda **kwargs: app,
+    )
+    preview = backend.execute(
+        AedtTarget("pid", 42),
+        "layout_via_update_preview",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "updates": [{"name": "V1", "net_name": "N1"}],
+        },
+    )
+    result = backend.execute(
+        AedtTarget("pid", 42),
+        "layout_via_update_apply",
+        {"preview_id": preview["preview_id"]},
+    )
+    assert result["status"] == "verified"
+    assert result["vias"][0]["net_name"] == "N1"
+    assert "N_DROP" not in app.modeler.nets
+
+
+def test_backend_layout_via_update_rollback_recreates_removed_source_net(monkeypatch):
+    app = _fake_net_removing_via_update_app()
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        layout_factory=lambda **kwargs: app,
+    )
+    target = AedtTarget("pid", 42)
+    request = {
+        "project_name": "Board",
+        "design_name": "Layout1",
+        "updates": [{"name": "V1", "net_name": "N1"}],
+    }
+    preview = backend.execute(target, "layout_via_update_preview", request)
+    before_state = backend._previews[preview["preview_id"]]["state"]
+    monkeypatch.setattr(
+        "aedt_agent.live.backend._verify_layout_via_update_readback",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            LiveBackendError("injected source-net rollback failure")
+        ),
+    )
+    with pytest.raises(LiveBackendError, match="injected source-net rollback failure"):
+        backend.execute(
+            target,
+            "layout_via_update_apply",
+            {"preview_id": preview["preview_id"]},
+        )
+    monkeypatch.undo()
+    retry = backend.execute(target, "layout_via_update_preview", request)
+    assert backend._previews[retry["preview_id"]]["state"] == before_state
+    assert app.modeler.vias["V1"].net_name == "N_DROP"
+    assert "N_DROP" in app.modeler.nets
 
 
 def test_backend_assigns_existing_hfss_material_batch_with_solve_inside_readback():
@@ -6329,6 +6619,35 @@ def test_manager_requires_action_bound_one_use_approval_for_layout_via_create():
     assert getattr(replay.value, "code", None) == "approval_required"
 
 
+def test_manager_requires_action_bound_one_use_approval_for_layout_via_update():
+    registry = FakeRegistry()
+    authority = HmacApprovalAuthority("u" * 32)
+    manager = LiveAedtSessionManager(registry=registry, approval_verifier=authority)
+    session_id = manager.attach(pid=42)["live_session_id"]
+    preview = manager.preview_layout_via_update(
+        session_id,
+        project_name="Board",
+        design_name="Layout1",
+        updates=_layout_via_update_request()["updates"],
+        max_vias=4,
+    )
+    assert preview["approval_request"]["action"] == "layout.vias.update"
+    token = authority.issue(**preview["approval_request"])
+    result = manager.apply_layout_via_update(
+        session_id,
+        preview_id=preview["preview_id"],
+        approval_token=token,
+    )
+    assert result["command"] == "layout_via_update_apply"
+    with pytest.raises(Exception) as replay:
+        manager.apply_layout_via_update(
+            session_id,
+            preview_id=preview["preview_id"],
+            approval_token=token,
+        )
+    assert getattr(replay.value, "code", None) == "approval_required"
+
+
 def test_manager_requires_action_bound_one_use_approval_for_hfss_length_mesh_create():
     registry = FakeRegistry()
     authority = HmacApprovalAuthority("h" * 32)
@@ -6741,6 +7060,8 @@ def test_mcp_registers_live_tools_without_changing_artifact_tools(monkeypatch):
     assert "apply_live_layout_material_create_assign" in server.tools
     assert "preview_live_layout_via_create" in server.tools
     assert "apply_live_layout_via_create" in server.tools
+    assert "preview_live_layout_via_update" in server.tools
+    assert "apply_live_layout_via_update" in server.tools
     assert "preview_live_hfss_material_assign" in server.tools
     assert "apply_live_hfss_material_assign" in server.tools
     assert "get_live_hfss_material_inventory" in server.tools
@@ -6843,6 +7164,8 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
         "apply_live_layout_material_create_assign",
         "preview_live_layout_via_create",
         "apply_live_layout_via_create",
+        "preview_live_layout_via_update",
+        "apply_live_layout_via_update",
         "list_live_layout_paths",
         "preview_live_parameterize_path_width",
         "apply_live_parameterize_path_width",
@@ -6897,6 +7220,13 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
     ]
     assert "native_via_property_readback_verified" in by_name[
         "layout.vias.create"
+    ]["postconditions"]
+    assert by_name["layout.vias.update"]["tools"] == [
+        "preview_live_layout_via_update",
+        "apply_live_layout_via_update",
+    ]
+    assert "only_requested_native_via_properties_changed" in by_name[
+        "layout.vias.update"
     ]["postconditions"]
     assert "typed_property_and_optional_appearance_readback_verified" in by_name[
         "hfss.material.create"

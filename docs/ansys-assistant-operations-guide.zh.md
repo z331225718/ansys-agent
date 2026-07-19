@@ -20,7 +20,7 @@
 | 首次部署管理员 | 第 1～6、12～16 节 |
 | 每天操作 AEDT 的工程师 | 第 1、4～11 节 |
 | 只需要把 4.3mil 线宽参数化 | 第 4～8 节 |
-| 需要创建 Layout 材料或 Via | 第 4～7、8A～8B 节 |
+| 需要创建 Layout 材料、创建或更新 Via | 第 4～7、8A～8C 节 |
 | Harness 没有现成能力 | 第 10 节 |
 | 升级、移交或故障恢复 | 第 12～16 节 |
 
@@ -549,6 +549,34 @@ Location、Angle、LockPosition 和 HoleDiameter。删除后不信任 PyAEDT 的
 该能力已通过隔离 AEDT 2026.1 + PyAEDT 1.3.0 实测：两 Via 原子成功、孔径 override/默认孔径、正负旋转、
 锁定状态、外部同名对象导致 stale、磁盘工程 SHA-256 不变，以及真实创建后的故障注入全批回滚。目标
 AEDT 2024 R2 仍需按第 12 节在测试工程副本复验。
+
+## 8C. 示例：批量移动、旋转、改网或锁定已有 Via
+
+推荐请求：
+
+```text
+使用 layout_live_via_update 更新当前 3D Layout 的两个既有 Via：
+1. V1 改到 net=N2、位置 [5.0,6.0]mm、旋转 45deg，并保持锁定；
+2. V2 改到位置 [-2.0,8.0]mm、旋转 -30deg，不改变当前锁定状态。
+先冻结完整 stackup、net 名称目录和两个 Via 的全部 BaseElementTab 原生属性；审批后批量 apply。
+只允许 Net、Location、Angle 和明确请求的 LockPosition 改变，其他原生属性必须保持一致。
+任一项失败时恢复本批所有已触碰 Via 的完整原生快照。不要保存工程。
+```
+
+每项必须有精确 `name`，并至少提供一个可写字段：`net_name`、`location`、`rotation_degrees` 或
+`lock_position`。一次最多 32 个 Via。`net_name` 必须已经存在且大小写完全一致；`location` 是当前
+`model_units` 下的两个有限数值；旋转为有限角度，按模 360 语义回读。完全等于当前状态的 no-op 会在
+preview 阶段拒绝，不会为了制造“成功”而把相同值再写一遍。
+
+锁定 Via 需要移动或旋转时，Harness 会在事务内临时解锁，完成更新后恢复原锁定状态或设置用户明确请求的
+最终状态。readback 直接读取 AEDT `BaseElementTab`；除 `Net`、`Location`、`Angle`、`LockPosition` 中
+实际请求的字段外，Name、Type、Padstack、Start/Stop Layer、孔径以及其他原生字段必须与 preview 完全一致。
+若本批移走了某个网络上的最后一个对象，AEDT 可以删除变空的旧源网络；Harness 只允许本批实际改网的旧源
+网络消失，禁止新增网络或删除无关网络。
+
+该能力已通过隔离 AEDT 2026.1 + PyAEDT 1.3.0 实测：双 Via 批量移动、正负旋转、改网、锁定/保持锁定、
+空旧源网络清理、外部修改导致 stale、磁盘工程 SHA-256 不变，以及真实写入后的故障注入完整快照回滚。测试专属 AEDT 和
+live session 均已清理。目标 AEDT 2024 R2 仍需在测试工程副本上复验。
 
 ## 9. 保存工程
 

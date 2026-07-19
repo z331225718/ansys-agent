@@ -353,6 +353,43 @@ class _Live:
             "project_saved": False,
         }
 
+    def preview_layout_via_update(self, session_id: str, **kwargs) -> dict:
+        return {
+            "preview_id": "layout-via-update-preview-1",
+            "updates": list(kwargs["updates"]),
+            "approval_request": {"action": "layout.vias.update"},
+            "project_saved": False,
+        }
+
+    def apply_layout_via_update(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        assert preview_id == "layout-via-update-preview-1"
+        assert approval_token == "layout-via-update-approved"
+        return {
+            "status": "verified",
+            "via_count": 2,
+            "model_units": "mm",
+            "vias": [
+                {
+                    "name": "V1",
+                    "native_property_digest": "via-update-native-1",
+                },
+                {
+                    "name": "V2",
+                    "native_property_digest": "via-update-native-2",
+                },
+            ],
+            "snapshot_digest": "via-update-snapshot-1",
+            "readback_digest": "via-update-readback-1",
+            "automatic_rollback_on_failure": True,
+            "project_saved": False,
+        }
+
     def preview_hfss_material_assign(self, session_id: str, **kwargs) -> dict:
         return {
             "preview_id": "material-preview-1",
@@ -1015,6 +1052,11 @@ def test_default_workflow_catalog_includes_live_monitor_and_export(tmp_path: Pat
     assert descriptors["layout_live_via_create"]["recommended_initial_fields"] == [
         "vias"
     ]
+    assert descriptors["layout_live_via_update"]["risk"] == "reversible_edit"
+    assert descriptors["layout_live_via_update"]["attached_live_session_reuse"] is True
+    assert descriptors["layout_live_via_update"]["recommended_initial_fields"] == [
+        "updates"
+    ]
     assert descriptors["hfss_live_material_assign"]["risk"] == "reversible_edit"
     assert descriptors["hfss_live_material_assign"]["attached_live_session_reuse"] is True
     assert descriptors["hfss_live_material_assign"]["recommended_initial_fields"] == [
@@ -1444,6 +1486,68 @@ def test_live_layout_via_create_workflow_scores_native_batch(tmp_path: Path):
     assert scorecard["summary"]["via_count"] == 2
     assert scorecard["summary"]["via_names"] == ["V_NEW_1", "V_NEW_2"]
     assert scorecard["summary"]["readback_digest"] == "via-batch-readback-1"
+    assert scorecard["summary"]["project_saved"] is False
+
+
+def test_live_layout_via_update_workflow_scores_native_batch(tmp_path: Path):
+    manager = AssistantWorkflowManager(
+        live_manager=_Live(),
+        db_path=tmp_path / "layout-via-update-missions.db",
+        template_ids=("layout_live_via_update",),
+        runtime_factory=lambda path: AgentRuntime(SQLiteMissionStore(path)),
+    )
+    updates = [
+        {
+            "name": "V1",
+            "net_name": "N2",
+            "location": [1.0, 2.0],
+            "rotation_degrees": 45.0,
+            "lock_position": True,
+        },
+        {
+            "name": "V2",
+            "location": [3.0, 4.0],
+            "rotation_degrees": -30.0,
+        },
+    ]
+    start = manager.preview_start(
+        "live-1",
+        workflow_id="layout_live_via_update",
+        goal="Update two exact vias",
+        initial_payload={"updates": updates, "max_vias": 4},
+    )
+    started = manager.apply_start(
+        "live-1",
+        preview_id=start["preview_id"],
+        approval_token="approved",
+    )
+    report = None
+    for index in range(3):
+        advance = manager.preview_advance(
+            "live-1",
+            graph_run_id=started["graph_run_id"],
+        )
+        if index == 1:
+            assert advance["operation_approval_required"]["preview_id"] == (
+                "layout-via-update-preview-1"
+            )
+        report = manager.apply_advance(
+            "live-1",
+            preview_id=advance["preview_id"],
+            approval_token="approved",
+            operation_approval_token=(
+                "layout-via-update-approved" if index == 1 else ""
+            ),
+        )
+
+    assert report is not None and report["status"] == "succeeded"
+    assert "layout-via-update-approved" not in str(report)
+    scorecard = report["node_runs"][-1]["output_payload"]
+    assert scorecard["status"] == "passed"
+    assert scorecard["summary"]["via_count"] == 2
+    assert scorecard["summary"]["via_names"] == ["V1", "V2"]
+    assert scorecard["summary"]["snapshot_digest"] == "via-update-snapshot-1"
+    assert scorecard["summary"]["readback_digest"] == "via-update-readback-1"
     assert scorecard["summary"]["project_saved"] is False
 
 
