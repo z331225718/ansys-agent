@@ -1,0 +1,43 @@
+id: hfss_live_material_create
+version: 1
+description: Preview, approve, create, and type-check one numeric isotropic electromagnetic material in the current HFSS project without saving it.
+nodes:
+  - id: preview_material
+    role: preview
+    kind: program
+    handler: assistant.live.hfss.preview_material_create
+    input_schema: live_hfss_material_create_request
+    output_schema: live_hfss_material_create_preview
+    max_runs: 1
+  - id: apply_material
+    role: apply
+    kind: program
+    handler: assistant.live.hfss.apply_material_create
+    input_schema: live_hfss_material_create_preview
+    output_schema: live_hfss_material_create_result
+    max_runs: 1
+  - id: verify_scorecard
+    role: scorecard
+    kind: program
+    handler: assistant.live.hfss.material_create_scorecard
+    input_schema: live_hfss_material_create_result
+    output_schema: live_hfss_material_create_scorecard
+    max_runs: 1
+edges:
+  - id: preview-to-apply
+    from: preview_material
+    to: apply_material
+    on: succeeded
+  - id: apply-to-scorecard
+    from: apply_material
+    to: verify_scorecard
+    on: succeeded
+handoffs:
+  live_hfss_material_create_request:
+    required_fields: [material_name]
+  live_hfss_material_create_preview:
+    required_fields: [material_name, operation_preview_id, operation_approval, operation_preview, live_session_reused]
+  live_hfss_material_create_result:
+    required_fields: [material_name, operation_result, live_session_reused]
+  live_hfss_material_create_scorecard:
+    required_fields: [status, checks, summary, live_session_reused]

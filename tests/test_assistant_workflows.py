@@ -216,6 +216,48 @@ class _Live:
             "project_saved": False,
         }
 
+    def preview_hfss_material_create(self, session_id: str, **kwargs) -> dict:
+        return {
+            "preview_id": "material-create-preview-1",
+            "material_name": kwargs["material_name"],
+            "approval_request": {"action": "hfss.material.create"},
+            "project_saved": False,
+        }
+
+    def apply_hfss_material_create(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        assert preview_id == "material-create-preview-1"
+        assert approval_token == "material-create-approved"
+        properties = {
+            "permittivity": 4.2,
+            "permeability": 1.01,
+            "conductivity": 0.005,
+            "dielectric_loss_tangent": 0.018,
+            "magnetic_loss_tangent": 0.002,
+        }
+        return {
+            "status": "verified",
+            "created_material_name": "HarnessLaminate",
+            "material_count": 3,
+            "material": {
+                "canonical_name": "HarnessLaminate",
+                "is_dielectric": True,
+                "electrical_properties": {
+                    name: {"type": "simple", "value": value, "unit": None}
+                    for name, value in properties.items()
+                },
+                "appearance": [10, 20, 30, 0.4],
+                "definition_digest": "material-definition-1",
+            },
+            "automatic_rollback_on_failure": True,
+            "project_saved": False,
+        }
+
     def preview_hfss_material_assign(self, session_id: str, **kwargs) -> dict:
         return {
             "preview_id": "material-preview-1",
@@ -859,6 +901,11 @@ def test_default_workflow_catalog_includes_live_monitor_and_export(tmp_path: Pat
     assert descriptors["hfss_live_geometry_create"]["recommended_initial_fields"] == [
         "primitives"
     ]
+    assert descriptors["hfss_live_material_create"]["risk"] == "reversible_edit"
+    assert descriptors["hfss_live_material_create"]["attached_live_session_reuse"] is True
+    assert descriptors["hfss_live_material_create"]["recommended_initial_fields"] == [
+        "material_name",
+    ]
     assert descriptors["hfss_live_material_assign"]["risk"] == "reversible_edit"
     assert descriptors["hfss_live_material_assign"]["attached_live_session_reuse"] is True
     assert descriptors["hfss_live_material_assign"]["recommended_initial_fields"] == [
@@ -1105,6 +1152,58 @@ def test_live_hfss_material_workflow_assigns_and_scores_batch(tmp_path: Path):
     assert scorecard["summary"]["target_count"] == 2
     assert scorecard["summary"]["material_name"] == "copper"
     assert scorecard["summary"]["target_solve_inside"] is False
+    assert scorecard["summary"]["project_saved"] is False
+
+
+def test_live_hfss_material_create_workflow_creates_and_scores_definition(tmp_path: Path):
+    manager = AssistantWorkflowManager(
+        live_manager=_Live(),
+        db_path=tmp_path / "material-create-missions.db",
+        template_ids=("hfss_live_material_create",),
+        runtime_factory=lambda path: AgentRuntime(SQLiteMissionStore(path)),
+    )
+    start = manager.preview_start(
+        "live-1",
+        workflow_id="hfss_live_material_create",
+        goal="Create one reviewed isotropic HFSS material",
+        initial_payload={
+            "material_name": "HarnessLaminate",
+            "permittivity": 4.2,
+            "permeability": 1.01,
+            "conductivity": 0.005,
+            "dielectric_loss_tangent": 0.018,
+            "magnetic_loss_tangent": 0.002,
+            "appearance": [10, 20, 30, 0.4],
+        },
+    )
+    started = manager.apply_start(
+        "live-1",
+        preview_id=start["preview_id"],
+        approval_token="approved",
+    )
+    report = None
+    for index in range(3):
+        advance = manager.preview_advance("live-1", graph_run_id=started["graph_run_id"])
+        if index == 1:
+            assert (
+                advance["operation_approval_required"]["preview_id"]
+                == "material-create-preview-1"
+            )
+        report = manager.apply_advance(
+            "live-1",
+            preview_id=advance["preview_id"],
+            approval_token="approved",
+            operation_approval_token=(
+                "material-create-approved" if index == 1 else ""
+            ),
+        )
+
+    assert report is not None and report["status"] == "succeeded"
+    assert "material-create-approved" not in str(report)
+    scorecard = report["node_runs"][-1]["output_payload"]
+    assert scorecard["status"] == "passed"
+    assert scorecard["summary"]["created_material_name"] == "HarnessLaminate"
+    assert scorecard["summary"]["definition_digest"] == "material-definition-1"
     assert scorecard["summary"]["project_saved"] is False
 
 

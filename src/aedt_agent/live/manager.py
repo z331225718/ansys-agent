@@ -368,6 +368,58 @@ class LiveAedtSessionManager:
             },
         )
 
+    def preview_hfss_material_create(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+        material_name: str,
+        permittivity: float = 1.0,
+        permeability: float = 1.0,
+        conductivity: float = 0.0,
+        dielectric_loss_tangent: float = 0.0,
+        magnetic_loss_tangent: float = 0.0,
+        appearance: list[int | float] | None = None,
+    ) -> dict[str, Any]:
+        result = self._execute(
+            session_id,
+            "hfss_material_create_preview",
+            {
+                "project_name": project_name,
+                "design_name": design_name,
+                "material_name": material_name,
+                "permittivity": permittivity,
+                "permeability": permeability,
+                "conductivity": conductivity,
+                "dielectric_loss_tangent": dielectric_loss_tangent,
+                "magnetic_loss_tangent": magnetic_loss_tangent,
+                "appearance": appearance,
+            },
+        )
+        return self._register_approval(session_id, "hfss.material.create", result)
+
+    def apply_hfss_material_create(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict[str, Any]:
+        self._require_approval(
+            session_id,
+            "hfss.material.create",
+            preview_id,
+            approval_token,
+        )
+        result = self._execute(
+            session_id,
+            "hfss_material_create_apply",
+            {"preview_id": preview_id},
+        )
+        self._approval_contexts.pop((session_id, preview_id), None)
+        return result
+
     def preview_hfss_material_assign(
         self,
         session_id: str,

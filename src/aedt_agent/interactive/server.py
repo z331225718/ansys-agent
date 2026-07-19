@@ -376,6 +376,46 @@ def create_server(
         )
 
     @server.tool()
+    async def preview_live_hfss_material_create(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        material_name: str,
+        permittivity: float = 1.0,
+        permeability: float = 1.0,
+        conductivity: float = 0.0,
+        dielectric_loss_tangent: float = 0.0,
+        magnetic_loss_tangent: float = 0.0,
+        appearance: list[int | float] | None = None,
+    ) -> dict:
+        """Preview creating one numeric isotropic electromagnetic material in an HFSS project."""
+        return live.preview_hfss_material_create(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            material_name=material_name,
+            permittivity=permittivity,
+            permeability=permeability,
+            conductivity=conductivity,
+            dielectric_loss_tangent=dielectric_loss_tangent,
+            magnetic_loss_tangent=magnetic_loss_tangent,
+            appearance=appearance,
+        )
+
+    @server.tool()
+    async def apply_live_hfss_material_create(
+        live_session_id: str,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        """Create and type-check one HFSS material with rollback; does not save the project."""
+        return live.apply_hfss_material_create(
+            live_session_id,
+            preview_id=preview_id,
+            approval_token=approval_token,
+        )
+
+    @server.tool()
     async def preview_live_hfss_material_assign(
         live_session_id: str,
         project_name: str,

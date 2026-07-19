@@ -53,6 +53,8 @@ _DESKTOP_ASSISTANT_MCP_TOOLS = (
     "get_live_aedt_solution_inventory",
     "get_live_hfss_geometry_inventory",
     "get_live_hfss_material_inventory",
+    "preview_live_hfss_material_create",
+    "apply_live_hfss_material_create",
     "preview_live_hfss_material_assign",
     "apply_live_hfss_material_assign",
     "get_live_hfss_mesh_inventory",
