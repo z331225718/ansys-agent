@@ -19,6 +19,137 @@
 | 做上线前真实 AEDT 验收 | 第 18、21 节 |
 | 遇到端口、设计名、审批或 PyEDB 问题 | 第 19 节 |
 
+## 0. 推荐操作方式
+
+这一节是日常使用的标准作业流程。管理员完成一次安装后，工程师通常只需要操作 AEDT、点击入口、
+描述任务和检查审批内容，不需要手工启动 MCP，也不需要编写 PyAEDT 脚本。
+
+### 0.1 角色与职责
+
+| 角色 | 负责什么 | 不需要做什么 |
+|---|---|---|
+| 部署管理员 | 安装项目虚拟环境、验签、构建 API Memory、安装 Automation Tab、执行只读 smoke | 不配置或替换远端已有 Claude Code 和模型 |
+| 仿真工程师 | 打开工程、激活设计、描述任务、核对 preview、审批、检查 readback、决定是否保存 | 不选择 gRPC 实现、不手写 MCP JSON、不直接改 Harness |
+| Harness 维护者 | 新增受控能力、编写回读和 rollback、在真实目标 AEDT 版本验收 | 不能只靠模型自述或 mock test 宣称能力可用 |
+
+推荐固定以下目录，便于升级和回滚：
+
+```text
+D:\ansys-agent                 当前批准的安装目录
+D:\ansys-agent-runs            Workflow 结果和 evidence，不放进源码目录
+D:\ansys-agent-releases        下载的 ZIP、SHA256 和解压包
+D:\aedt-project-backups        人工管理的工程副本或备份
+```
+
+项目 Python 只使用 `D:\ansys-agent\.venv`。系统 Python、AEDT 内嵌 Python 和用户全局
+`site-packages` 中即使已经装有 PyAEDT，也不应与项目环境混用。
+
+### 0.2 管理员首次上线顺序
+
+首次部署不要直接从生产工程尝试写操作。按以下顺序逐级放行：
+
+1. 选择第 4 节的一种部署方式，安装到新的空目录。
+2. 执行 `pip check`、真实 import preflight 和 API Memory `status`。
+3. 正常打开 AEDT GUI 和一个测试工程副本，不要让安装脚本代替人工打开生产工程。
+4. 用 `live-sessions` 发现实际端口，再用 `live-info` 只读核对工程、设计和版本。
+5. 安装 `Automation -> Ansys Agent` 入口并从 AEDT 内点击启动。
+6. 完成一次只读 inventory，确认设计名没有内部 `0;` 前缀。
+7. 完成一次 preview-only smoke，确认目标数量、旧值和预期新值正确。
+8. 在测试工程副本上分别验证审批 `No`、审批 `Yes`、apply readback 和“不保存”。
+9. 关闭测试工程不保存，重新打开确认磁盘文件未被意外修改。
+10. 保存 smoke JSON、SHA256、项目 commit、AEDT/PyAEDT/PyEDB 版本，作为该服务器的上线记录。
+
+前一步失败时不要跳级。例如 `live-info` 的设计名不正确，就不应继续安装入口后尝试写操作。
+
+### 0.3 工程师每天的启动顺序
+
+每次操作一个工程或设计都执行下面的短流程：
+
+1. 在同一个交互式 RDP 会话中启动 AEDT。
+2. 打开目标工程，等待工程完整加载，然后在 Project Manager 中单击激活目标设计。
+3. 在 AEDT 中点击 `Automation -> Ansys Agent`，保留新打开的 PowerShell 窗口。
+4. 等待助手只 attach 一次，并报告端口、工程、设计、设计类型和 AEDT 版本。
+5. 人工把报告内容与 AEDT GUI 逐项比较；任一项不一致就关闭本次 PowerShell。
+6. 先发只读任务，确认对象清单和筛选条件能命中合理数量。
+7. 写任务明确要求 `preview -> 审批 -> apply -> readback`，并明确是否保存。未说明时默认不保存。
+8. apply 后检查 `status=verified`、目标数量、失败数量、rollback 状态和 `project_saved=false`。
+9. 需要保存时另行明确提出保存，让保存走独立 preview 和审批。
+10. 任务结束后让助手 release session，或直接退出本次 Claude Code；确认 AEDT 和工程仍保持打开。
+
+PowerShell 是本次按钮来源会话的安全边界。不要把一个 PowerShell 长期复用于后来切换的工程或设计，也不要
+把其中的 `live_session_id`、preview id 或 approval token 复制到另一窗口继续使用。
+
+### 0.4 切换工程、设计或 AEDT 进程
+
+当前会话绑定按钮点击时的 gRPC 端口、project 和 design。需要切换时：
+
+1. 等待正在执行的只读调用结束；如果正在求解，先按任务约定处理，不要直接杀 AEDT。
+2. 退出旧 PowerShell 中的 Claude Code，使助手释放 wrapper。
+3. 回到 AEDT，激活新的工程和设计。
+4. 如果切换到了另一个 AEDT 进程，重新用 `live-sessions` 确认端口，并为该端口重新安装入口。
+5. 再次点击 `Automation -> Ansys Agent`，重新核对身份。
+
+旧会话返回 `project_forbidden` 或 `design_forbidden` 是预期保护，不是应该通过反复 attach 绕过的错误。
+
+### 0.5 可直接使用的对话模板
+
+只读盘点：
+
+```text
+先核对当前 AEDT 工程、设计和设计类型。只读列出当前设计的 <对象类型>，
+返回名称、关键属性和总数。不要修改、不要求解、不要保存；完成后复用当前会话等待。
+```
+
+一次受控修改：
+
+```text
+在当前设计中，将 <明确对象或筛选条件> 的 <属性> 改为 <目标值>。
+优先使用已注册的严格 Workflow 或 typed Harness。先读取 inventory 并列出精确目标，
+再 preview；等我在 Windows 原生确认框批准后才能 apply。apply 后逐项回读，
+失败时报告 rollback 是否完整。不要保存工程。
+```
+
+线宽参数化：
+
+```text
+在当前 HFSS 3D Layout 中找出 LineWidth=4.3mil 的所有 Path，先列出名称、net、layer
+和原始 width expression。使用 layout_live_parameterize_width，把它们参数化为设计变量
+W_line=4.3mil。每一步都走 preview 和审批，apply 后回读验证，不要保存工程。
+```
+
+Harness 未覆盖的能力：
+
+```text
+先检查 capability catalog。若没有现成 Harness，不要猜 API，也不要生成或执行任意脚本。
+使用 ansys-api-memory 查询当前已安装 PyAEDT/PyEDB 的源码证据；如果受控 Exploration
+仍不支持，请报告缺少的 operation/schema/readback 能力和建议新增的 Harness，不要修改工程。
+```
+
+求解与导出：
+
+```text
+对当前设计使用已注册的 live solve/export Workflow。先核对 setup、sweep、variation、
+结果目录和已有结果新鲜度；提交求解、监控、导出分别按 Workflow 推进并等待对应审批。
+只把带新鲜度检查和 SHA256 的产物报告为本次结果，不要自动保存工程。
+```
+
+### 0.6 如何判断助手真的完成了任务
+
+不要只看自然语言中的“成功”。至少检查：
+
+| 阶段 | 必须看到的证据 |
+|---|---|
+| attach | 实际端口、规范 project/design、设计类型和版本与 GUI 一致 |
+| inventory | 总数、返回数、是否截断、目标对象的原始属性 |
+| preview | action、resource、目标清单、旧值、新值、snapshot digest、`project_dirty=false` |
+| approval | Windows 原生确认框；Claude Code 自己的工具确认不能代替它 |
+| apply | `status=verified`、实际回读值、成功/失败数量、`project_saved=false` |
+| failure | rollback 是否 complete，以及回滚后的 inventory/digest 是否恢复 |
+| solve/export | 本次结果的新鲜度、variation、文件大小、时间和 SHA256 |
+| save | 独立保存 action、独立审批，以及保存后的路径/状态回读 |
+
+任何写操作如果没有 preview、原生审批和 typed readback，就不属于本项目承诺的受控路径。
+
 ## 十分钟上手
 
 已经完成安装、AEDT 2024 R2 正在运行且 Claude Code 可用时，最短路径如下。

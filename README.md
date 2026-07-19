@@ -1,6 +1,6 @@
 # ansys-agent
 
-完整的安装、AEDT 连接、对话操作、审批、故障排查和升级说明见
+完整的安装、首次上线、日常操作、可直接使用的对话模板、AEDT 连接、审批、故障排查和升级说明见
 [`docs/ansys-assistant-user-guide.zh.md`](docs/ansys-assistant-user-guide.zh.md)。
 远端服务器可联网时按手册第 4.1 节从源码安装；完全离线时按第 4.2～5 节使用 GitHub Release
 发布包。首次使用建议从手册的“十分钟上手”开始；维护者新增写入 Harness 时，还必须执行其中
