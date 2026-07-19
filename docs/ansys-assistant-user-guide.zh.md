@@ -6,11 +6,16 @@
 
 本文假定目标机器上的 Claude Code 和对应模型已经可用，不包含它们的安装或模型配置过程。
 
+文中的 `D:\ansys-agent`、`50051`、`Board`、`Layout1` 都是示例值，执行前必须替换为目标机器的
+实际安装目录、实际发现端口、活动工程和活动设计。除非命令明确写出“保存”，本文所有 live 修改示例
+都以“只修改 AEDT 内存、完成回读、默认不保存工程”为前提。
+
 ## 快速导航
 
 | 你的目标 | 建议先看 |
 |---|---|
 | 在一台新 Windows Server 上安装 | 第 3～6 节 |
+| 核对部署提交、依赖版本并形成移交记录 | 第 4.3 节 |
 | 连接已经打开的 AEDT 工程 | 第 7～9 节 |
 | 用自然语言查询或修改当前工程 | 第 10～14 节 |
 | 操作文件副本而不是当前工程 | 第 15 节 |
@@ -354,6 +359,70 @@ gh release download $Tag `
 
 把 ZIP 和 `.zip.sha256` 一起传到目标机器。不要只传 ZIP 而丢掉旁路校验文件。
 
+### 4.3 核对部署版本并形成移交记录
+
+“目录叫 ansys-agent”不能证明运行的是本次发布。上线、升级和回滚都应记录代码来源、依赖版本、
+API Memory 状态和真实 AEDT smoke 证据。这样遇到模型行为异常时，能先排除旧源码、旧 `.venv` 或旧
+Automation Tab 入口，而不是直接怀疑工程数据。
+
+源码安装先执行：
+
+```powershell
+$Root = "D:\ansys-agent"
+Set-Location $Root
+
+git status --short --branch
+git rev-parse HEAD
+git remote get-url origin
+
+.\.venv\Scripts\python.exe -c `
+  "import importlib.metadata as m,sys; print(sys.executable); print('aedt-agent',m.version('aedt-agent')); print('pyaedt',m.version('pyaedt')); print('pyedb',m.version('pyedb')); print('fastmcp',m.version('fastmcp'))"
+
+.\.venv\Scripts\python.exe -m aedt_agent.knowledge.api_memory_cli status
+.\.venv\Scripts\python.exe -m aedt_agent.interactive capabilities-v2
+```
+
+正式交付的源码工作区应指向批准的 commit，且 `git status --short` 没有未解释的修改。服务器本地配置
+如确实需要保留，应单独列入移交记录，不能用 `git reset --hard` 清理。
+
+离线包在安装前读取清单：
+
+```powershell
+$Manifest = Get-Content "$Bundle\bundle.json" -Raw -Encoding UTF8 | ConvertFrom-Json
+$Manifest.project | Format-List name,version,git_revision,source_dirty
+$Manifest.target  | Format-List os,architecture,python,aedt
+$Manifest.desktop_dependencies
+```
+
+必须满足：
+
+- `git_revision` 是批准的完整 commit SHA；
+- `source_dirty` 为 `False`；
+- `target.python`、`target.aedt` 与服务器基线一致；
+- `desktop_dependencies` 与本手册第 3 节一致；
+- 外层 ZIP SHA256 和包内文件级 `SHA256SUMS` 均已通过安装器校验。
+
+离线安装根目录不包含 Git 元数据，后续无法靠 `git rev-parse` 还原来源。因此要保留本次 ZIP、
+`.zip.sha256`、`bundle.json` 和安装器 JSON 输出，不能安装完成后只留下 `D:\ansys-agent`。
+
+建议每台机器留一份不含密钥的上线记录，至少包含：
+
+```text
+安装根目录
+部署方式（源码 commit / Release tag / 离线包文件名）
+完整 Git commit SHA 和 source_dirty
+Python、PyAEDT、PyEDB、FastMCP 版本
+AEDT 版本、PID、实际 gRPC 端口
+测试工程和设计名
+API Memory status
+只读 smoke JSON 路径及 SHA256
+preview-only smoke JSON 路径及 SHA256
+副本工程 apply/readback 结果
+执行人和执行时间
+```
+
+这份记录只保存版本和验收事实，不要记录 Claude Code token、模型凭据、审批 key 或生产工程敏感内容。
+
 ## 5. 离线安装
 
 ### 5.1 检查 Python
@@ -526,6 +595,27 @@ Automation -> Ansys Agent
 ```
 
 升级到新安装目录后，要从新目录重新执行 `install`，让按钮指向新的 launcher。
+
+安装命令会输出 JSON。至少核对 `installed=true`、`personal_lib`、`port`、`version` 和
+`restart_required`。不要只凭按钮名称判断安装成功，因为旧入口和新入口在 AEDT 中都显示为
+`Ansys Agent`。
+
+从按钮启动一次后，可以在项目根目录核对最新会话元数据：
+
+```powershell
+Set-Location D:\ansys-agent
+$Session = Get-ChildItem .aedt-agent\desktop\sessions -Directory |
+  Sort-Object LastWriteTime -Descending |
+  Select-Object -First 1
+
+Get-Content (Join-Path $Session.FullName "session.json") -Raw -Encoding UTF8 |
+  ConvertFrom-Json |
+  Select-Object project_root,created_at,context,api_memory
+```
+
+其中 `project_root` 必须是本次批准的安装目录，`context.port/project_name/design_name/design_type` 必须
+与 AEDT GUI 一致。`api_memory.ready=false` 不会禁用已有 Harness，但会禁用未知能力查询；应在写任务前
+按第 19.10 节修复。`session.json` 不含 API key 或 approval secret，可以作为本次入口来源的排障证据。
 
 ## 9. 第一次启动
 
@@ -2739,6 +2829,8 @@ D:\ansys-agent-0.1.0-preview1
 - [ ] `Automation -> Ansys Agent` 可见；
 - [ ] 点击后只 attach 一次；
 - [ ] PowerShell 工作目录指向当前安装根；
+- [ ] 最新 `session.json` 的 `project_root` 指向批准的安装目录；
+- [ ] 最新 `session.json` 的 port/project/design/type 与 AEDT GUI 一致；
 - [ ] 没有 `Computer`/`Chrome` deny rule 警告；
 - [ ] 切换工程或设计后旧会话会拒绝继续操作。
 

@@ -3,7 +3,8 @@
 完整的安装、首次上线、日常操作、可直接使用的对话模板、AEDT 连接、审批、故障排查和升级说明见
 [`docs/ansys-assistant-user-guide.zh.md`](docs/ansys-assistant-user-guide.zh.md)。
 远端服务器可联网时按手册第 4.1 节从源码安装；完全离线时按第 4.2～5 节使用 GitHub Release
-发布包。首次使用建议从手册的“十分钟上手”开始；维护者新增写入 Harness 时，还必须执行其中
+发布包；上线交接时按第 4.3 节记录 commit、依赖版本、入口来源和 smoke evidence，避免 AEDT 按钮
+继续加载旧安装目录。首次使用建议从手册的“十分钟上手”开始；维护者新增写入 Harness 时，还必须执行其中
 “新 Harness 的真实 AEDT 准入”，不能只依赖 mock/unit test。
 
 AEDT Automation Tab 的 Claude Code 入口见
