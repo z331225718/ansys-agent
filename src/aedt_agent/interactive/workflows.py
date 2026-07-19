@@ -14,6 +14,7 @@ from aedt_agent.live.broker import LiveAedtError
 _MAX_PAYLOAD_BYTES = 256 * 1024
 _DEFAULT_TEMPLATE_IDS = (
     "aedt_live_variable_batch_upsert",
+    "hfss_live_coordinate_system_create",
     "hfss_live_geometry_create",
     "hfss_live_geometry_boundary_create",
     "hfss_live_infinite_sphere_create",
@@ -47,6 +48,7 @@ _DEFAULT_TEMPLATE_IDS = (
 _LIVE_SESSION_WORKFLOWS = frozenset(
     {
         "aedt_live_variable_batch_upsert",
+        "hfss_live_coordinate_system_create",
         "hfss_live_geometry_create",
         "hfss_live_geometry_boundary_create",
         "hfss_live_infinite_sphere_create",
@@ -70,6 +72,7 @@ _LIVE_SESSION_WORKFLOWS = frozenset(
 )
 _LIVE_WORKFLOW_RISKS = {
     "aedt_live_variable_batch_upsert": "reversible_edit",
+    "hfss_live_coordinate_system_create": "reversible_edit",
     "hfss_live_geometry_create": "reversible_edit",
     "hfss_live_geometry_boundary_create": "reversible_edit",
     "hfss_live_infinite_sphere_create": "reversible_edit",
@@ -426,6 +429,7 @@ def _graph_state_digest(report: dict[str, Any]) -> str:
 def _operation_approval_requirement(report: dict[str, Any]) -> dict[str, Any] | None:
     preview_nodes = {
         "aedt_live_variable_batch_upsert": {"preview_variables"},
+        "hfss_live_coordinate_system_create": {"preview_coordinate_system"},
         "hfss_live_geometry_create": {"preview_geometry"},
         "hfss_live_geometry_boundary_create": {"preview_geometry_boundaries"},
         "hfss_live_infinite_sphere_create": {"preview_infinite_sphere"},

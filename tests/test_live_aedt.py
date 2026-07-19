@@ -456,6 +456,102 @@ class FakeHfssModeler:
         return points[int(direction)]
 
 
+class FakeCoordinateChild:
+    def __init__(self, properties):
+        self.properties = properties
+
+    def GetPropNames(self):
+        return list(self.properties)
+
+    def GetPropValue(self, name):
+        return self.properties[name]
+
+
+class FakeCoordinateSystem:
+    def __init__(self, modeler, name):
+        self.modeler = modeler
+        self.name = name
+
+    def delete(self):
+        self.modeler._coordinate_systems.pop(self.name, None)
+        if self.modeler._active_coordinate_system == self.name:
+            self.modeler._active_coordinate_system = "Global"
+        return True
+
+
+class FakeCoordinateEditor:
+    def __init__(self, modeler):
+        self.modeler = modeler
+
+    def GetCoordinateSystems(self):
+        return ["Global", *self.modeler._coordinate_systems]
+
+    def GetActiveCoordinateSystem(self):
+        return self.modeler._active_coordinate_system
+
+    def GetChildObject(self, name):
+        return FakeCoordinateChild(self.modeler._coordinate_systems[name])
+
+    def SetWCS(self, arguments):
+        name = arguments[arguments.index("Working Coordinate System:=") + 1]
+        if name not in self.GetCoordinateSystems():
+            raise RuntimeError("unknown coordinate system")
+        self.modeler._active_coordinate_system = name
+        return True
+
+
+class FakeCoordinateModeler(FakeHfssModeler):
+    def __init__(self, *, mismatch_readback=False):
+        super().__init__()
+        self._coordinate_systems = {}
+        self._active_coordinate_system = "Global"
+        self.mismatch_readback = mismatch_readback
+        self.oeditor = FakeCoordinateEditor(self)
+
+    @property
+    def coordinate_systems(self):
+        return [FakeCoordinateSystem(self, name) for name in self._coordinate_systems]
+
+    def create_coordinate_system(
+        self,
+        origin=None,
+        reference_cs="Global",
+        name=None,
+        mode="axis",
+        x_pointing=None,
+        y_pointing=None,
+        **kwargs,
+    ):
+        def origin_value(value):
+            if isinstance(value, (int, float)):
+                return f"{float(value):g}{self.model_units}"
+            text = str(value)
+            try:
+                return f"{float(text):g}{self.model_units}"
+            except ValueError:
+                return text
+
+        x_values = [f"{float(item):g}{self.model_units}" for item in x_pointing]
+        if self.mismatch_readback:
+            x_values[0] = f"{float(x_pointing[0]) + 1:g}{self.model_units}"
+        self._coordinate_systems[name] = {
+            "Type": "Relative",
+            "Reference CS": reference_cs,
+            "Mode": "Axis/Position",
+            "Origin/X": origin_value(origin[0]),
+            "Origin/Y": origin_value(origin[1]),
+            "Origin/Z": origin_value(origin[2]),
+            "X Axis/X": x_values[0],
+            "X Axis/Y": x_values[1],
+            "X Axis/Z": x_values[2],
+            "Y Point/X": f"{float(y_pointing[0]):g}{self.model_units}",
+            "Y Point/Y": f"{float(y_pointing[1]):g}{self.model_units}",
+            "Y Point/Z": f"{float(y_pointing[2]):g}{self.model_units}",
+        }
+        self._active_coordinate_system = name
+        return FakeCoordinateSystem(self, name)
+
+
 class FakeGeometryModeler(FakeHfssModeler):
     def __init__(self, *, fail_on=""):
         super().__init__()
@@ -727,6 +823,13 @@ class FakeControlledSolveHfss(FakeHfss):
         path = Path(output_file)
         path.write_text("# Hz S RI R 50\n", encoding="ascii")
         return str(path)
+
+
+class FakeCoordinateHfss(FakeHfss):
+    def __init__(self, *, mismatch_readback=False, **kwargs):
+        super().__init__(**kwargs)
+        self.modeler = FakeCoordinateModeler(mismatch_readback=mismatch_readback)
+        self.variable_manager = SimpleNamespace(variables={"OX": "12.5mm"})
 
 
 class FakeTypedPortHfss(FakeHfss):
@@ -1260,6 +1363,11 @@ class FakeRegistry:
             return {
                 "preview_id": "surface-boundary-preview-1",
                 "snapshot_digest": "surface-boundary-digest-1",
+            }
+        if command == "hfss_coordinate_system_create_preview":
+            return {
+                "preview_id": "coordinate-system-preview-1",
+                "snapshot_digest": "coordinate-system-digest-1",
             }
         if command == "hfss_report_preview":
             return {"preview_id": "report-preview-1", "snapshot_digest": "report-digest-1"}
@@ -2819,6 +2927,230 @@ def test_backend_hfss_surface_boundary_preview_rejects_unsafe_requests(payload, 
             AedtTarget("pid", 42),
             "hfss_surface_boundary_create_preview",
             {"project_name": "Board", "design_name": "HFSS1", **payload},
+        )
+
+
+def test_backend_lists_creates_and_restores_hfss_coordinate_system():
+    app = FakeCoordinateHfss(project="Board", design="HFSS1")
+    app.modeler.create_coordinate_system(
+        origin=["1mm", "2mm", "3mm"],
+        reference_cs="Global",
+        name="ParentCS",
+        mode="axis",
+        x_pointing=[1, 0, 0],
+        y_pointing=[0, 1, 0],
+    )
+    app.modeler.oeditor.SetWCS(
+        [
+            "NAME:SetWCS Parameter",
+            "Working Coordinate System:=",
+            "Global",
+            "RegionDepCSOk:=",
+            False,
+        ]
+    )
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=lambda **kwargs: app,
+    )
+    target = AedtTarget("pid", 42)
+    inventory = backend.execute(
+        target,
+        "hfss_coordinate_system_inventory",
+        {"project_name": "Board", "design_name": "HFSS1"},
+    )
+    assert inventory["coordinate_system_count"] == 2
+    assert inventory["relative_coordinate_system_count"] == 1
+    assert inventory["active_coordinate_system"] == "Global"
+    assert inventory["design_unchanged"] is True
+
+    preview = backend.execute(
+        target,
+        "hfss_coordinate_system_create_preview",
+        {
+            "project_name": "Board",
+            "design_name": "HFSS1",
+            "coordinate_system_name": "HarnessCS",
+            "reference_coordinate_system": "ParentCS",
+            "origin": ["OX", "2mm", 3],
+            "x_axis": [1, 1, 0],
+            "y_axis": [0, 0, 2],
+        },
+    )
+    assert preview["active_coordinate_system_before"] == "Global"
+    assert preview["reference_coordinate_system"] == "ParentCS"
+    assert preview["project_dirty"] is False
+    assert set(app.modeler._coordinate_systems) == {"ParentCS"}
+
+    result = backend.execute(
+        target,
+        "hfss_coordinate_system_create_apply",
+        {"preview_id": preview["preview_id"]},
+    )
+    assert result["status"] == "verified"
+    assert result["created_coordinate_system_name"] == "HarnessCS"
+    assert result["coordinate_system"]["reference_coordinate_system"] == "ParentCS"
+    assert result["coordinate_system"]["origin"] == ["OX", "2mm", "3mm"]
+    assert result["coordinate_system"]["x_axis"] == ["1mm", "1mm", "0mm"]
+    assert result["coordinate_system"]["y_axis"] == ["0mm", "0mm", "2mm"]
+    assert result["active_coordinate_system_restored"] is True
+    assert app.modeler._active_coordinate_system == "Global"
+    assert result["automatic_rollback_on_failure"] is True
+    assert result["project_saved"] is False
+
+
+def test_backend_hfss_coordinate_system_rejects_stale_and_rolls_back_bad_readback():
+    app = FakeCoordinateHfss(project="Board", design="HFSS1")
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=lambda **kwargs: app,
+    )
+    target = AedtTarget("pid", 42)
+    request = {
+        "project_name": "Board",
+        "design_name": "HFSS1",
+        "coordinate_system_name": "MustNotCreate",
+        "origin": [0, 0, 0],
+        "x_axis": [1, 0, 0],
+        "y_axis": [0, 1, 0],
+    }
+    stale = backend.execute(target, "hfss_coordinate_system_create_preview", request)
+    app.variable_manager.variables["External"] = "1mm"
+    with pytest.raises(LiveBackendError, match="stale HFSS coordinate system create preview"):
+        backend.execute(
+            target,
+            "hfss_coordinate_system_create_apply",
+            {"preview_id": stale["preview_id"]},
+        )
+    assert "MustNotCreate" not in app.modeler._coordinate_systems
+    del app.variable_manager.variables["External"]
+
+    app.modeler.mismatch_readback = True
+    failed = backend.execute(target, "hfss_coordinate_system_create_preview", request)
+    with pytest.raises(LiveBackendError, match=r"x_axis\[0\] readback failed"):
+        backend.execute(
+            target,
+            "hfss_coordinate_system_create_apply",
+            {"preview_id": failed["preview_id"]},
+        )
+    assert set(app.modeler._coordinate_systems) == set()
+    assert app.modeler._active_coordinate_system == "Global"
+
+
+@pytest.mark.parametrize(
+    "payload,error",
+    [
+        ({"coordinate_system_name": "Global"}, "must not be Global"),
+        ({"coordinate_system_name": "bad/name"}, "safe AEDT name"),
+        ({"coordinate_system_name": "CS", "origin": ["x;bad", 0, 0]}, "unsupported"),
+        ({"coordinate_system_name": "CS", "x_axis": [0, 0, 0]}, "x_axis must be nonzero"),
+        ({"coordinate_system_name": "CS", "y_axis": [0, 0, 0]}, "y_axis must be nonzero"),
+        (
+            {"coordinate_system_name": "CS", "x_axis": [1, 0, 0], "y_axis": [2, 0, 0]},
+            "must not be collinear",
+        ),
+        ({"coordinate_system_name": "CS", "x_axis": ["1", 0, 0]}, "finite number"),
+        (
+            {"coordinate_system_name": "CS", "reference_coordinate_system": "Missing"},
+            "must be Global or an existing relative",
+        ),
+    ],
+)
+def test_backend_hfss_coordinate_system_preview_rejects_unsafe_requests(payload, error):
+    app = FakeCoordinateHfss(project="Board", design="HFSS1")
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=lambda **kwargs: app,
+    )
+    request = {
+        "project_name": "Board",
+        "design_name": "HFSS1",
+        "coordinate_system_name": "CS",
+        "origin": [0, 0, 0],
+        "x_axis": [1, 0, 0],
+        "y_axis": [0, 1, 0],
+        **payload,
+    }
+    with pytest.raises(LiveBackendError, match=error):
+        backend.execute(
+            AedtTarget("pid", 42),
+            "hfss_coordinate_system_create_preview",
+            request,
+        )
+
+
+def test_backend_hfss_coordinate_system_rejects_duplicate_and_non_relative_reference():
+    app = FakeCoordinateHfss(project="Board", design="HFSS1")
+    app.modeler.create_coordinate_system(
+        origin=[0, 0, 0],
+        reference_cs="Global",
+        name="ExistingCS",
+        x_pointing=[1, 0, 0],
+        y_pointing=[0, 1, 0],
+    )
+    app.modeler._coordinate_systems["FaceCS"] = {
+        "Type": "Face",
+        "Reference CS": "Global",
+        "Mode": "Axis/Position",
+    }
+    app.modeler._active_coordinate_system = "Global"
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=lambda **kwargs: app,
+    )
+    base = {
+        "project_name": "Board",
+        "design_name": "HFSS1",
+        "origin": [0, 0, 0],
+        "x_axis": [1, 0, 0],
+        "y_axis": [0, 1, 0],
+    }
+    with pytest.raises(LiveBackendError, match="already exists: ExistingCS"):
+        backend.execute(
+            AedtTarget("pid", 42),
+            "hfss_coordinate_system_create_preview",
+            {**base, "coordinate_system_name": "existingcs"},
+        )
+    with pytest.raises(LiveBackendError, match="must be Global or an existing relative"):
+        backend.execute(
+            AedtTarget("pid", 42),
+            "hfss_coordinate_system_create_preview",
+            {
+                **base,
+                "coordinate_system_name": "ChildCS",
+                "reference_coordinate_system": "FaceCS",
+            },
+        )
+
+
+def test_backend_hfss_coordinate_system_rejects_wrong_design_and_running_solve():
+    app = FakeCoordinateHfss(project="Board", design="HFSS1")
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=lambda **kwargs: app,
+    )
+    request = {
+        "project_name": "Board",
+        "design_name": "HFSS1",
+        "coordinate_system_name": "CS",
+        "origin": [0, 0, 0],
+        "x_axis": [1, 0, 0],
+        "y_axis": [0, 1, 0],
+    }
+    app.are_there_simulations_running = True
+    with pytest.raises(LiveBackendError, match="while a simulation is running"):
+        backend.execute(
+            AedtTarget("pid", 42),
+            "hfss_coordinate_system_create_preview",
+            request,
+        )
+    app.are_there_simulations_running = False
+    app.design_type = "HFSS 3D Layout Design"
+    with pytest.raises(LiveBackendError, match="requires an HFSS 3D design"):
+        backend.execute(
+            AedtTarget("pid", 42),
+            "hfss_coordinate_system_inventory",
+            {"project_name": "Board", "design_name": "HFSS1"},
         )
 
 
@@ -5206,6 +5538,38 @@ def test_manager_requires_action_bound_one_use_approval_for_hfss_surface_boundar
     assert getattr(replay.value, "code", None) == "approval_required"
 
 
+def test_manager_requires_action_bound_one_use_approval_for_hfss_coordinate_system():
+    registry = FakeRegistry()
+    authority = HmacApprovalAuthority("c" * 32)
+    manager = LiveAedtSessionManager(registry=registry, approval_verifier=authority)
+    session_id = manager.attach(pid=42)["live_session_id"]
+    preview = manager.preview_hfss_coordinate_system_create(
+        session_id,
+        project_name="Board",
+        design_name="HFSS1",
+        coordinate_system_name="HarnessCS",
+        reference_coordinate_system="Global",
+        origin=[0, 0, "OX"],
+        x_axis=[1, 0, 0],
+        y_axis=[0, 1, 0],
+    )
+    assert preview["approval_request"]["action"] == "hfss.coordinate_system.create"
+    token = authority.issue(**preview["approval_request"])
+    result = manager.apply_hfss_coordinate_system_create(
+        session_id,
+        preview_id=preview["preview_id"],
+        approval_token=token,
+    )
+    assert result["command"] == "hfss_coordinate_system_create_apply"
+    with pytest.raises(Exception) as replay:
+        manager.apply_hfss_coordinate_system_create(
+            session_id,
+            preview_id=preview["preview_id"],
+            approval_token=token,
+        )
+    assert getattr(replay.value, "code", None) == "approval_required"
+
+
 def test_manager_requires_action_bound_approval_for_layout_edge_ports():
     registry = FakeRegistry()
     authority = HmacApprovalAuthority("e" * 32)
@@ -5463,6 +5827,9 @@ def test_mcp_registers_live_tools_without_changing_artifact_tools(monkeypatch):
     assert "get_live_hfss_surface_boundary_inventory" in server.tools
     assert "preview_live_hfss_surface_boundary_create" in server.tools
     assert "apply_live_hfss_surface_boundary_create" in server.tools
+    assert "get_live_hfss_coordinate_system_inventory" in server.tools
+    assert "preview_live_hfss_coordinate_system_create" in server.tools
+    assert "apply_live_hfss_coordinate_system_create" in server.tools
     assert "preview_live_hfss_setup_create" in server.tools
     assert "apply_live_hfss_setup_create" in server.tools
     assert "preview_live_hfss_setup_sweep_create" in server.tools
@@ -5558,6 +5925,9 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
         "get_live_hfss_surface_boundary_inventory",
         "preview_live_hfss_surface_boundary_create",
         "apply_live_hfss_surface_boundary_create",
+        "get_live_hfss_coordinate_system_inventory",
+        "preview_live_hfss_coordinate_system_create",
+        "apply_live_hfss_coordinate_system_create",
         "preview_live_hfss_setup_create",
         "apply_live_hfss_setup_create",
         "list_live_layout_paths",
@@ -5607,6 +5977,16 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
         "preview_live_hfss_length_mesh_create",
         "apply_live_hfss_length_mesh_create",
     ]
+    assert by_name["hfss.coordinate_system.inventory"]["tools"] == [
+        "get_live_hfss_coordinate_system_inventory"
+    ]
+    assert by_name["hfss.coordinate_system.create"]["tools"] == [
+        "preview_live_hfss_coordinate_system_create",
+        "apply_live_hfss_coordinate_system_create",
+    ]
+    assert "prior_active_working_coordinate_system_restored" in by_name[
+        "hfss.coordinate_system.create"
+    ]["postconditions"]
     assert "existing_project_material_only" in by_name["hfss.material.assign"][
         "postconditions"
     ]

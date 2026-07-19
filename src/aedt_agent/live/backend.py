@@ -111,6 +111,12 @@ class LiveAedtBackend:
                 return self._hfss_surface_boundary_create_preview(target, arguments)
             if command == "hfss_surface_boundary_create_apply":
                 return self._hfss_surface_boundary_create_apply(target, arguments)
+            if command == "hfss_coordinate_system_inventory":
+                return self._hfss_coordinate_system_inventory(target, arguments)
+            if command == "hfss_coordinate_system_create_preview":
+                return self._hfss_coordinate_system_create_preview(target, arguments)
+            if command == "hfss_coordinate_system_create_apply":
+                return self._hfss_coordinate_system_create_apply(target, arguments)
             if command == "hfss_geometry_create_preview":
                 return self._hfss_geometry_create_preview(target, arguments)
             if command == "hfss_geometry_create_apply":
@@ -1378,6 +1384,203 @@ class LiveAedtBackend:
             "created_boundary_name": spec["boundary_name"],
             "boundary": readback,
             "boundary_count": len(after_boundaries),
+            "automatic_rollback_on_failure": True,
+            "project_dirty": True,
+            "project_saved": False,
+        }
+
+    def _hfss_coordinate_system_inventory(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        app = self._app(
+            target,
+            "hfss",
+            _required(args, "project_name"),
+            _required(args, "design_name"),
+        )
+        if str(_safe_attribute(app, "design_type") or "").strip().casefold() != "hfss":
+            raise LiveBackendError("HFSS coordinate system inventory requires an HFSS 3D design")
+        max_items = _bounded_integer(
+            args.get("max_items", 100),
+            "max_items",
+            minimum=1,
+            maximum=500,
+        )
+        snapshot = _hfss_coordinate_system_snapshot(app)
+        records = snapshot["coordinate_systems"]
+        selected = records[:max_items]
+        return {
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "model_units": snapshot["model_units"],
+            "active_coordinate_system": snapshot["active_coordinate_system"],
+            "coordinate_system_count": len(records),
+            "relative_coordinate_system_count": sum(
+                item["kind"] == "relative" for item in records
+            ),
+            "returned_count": len(selected),
+            "truncated": len(records) > len(selected),
+            "coordinate_systems": selected,
+            "snapshot_digest": _digest(snapshot),
+            "design_unchanged": True,
+        }
+
+    def _hfss_coordinate_system_create_preview(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        app = self._app(
+            target,
+            "hfss",
+            _required(args, "project_name"),
+            _required(args, "design_name"),
+        )
+        if str(_safe_attribute(app, "design_type") or "").strip().casefold() != "hfss":
+            raise LiveBackendError("HFSS coordinate system creation requires an HFSS 3D design")
+        if _simulation_running(app):
+            raise LiveBackendError("cannot create HFSS coordinate systems while a simulation is running")
+        spec = _normalize_hfss_coordinate_system_spec(args)
+        snapshot = _hfss_coordinate_system_snapshot(app)
+        records = snapshot["coordinate_systems"]
+        by_name = {item["name"].casefold(): item for item in records}
+        existing = by_name.get(spec["coordinate_system_name"].casefold())
+        if existing is not None:
+            raise LiveBackendError(
+                f"HFSS coordinate system already exists: {existing['name']}"
+            )
+        reference = by_name.get(spec["reference_coordinate_system"].casefold())
+        if reference is None:
+            raise LiveBackendError(
+                "reference_coordinate_system must be Global or an existing relative coordinate system"
+            )
+        if reference["kind"] not in {"global", "relative"}:
+            raise LiveBackendError(
+                "reference_coordinate_system must be Global or an existing relative coordinate system"
+            )
+        spec["reference_coordinate_system"] = reference["name"]
+        state = {
+            "design_type": str(_safe_attribute(app, "design_type") or "").strip(),
+            "solution_type": str(_safe_attribute(app, "solution_type") or "").strip(),
+            "coordinate_system_snapshot": snapshot,
+            "variables": _variable_records(app),
+        }
+        state_digest = _digest(state)
+        preview_id = "coordinate-system-preview-" + _digest(
+            spec | {"state": state_digest}
+        )[:24]
+        self._previews[preview_id] = {
+            "kind": "hfss_coordinate_system_create",
+            "target": target,
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "spec": spec,
+            "state": state,
+            "digest": state_digest,
+        }
+        return {
+            "preview_id": preview_id,
+            **spec,
+            "model_units": snapshot["model_units"],
+            "reference_coordinate_system_record": reference,
+            "active_coordinate_system_before": snapshot["active_coordinate_system"],
+            "existing_coordinate_system_count": len(records),
+            "snapshot_digest": state_digest,
+            "approval_required": True,
+            "project_dirty": False,
+            "project_saved": False,
+        }
+
+    def _hfss_coordinate_system_create_apply(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        preview_id = _required(args, "preview_id")
+        preview = self._preview(preview_id, "hfss_coordinate_system_create", target)
+        app = self._app(target, "hfss", preview["project_name"], preview["design_name"])
+        if _simulation_running(app):
+            raise LiveBackendError("cannot create HFSS coordinate systems while a simulation is running")
+        spec = preview["spec"]
+        current = {
+            "design_type": str(_safe_attribute(app, "design_type") or "").strip(),
+            "solution_type": str(_safe_attribute(app, "solution_type") or "").strip(),
+            "coordinate_system_snapshot": _hfss_coordinate_system_snapshot(app),
+            "variables": _variable_records(app),
+        }
+        if _digest(current) != preview["digest"]:
+            raise LiveBackendError("stale HFSS coordinate system create preview")
+
+        before_snapshot = preview["state"]["coordinate_system_snapshot"]
+        created_name = ""
+        try:
+            coordinate_system = app.modeler.create_coordinate_system(
+                origin=spec["origin"],
+                reference_cs=spec["reference_coordinate_system"],
+                name=spec["coordinate_system_name"],
+                mode="axis",
+                x_pointing=spec["x_axis"],
+                y_pointing=spec["y_axis"],
+            )
+            created_name = str(getattr(coordinate_system, "name", "") or "")
+            if coordinate_system is None or created_name != spec["coordinate_system_name"]:
+                raise LiveBackendError("HFSS coordinate system creation returned an unexpected name")
+            _set_hfss_working_coordinate_system(
+                app,
+                before_snapshot["active_coordinate_system"],
+            )
+            after_snapshot = _hfss_coordinate_system_snapshot(app)
+            before_names = {item["name"] for item in before_snapshot["coordinate_systems"]}
+            after_names = {item["name"] for item in after_snapshot["coordinate_systems"]}
+            if after_names != before_names | {spec["coordinate_system_name"]}:
+                raise LiveBackendError("unexpected HFSS coordinate system inventory change")
+            if (
+                after_snapshot["active_coordinate_system"]
+                != before_snapshot["active_coordinate_system"]
+            ):
+                raise LiveBackendError("HFSS active coordinate system was not restored")
+            readback = next(
+                (
+                    item
+                    for item in after_snapshot["coordinate_systems"]
+                    if item["name"] == spec["coordinate_system_name"]
+                ),
+                None,
+            )
+            if readback is None:
+                raise LiveBackendError("HFSS coordinate system readback is missing")
+            _verify_hfss_coordinate_system_readback(
+                spec,
+                readback,
+                model_units=after_snapshot["model_units"],
+            )
+        except Exception as exc:
+            rollback = _rollback_hfss_coordinate_system(
+                app,
+                created_name or spec["coordinate_system_name"],
+                before_snapshot=before_snapshot,
+            )
+            if not rollback["complete"]:
+                raise LiveBackendError(
+                    f"HFSS coordinate system creation failed and rollback is incomplete: {rollback}"
+                ) from exc
+            if isinstance(exc, LiveBackendError):
+                raise
+            raise LiveBackendError(
+                f"HFSS coordinate system creation failed: {type(exc).__name__}: {exc}"
+            ) from exc
+
+        del self._previews[preview_id]
+        return {
+            "status": "verified",
+            "preview_id": preview_id,
+            **spec,
+            "created_coordinate_system_name": spec["coordinate_system_name"],
+            "coordinate_system": readback,
+            "coordinate_system_count": len(after_snapshot["coordinate_systems"]),
+            "active_coordinate_system_restored": True,
             "automatic_rollback_on_failure": True,
             "project_dirty": True,
             "project_saved": False,
@@ -4659,6 +4862,325 @@ _LAYOUT_OBJECT_WRITABLE_PROPERTIES = {
 }
 
 _SAFE_ARTIFACT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,127}")
+
+
+def _normalize_hfss_coordinate_system_spec(args: dict[str, Any]) -> dict[str, Any]:
+    name = str(args.get("coordinate_system_name") or "").strip()
+    if not _SAFE_AEDT_OBJECT_NAME.fullmatch(name):
+        raise LiveBackendError("coordinate_system_name must be a safe AEDT name")
+    if name.casefold() == "global":
+        raise LiveBackendError("coordinate_system_name must not be Global")
+    reference = str(args.get("reference_coordinate_system") or "Global").strip()
+    if not _SAFE_AEDT_OBJECT_NAME.fullmatch(reference):
+        raise LiveBackendError("reference_coordinate_system must be a safe AEDT name")
+    origin = _hfss_vector(
+        args.get("origin"),
+        "origin",
+        length=3,
+        positive=False,
+    )
+    x_axis = _finite_numeric_vector(args.get("x_axis"), "x_axis")
+    y_axis = _finite_numeric_vector(args.get("y_axis"), "y_axis")
+    x_norm = math.sqrt(sum(float(item) ** 2 for item in x_axis))
+    y_norm = math.sqrt(sum(float(item) ** 2 for item in y_axis))
+    if x_norm <= 1e-15:
+        raise LiveBackendError("x_axis must be nonzero")
+    if y_norm <= 1e-15:
+        raise LiveBackendError("y_axis must be nonzero")
+    cross = (
+        float(x_axis[1]) * float(y_axis[2]) - float(x_axis[2]) * float(y_axis[1]),
+        float(x_axis[2]) * float(y_axis[0]) - float(x_axis[0]) * float(y_axis[2]),
+        float(x_axis[0]) * float(y_axis[1]) - float(x_axis[1]) * float(y_axis[0]),
+    )
+    cross_norm = math.sqrt(sum(item**2 for item in cross))
+    if cross_norm <= 1e-12 * x_norm * y_norm:
+        raise LiveBackendError("x_axis and y_axis must not be collinear")
+    return {
+        "coordinate_system_name": name,
+        "reference_coordinate_system": reference,
+        "mode": "axis",
+        "origin": origin,
+        "x_axis": x_axis,
+        "y_axis": y_axis,
+    }
+
+
+def _finite_numeric_vector(value: Any, field: str) -> list[int | float]:
+    if not isinstance(value, list) or len(value) != 3:
+        raise LiveBackendError(f"{field} must contain exactly 3 numeric values")
+    normalized: list[int | float] = []
+    for index, item in enumerate(value):
+        if (
+            isinstance(item, bool)
+            or not isinstance(item, (int, float))
+            or not math.isfinite(float(item))
+        ):
+            raise LiveBackendError(f"{field}[{index}] must be a finite number")
+        normalized.append(item)
+    return normalized
+
+
+def _hfss_coordinate_system_snapshot(app: Any) -> dict[str, Any]:
+    modeler = getattr(app, "modeler", None)
+    model_units = str(_safe_attribute(modeler, "model_units") or "").strip()
+    if not model_units:
+        raise LiveBackendError("HFSS model units are unavailable")
+    editor = getattr(modeler, "oeditor", None)
+    if editor is None:
+        raise LiveBackendError("HFSS coordinate system editor is unavailable")
+    get_names = getattr(editor, "GetCoordinateSystems", None)
+    get_active = getattr(editor, "GetActiveCoordinateSystem", None)
+    get_child = getattr(editor, "GetChildObject", None)
+    if not all(callable(item) for item in (get_names, get_active, get_child)):
+        raise LiveBackendError("HFSS coordinate system readback API is unavailable")
+    try:
+        names = [str(item) for item in list(get_names() or [])]
+        active = str(get_active() or "").strip()
+    except Exception as exc:
+        raise LiveBackendError(
+            f"HFSS coordinate system inventory failed: {type(exc).__name__}: {exc}"
+        ) from exc
+    if len(names) > 500:
+        raise LiveBackendError(
+            "HFSS design has more than 500 coordinate systems; bounded inventory is unavailable"
+        )
+    folded_names = [item.casefold() for item in names]
+    if len(set(folded_names)) != len(folded_names):
+        raise LiveBackendError(
+            "HFSS coordinate system inventory contains duplicate case-insensitive names"
+        )
+    if not active:
+        raise LiveBackendError("HFSS active coordinate system is unavailable")
+    if "Global" not in names:
+        raise LiveBackendError("HFSS Global coordinate system is missing from inventory")
+
+    records = [
+        {
+            "name": "Global",
+            "type": "Global",
+            "kind": "global",
+            "reference_coordinate_system": "",
+            "mode": "Global",
+            "origin": [f"0{model_units}", f"0{model_units}", f"0{model_units}"],
+            "x_axis": [1.0, 0.0, 0.0],
+            "y_axis": [0.0, 1.0, 0.0],
+            "properties": {},
+            "property_digest": _digest({"type": "Global"}),
+        }
+    ]
+    for name in sorted((item for item in names if item != "Global"), key=str.casefold):
+        try:
+            child = get_child(name)
+            prop_names = sorted(str(item) for item in list(child.GetPropNames() or []))
+            properties = {
+                prop_name: _json_value(child.GetPropValue(prop_name))
+                for prop_name in prop_names
+            }
+        except Exception as exc:
+            raise LiveBackendError(
+                f"HFSS coordinate system property readback failed for {name}: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
+        raw_type = str(properties.get("Type") or "").strip()
+        folded_type = raw_type.casefold()
+        if folded_type == "relative":
+            kind = "relative"
+        elif "face" in folded_type:
+            kind = "face"
+        elif "object" in folded_type:
+            kind = "object"
+        else:
+            kind = "other"
+        records.append(
+            {
+                "name": name,
+                "type": raw_type,
+                "kind": kind,
+                "reference_coordinate_system": str(
+                    properties.get("Reference CS") or ""
+                ).strip(),
+                "mode": str(properties.get("Mode") or "").strip(),
+                "origin": _coordinate_property_vector(
+                    properties,
+                    ("Origin/X", "Origin/Y", "Origin/Z"),
+                ),
+                "x_axis": _coordinate_property_vector(
+                    properties,
+                    ("X Axis/X", "X Axis/Y", "X Axis/Z"),
+                ),
+                "y_axis": _coordinate_property_vector(
+                    properties,
+                    ("Y Point/X", "Y Point/Y", "Y Point/Z"),
+                ),
+                "properties": properties,
+                "property_digest": _digest(properties),
+            }
+        )
+    inventory_names = {item["name"] for item in records}
+    if active not in inventory_names:
+        raise LiveBackendError(
+            f"HFSS active coordinate system is not in inventory: {active}"
+        )
+    return {
+        "model_units": model_units,
+        "active_coordinate_system": active,
+        "coordinate_systems": records,
+    }
+
+
+def _coordinate_property_vector(
+    properties: dict[str, Any],
+    names: tuple[str, str, str],
+) -> list[Any] | None:
+    if not all(name in properties for name in names):
+        return None
+    return [properties[name] for name in names]
+
+
+def _set_hfss_working_coordinate_system(app: Any, name: str) -> None:
+    editor = getattr(getattr(app, "modeler", None), "oeditor", None)
+    setter = getattr(editor, "SetWCS", None)
+    if not callable(setter):
+        raise LiveBackendError("HFSS working coordinate system API is unavailable")
+    try:
+        setter(
+            [
+                "NAME:SetWCS Parameter",
+                "Working Coordinate System:=",
+                name,
+                "RegionDepCSOk:=",
+                False,
+            ]
+        )
+    except Exception as exc:
+        raise LiveBackendError(
+            f"failed to restore HFSS working coordinate system: {type(exc).__name__}: {exc}"
+        ) from exc
+
+
+def _verify_hfss_coordinate_system_readback(
+    spec: dict[str, Any],
+    readback: dict[str, Any],
+    *,
+    model_units: str,
+) -> None:
+    if readback.get("kind") != "relative":
+        raise LiveBackendError("HFSS coordinate system type readback failed")
+    if str(readback.get("reference_coordinate_system") or "").casefold() != spec[
+        "reference_coordinate_system"
+    ].casefold():
+        raise LiveBackendError("HFSS coordinate system reference readback failed")
+    if str(readback.get("mode") or "").casefold() not in {"axis", "axis/position"}:
+        raise LiveBackendError("HFSS coordinate system mode readback failed")
+    actual_origin = readback.get("origin")
+    if not isinstance(actual_origin, list) or len(actual_origin) != 3:
+        raise LiveBackendError("HFSS coordinate system origin readback is unavailable")
+    for index, (actual, expected) in enumerate(zip(actual_origin, spec["origin"])):
+        if not _coordinate_origin_component_matches(actual, expected, model_units):
+            raise LiveBackendError(
+                f"HFSS coordinate system origin[{index}] readback failed"
+            )
+    for field in ("x_axis", "y_axis"):
+        actual_vector = readback.get(field)
+        expected_vector = spec[field]
+        if not isinstance(actual_vector, list) or len(actual_vector) != 3:
+            raise LiveBackendError(f"HFSS coordinate system {field} readback is unavailable")
+        for index, (actual, expected) in enumerate(zip(actual_vector, expected_vector)):
+            if not (
+                _numeric_boundary_readback_matches(actual, float(expected))
+                or _quantity_boundary_readback_matches(
+                    actual,
+                    float(expected),
+                    model_units,
+                )
+            ):
+                raise LiveBackendError(
+                    f"HFSS coordinate system {field}[{index}] readback failed: "
+                    f"expected {expected}, got {actual}"
+                )
+
+
+def _coordinate_origin_component_matches(
+    actual: Any,
+    expected: int | float | str,
+    model_units: str,
+) -> bool:
+    if isinstance(expected, (int, float)) and not isinstance(expected, bool):
+        return _numeric_boundary_readback_matches(
+            actual, float(expected)
+        ) or _quantity_boundary_readback_matches(actual, float(expected), model_units)
+    expected_text = str(expected).strip()
+    if _normalized_expression(str(actual)) == _normalized_expression(expected_text):
+        return True
+    numeric = re.fullmatch(
+        r"[+\-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+\-]?\d+)?",
+        expected_text,
+    )
+    return bool(
+        numeric
+        and _quantity_boundary_readback_matches(
+            actual,
+            float(expected_text),
+            model_units,
+        )
+    )
+
+
+def _rollback_hfss_coordinate_system(
+    app: Any,
+    created_name: str,
+    *,
+    before_snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    errors = []
+    try:
+        _set_hfss_working_coordinate_system(
+            app,
+            before_snapshot["active_coordinate_system"],
+        )
+    except Exception as exc:
+        errors.append(f"restore active before delete: {type(exc).__name__}: {exc}")
+    try:
+        current_names = {
+            item["name"] for item in _hfss_coordinate_system_snapshot(app)["coordinate_systems"]
+        }
+        if created_name in current_names:
+            candidates = [
+                item
+                for item in list(getattr(app.modeler, "coordinate_systems", []) or [])
+                if str(getattr(item, "name", "") or "") == created_name
+            ]
+            if len(candidates) != 1:
+                raise LiveBackendError(
+                    f"created coordinate system wrapper is unavailable: {created_name}"
+                )
+            if candidates[0].delete() is False:
+                raise LiveBackendError(
+                    f"failed to delete created coordinate system: {created_name}"
+                )
+    except Exception as exc:
+        errors.append(f"delete {created_name}: {type(exc).__name__}: {exc}")
+    try:
+        _set_hfss_working_coordinate_system(
+            app,
+            before_snapshot["active_coordinate_system"],
+        )
+    except Exception as exc:
+        errors.append(f"restore active after delete: {type(exc).__name__}: {exc}")
+    try:
+        after_snapshot = _hfss_coordinate_system_snapshot(app)
+    except Exception as exc:
+        after_snapshot = None
+        errors.append(f"readback: {type(exc).__name__}: {exc}")
+    complete = after_snapshot is not None and _digest(after_snapshot) == _digest(before_snapshot)
+    return {
+        "complete": complete,
+        "created_coordinate_system_name": created_name,
+        "active_coordinate_system": (
+            after_snapshot.get("active_coordinate_system") if after_snapshot else None
+        ),
+        "errors": errors,
+    }
 
 
 def _normalize_hfss_setup_spec(raw_setup: Any) -> dict[str, Any]:

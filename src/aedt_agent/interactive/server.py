@@ -579,6 +579,57 @@ def create_server(
         )
 
     @server.tool()
+    async def get_live_hfss_coordinate_system_inventory(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        max_items: int = 100,
+    ) -> dict:
+        """Read HFSS Global/relative coordinate systems and the active working system."""
+        return live.hfss_coordinate_system_inventory(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            max_items=max_items,
+        )
+
+    @server.tool()
+    async def preview_live_hfss_coordinate_system_create(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        coordinate_system_name: str,
+        origin: list[int | float | str],
+        x_axis: list[int | float],
+        y_axis: list[int | float],
+        reference_coordinate_system: str = "Global",
+    ) -> dict:
+        """Preview one relative Axis/Position coordinate system without changing HFSS."""
+        return live.preview_hfss_coordinate_system_create(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            coordinate_system_name=coordinate_system_name,
+            origin=origin,
+            x_axis=x_axis,
+            y_axis=y_axis,
+            reference_coordinate_system=reference_coordinate_system,
+        )
+
+    @server.tool()
+    async def apply_live_hfss_coordinate_system_create(
+        live_session_id: str,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        """Create and verify one relative coordinate system, restoring the prior active WCS."""
+        return live.apply_hfss_coordinate_system_create(
+            live_session_id,
+            preview_id=preview_id,
+            approval_token=approval_token,
+        )
+
+    @server.tool()
     async def preview_live_hfss_geometry_create(
         live_session_id: str,
         project_name: str,

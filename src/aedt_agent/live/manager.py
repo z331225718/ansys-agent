@@ -628,6 +628,76 @@ class LiveAedtSessionManager:
         self._approval_contexts.pop((session_id, preview_id), None)
         return result
 
+    def hfss_coordinate_system_inventory(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+        max_items: int = 100,
+    ) -> dict[str, Any]:
+        return self._execute(
+            session_id,
+            "hfss_coordinate_system_inventory",
+            {
+                "project_name": project_name,
+                "design_name": design_name,
+                "max_items": max_items,
+            },
+        )
+
+    def preview_hfss_coordinate_system_create(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+        coordinate_system_name: str,
+        origin: list[int | float | str],
+        x_axis: list[int | float],
+        y_axis: list[int | float],
+        reference_coordinate_system: str = "Global",
+    ) -> dict[str, Any]:
+        result = self._execute(
+            session_id,
+            "hfss_coordinate_system_create_preview",
+            {
+                "project_name": project_name,
+                "design_name": design_name,
+                "coordinate_system_name": coordinate_system_name,
+                "reference_coordinate_system": reference_coordinate_system,
+                "origin": origin,
+                "x_axis": x_axis,
+                "y_axis": y_axis,
+            },
+        )
+        return self._register_approval(
+            session_id,
+            "hfss.coordinate_system.create",
+            result,
+        )
+
+    def apply_hfss_coordinate_system_create(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict[str, Any]:
+        self._require_approval(
+            session_id,
+            "hfss.coordinate_system.create",
+            preview_id,
+            approval_token,
+        )
+        result = self._execute(
+            session_id,
+            "hfss_coordinate_system_create_apply",
+            {"preview_id": preview_id},
+        )
+        self._approval_contexts.pop((session_id, preview_id), None)
+        return result
+
     def preview_hfss_geometry_create(
         self,
         session_id: str,

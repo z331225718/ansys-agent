@@ -148,6 +148,9 @@ apply_live_hfss_infinite_sphere_create
 get_live_hfss_surface_boundary_inventory
 preview_live_hfss_surface_boundary_create
 apply_live_hfss_surface_boundary_create
+get_live_hfss_coordinate_system_inventory
+preview_live_hfss_coordinate_system_create
+apply_live_hfss_coordinate_system_create
 get_live_hfss_port_inventory
 preview_live_hfss_geometry_create
 apply_live_hfss_geometry_create
@@ -247,6 +250,25 @@ AEDT `ChangeProperty` 的 value-only 路径更新，以保留 Sweep、Descriptio
 PyAEDT 受测默认值。数值字面量允许 AEDT 规范化，例如 `3.0mm` 回读为 `3mm`。任一项失败时恢复已有值并
 逆序删除新变量，随后比较完整清单。该事务已在隔离 AEDT 2026 R1 上同时实测 HFSS/3D Layout，并通过
 “第一项创建成功、第二个 project variable 非法引用 design variable”的真实部分失败回滚；2024 R2 仍需目标机复验。
+
+创建 HFSS 相对坐标系时，使用只支持 Axis/Position 模式的严格 Workflow：
+
+```text
+get_live_hfss_coordinate_system_inventory
+  -> preview_live_hfss_coordinate_system_create
+  -> 核对名称、reference、origin、x_axis、y_axis 和当前活动 WCS
+  -> Host approval
+  -> apply_live_hfss_coordinate_system_create
+  -> 回读 Type/Reference CS/Mode/Origin/X Axis/Y Point
+  -> 确认原活动 WCS 已恢复且 project_saved=false
+```
+
+reference 只能是 `Global` 或当前已经存在的 relative coordinate system；Face/Object CS 不能借用本审批。
+origin 接受三个有限数值或受限 AEDT expression，轴输入只接受两组三维有限数值，并拒绝零向量和共线向量。
+preview 冻结设计/solution type、model unit、完整坐标系属性和变量清单。AEDT 创建坐标系时会把它设为活动 WCS，
+Harness 会显式恢复 preview 前的活动 WCS；创建、typed readback 或恢复失败时删除新坐标系并比较完整旧快照。
+该链路已在隔离 AEDT 2026 R1、PyAEDT 1.3.0 上实测带变量 origin、父相对坐标系、非正交数值轴、stale、
+重复名、非法引用、工程 SHA-256 不变和创建后强制回读失败的真实 rollback；2024 R2 仍需目标机复验。
 
 HFSS 建模写操作遵循同样边界。需要成对创建新 Setup 和 Sweep 时，使用原子接口，不要把两个独立写操作
 临时串联：

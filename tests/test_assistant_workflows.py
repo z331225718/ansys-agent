@@ -408,6 +408,52 @@ class _Live:
             "project_saved": False,
         }
 
+    def preview_hfss_coordinate_system_create(self, session_id: str, **kwargs) -> dict:
+        assert kwargs["origin"] == ["OX", "2mm", 3]
+        assert kwargs["x_axis"] == [1, 1, 0]
+        assert kwargs["y_axis"] == [0, 0, 2]
+        return {
+            "preview_id": "coordinate-system-preview-1",
+            "coordinate_system_name": kwargs["coordinate_system_name"],
+            "reference_coordinate_system": kwargs["reference_coordinate_system"],
+            "approval_request": {"action": "hfss.coordinate_system.create"},
+            "project_saved": False,
+        }
+
+    def apply_hfss_coordinate_system_create(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        assert preview_id == "coordinate-system-preview-1"
+        assert approval_token == "coordinate-system-approved"
+        return {
+            "status": "verified",
+            "coordinate_system_name": "HarnessCS",
+            "reference_coordinate_system": "ParentCS",
+            "mode": "axis",
+            "origin": ["OX", "2mm", 3],
+            "x_axis": [1, 1, 0],
+            "y_axis": [0, 0, 2],
+            "created_coordinate_system_name": "HarnessCS",
+            "coordinate_system": {
+                "name": "HarnessCS",
+                "type": "Relative",
+                "kind": "relative",
+                "reference_coordinate_system": "ParentCS",
+                "mode": "Axis/Position",
+                "origin": ["OX", "2mm", "3mm"],
+                "x_axis": ["1", "1", "0"],
+                "y_axis": ["0", "0", "2"],
+                "property_digest": "coordinate-digest",
+            },
+            "active_coordinate_system_restored": True,
+            "automatic_rollback_on_failure": True,
+            "project_saved": False,
+        }
+
     def preview_hfss_boundary(self, session_id: str, **kwargs) -> dict:
         assert kwargs["boundary_kind"] == "wave_port"
         assert kwargs["assignment_face_ids"] == [101]
@@ -835,6 +881,14 @@ def test_default_workflow_catalog_includes_live_monitor_and_export(tmp_path: Pat
     assert descriptors["hfss_live_surface_boundary_create"]["recommended_initial_fields"] == [
         "boundary_kind",
         "boundary_name",
+    ]
+    assert descriptors["hfss_live_coordinate_system_create"]["risk"] == "reversible_edit"
+    assert descriptors["hfss_live_coordinate_system_create"]["attached_live_session_reuse"] is True
+    assert descriptors["hfss_live_coordinate_system_create"]["recommended_initial_fields"] == [
+        "coordinate_system_name",
+        "origin",
+        "x_axis",
+        "y_axis",
     ]
     assert descriptors["hfss_live_port_create"]["risk"] == "reversible_edit"
     assert descriptors["hfss_live_port_create"]["attached_live_session_reuse"] is True
@@ -1274,6 +1328,60 @@ def test_live_hfss_surface_boundary_workflow_creates_and_scores_boundary(tmp_pat
     assert scorecard["summary"]["boundary_kind"] == "finite_conductivity"
     assert scorecard["summary"]["face_ids"] == [101]
     assert scorecard["summary"]["options"]["material_name"] == "copper"
+    assert scorecard["summary"]["project_saved"] is False
+
+
+def test_live_hfss_coordinate_system_workflow_creates_restores_and_scores(tmp_path: Path):
+    manager = AssistantWorkflowManager(
+        live_manager=_Live(),
+        db_path=tmp_path / "coordinate-system-missions.db",
+        template_ids=("hfss_live_coordinate_system_create",),
+        runtime_factory=lambda path: AgentRuntime(SQLiteMissionStore(path)),
+    )
+    start = manager.preview_start(
+        "live-1",
+        workflow_id="hfss_live_coordinate_system_create",
+        goal="Create a reviewed relative coordinate system",
+        initial_payload={
+            "coordinate_system_name": "HarnessCS",
+            "reference_coordinate_system": "ParentCS",
+            "origin": ["OX", "2mm", 3],
+            "x_axis": [1, 1, 0],
+            "y_axis": [0, 0, 2],
+        },
+    )
+    started = manager.apply_start(
+        "live-1",
+        preview_id=start["preview_id"],
+        approval_token="approved",
+    )
+    report = None
+    for index in range(3):
+        advance = manager.preview_advance(
+            "live-1",
+            graph_run_id=started["graph_run_id"],
+        )
+        if index == 1:
+            assert (
+                advance["operation_approval_required"]["preview_id"]
+                == "coordinate-system-preview-1"
+            )
+        report = manager.apply_advance(
+            "live-1",
+            preview_id=advance["preview_id"],
+            approval_token="approved",
+            operation_approval_token=(
+                "coordinate-system-approved" if index == 1 else ""
+            ),
+        )
+
+    assert report is not None and report["status"] == "succeeded"
+    assert "coordinate-system-approved" not in str(report)
+    scorecard = report["node_runs"][-1]["output_payload"]
+    assert scorecard["status"] == "passed"
+    assert scorecard["summary"]["coordinate_system_name"] == "HarnessCS"
+    assert scorecard["summary"]["reference_coordinate_system"] == "ParentCS"
+    assert scorecard["summary"]["active_coordinate_system_restored"] is True
     assert scorecard["summary"]["project_saved"] is False
 
 
