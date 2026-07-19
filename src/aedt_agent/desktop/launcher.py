@@ -77,6 +77,8 @@ _DESKTOP_ASSISTANT_MCP_TOOLS = (
     "apply_live_hfss_geometry_create",
     "preview_live_hfss_geometry_move",
     "apply_live_hfss_geometry_move",
+    "preview_live_hfss_geometry_rotate",
+    "apply_live_hfss_geometry_rotate",
     "preview_live_hfss_geometry_boundary_create",
     "apply_live_hfss_geometry_boundary_create",
     "preview_live_hfss_setup_create",

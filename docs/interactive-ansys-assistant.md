@@ -170,6 +170,8 @@ preview_live_hfss_geometry_create
 apply_live_hfss_geometry_create
 preview_live_hfss_geometry_move
 apply_live_hfss_geometry_move
+preview_live_hfss_geometry_rotate
+apply_live_hfss_geometry_rotate
 preview_live_hfss_geometry_boundary_create
 apply_live_hfss_geometry_boundary_create
 preview_live_hfss_setup_create
@@ -299,6 +301,21 @@ get_live_hfss_geometry_inventory
 一次限 1～32 个精确对象，每个对象使用独立的三维有限非零向量，数值按当前 model unit 解释。当前只在
 Global 活动 WCS 下支持具有可读 bounding box/face center 的 solid 和 sheet。失败时对已经移动的对象倒序
 应用负向量，并要求完整 geometry、boundary 和 mesh 快照恢复。
+
+严格旋转已有 HFSS solid/sheet 时：
+
+```text
+get_live_hfss_geometry_inventory
+  -> preview_live_hfss_geometry_rotate（冻结完整 geometry、face、vertex、boundary、mesh 和活动 WCS）
+  -> Host approval
+  -> apply_live_hfss_geometry_rotate
+  -> 核对 Global 旋转矩阵、face/vertex ID、attachment 和 project_saved=false
+```
+
+一次限 1～32 个精确对象，每项使用 X/Y/Z 轴和 `-360～360` 范围内的有限非零角度；旋转中心固定为
+Global 原点，活动 WCS 必须是 Global。Harness 逐点验证 face center 和 vertex position，保持 object/face/vertex
+identity、材料、Solve Inside、boundary 和 mesh。失败时倒序应用负角度并要求完整规范快照恢复。任意旋转中心、
+角度表达式和相对 WCS 不在本能力内。
 
 HFSS 建模写操作遵循同样边界。需要成对创建新 Setup 和 Sweep 时，使用原子接口，不要把两个独立写操作
 临时串联：

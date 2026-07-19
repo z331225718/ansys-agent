@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from io import StringIO
 import json
+import math
 from pathlib import Path
 import sys
 import threading
@@ -542,6 +543,7 @@ class FakeObject:
         color=(120, 130, 140),
         transparency=0.1,
         is_planar=True,
+        vertex_positions=None,
     ):
         self.id = object_id
         self.material_name = material_name
@@ -559,6 +561,13 @@ class FakeObject:
                 is_planar=is_planar,
             )
             for index, center in enumerate(centers)
+        ]
+        self.vertices = [
+            SimpleNamespace(
+                id=object_id * 1000 + index,
+                position=list(position),
+            )
+            for index, position in enumerate(vertex_positions or [])
         ]
 
 
@@ -806,6 +815,114 @@ class FakeMoveModeler(FakeHfssModeler):
                     float(value) + values[index]
                     for index, value in enumerate(face.center)
                 ]
+        return True
+
+
+def _fake_rotate_point(point, axis, angle_degrees):
+    angle = math.radians(float(angle_degrees))
+    cosine = math.cos(angle)
+    sine = math.sin(angle)
+    x, y, z = (float(item) for item in point)
+    if axis == "X":
+        values = [x, cosine * y - sine * z, sine * y + cosine * z]
+    elif axis == "Y":
+        values = [cosine * x + sine * z, y, -sine * x + cosine * z]
+    else:
+        values = [cosine * x - sine * y, sine * x + cosine * y, z]
+    return [0.0 if round(item, 12) == 0 else round(item, 12) for item in values]
+
+
+class FakeRotateModeler(FakeHfssModeler):
+    def __init__(self, *, fail_on=""):
+        super().__init__()
+        self.object_names = ["box1", "sheet1", "fixed1"]
+        self._objects = {
+            "box1": FakeObject(
+                object_id=19,
+                material_name="copper",
+                solve_inside=False,
+                face_id=401,
+                face_centers=[
+                    [2, 1, 0],
+                    [2, 1, 2],
+                    [1, 1, 1],
+                    [3, 1, 1],
+                    [2, 0, 1],
+                    [2, 2, 1],
+                ],
+                volume=8.0,
+                bounding_box=[1, 0, 0, 3, 2, 2],
+                vertex_positions=[
+                    [1, 0, 0],
+                    [1, 0, 2],
+                    [1, 2, 0],
+                    [1, 2, 2],
+                    [3, 0, 0],
+                    [3, 0, 2],
+                    [3, 2, 0],
+                    [3, 2, 2],
+                ],
+            ),
+            "sheet1": FakeObject(
+                object_id=20,
+                material_name="",
+                solve_inside=False,
+                face_id=501,
+                face_centers=[[5, 2, 1]],
+                volume=0.0,
+                bounding_box=[5, 1, 0, 5, 3, 2],
+                vertex_positions=[
+                    [5, 1, 0],
+                    [5, 1, 2],
+                    [5, 3, 0],
+                    [5, 3, 2],
+                ],
+            ),
+            "fixed1": FakeObject(
+                object_id=21,
+                material_name="vacuum",
+                solve_inside=True,
+                face_id=601,
+                face_centers=[[20.5, 0.5, 0.5]],
+                volume=1.0,
+                bounding_box=[20, 0, 0, 21, 1, 1],
+                vertex_positions=[[20, 0, 0], [21, 1, 1]],
+            ),
+        }
+        self.fail_on = fail_on
+        self.active_coordinate_system = "Global"
+        self.oeditor = FakeMoveEditor(self)
+        self.rotate_calls = []
+
+    def rotate(self, assignment, axis, angle=90.0, units="deg"):
+        names = [str(item) for item in list(assignment)]
+        self.rotate_calls.append((names, str(axis), float(angle), str(units)))
+        if any(name == self.fail_on for name in names):
+            return False
+        assert units == "deg"
+        axis = str(axis).upper()
+        for name in names:
+            obj = self._objects[name]
+            corners = [
+                [x, y, z]
+                for x in (obj.bounding_box[0], obj.bounding_box[3])
+                for y in (obj.bounding_box[1], obj.bounding_box[4])
+                for z in (obj.bounding_box[2], obj.bounding_box[5])
+            ]
+            rotated_corners = [
+                _fake_rotate_point(point, axis, angle) for point in corners
+            ]
+            obj.bounding_box = [
+                min(point[index] for point in rotated_corners)
+                for index in range(3)
+            ] + [
+                max(point[index] for point in rotated_corners)
+                for index in range(3)
+            ]
+            for face in obj.faces:
+                face.center = _fake_rotate_point(face.center, axis, angle)
+            for vertex in obj.vertices:
+                vertex.position = _fake_rotate_point(vertex.position, axis, angle)
         return True
 
 
@@ -1142,6 +1259,17 @@ class FakeMoveHfss(FakeHfss):
         super().__init__(**kwargs)
         self.are_there_simulations_running = False
         self.modeler = FakeMoveModeler(fail_on=move_fail_on)
+        self.mesh = SimpleNamespace(meshoperation_names=[])
+        self.boundaries = [
+            FakeBoundary(self, "SheetPEC", "Perfect E", props={"Objects": ["sheet1"]})
+        ]
+
+
+class FakeRotateHfss(FakeHfss):
+    def __init__(self, *, rotate_fail_on="", **kwargs):
+        super().__init__(**kwargs)
+        self.are_there_simulations_running = False
+        self.modeler = FakeRotateModeler(fail_on=rotate_fail_on)
         self.mesh = SimpleNamespace(meshoperation_names=[])
         self.boundaries = [
             FakeBoundary(self, "SheetPEC", "Perfect E", props={"Objects": ["sheet1"]})
@@ -1777,6 +1905,11 @@ class FakeRegistry:
             return {
                 "preview_id": "geometry-move-preview-1",
                 "snapshot_digest": "geometry-move-digest-1",
+            }
+        if command == "hfss_geometry_rotate_preview":
+            return {
+                "preview_id": "geometry-rotate-preview-1",
+                "snapshot_digest": "geometry-rotate-digest-1",
             }
         if command == "hfss_geometry_boundary_create_preview":
             return {
@@ -5563,6 +5696,207 @@ def test_backend_hfss_geometry_move_rolls_back_partial_and_readback_failures(mon
     } == before
 
 
+def _fake_rotation_snapshot(app):
+    return {
+        name: {
+            "bbox": list(app.modeler[name].bounding_box),
+            "faces": [
+                (face.id, list(face.center), face.area, face.is_planar)
+                for face in app.modeler[name].faces
+            ],
+            "vertices": [
+                (vertex.id, list(vertex.position))
+                for vertex in app.modeler[name].vertices
+            ],
+        }
+        for name in app.modeler.object_names
+    }
+
+
+def test_backend_rotates_exact_hfss_geometry_batch_with_typed_readback():
+    app = FakeRotateHfss(project="Board", design="HFSS1")
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=lambda **kwargs: app,
+    )
+    target = AedtTarget("pid", 42)
+    before = _fake_rotation_snapshot(app)
+    preview = backend.execute(
+        target,
+        "hfss_geometry_rotate_preview",
+        {
+            "project_name": "Board",
+            "design_name": "HFSS1",
+            "rotations": [
+                {"name": "box1", "axis": "z", "angle_degrees": 90},
+                {"name": "sheet1", "axis": "X", "angle_degrees": -90},
+            ],
+        },
+    )
+    assert preview["names"] == ["box1", "sheet1"]
+    assert preview["coordinate_system"] == "Global"
+    assert preview["rotation_origin"] == [0.0, 0.0, 0.0]
+    assert preview["angle_units"] == "deg"
+    assert preview["target_count"] == 2
+    assert preview["boundary_count"] == 1
+    assert preview["project_dirty"] is False
+
+    result = backend.execute(
+        target,
+        "hfss_geometry_rotate_apply",
+        {"preview_id": preview["preview_id"]},
+    )
+    assert result["status"] == "verified"
+    assert result["rotated_object_names"] == ["box1", "sheet1"]
+    assert result["rotated_object_count"] == 2
+    assert result["boundaries_preserved"] is True
+    assert result["mesh_operations_preserved"] is True
+    assert result["active_coordinate_system_preserved"] is True
+    assert result["automatic_rollback_on_failure"] is True
+    assert result["project_saved"] is False
+    after = _fake_rotation_snapshot(app)
+    assert after["fixed1"] == before["fixed1"]
+    assert after["box1"]["vertices"][0][1] == [0.0, 1.0, 0.0]
+    assert after["sheet1"]["faces"][0][1] == [5.0, 1.0, -2.0]
+    assert [item[0] for item in app.modeler.rotate_calls] == [["box1"], ["sheet1"]]
+
+
+def test_backend_hfss_geometry_rotate_rejects_unsafe_specs_and_stale_state():
+    app = FakeRotateHfss(project="Board", design="HFSS1")
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=lambda **kwargs: app,
+    )
+    target = AedtTarget("pid", 42)
+    base = {"project_name": "Board", "design_name": "HFSS1"}
+    unsafe = [
+        [],
+        [{"name": "box1", "axis": "Z", "angle_degrees": 0}],
+        [{"name": "box1", "axis": "Z", "angle_degrees": 360}],
+        [{"name": "box1", "axis": "Z", "angle_degrees": 361}],
+        [{"name": "box1", "axis": "Z", "angle_degrees": True}],
+        [{"name": "box1", "axis": "Q", "angle_degrees": 90}],
+        [{"name": "BOX1", "axis": "Z", "angle_degrees": 90}],
+        [
+            {"name": "box1", "axis": "Z", "angle_degrees": 90},
+            {"name": "BOX1", "axis": "X", "angle_degrees": 45},
+        ],
+        [{"name": "missing", "axis": "Z", "angle_degrees": 90}],
+        [{"name": "box1", "axis": "Z", "angle_degrees": float("inf")}],
+        [{"name": "box1", "axis": "Z", "angle_degrees": 90, "extra": True}],
+    ]
+    for rotations in unsafe:
+        with pytest.raises(LiveBackendError):
+            backend.execute(
+                target,
+                "hfss_geometry_rotate_preview",
+                {**base, "rotations": rotations},
+            )
+
+    original_face_centers = [list(face.center) for face in app.modeler["box1"].faces]
+    original_vertices = list(app.modeler["box1"].vertices)
+    for index, face in enumerate(app.modeler["box1"].faces):
+        face.center = [0, 0, index]
+    app.modeler["box1"].vertices = []
+    with pytest.raises(LiveBackendError, match="not observable"):
+        backend.execute(
+            target,
+            "hfss_geometry_rotate_preview",
+            {
+                **base,
+                "rotations": [
+                    {"name": "box1", "axis": "Z", "angle_degrees": 90}
+                ],
+            },
+        )
+    for face, center in zip(app.modeler["box1"].faces, original_face_centers):
+        face.center = center
+    app.modeler["box1"].vertices = original_vertices
+
+    app.modeler.active_coordinate_system = "RelativeCS"
+    with pytest.raises(LiveBackendError, match="requires Global"):
+        backend.execute(
+            target,
+            "hfss_geometry_rotate_preview",
+            {
+                **base,
+                "rotations": [
+                    {"name": "box1", "axis": "Z", "angle_degrees": 90}
+                ],
+            },
+        )
+    app.modeler.active_coordinate_system = "Global"
+
+    stale = backend.execute(
+        target,
+        "hfss_geometry_rotate_preview",
+        {
+            **base,
+            "rotations": [
+                {"name": "box1", "axis": "Z", "angle_degrees": 90}
+            ],
+        },
+    )
+    app.modeler.rotate(["fixed1"], "Z", angle=90, units="deg")
+    with pytest.raises(LiveBackendError, match="stale HFSS geometry rotation preview"):
+        backend.execute(
+            target,
+            "hfss_geometry_rotate_apply",
+            {"preview_id": stale["preview_id"]},
+        )
+
+
+def test_backend_hfss_geometry_rotate_rolls_back_partial_and_readback_failures(
+    monkeypatch,
+):
+    app = FakeRotateHfss(rotate_fail_on="sheet1", project="Board", design="HFSS1")
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=lambda **kwargs: app,
+    )
+    target = AedtTarget("pid", 42)
+    request = {
+        "project_name": "Board",
+        "design_name": "HFSS1",
+        "rotations": [
+            {"name": "box1", "axis": "Z", "angle_degrees": 90},
+            {"name": "sheet1", "axis": "X", "angle_degrees": -90},
+        ],
+    }
+    before = _fake_rotation_snapshot(app)
+    preview = backend.execute(target, "hfss_geometry_rotate_preview", request)
+    with pytest.raises(LiveBackendError, match="returned false"):
+        backend.execute(
+            target,
+            "hfss_geometry_rotate_apply",
+            {"preview_id": preview["preview_id"]},
+        )
+    assert _fake_rotation_snapshot(app) == before
+
+    app.modeler.fail_on = ""
+    preview = backend.execute(target, "hfss_geometry_rotate_preview", request)
+    import aedt_agent.live.backend as backend_module
+
+    def fail_readback(*args, **kwargs):
+        raise LiveBackendError("synthetic geometry rotation readback failure")
+
+    monkeypatch.setattr(
+        backend_module,
+        "_verify_hfss_geometry_rotation_state",
+        fail_readback,
+    )
+    with pytest.raises(
+        LiveBackendError,
+        match="synthetic geometry rotation readback failure",
+    ):
+        backend.execute(
+            target,
+            "hfss_geometry_rotate_apply",
+            {"preview_id": preview["preview_id"]},
+        )
+    assert _fake_rotation_snapshot(app) == before
+
+
 def test_backend_creates_and_reads_typed_hfss_wave_and_lumped_ports():
     apps = []
 
@@ -7612,6 +7946,33 @@ def test_manager_requires_action_bound_one_use_approval_for_hfss_geometry_move()
     assert getattr(replay.value, "code", None) == "approval_required"
 
 
+def test_manager_requires_action_bound_one_use_approval_for_hfss_geometry_rotate():
+    registry = FakeRegistry()
+    authority = HmacApprovalAuthority("r" * 32)
+    manager = LiveAedtSessionManager(registry=registry, approval_verifier=authority)
+    session_id = manager.attach(pid=42)["live_session_id"]
+    preview = manager.preview_hfss_geometry_rotate(
+        session_id,
+        project_name="Board",
+        design_name="HFSS1",
+        rotations=[{"name": "Box1", "axis": "Z", "angle_degrees": 90}],
+    )
+    token = authority.issue(**preview["approval_request"])
+    result = manager.apply_hfss_geometry_rotate(
+        session_id,
+        preview_id=preview["preview_id"],
+        approval_token=token,
+    )
+    assert result["command"] == "hfss_geometry_rotate_apply"
+    with pytest.raises(Exception) as replay:
+        manager.apply_hfss_geometry_rotate(
+            session_id,
+            preview_id=preview["preview_id"],
+            approval_token=token,
+        )
+    assert getattr(replay.value, "code", None) == "approval_required"
+
+
 def test_manager_requires_action_bound_one_use_approval_for_atomic_hfss_geometry_boundary():
     registry = FakeRegistry()
     authority = HmacApprovalAuthority("a" * 32)
@@ -8325,6 +8686,8 @@ def test_mcp_registers_live_tools_without_changing_artifact_tools(monkeypatch):
     assert "apply_live_hfss_geometry_create" in server.tools
     assert "preview_live_hfss_geometry_move" in server.tools
     assert "apply_live_hfss_geometry_move" in server.tools
+    assert "preview_live_hfss_geometry_rotate" in server.tools
+    assert "apply_live_hfss_geometry_rotate" in server.tools
     assert "preview_live_hfss_geometry_boundary_create" in server.tools
     assert "apply_live_hfss_geometry_boundary_create" in server.tools
     assert "get_live_hfss_far_field_inventory" in server.tools
@@ -8441,6 +8804,8 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
         "get_live_hfss_geometry_inventory",
         "preview_live_hfss_geometry_move",
         "apply_live_hfss_geometry_move",
+        "preview_live_hfss_geometry_rotate",
+        "apply_live_hfss_geometry_rotate",
         "get_live_hfss_far_field_inventory",
         "preview_live_hfss_infinite_sphere_create",
         "apply_live_hfss_infinite_sphere_create",
@@ -8521,6 +8886,13 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
     ]
     assert "typed_bounding_box_and_face_center_translation_verified" in by_name[
         "hfss.geometry.move"
+    ]["postconditions"]
+    assert by_name["hfss.geometry.rotate"]["tools"] == [
+        "preview_live_hfss_geometry_rotate",
+        "apply_live_hfss_geometry_rotate",
+    ]
+    assert "typed_face_center_and_vertex_rotation_verified" in by_name[
+        "hfss.geometry.rotate"
     ]["postconditions"]
     assert by_name["layout.material.create_and_assign"]["tools"] == [
         "preview_live_layout_material_create_assign",

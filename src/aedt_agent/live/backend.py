@@ -137,6 +137,10 @@ class LiveAedtBackend:
                 return self._hfss_geometry_move_preview(target, arguments)
             if command == "hfss_geometry_move_apply":
                 return self._hfss_geometry_move_apply(target, arguments)
+            if command == "hfss_geometry_rotate_preview":
+                return self._hfss_geometry_rotate_preview(target, arguments)
+            if command == "hfss_geometry_rotate_apply":
+                return self._hfss_geometry_rotate_apply(target, arguments)
             if command == "hfss_geometry_boundary_create_preview":
                 return self._hfss_geometry_boundary_create_preview(target, arguments)
             if command == "hfss_geometry_boundary_create_apply":
@@ -2434,6 +2438,160 @@ class LiveAedtBackend:
             **preview["spec"],
             "moved_object_count": len(moved),
             "moved_object_names": names,
+            "targets_before": preview["state"]["targets"],
+            "targets_after": targets_after,
+            "geometry_snapshot_digest": _digest(after["geometry"]),
+            "boundaries_preserved": after["boundaries"] == preview["state"]["boundaries"],
+            "mesh_operations_preserved": (
+                after["mesh_operations"] == preview["state"]["mesh_operations"]
+            ),
+            "active_coordinate_system_preserved": (
+                after["active_coordinate_system"]
+                == preview["state"]["active_coordinate_system"]
+            ),
+            "automatic_rollback_on_failure": True,
+            "project_dirty": True,
+            "project_saved": False,
+        }
+
+    def _hfss_geometry_rotate_preview(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        app = self._app(
+            target,
+            "hfss",
+            _required(args, "project_name"),
+            _required(args, "design_name"),
+        )
+        if str(_safe_attribute(app, "design_type") or "").strip().casefold() != "hfss":
+            raise LiveBackendError("HFSS geometry rotation requires an HFSS 3D design")
+        if _simulation_running(app):
+            raise LiveBackendError("cannot rotate HFSS geometry while a simulation is running")
+        spec = _normalize_hfss_geometry_rotations(args)
+        active_coordinate_system = _hfss_active_coordinate_system(app)
+        if active_coordinate_system.casefold() != "global":
+            raise LiveBackendError(
+                "HFSS geometry rotation requires Global to be the active coordinate system"
+            )
+        state = _hfss_geometry_rotation_state(app, spec["names"])
+        by_name = {item["name"].casefold(): item for item in state["geometry"]}
+        canonical_rotations = []
+        targets = []
+        for rotation in spec["rotations"]:
+            record = by_name.get(rotation["name"].casefold())
+            if record is None:
+                raise LiveBackendError(
+                    "HFSS geometry rotation names must already exist in the current design"
+                )
+            if record["name"] != rotation["name"]:
+                raise LiveBackendError(
+                    "HFSS geometry rotation names must preserve exact object-name case"
+                )
+            _validate_hfss_geometry_rotation_target(record, rotation)
+            canonical_rotations.append({**rotation, "name": record["name"]})
+            targets.append(record)
+        spec = {
+            **spec,
+            "rotations": canonical_rotations,
+            "names": [item["name"] for item in canonical_rotations],
+            "model_units": state["model_units"],
+            "coordinate_system": "Global",
+            "rotation_origin": [0.0, 0.0, 0.0],
+            "angle_units": "deg",
+        }
+        state = _hfss_geometry_rotation_state(app, spec["names"])
+        state_digest = _digest(state)
+        preview_id = "geometry-rotate-preview-" + _digest(
+            spec | {"state": state_digest}
+        )[:24]
+        self._previews[preview_id] = {
+            "kind": "hfss_geometry_rotate",
+            "target": target,
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "spec": spec,
+            "state": state,
+            "digest": state_digest,
+        }
+        return {
+            "preview_id": preview_id,
+            **spec,
+            "target_count": len(targets),
+            "targets_before": targets,
+            "boundary_count": len(state["boundaries"]),
+            "mesh_operation_count": len(state["mesh_operations"]),
+            "snapshot_digest": state_digest,
+            "approval_required": True,
+            "project_dirty": False,
+            "project_saved": False,
+        }
+
+    def _hfss_geometry_rotate_apply(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        preview_id = _required(args, "preview_id")
+        preview = self._preview(preview_id, "hfss_geometry_rotate", target)
+        app = self._app(target, "hfss", preview["project_name"], preview["design_name"])
+        if _simulation_running(app):
+            raise LiveBackendError("cannot rotate HFSS geometry while a simulation is running")
+        names = list(preview["spec"]["names"])
+        current = _hfss_geometry_rotation_state(app, names)
+        if _digest(current) != preview["digest"]:
+            raise LiveBackendError("stale HFSS geometry rotation preview")
+
+        rotated: list[dict[str, Any]] = []
+        try:
+            modeler = _safe_attribute(app, "modeler")
+            rotator = getattr(modeler, "rotate", None)
+            if not callable(rotator):
+                raise LiveBackendError("HFSS geometry rotation API is unavailable")
+            for rotation in preview["spec"]["rotations"]:
+                if rotator(
+                    [rotation["name"]],
+                    rotation["axis"],
+                    angle=rotation["angle_degrees"],
+                    units="deg",
+                ) is not True:
+                    raise LiveBackendError(
+                        f"HFSS geometry rotation returned false: {rotation['name']}"
+                    )
+                rotated.append(rotation)
+
+            after = _hfss_geometry_rotation_state(app, names)
+            _verify_hfss_geometry_rotation_state(
+                preview["state"],
+                after,
+                rotations=preview["spec"]["rotations"],
+            )
+        except Exception as exc:
+            rollback = _rollback_hfss_geometry_rotations(
+                app,
+                rotated,
+                before_state=preview["state"],
+            )
+            if not rollback["complete"]:
+                raise LiveBackendError(
+                    f"HFSS geometry rotation failed and rollback is incomplete: {rollback}"
+                ) from exc
+            if isinstance(exc, LiveBackendError):
+                raise
+            raise LiveBackendError(
+                f"HFSS geometry rotation failed: {type(exc).__name__}: {exc}"
+            ) from exc
+
+        del self._previews[preview_id]
+        after_by_name = {item["name"]: item for item in after["geometry"]}
+        targets_after = [after_by_name[name] for name in names]
+        return {
+            "status": "verified",
+            "preview_id": preview_id,
+            **preview["spec"],
+            "rotated_object_count": len(rotated),
+            "rotated_object_names": names,
             "targets_before": preview["state"]["targets"],
             "targets_after": targets_after,
             "geometry_snapshot_digest": _digest(after["geometry"]),
@@ -10778,6 +10936,330 @@ def _rollback_hfss_geometry_moves(
         "restored_object_names": [item["name"] for item in moved] if state_restored else [],
         "state_restored": state_restored,
         "move_errors": errors,
+        "readback_error": readback_error,
+    }
+
+
+def _normalize_hfss_geometry_rotations(args: dict[str, Any]) -> dict[str, Any]:
+    max_objects = _bounded_integer(
+        args.get("max_objects", 16),
+        "max_objects",
+        minimum=1,
+        maximum=32,
+    )
+    raw_rotations = args.get("rotations")
+    if not isinstance(raw_rotations, list) or not raw_rotations:
+        raise LiveBackendError("rotations must be a non-empty list")
+    if len(raw_rotations) > max_objects:
+        raise LiveBackendError(
+            f"geometry rotation count {len(raw_rotations)} exceeds max_objects {max_objects}"
+        )
+    rotations = []
+    seen = set()
+    for index, raw in enumerate(raw_rotations):
+        if not isinstance(raw, dict):
+            raise LiveBackendError(f"rotations[{index}] must be an object")
+        unsupported = sorted(set(raw).difference({"name", "axis", "angle_degrees"}))
+        if unsupported:
+            raise LiveBackendError(
+                f"unsupported rotations[{index}] field: {unsupported[0]}"
+            )
+        name = str(raw.get("name") or "").strip()
+        if not _SAFE_AEDT_OBJECT_NAME.fullmatch(name):
+            raise LiveBackendError(
+                f"rotations[{index}].name must be a safe AEDT object name"
+            )
+        folded = name.casefold()
+        if folded in seen:
+            raise LiveBackendError(
+                f"rotations must not contain duplicate object names: {name}"
+            )
+        seen.add(folded)
+        axis = str(raw.get("axis") or "").strip().upper()
+        if axis not in {"X", "Y", "Z"}:
+            raise LiveBackendError(f"rotations[{index}].axis must be X, Y, or Z")
+        angle = _bounded_float(
+            raw.get("angle_degrees"),
+            f"rotations[{index}].angle_degrees",
+            minimum=-360.0,
+            maximum=360.0,
+        )
+        if math.isclose(abs(angle), 0.0, rel_tol=0.0, abs_tol=1e-12) or math.isclose(
+            abs(angle),
+            360.0,
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        ):
+            raise LiveBackendError(
+                f"rotations[{index}].angle_degrees must produce a nonzero rotation"
+            )
+        rotations.append(
+            {
+                "name": name,
+                "axis": axis,
+                "angle_degrees": angle,
+            }
+        )
+    return {
+        "rotations": rotations,
+        "names": [item["name"] for item in rotations],
+        "expected_object_count": len(rotations),
+        "max_objects": max_objects,
+    }
+
+
+def _hfss_geometry_rotation_state(app: Any, target_names: list[str]) -> dict[str, Any]:
+    state = _hfss_geometry_move_state(app, target_names)
+    modeler = _safe_attribute(app, "modeler")
+    geometry = []
+    for original in state["geometry"]:
+        try:
+            obj = modeler[original["name"]]
+        except Exception as exc:
+            raise LiveBackendError(
+                f"HFSS geometry object readback failed: {original['name']}"
+            ) from exc
+        vertices = []
+        for vertex in list(getattr(obj, "vertices", []) or []):
+            vertices.append(
+                {
+                    "vertex_id": _json_value(getattr(vertex, "id", None)),
+                    "position": _json_value(_safe_attribute(vertex, "position")),
+                }
+            )
+        vertices.sort(key=lambda item: str(item["vertex_id"]))
+        geometry.append(
+            _canonical_hfss_geometry_value({**original, "vertices": vertices})
+        )
+    geometry.sort(key=lambda item: item["name"].casefold())
+    by_name = {item["name"]: item for item in geometry}
+    return {
+        **state,
+        "geometry": geometry,
+        "targets": [by_name[name] for name in target_names if name in by_name],
+    }
+
+
+def _validate_hfss_geometry_rotation_target(
+    record: dict[str, Any],
+    rotation: dict[str, Any],
+) -> None:
+    _validate_hfss_geometry_move_target(record)
+    points = [list(item["center"]) for item in record["faces"]]
+    for vertex in list(record.get("vertices") or []):
+        position = vertex.get("position")
+        if (
+            not isinstance(position, list)
+            or len(position) != 3
+            or any(
+                type(item) not in {int, float} or not math.isfinite(float(item))
+                for item in position
+            )
+        ):
+            raise LiveBackendError(
+                f"HFSS vertex position is unavailable for geometry rotation: {record.get('name', '')}"
+            )
+        points.append(list(position))
+    if not any(
+        not _hfss_rotation_points_close(
+            point,
+            _rotate_hfss_point(
+                point,
+                rotation["axis"],
+                rotation["angle_degrees"],
+            ),
+        )
+        for point in points
+    ):
+        raise LiveBackendError(
+            f"HFSS geometry rotation is not observable from face or vertex readback: {record.get('name', '')}"
+        )
+
+
+def _rotate_hfss_point(
+    point: list[int | float],
+    axis: str,
+    angle_degrees: float,
+) -> list[float]:
+    angle = math.radians(float(angle_degrees))
+    cosine = math.cos(angle)
+    sine = math.sin(angle)
+    x, y, z = (float(item) for item in point)
+    if axis == "X":
+        rotated = [x, cosine * y - sine * z, sine * y + cosine * z]
+    elif axis == "Y":
+        rotated = [cosine * x + sine * z, y, -sine * x + cosine * z]
+    else:
+        rotated = [cosine * x - sine * y, sine * x + cosine * y, z]
+    return _canonical_hfss_geometry_value(rotated)
+
+
+def _hfss_rotation_points_close(actual: Any, expected: Any) -> bool:
+    if not isinstance(actual, list) or not isinstance(expected, list):
+        return False
+    if len(actual) != 3 or len(expected) != 3:
+        return False
+    return all(
+        type(left) in {int, float}
+        and type(right) in {int, float}
+        and math.isfinite(float(left))
+        and math.isfinite(float(right))
+        and math.isclose(
+            float(left),
+            float(right),
+            rel_tol=1e-10,
+            abs_tol=1e-9,
+        )
+        for left, right in zip(actual, expected)
+    )
+
+
+def _verify_hfss_geometry_rotation_state(
+    before: dict[str, Any],
+    after: dict[str, Any],
+    *,
+    rotations: list[dict[str, Any]],
+) -> None:
+    for field in (
+        "design_type",
+        "solution_type",
+        "model_units",
+        "active_coordinate_system",
+        "boundaries",
+        "mesh_operations",
+    ):
+        if after[field] != before[field]:
+            raise LiveBackendError(f"HFSS geometry rotation changed protected state: {field}")
+    before_by_name = {item["name"]: item for item in before["geometry"]}
+    after_by_name = {item["name"]: item for item in after["geometry"]}
+    if set(after_by_name) != set(before_by_name):
+        raise LiveBackendError("HFSS geometry rotation changed the geometry object catalog")
+    rotations_by_name = {item["name"]: item for item in rotations}
+    for name, original in before_by_name.items():
+        current = after_by_name[name]
+        rotation = rotations_by_name.get(name)
+        if rotation is None:
+            if current != original:
+                raise LiveBackendError(
+                    f"HFSS geometry rotation changed a non-target object: {name}"
+                )
+            continue
+        _verify_hfss_rotated_object(original, current, rotation)
+
+
+def _verify_hfss_rotated_object(
+    before: dict[str, Any],
+    after: dict[str, Any],
+    rotation: dict[str, Any],
+) -> None:
+    name = before["name"]
+    for field in (
+        "name",
+        "object_id",
+        "material_name",
+        "solve_inside",
+        "volume",
+    ):
+        if after.get(field) != before.get(field):
+            raise LiveBackendError(
+                f"HFSS geometry rotation changed protected target state: {name}.{field}"
+            )
+    _validate_hfss_geometry_move_target(after)
+    before_faces = {item["face_id"]: item for item in before["faces"]}
+    after_faces = {item["face_id"]: item for item in after["faces"]}
+    if set(after_faces) != set(before_faces):
+        raise LiveBackendError(f"HFSS geometry rotation changed face identity: {name}")
+    for face_id, original in before_faces.items():
+        current = after_faces[face_id]
+        for field in ("face_id", "area", "is_planar"):
+            if current.get(field) != original.get(field):
+                raise LiveBackendError(
+                    f"HFSS geometry rotation changed face state: {name}.{face_id}.{field}"
+                )
+        expected = _rotate_hfss_point(
+            original["center"],
+            rotation["axis"],
+            rotation["angle_degrees"],
+        )
+        if not _hfss_rotation_points_close(current.get("center"), expected):
+            raise LiveBackendError(
+                f"HFSS geometry rotation face-center readback failed: {name}.{face_id}"
+            )
+    before_vertices = {item["vertex_id"]: item for item in before.get("vertices") or []}
+    after_vertices = {item["vertex_id"]: item for item in after.get("vertices") or []}
+    if set(after_vertices) != set(before_vertices):
+        raise LiveBackendError(f"HFSS geometry rotation changed vertex identity: {name}")
+    for vertex_id, original in before_vertices.items():
+        expected = _rotate_hfss_point(
+            original["position"],
+            rotation["axis"],
+            rotation["angle_degrees"],
+        )
+        if not _hfss_rotation_points_close(
+            after_vertices[vertex_id].get("position"),
+            expected,
+        ):
+            raise LiveBackendError(
+                f"HFSS geometry rotation vertex readback failed: {name}.{vertex_id}"
+            )
+    _verify_hfss_points_inside_bounding_box(after)
+
+
+def _verify_hfss_points_inside_bounding_box(record: dict[str, Any]) -> None:
+    bbox = list(record["bounding_box"])
+    points = [item["center"] for item in record["faces"]]
+    points.extend(item["position"] for item in record.get("vertices") or [])
+    for point in points:
+        if any(
+            float(point[index]) < float(bbox[index]) - 1e-9
+            or float(point[index]) > float(bbox[index + 3]) + 1e-9
+            for index in range(3)
+        ):
+            raise LiveBackendError(
+                f"HFSS geometry rotation produced inconsistent bounding-box readback: {record['name']}"
+            )
+
+
+def _rollback_hfss_geometry_rotations(
+    app: Any,
+    rotated: list[dict[str, Any]],
+    *,
+    before_state: dict[str, Any],
+) -> dict[str, Any]:
+    errors = []
+    modeler = _safe_attribute(app, "modeler")
+    rotator = getattr(modeler, "rotate", None)
+    if not callable(rotator):
+        errors.append("HFSS geometry rotation API is unavailable")
+    else:
+        for rotation in reversed(rotated):
+            try:
+                if rotator(
+                    [rotation["name"]],
+                    rotation["axis"],
+                    angle=-float(rotation["angle_degrees"]),
+                    units="deg",
+                ) is not True:
+                    raise LiveBackendError("inverse rotation returned false")
+            except Exception as exc:
+                errors.append(f"{rotation['name']}: {type(exc).__name__}: {exc}")
+    readback_error = ""
+    try:
+        after = _hfss_geometry_rotation_state(
+            app,
+            [item["name"] for item in before_state["targets"]],
+        )
+    except Exception as exc:
+        after = {}
+        readback_error = f"{type(exc).__name__}: {exc}"
+    state_restored = bool(after) and after == before_state
+    return {
+        "complete": not errors and not readback_error and state_restored,
+        "restored_object_names": [item["name"] for item in rotated]
+        if state_restored
+        else [],
+        "state_restored": state_restored,
+        "rotation_errors": errors,
         "readback_error": readback_error,
     }
 

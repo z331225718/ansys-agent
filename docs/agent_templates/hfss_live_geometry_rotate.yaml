@@ -1,0 +1,43 @@
+id: hfss_live_geometry_rotate
+version: 1
+description: Preview, approve, rotate, and verify an exact bounded batch of existing HFSS solids or sheets about the Global origin while preserving object, face, vertex, boundary, mesh, material, and Solve Inside state.
+nodes:
+  - id: preview_geometry_rotations
+    role: preview
+    kind: program
+    handler: assistant.live.hfss.preview_geometry_rotate
+    input_schema: live_hfss_geometry_rotate_request
+    output_schema: live_hfss_geometry_rotate_preview
+    max_runs: 1
+  - id: apply_geometry_rotations
+    role: apply
+    kind: program
+    handler: assistant.live.hfss.apply_geometry_rotate
+    input_schema: live_hfss_geometry_rotate_preview
+    output_schema: live_hfss_geometry_rotate_result
+    max_runs: 1
+  - id: verify_scorecard
+    role: scorecard
+    kind: program
+    handler: assistant.live.hfss.geometry_rotate_scorecard
+    input_schema: live_hfss_geometry_rotate_result
+    output_schema: live_hfss_geometry_rotate_scorecard
+    max_runs: 1
+edges:
+  - id: preview-to-apply
+    from: preview_geometry_rotations
+    to: apply_geometry_rotations
+    on: succeeded
+  - id: apply-to-scorecard
+    from: apply_geometry_rotations
+    to: verify_scorecard
+    on: succeeded
+handoffs:
+  live_hfss_geometry_rotate_request:
+    required_fields: [rotations]
+  live_hfss_geometry_rotate_preview:
+    required_fields: [rotations, operation_preview_id, operation_approval, operation_preview, live_session_reused]
+  live_hfss_geometry_rotate_result:
+    required_fields: [rotations, operation_result, live_session_reused]
+  live_hfss_geometry_rotate_scorecard:
+    required_fields: [status, checks, summary, live_session_reused]

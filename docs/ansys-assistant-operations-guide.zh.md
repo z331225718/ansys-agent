@@ -691,6 +691,33 @@ face center 可以严格按各自向量平移。AEDT 会把例如 `5.99999999999
 Perfect E、Length Mesh、外部移动后的 stale、磁盘工程 SHA-256 不变，以及真实双对象移动后的故障注入和
 逆平移完整恢复。目标 AEDT 2024 R2 上线前仍需执行中文使用手册第 18.1 节的同名真实测试。
 
+## 8H. 示例：绕 Global 原点严格批量旋转已有 HFSS solid/sheet
+
+推荐请求：
+
+```text
+使用 hfss_live_geometry_rotate 在当前 HFSS 设计中旋转两个既有对象：
+1. 精确名称 HarnessRotateBox，绕 Global Z 轴旋转 +90deg；
+2. 精确名称 HarnessRotateSheet，绕 Global X 轴旋转 -30deg。
+旋转中心固定为 Global 原点 [0,0,0]，仅在活动 WCS 为 Global 时继续。先冻结完整 geometry、全部
+boundary、全部 mesh operation 和活动坐标系。Windows 原生审批后按顺序旋转，逐点回读 face center 和
+vertex position，保持 object/face/vertex ID、材料、Solve Inside、volume/area、boundary 和 mesh。
+失败时倒序应用负角度并要求完整快照恢复。不要保存工程。
+```
+
+`rotations` 包含 1～32 个条目，每项只有精确 `name`、`axis` 和 `angle_degrees`。`axis` 只允许 X/Y/Z；
+角度只允许 `-360～360` 的有限数值，并拒绝 0 和 ±360 度语义空操作。当前严格 Harness 不支持任意旋转中心、
+角度表达式、相对 WCS、line/unclassified object，或无法通过 face/vertex 观察变化的对称旋转。
+
+preview 最多冻结 5000 个对象、500 个 mesh operation，以及所有 boundary 的原生属性 digest。apply 后按
+右手系 Global 旋转矩阵验证每个 face center 和 vertex position；对象、面、顶点 identity、材料、Solve Inside、
+volume/area、face planarity、非目标 geometry、boundary、mesh 和 WCS 必须保持。回读 bounding box 还必须
+包含全部回读点。有限浮点规范到 12 位并使用有界逐点容差。
+
+该能力已通过隔离 AEDT 2026.1 + PyAEDT 1.3.0 实测：solid 的 Z `+90deg`、sheet 的 X `-30deg`、
+Perfect E、Length Mesh、外部旋转后的 stale、磁盘工程 SHA-256 不变，以及真实双对象旋转后注入 readback
+故障并逆旋转完整恢复。目标 AEDT 2024 R2 上线前仍需执行中文使用手册第 18.1 节的同名真实测试。
+
 ## 9. 保存工程
 
 完成修改后，如果确认要保存，应单独发送：
