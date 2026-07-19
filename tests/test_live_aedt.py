@@ -132,6 +132,9 @@ class FakeLayoutComponent:
 
 
 class FakeLayout:
+    design_type = "HFSS 3D Layout Design"
+    solution_type = "HFSS3DLayout"
+
     def __init__(self, **kwargs):
         self.kwargs = kwargs
         self.project_name = kwargs["project"]
@@ -3982,6 +3985,160 @@ def test_variable_upsert_rejects_stale_preview_and_rolls_back_failed_readback():
     assert "W_bad" not in layout.variable_manager.variables
 
 
+def test_variable_batch_upsert_is_ordered_atomic_and_verifies_every_expression():
+    layout = FakeLayout(project="Board", design="Layout1")
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, layout_factory=lambda **kwargs: layout)
+    target = AedtTarget("pid", 42)
+    preview = backend.execute(
+        target,
+        "variable_batch_upsert_preview",
+        {
+            "product": "layout",
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "variables": [
+                {"name": "$pitch", "expression": "1.5mm"},
+                {"name": "W_main", "expression": "4.3mil"},
+                {"name": "W_double", "expression": "2*W_main"},
+            ],
+        },
+    )
+
+    assert preview["requested_count"] == 3
+    assert preview["create_count"] == 2
+    assert preview["update_count"] == 1
+    result = backend.execute(
+        target,
+        "variable_batch_upsert_apply",
+        {"preview_id": preview["preview_id"]},
+    )
+
+    assert result["status"] == "verified"
+    assert result["change_count"] == 3
+    assert [item["name"] for item in result["changes"]] == [
+        "$pitch",
+        "W_main",
+        "W_double",
+    ]
+    assert layout.variable_manager.variables == {
+        "$pitch": "1.5mm",
+        "W_main": "4.3mil",
+        "W_double": "2*W_main",
+    }
+    assert result["automatic_rollback_on_failure"] is True
+    assert result["project_saved"] is False
+
+
+def test_variable_batch_rejects_noop_case_collision_controls_and_wrong_product():
+    layout = FakeLayout(project="Board", design="Layout1")
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=lambda **kwargs: layout,
+        layout_factory=lambda **kwargs: layout,
+    )
+    target = AedtTarget("pid", 42)
+    base = {
+        "product": "layout",
+        "project_name": "Board",
+        "design_name": "Layout1",
+    }
+
+    with pytest.raises(LiveBackendError, match="would make no changes"):
+        backend.execute(
+            target,
+            "variable_batch_upsert_preview",
+            base | {"variables": [{"name": "$pitch", "expression": "1.0mm"}]},
+        )
+    with pytest.raises(LiveBackendError, match="differs only by case"):
+        backend.execute(
+            target,
+            "variable_batch_upsert_preview",
+            base | {"variables": [{"name": "$PITCH", "expression": "2mm"}]},
+        )
+    with pytest.raises(LiveBackendError, match="control characters"):
+        backend.execute(
+            target,
+            "variable_batch_upsert_preview",
+            base | {"variables": [{"name": "W_bad", "expression": "1mm\n2mm"}]},
+        )
+    with pytest.raises(LiveBackendError, match="duplicate case-insensitive name"):
+        backend.execute(
+            target,
+            "variable_batch_upsert_preview",
+            base
+            | {
+                "variables": [
+                    {"name": "W", "expression": "1mm"},
+                    {"name": "w", "expression": "2mm"},
+                ]
+            },
+        )
+    with pytest.raises(LiveBackendError, match="does not match active design type"):
+        backend.execute(
+            target,
+            "variable_batch_upsert_preview",
+            base | {"product": "hfss", "variables": [{"name": "W", "expression": "1mm"}]},
+        )
+
+
+def test_variable_batch_rejects_unrelated_stale_change_and_rolls_back_partial_write():
+    layout = FakeLayout(project="Board", design="Layout1")
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, layout_factory=lambda **kwargs: layout)
+    target = AedtTarget("pid", 42)
+    request = {
+        "product": "layout",
+        "project_name": "Board",
+        "design_name": "Layout1",
+        "variables": [
+            {"name": "$pitch", "expression": "1.5mm"},
+            {"name": "W_bad", "expression": "4.3mil"},
+        ],
+    }
+    stale = backend.execute(target, "variable_batch_upsert_preview", request)
+    layout.variable_manager.variables["External"] = "9mm"
+    with pytest.raises(LiveBackendError, match="stale variable batch preview"):
+        backend.execute(
+            target,
+            "variable_batch_upsert_apply",
+            {"preview_id": stale["preview_id"]},
+        )
+    del layout.variable_manager.variables["External"]
+
+    failed = backend.execute(target, "variable_batch_upsert_preview", request)
+
+    def faulty_set(name, value, sweep=True):
+        layout.variable_manager.variables[name] = "wrong" if name == "W_bad" else value
+        return True
+
+    layout.variable_manager.set_variable = faulty_set
+    with pytest.raises(LiveBackendError, match="readback verification failed: W_bad"):
+        backend.execute(
+            target,
+            "variable_batch_upsert_apply",
+            {"preview_id": failed["preview_id"]},
+        )
+    assert set(layout.variable_manager.variables) == {"$pitch"}
+    restored = layout.variable_manager.variables["$pitch"]
+    assert getattr(restored, "expression", restored) == "1mm"
+
+
+def test_variable_batch_rejects_changes_while_simulation_is_running():
+    layout = FakeLayout(project="Board", design="Layout1")
+    layout.are_there_simulations_running = True
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, layout_factory=lambda **kwargs: layout)
+    with pytest.raises(LiveBackendError, match="simulation is running"):
+        backend.execute(
+            AedtTarget("pid", 42),
+            "variable_batch_upsert_preview",
+            {
+                "product": "layout",
+                "project_name": "Board",
+                "design_name": "Layout1",
+                "variables": [{"name": "W", "expression": "1mm"}],
+            },
+        )
+
+
 def test_layout_component_batch_update_rolls_back_every_target_on_readback_failure():
     class BadComponent(FakeLayoutComponent):
         def __init__(self, name):
@@ -5321,6 +5478,8 @@ def test_mcp_registers_live_tools_without_changing_artifact_tools(monkeypatch):
     assert "get_live_hfss_port_inventory" in server.tools
     assert "preview_live_hfss_boundary_create" in server.tools
     assert "apply_live_hfss_boundary_create" in server.tools
+    assert "preview_live_aedt_variable_batch_upsert" in server.tools
+    assert "apply_live_aedt_variable_batch_upsert" in server.tools
     assert "preview_live_hfss_analysis_start" in server.tools
     assert "apply_live_hfss_analysis_start" in server.tools
     assert "preview_live_hfss_analysis_cancel" in server.tools

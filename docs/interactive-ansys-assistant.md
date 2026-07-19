@@ -13,7 +13,7 @@
 
 新增 live control plane 还能受控启动 AEDT，或发现并显式连接正在运行的 AEDT，会话内复用
 PyAEDT broker，读取工程信息、HFSS geometry/setup/port/boundary/report inventory、受控创建
-typed geometry batch、为显式 solid batch 分配已有工程材料、创建 setup、radiation boundary、typed Wave/Lumped Port
+有序 design/project variable 原子批量事务、typed geometry batch、为显式 solid batch 分配已有工程材料、创建 setup、radiation boundary、typed Wave/Lumped Port
 和 report、创建 Perfect E/Perfect H/Finite Conductivity/sheet Impedance/Lumped RLC 表面边界、受控 Length Based Mesh
 与有界 Infinite Sphere 远场设置、驱动 analysis，
 并能在单一事务中原子创建新几何和 Boundary/Port，或原子创建 Setup 和 Sweep，同时查询 live 3D Layout Path。
@@ -182,6 +182,8 @@ apply_live_layout_object_property_update
 get_live_aedt_variable_inventory
 preview_live_aedt_variable_upsert
 apply_live_aedt_variable_upsert
+preview_live_aedt_variable_batch_upsert
+apply_live_aedt_variable_batch_upsert
 preview_live_parameterize_path_width
 apply_live_parameterize_path_width
 wait_for_live_approval
@@ -227,6 +229,24 @@ list_live_aedt_sessions
   -> 按需 preview_live_project_save + 独立批准 + apply_live_project_save
   -> release_live_aedt_session
 ```
+
+多个 HFSS/3D Layout design/project variable 需要按依赖顺序一起创建或更新时，使用严格 Workflow
+`aedt_live_variable_batch_upsert`，不要让 Agent 临时循环调用单变量 setter：
+
+```text
+get_live_aedt_variable_inventory
+  -> preview_live_aedt_variable_batch_upsert（1～32 个有序 name/expression）
+  -> 核对 create/update/noop、scope、before/after expression
+  -> Host approval
+  -> apply_live_aedt_variable_batch_upsert
+  -> 逐项回读并核对 project_saved=false
+```
+
+preview 冻结当前设计类型、solution type 和完整变量表达式清单；无关变量变化也会 stale。已有变量通过
+AEDT `ChangeProperty` 的 value-only 路径更新，以保留 Sweep、Description、ReadOnly 和 Hidden；新变量使用
+PyAEDT 受测默认值。数值字面量允许 AEDT 规范化，例如 `3.0mm` 回读为 `3mm`。任一项失败时恢复已有值并
+逆序删除新变量，随后比较完整清单。该事务已在隔离 AEDT 2026 R1 上同时实测 HFSS/3D Layout，并通过
+“第一项创建成功、第二个 project variable 非法引用 design variable”的真实部分失败回滚；2024 R2 仍需目标机复验。
 
 HFSS 建模写操作遵循同样边界。需要成对创建新 Setup 和 Sweep 时，使用原子接口，不要把两个独立写操作
 临时串联：
@@ -367,7 +387,7 @@ token = authority.issue(**preview["approval_request"])
 - 写操作暂不支持覆盖源工程。
 - 只读查询也打开临时快照副本，关闭会话后自动清理，避免 EDB lock/tmp 文件触碰源目录。
 - `.aedt` 输入必须存在同名 `.aedb` sidecar。
-- Live HFSS/3D Layout 当前支持 routing/object/variable/setup inventory、HFSS typed surface boundary、solid 材料批量分配、Length Based Mesh 和 Infinite Sphere 远场设置、受控变量和对象属性更新、setup/sweep、
+- Live HFSS/3D Layout 当前支持 routing/object/variable/setup inventory、有序变量原子批量事务、HFSS typed surface boundary、solid 材料批量分配、Length Based Mesh 和 Infinite Sphere 远场设置、受控变量和对象属性更新、setup/sweep、
   radiation/wave/lumped port、report 创建、批准式 analysis start/cancel/status、Layout 有界求解监控、
   HFSS/Layout 受限结果导出和受控 project save。
 - `create_live_hfss_design` 与 `start_live_hfss_analysis` 仅为通用 MCP 兼容入口；Desktop strict 模式禁用直接写入，生产求解使用批准链路。

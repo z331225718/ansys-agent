@@ -105,6 +105,8 @@ _DESKTOP_ASSISTANT_MCP_TOOLS = (
     "get_live_aedt_variable_inventory",
     "preview_live_aedt_variable_upsert",
     "apply_live_aedt_variable_upsert",
+    "preview_live_aedt_variable_batch_upsert",
+    "apply_live_aedt_variable_batch_upsert",
     "preview_live_parameterize_path_width",
     "apply_live_parameterize_path_width",
     "wait_for_live_approval",

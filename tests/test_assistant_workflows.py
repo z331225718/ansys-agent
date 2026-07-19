@@ -104,6 +104,63 @@ class _Live:
     def variable_inventory(self, session_id: str, **kwargs) -> dict:
         return {"count": 1, "variables": [], "design_unchanged": True}
 
+    def preview_variable_batch_upsert(self, session_id: str, **kwargs) -> dict:
+        return {
+            "preview_id": "variable-batch-preview-1",
+            "product": kwargs["product"],
+            "changes": [
+                {
+                    "name": item["name"],
+                    "action": "create",
+                    "after_expression": item["expression"],
+                }
+                for item in kwargs["variables"]
+            ],
+            "approval_request": {"action": "aedt.variables.batch_upsert"},
+            "project_saved": False,
+        }
+
+    def apply_variable_batch_upsert(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        assert preview_id == "variable-batch-preview-1"
+        assert approval_token == "variable-batch-approved"
+        return {
+            "status": "verified",
+            "product": "layout",
+            "requested_count": 3,
+            "change_count": 3,
+            "create_count": 3,
+            "update_count": 0,
+            "noop_count": 0,
+            "changes": [
+                {
+                    "name": "W_main",
+                    "action": "create",
+                    "after_expression": "4.3mil",
+                    "readback_expression": "4.3mil",
+                },
+                {
+                    "name": "W_double",
+                    "action": "create",
+                    "after_expression": "2*W_main",
+                    "readback_expression": "2*W_main",
+                },
+                {
+                    "name": "$BoardScale",
+                    "action": "create",
+                    "after_expression": "1.0",
+                    "readback_expression": "1",
+                },
+            ],
+            "automatic_rollback_on_failure": True,
+            "project_saved": False,
+        }
+
     def setup_inventory(self, session_id: str, **kwargs) -> dict:
         return {
             "setup_count": 1,
@@ -745,6 +802,12 @@ def test_default_workflow_catalog_includes_live_monitor_and_export(tmp_path: Pat
 
     descriptors = {item["workflow_id"]: item for item in manager.list_workflows()["workflows"]}
 
+    assert descriptors["aedt_live_variable_batch_upsert"]["risk"] == "reversible_edit"
+    assert descriptors["aedt_live_variable_batch_upsert"]["attached_live_session_reuse"] is True
+    assert descriptors["aedt_live_variable_batch_upsert"]["recommended_initial_fields"] == [
+        "product",
+        "variables",
+    ]
     assert descriptors["hfss_live_geometry_create"]["risk"] == "reversible_edit"
     assert descriptors["hfss_live_geometry_create"]["attached_live_session_reuse"] is True
     assert descriptors["hfss_live_geometry_create"]["recommended_initial_fields"] == [
@@ -1098,6 +1161,62 @@ def test_live_hfss_infinite_sphere_workflow_creates_and_scores_field_setup(tmp_p
     assert scorecard["summary"]["definition"] == "Theta-Phi"
     assert scorecard["summary"]["sample_count"] == 1369
     assert scorecard["summary"]["polarization"] == "Slant"
+    assert scorecard["summary"]["project_saved"] is False
+
+
+def test_live_aedt_variable_batch_workflow_applies_and_scores_ordered_changes(
+    tmp_path: Path,
+):
+    manager = AssistantWorkflowManager(
+        live_manager=_Live(),
+        db_path=tmp_path / "variable-batch-missions.db",
+        template_ids=("aedt_live_variable_batch_upsert",),
+        runtime_factory=lambda path: AgentRuntime(SQLiteMissionStore(path)),
+    )
+    variables = [
+        {"name": "W_main", "expression": "4.3mil"},
+        {"name": "W_double", "expression": "2*W_main"},
+        {"name": "$BoardScale", "expression": "1.0"},
+    ]
+    start = manager.preview_start(
+        "live-1",
+        workflow_id="aedt_live_variable_batch_upsert",
+        goal="Create reviewed layout variables in dependency order",
+        initial_payload={"product": "layout", "variables": variables},
+    )
+    started = manager.apply_start(
+        "live-1",
+        preview_id=start["preview_id"],
+        approval_token="approved",
+    )
+    report = None
+    for index in range(3):
+        advance = manager.preview_advance("live-1", graph_run_id=started["graph_run_id"])
+        if index == 1:
+            assert (
+                advance["operation_approval_required"]["preview_id"]
+                == "variable-batch-preview-1"
+            )
+        report = manager.apply_advance(
+            "live-1",
+            preview_id=advance["preview_id"],
+            approval_token="approved",
+            operation_approval_token=(
+                "variable-batch-approved" if index == 1 else ""
+            ),
+        )
+
+    assert report is not None and report["status"] == "succeeded"
+    assert "variable-batch-approved" not in str(report)
+    scorecard = report["node_runs"][-1]["output_payload"]
+    assert scorecard["status"] == "passed"
+    assert scorecard["summary"]["product"] == "layout"
+    assert scorecard["summary"]["requested_count"] == 3
+    assert scorecard["summary"]["variable_names"] == [
+        "W_main",
+        "W_double",
+        "$BoardScale",
+    ]
     assert scorecard["summary"]["project_saved"] is False
 
 

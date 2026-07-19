@@ -1297,6 +1297,38 @@ def create_server(
         )
 
     @server.tool()
+    async def preview_live_aedt_variable_batch_upsert(
+        live_session_id: str,
+        product: str,
+        project_name: str,
+        design_name: str,
+        variables: list[dict],
+        max_variables: int = 16,
+    ) -> dict:
+        """Preview an ordered atomic batch of AEDT design/project variable upserts."""
+        return live.preview_variable_batch_upsert(
+            live_session_id,
+            product=product,
+            project_name=project_name,
+            design_name=design_name,
+            variables=variables,
+            max_variables=max_variables,
+        )
+
+    @server.tool()
+    async def apply_live_aedt_variable_batch_upsert(
+        live_session_id: str,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        """Apply an approved variable batch with ordered readback and atomic rollback."""
+        return live.apply_variable_batch_upsert(
+            live_session_id,
+            preview_id=preview_id,
+            approval_token=approval_token,
+        )
+
+    @server.tool()
     async def preview_live_parameterize_path_width(
         live_session_id: str,
         project_name: str,

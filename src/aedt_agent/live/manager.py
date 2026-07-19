@@ -1398,6 +1398,50 @@ class LiveAedtSessionManager:
         self._approval_contexts.pop((session_id, preview_id), None)
         return result
 
+    def preview_variable_batch_upsert(
+        self,
+        session_id: str,
+        *,
+        product: str,
+        project_name: str,
+        design_name: str,
+        variables: list[dict[str, str]],
+        max_variables: int = 16,
+    ) -> dict[str, Any]:
+        result = self._execute(
+            session_id,
+            "variable_batch_upsert_preview",
+            {
+                "product": product,
+                "project_name": project_name,
+                "design_name": design_name,
+                "variables": variables,
+                "max_variables": max_variables,
+            },
+        )
+        return self._register_approval(session_id, "aedt.variables.batch_upsert", result)
+
+    def apply_variable_batch_upsert(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict[str, Any]:
+        self._require_approval(
+            session_id,
+            "aedt.variables.batch_upsert",
+            preview_id,
+            approval_token,
+        )
+        result = self._execute(
+            session_id,
+            "variable_batch_upsert_apply",
+            {"preview_id": preview_id},
+        )
+        self._approval_contexts.pop((session_id, preview_id), None)
+        return result
+
     def preview_layout_width(
         self,
         session_id: str,

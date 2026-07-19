@@ -1,0 +1,43 @@
+id: aedt_live_variable_batch_upsert
+version: 1
+description: Preview, approve, atomically create or update an ordered batch of AEDT design/project variables in the bound HFSS or HFSS 3D Layout design without saving the live project.
+nodes:
+  - id: preview_variables
+    role: preview
+    kind: program
+    handler: assistant.live.aedt.preview_variable_batch_upsert
+    input_schema: live_aedt_variable_batch_request
+    output_schema: live_aedt_variable_batch_preview
+    max_runs: 1
+  - id: apply_variables
+    role: apply
+    kind: program
+    handler: assistant.live.aedt.apply_variable_batch_upsert
+    input_schema: live_aedt_variable_batch_preview
+    output_schema: live_aedt_variable_batch_result
+    max_runs: 1
+  - id: verify_scorecard
+    role: scorecard
+    kind: program
+    handler: assistant.live.aedt.variable_batch_upsert_scorecard
+    input_schema: live_aedt_variable_batch_result
+    output_schema: live_aedt_variable_batch_scorecard
+    max_runs: 1
+edges:
+  - id: preview-to-apply
+    from: preview_variables
+    to: apply_variables
+    on: succeeded
+  - id: apply-to-scorecard
+    from: apply_variables
+    to: verify_scorecard
+    on: succeeded
+handoffs:
+  live_aedt_variable_batch_request:
+    required_fields: [product, variables]
+  live_aedt_variable_batch_preview:
+    required_fields: [product, variables, operation_preview_id, operation_approval, operation_preview, live_session_reused]
+  live_aedt_variable_batch_result:
+    required_fields: [product, variables, operation_result, live_session_reused]
+  live_aedt_variable_batch_scorecard:
+    required_fields: [status, checks, summary, live_session_reused]

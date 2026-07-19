@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,26 @@ def register_live_workflow_handlers(
     live_manager,
     binding_resolver,
 ) -> None:
+    registry.register(
+        "assistant.live.aedt.preview_variable_batch_upsert",
+        lambda context: _preview_aedt_variable_batch_upsert(
+            context,
+            live_manager,
+            binding_resolver,
+        ),
+    )
+    registry.register(
+        "assistant.live.aedt.apply_variable_batch_upsert",
+        lambda context: _apply_aedt_variable_batch_upsert(
+            context,
+            live_manager,
+            binding_resolver,
+        ),
+    )
+    registry.register(
+        "assistant.live.aedt.variable_batch_upsert_scorecard",
+        _aedt_variable_batch_upsert_scorecard,
+    )
     registry.register(
         "assistant.live.hfss.preview_geometry_create",
         lambda context: _preview_hfss_geometry_create(context, live_manager, binding_resolver),
@@ -283,6 +304,138 @@ def register_live_workflow_handlers(
     registry.register(
         "assistant.live.layout.touchstone_scorecard",
         lambda context: _touchstone_scorecard(context, live_manager, binding_resolver),
+    )
+
+
+def _preview_aedt_variable_batch_upsert(
+    context,
+    live_manager,
+    binding_resolver,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, project_name, design_name, _ = _live_target(context, binding_resolver)
+    preview = live_manager.preview_variable_batch_upsert(
+        session_id,
+        product=str(payload.get("product") or ""),
+        project_name=project_name,
+        design_name=design_name,
+        variables=list(payload.get("variables") or []),
+        max_variables=payload.get("max_variables", 16),
+    )
+    return _success(
+        {
+            **payload,
+            "operation_preview_id": preview["preview_id"],
+            "operation_approval": preview.get("approval_request") or {},
+            "operation_preview": preview,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _apply_aedt_variable_batch_upsert(
+    context,
+    live_manager,
+    binding_resolver,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, _, _, binding = _live_target(context, binding_resolver)
+    token = str(binding.get("operation_approval_token") or "")
+    if not token:
+        raise ValueError(
+            "operation_approval_token is required after wait_for_live_approval approves "
+            "the AEDT variable batch preview"
+        )
+    result = live_manager.apply_variable_batch_upsert(
+        session_id,
+        preview_id=str(payload["operation_preview_id"]),
+        approval_token=token,
+    )
+    return _success(
+        {
+            **payload,
+            "operation_result": result,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _aedt_variable_batch_upsert_scorecard(
+    context: GraphNodeExecutionContext,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    result = dict(payload.get("operation_result") or {})
+    requested = [
+        dict(item)
+        for item in list(payload.get("variables") or [])
+        if isinstance(item, dict)
+    ]
+    changes = [
+        dict(item)
+        for item in list(result.get("changes") or [])
+        if isinstance(item, dict)
+    ]
+    requested_names = [str(item.get("name") or "") for item in requested]
+    changed_names = [str(item.get("name") or "") for item in changes]
+    requested_by_name = {
+        str(item.get("name") or ""): str(item.get("expression") or "")
+        for item in requested
+    }
+    expression_readback = bool(changes) and all(
+        _workflow_variable_expressions_equal(
+            item.get("readback_expression"),
+            requested_by_name.get(str(item.get("name") or "")),
+        )
+        for item in changes
+    )
+    checks = [
+        _check("verified", result.get("status") == "verified"),
+        _check("product_preserved", result.get("product") == payload.get("product")),
+        _check(
+            "requested_order_preserved",
+            bool(requested_names) and changed_names == requested_names,
+        ),
+        _check(
+            "requested_count_verified",
+            result.get("requested_count") == len(requested_names)
+            and len(changes) == len(requested_names),
+        ),
+        _check(
+            "change_counts_verified",
+            result.get("requested_count")
+            == result.get("create_count", 0)
+            + result.get("update_count", 0)
+            + result.get("noop_count", 0)
+            and result.get("change_count")
+            == result.get("create_count", 0) + result.get("update_count", 0),
+        ),
+        _check("expression_readback_verified", expression_readback),
+        _check(
+            "automatic_rollback_on_failure",
+            result.get("automatic_rollback_on_failure") is True,
+        ),
+        _check("project_not_saved", result.get("project_saved") is False),
+        _check("live_session_reused", payload.get("live_session_reused") is True),
+    ]
+    passed = all(item["passed"] for item in checks)
+    return _success(
+        {
+            **payload,
+            "status": "passed" if passed else "failed",
+            "checks": checks,
+            "summary": {
+                "product": result.get("product"),
+                "requested_count": result.get("requested_count"),
+                "change_count": result.get("change_count"),
+                "create_count": result.get("create_count"),
+                "update_count": result.get("update_count"),
+                "noop_count": result.get("noop_count"),
+                "variable_names": changed_names,
+                "project_saved": result.get("project_saved"),
+            },
+            "live_session_reused": True,
+        },
+        outcome="passed" if passed else "failed",
     )
 
 
@@ -2484,6 +2637,31 @@ def _touchstone_scorecard(context, live_manager, binding_resolver) -> dict[str, 
         output,
         outcome="passed" if passed else "failed",
         artifact_refs=artifact_refs,
+    )
+
+
+def _workflow_variable_expressions_equal(actual: Any, expected: Any) -> bool:
+    actual_text = str(actual or "").strip()
+    expected_text = str(expected or "").strip()
+    if re.sub(r"\s+", "", actual_text).casefold() == re.sub(
+        r"\s+", "", expected_text
+    ).casefold():
+        return True
+    pattern = re.compile(
+        r"([+\-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+\-]?\d+)?)\s*([A-Za-z]*)"
+    )
+    actual_match = pattern.fullmatch(actual_text)
+    expected_match = pattern.fullmatch(expected_text)
+    return bool(
+        actual_match
+        and expected_match
+        and actual_match.group(2).casefold() == expected_match.group(2).casefold()
+        and math.isclose(
+            float(actual_match.group(1)),
+            float(expected_match.group(1)),
+            rel_tol=1e-12,
+            abs_tol=1e-15,
+        )
     )
 
 
