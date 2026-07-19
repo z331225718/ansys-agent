@@ -109,6 +109,26 @@ def register_live_workflow_handlers(
         _hfss_surface_boundary_create_scorecard,
     )
     registry.register(
+        "assistant.live.hfss.preview_port_create",
+        lambda context: _preview_hfss_port_create(
+            context,
+            live_manager,
+            binding_resolver,
+        ),
+    )
+    registry.register(
+        "assistant.live.hfss.apply_port_create",
+        lambda context: _apply_hfss_port_create(
+            context,
+            live_manager,
+            binding_resolver,
+        ),
+    )
+    registry.register(
+        "assistant.live.hfss.port_create_scorecard",
+        _hfss_port_create_scorecard,
+    )
+    registry.register(
         "assistant.live.hfss.preview_geometry_boundary_create",
         lambda context: _preview_hfss_geometry_boundary_create(
             context,
@@ -826,6 +846,129 @@ def _hfss_surface_boundary_create_scorecard(
                 "object_names": readback.get("object_names"),
                 "face_ids": readback.get("face_ids"),
                 "options": readback.get("options"),
+                "project_saved": result.get("project_saved"),
+            },
+            "live_session_reused": True,
+        },
+        outcome="passed" if passed else "failed",
+    )
+
+
+def _preview_hfss_port_create(
+    context,
+    live_manager,
+    binding_resolver,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    boundary_kind = str(payload.get("boundary_kind") or "").strip().casefold()
+    if boundary_kind not in {"wave_port", "lumped_port"}:
+        raise ValueError("hfss_live_port_create only supports wave_port or lumped_port")
+    session_id, project_name, design_name, _ = _live_target(context, binding_resolver)
+    preview = live_manager.preview_hfss_boundary(
+        session_id,
+        project_name=project_name,
+        design_name=design_name,
+        boundary_kind=boundary_kind,
+        boundary_name=str(payload.get("boundary_name") or ""),
+        assignment_face_ids=list(payload.get("assignment_face_ids") or []),
+        assignment_object_name=str(payload.get("assignment_object_name") or ""),
+        references=[],
+        options=dict(payload.get("options") or {}),
+    )
+    return _success(
+        {
+            **payload,
+            "boundary_kind": boundary_kind,
+            "operation_preview_id": preview["preview_id"],
+            "operation_approval": preview.get("approval_request") or {},
+            "operation_preview": preview,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _apply_hfss_port_create(
+    context,
+    live_manager,
+    binding_resolver,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, _, _, binding = _live_target(context, binding_resolver)
+    token = str(binding.get("operation_approval_token") or "")
+    if not token:
+        raise ValueError(
+            "operation_approval_token is required after wait_for_live_approval approves "
+            "the HFSS port preview"
+        )
+    result = live_manager.apply_hfss_boundary(
+        session_id,
+        preview_id=str(payload["operation_preview_id"]),
+        approval_token=token,
+    )
+    return _success(
+        {
+            **payload,
+            "operation_result": result,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _hfss_port_create_scorecard(
+    context: GraphNodeExecutionContext,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    result = dict(payload.get("operation_result") or {})
+    readback = dict(result.get("boundary") or {})
+    requested_name = str(payload.get("boundary_name") or "")
+    requested_kind = str(payload.get("boundary_kind") or "").strip().casefold()
+    requested_faces = list(payload.get("assignment_face_ids") or [])
+    requested_object = str(payload.get("assignment_object_name") or "")
+    expected_objects = [requested_object] if requested_object else []
+    options = dict(readback.get("options") or {})
+    checks = [
+        _check("verified", result.get("status") == "verified"),
+        _check(
+            "port_name_preserved",
+            bool(requested_name)
+            and result.get("created_boundary_name") == requested_name
+            and readback.get("name") == requested_name,
+        ),
+        _check(
+            "port_kind_readback",
+            requested_kind in {"wave_port", "lumped_port"}
+            and readback.get("kind") == requested_kind,
+        ),
+        _check(
+            "exact_assignment_readback",
+            readback.get("face_ids") == requested_faces
+            and readback.get("object_names") == expected_objects,
+        ),
+        _check(
+            "typed_options_readback",
+            isinstance(options.get("integration_line"), dict)
+            and isinstance(options.get("modes"), list),
+        ),
+        _check(
+            "automatic_rollback_on_failure",
+            result.get("automatic_rollback_on_failure") is True,
+        ),
+        _check("project_not_saved", result.get("project_saved") is False),
+        _check("live_session_reused", payload.get("live_session_reused") is True),
+    ]
+    passed = all(item["passed"] for item in checks)
+    return _success(
+        {
+            **payload,
+            "status": "passed" if passed else "failed",
+            "checks": checks,
+            "summary": {
+                "port_name": result.get("created_boundary_name"),
+                "port_kind": readback.get("kind"),
+                "assignment_kind": readback.get("assignment_kind"),
+                "object_names": readback.get("object_names"),
+                "face_ids": readback.get("face_ids"),
+                "options": options,
                 "project_saved": result.get("project_saved"),
             },
             "live_session_reused": True,

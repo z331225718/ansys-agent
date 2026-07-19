@@ -54,10 +54,12 @@ def test_real_live_hfss_atomic_geometry_boundary_harness(tmp_path: Path):
             new_desktop=False,
             close_on_exit=False,
         )
+        assert hfss_app.save_project(str(project_path)) is True
+        project_digest_before = _file_digest(project_path)
+        assert project_digest_before is not None
         opened = manager.attach(port=port, version=version)
         launched_pid = opened["probe"]["pid"]
         session_id = opened["live_session_id"]
-        project_digest_before = _file_digest(project_path)
         primitives = [
             {
                 "kind": "box",
@@ -65,6 +67,13 @@ def test_real_live_hfss_atomic_geometry_boundary_harness(tmp_path: Path):
                 "origin": ["0mm", "0mm", "0mm"],
                 "size": ["10mm", "5mm", "1mm"],
                 "material": "vacuum",
+            },
+            {
+                "kind": "rectangle",
+                "name": "AtomicLumpedSheet",
+                "orientation": "XY",
+                "origin": ["12mm", "0mm", "0mm"],
+                "size": ["4mm", "2mm"],
             },
             {
                 "kind": "region",
@@ -81,6 +90,18 @@ def test_real_live_hfss_atomic_geometry_boundary_harness(tmp_path: Path):
                 "face_selector": "x_min",
             },
             {
+                "boundary_kind": "lumped_port",
+                "boundary_name": "AtomicLumpedPort",
+                "assignment_object": "AtomicLumpedSheet",
+                "face_selector": "only_face",
+                "options": {
+                    "impedance": 60,
+                    "renormalize": False,
+                    "deembed": True,
+                    "integration_line": 3,
+                },
+            },
+            {
                 "boundary_kind": "radiation",
                 "boundary_name": "AtomicRadiation",
                 "assignment_object": "AtomicAirRegion",
@@ -93,8 +114,8 @@ def test_real_live_hfss_atomic_geometry_boundary_harness(tmp_path: Path):
             design_name="HFSS1",
             primitives=primitives,
             boundaries=boundaries,
-            max_new_objects=2,
-            max_new_boundaries=2,
+            max_new_objects=3,
+            max_new_boundaries=3,
         )
         applied = manager.apply_hfss_geometry_boundary_create(
             session_id,
@@ -150,14 +171,24 @@ def test_real_live_hfss_atomic_geometry_boundary_harness(tmp_path: Path):
         assert preview["project_dirty"] is False
         assert preview["project_saved"] is False
         assert applied["status"] == "verified"
-        assert applied["created_object_names"] == ["AtomicPortBody", "AtomicAirRegion"]
-        assert applied["created_boundary_names"] == ["AtomicPort", "AtomicRadiation"]
-        assert applied["created_object_count"] == 2
-        assert applied["created_boundary_count"] == 2
+        assert applied["created_object_names"] == [
+            "AtomicPortBody",
+            "AtomicLumpedSheet",
+            "AtomicAirRegion",
+        ]
+        assert applied["created_boundary_names"] == [
+            "AtomicPort",
+            "AtomicLumpedPort",
+            "AtomicRadiation",
+        ]
+        assert applied["created_object_count"] == 3
+        assert applied["created_boundary_count"] == 3
         assert len(applied["resolved_boundaries"][0]["assignment_face_ids"]) == 1
-        assert len(applied["resolved_boundaries"][1]["assignment_face_ids"]) == 6
+        assert len(applied["resolved_boundaries"][1]["assignment_face_ids"]) == 1
+        assert len(applied["resolved_boundaries"][2]["assignment_face_ids"]) == 6
         assert "wave" in applied["resolved_boundaries"][0]["readback_type"].casefold()
-        assert "radiation" in applied["resolved_boundaries"][1]["readback_type"].casefold()
+        assert "lumped" in applied["resolved_boundaries"][1]["readback_type"].casefold()
+        assert "radiation" in applied["resolved_boundaries"][2]["readback_type"].casefold()
         assert applied["atomic_geometry_boundary_transaction"] is True
         assert applied["automatic_rollback_on_failure"] is True
         assert applied["project_saved"] is False
@@ -165,7 +196,7 @@ def test_real_live_hfss_atomic_geometry_boundary_harness(tmp_path: Path):
         inventory_names = {
             str(item["name"]) for item in list(design_inventory.get("boundaries") or [])
         }
-        assert {"AtomicPort", "AtomicRadiation"}.issubset(inventory_names)
+        assert {"AtomicPort", "AtomicLumpedPort", "AtomicRadiation"}.issubset(inventory_names)
         assert "MustNotBeCreated" not in names_after_stale
         assert "MustNotBeAssigned" not in boundaries_after_stale
     finally:
@@ -173,6 +204,7 @@ def test_real_live_hfss_atomic_geometry_boundary_harness(tmp_path: Path):
             for boundary in list(hfss_app.boundaries or []):
                 if str(getattr(boundary, "name", boundary)) in {
                     "AtomicPort",
+                    "AtomicLumpedPort",
                     "AtomicRadiation",
                     "MustNotBeAssigned",
                 }:
@@ -186,6 +218,7 @@ def test_real_live_hfss_atomic_geometry_boundary_harness(tmp_path: Path):
                         "ExternalAtomicSentinel",
                         "MustNotBeCreated",
                         "AtomicAirRegion",
+                        "AtomicLumpedSheet",
                         "AtomicPortBody",
                     ]
                 )

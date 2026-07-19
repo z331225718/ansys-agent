@@ -348,6 +348,18 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             postconditions=["report_readback_verified", "rollback_on_failure", "project_not_saved"],
         ),
         _cap(
+            "hfss.port.inventory",
+            "read_only",
+            ["live"],
+            ["get_live_hfss_port_inventory"],
+            postconditions=[
+                "wave_and_lumped_port_assignments_read",
+                "typed_port_properties_read",
+                "design_unchanged",
+            ],
+            products=["hfss"],
+        ),
+        _cap(
             "hfss.boundary.create",
             "reversible_edit",
             ["live"],
@@ -355,12 +367,17 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             approval="external_host_token",
             side_effects=["project_becomes_dirty"],
             postconditions=[
-                "explicit_face_ids",
+                "radiation_uses_explicit_face_ids",
+                "wave_port_uses_one_planar_face",
+                "lumped_port_uses_one_planar_sheet",
+                "driven_modal_typed_port_contract",
+                "integration_line_resolved_before_approval",
                 "geometry_digest_unchanged",
-                "boundary_readback_verified",
+                "typed_boundary_or_port_readback_verified",
                 "rollback_on_failure",
                 "project_not_saved",
             ],
+            products=["hfss"],
         ),
         _cap(
             "hfss.analysis.start",

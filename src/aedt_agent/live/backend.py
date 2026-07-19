@@ -139,6 +139,8 @@ class LiveAedtBackend:
                 return self._hfss_report_preview(target, arguments)
             if command == "hfss_report_apply":
                 return self._hfss_report_apply(target, arguments)
+            if command == "hfss_port_inventory":
+                return self._hfss_port_inventory(target, arguments)
             if command == "hfss_boundary_preview":
                 return self._hfss_boundary_preview(target, arguments)
             if command == "hfss_boundary_apply":
@@ -2266,103 +2268,187 @@ class LiveAedtBackend:
             "project_saved": False,
         }
 
-    def _hfss_boundary_preview(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
-        app = self._app(target, "hfss", _required(args, "project_name"), _required(args, "design_name"))
-        boundary_kind = _required(args, "boundary_kind").lower()
-        if boundary_kind not in _HFSS_BOUNDARY_OPTIONS:
-            raise LiveBackendError(f"unsupported HFSS boundary kind: {boundary_kind}")
-        boundary_name = _required(args, "boundary_name")
-        face_ids = args.get("assignment_face_ids") or []
-        if not face_ids or any(type(item) is not int or item <= 0 for item in face_ids):
-            raise LiveBackendError("assignment_face_ids must contain positive integer face IDs")
-        if boundary_kind != "radiation" and len(face_ids) != 1:
-            raise LiveBackendError(f"{boundary_kind} requires exactly one assignment face ID")
-        references = list(args.get("references") or [])
-        if any(not isinstance(item, (str, int)) or isinstance(item, bool) for item in references):
-            raise LiveBackendError("references must contain only object names or face IDs")
-        options = _normalize_hfss_boundary_options(
-            boundary_kind,
-            args.get("options"),
-            "options",
+    def _hfss_port_inventory(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
+        app = self._app(
+            target,
+            "hfss",
+            _required(args, "project_name"),
+            _required(args, "design_name"),
         )
-        unsupported = sorted(set(options).difference(_HFSS_BOUNDARY_OPTIONS[boundary_kind]))
-        if unsupported:
-            raise LiveBackendError(f"unsupported {boundary_kind} option: {unsupported[0]}")
+        if str(_safe_attribute(app, "design_type") or "").strip().casefold() != "hfss":
+            raise LiveBackendError("HFSS port inventory requires an HFSS 3D design")
+        max_items = _bounded_integer(
+            args.get("max_items", 100),
+            "max_items",
+            minimum=1,
+            maximum=500,
+        )
+        boundaries = _hfss_port_boundary_snapshot(app)
+        ports = [item for item in boundaries if item["kind"] in {"wave_port", "lumped_port"}]
+        selected = ports[:max_items]
+        return {
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "solution_type": str(_safe_attribute(app, "solution_type") or "").strip(),
+            "port_count": len(ports),
+            "returned_count": len(selected),
+            "truncated": len(ports) > len(selected),
+            "ports": selected,
+            "snapshot_digest": _digest({"boundaries": boundaries}),
+            "design_unchanged": True,
+        }
+
+    def _hfss_boundary_preview(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
+        app = self._app(
+            target,
+            "hfss",
+            _required(args, "project_name"),
+            _required(args, "design_name"),
+        )
+        if str(_safe_attribute(app, "design_type") or "").strip().casefold() != "hfss":
+            raise LiveBackendError("HFSS boundary creation requires an HFSS 3D design")
+        if _simulation_running(app):
+            raise LiveBackendError("cannot create HFSS boundaries or ports while a simulation is running")
+        spec = _normalize_hfss_boundary_spec(args)
+        solution_type = str(_safe_attribute(app, "solution_type") or "").strip()
+        if spec["boundary_kind"] in {"wave_port", "lumped_port"} and not _modal_port_solution_supported(
+            solution_type
+        ):
+            raise LiveBackendError(
+                "typed HFSS port creation currently requires a DrivenModal solution: "
+                + solution_type
+            )
         geometry = self._hfss_geometry_inventory(
             target,
             {"project_name": app.project_name, "design_name": app.design_name},
         )
-        known_faces = {
-            face["face_id"]
-            for obj in geometry["objects"]
-            for face in obj["faces"]
+        target_snapshot = _hfss_boundary_target_snapshot(geometry, spec)
+        _validate_hfss_boundary_target(spec, target_snapshot)
+        boundaries = _hfss_port_boundary_snapshot(app)
+        existing_casefold = {item["name"].casefold(): item["name"] for item in boundaries}
+        if spec["boundary_name"].casefold() in existing_casefold:
+            raise LiveBackendError(
+                "HFSS boundary or port already exists: "
+                + existing_casefold[spec["boundary_name"].casefold()]
+            )
+        resolved_integration_line = None
+        if spec["boundary_kind"] in {"wave_port", "lumped_port"}:
+            assignment = (
+                spec["assignment_face_ids"][0]
+                if spec["boundary_kind"] == "wave_port"
+                else spec["assignment_object_name"]
+            )
+            resolved_integration_line = _hfss_port_integration_line(
+                app,
+                assignment,
+                spec["options"]["integration_line_direction"],
+            )
+        model_units = str(_safe_attribute(app.modeler, "model_units") or "").strip()
+        state = {
+            "solution_type": solution_type,
+            "model_units": model_units,
+            "geometry": geometry["snapshot_digest"],
+            "boundaries": boundaries,
         }
-        missing = sorted(set(face_ids).difference(known_faces))
-        if missing:
-            raise LiveBackendError(f"unknown HFSS face ID: {missing[0]}")
-        existing = _boundary_names(app)
-        if boundary_name in existing:
-            raise LiveBackendError(f"HFSS boundary or port already exists: {boundary_name}")
-        state = {"geometry": geometry["snapshot_digest"], "boundaries": existing}
         state_digest = _digest(state)
-        spec = {
-            "boundary_kind": boundary_kind,
-            "boundary_name": boundary_name,
-            "assignment_face_ids": list(face_ids),
-            "references": references,
-            "options": options,
-        }
-        preview_id = "boundary-preview-" + _digest(spec | {"state": state_digest})[:24]
+        preview_id = "boundary-preview-" + _digest(
+            spec
+            | {
+                "resolved_integration_line": resolved_integration_line,
+                "state": state_digest,
+            }
+        )[:24]
         self._previews[preview_id] = {
             "kind": "hfss_boundary",
             "target": target,
             "project_name": app.project_name,
             "design_name": app.design_name,
             "spec": spec,
+            "state": state,
+            "resolved_integration_line": resolved_integration_line,
             "digest": state_digest,
         }
         return {
             "preview_id": preview_id,
             **spec,
+            "solution_type": solution_type,
+            "target_geometry": target_snapshot,
+            "resolved_integration_line": resolved_integration_line,
             "snapshot_digest": state_digest,
             "geometry_digest": geometry["snapshot_digest"],
             "approval_required": True,
             "project_dirty": False,
+            "project_saved": False,
         }
 
     def _hfss_boundary_apply(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
         preview_id = _required(args, "preview_id")
         preview = self._preview(preview_id, "hfss_boundary", target)
         app = self._app(target, "hfss", preview["project_name"], preview["design_name"])
+        if _simulation_running(app):
+            raise LiveBackendError("cannot create HFSS boundaries or ports while a simulation is running")
         geometry = self._hfss_geometry_inventory(
             target,
             {"project_name": app.project_name, "design_name": app.design_name},
         )
-        current = {"geometry": geometry["snapshot_digest"], "boundaries": _boundary_names(app)}
+        current = {
+            "solution_type": str(_safe_attribute(app, "solution_type") or "").strip(),
+            "model_units": str(_safe_attribute(app.modeler, "model_units") or "").strip(),
+            "geometry": geometry["snapshot_digest"],
+            "boundaries": _hfss_port_boundary_snapshot(app),
+        }
         if _digest(current) != preview["digest"]:
             raise LiveBackendError("stale HFSS boundary preview")
         spec = preview["spec"]
-        boundary = None
+        created_name = ""
         try:
             boundary = _create_hfss_boundary(
                 app,
                 spec,
                 spec["assignment_face_ids"],
+                resolved_integration_line=preview["resolved_integration_line"],
             )
-            if not boundary or spec["boundary_name"] not in _boundary_names(app):
-                raise LiveBackendError("HFSS boundary readback verification failed")
-        except Exception:
-            if boundary is not None:
-                try:
-                    boundary.delete()
-                except Exception:
-                    pass
-            raise
+            created_name = str(getattr(boundary, "name", "") or "") if boundary else ""
+            if boundary is None or created_name != spec["boundary_name"]:
+                raise LiveBackendError("HFSS boundary creation returned an unexpected name")
+            after_boundaries = _hfss_port_boundary_snapshot(app)
+            readback_by_name = {item["name"]: item for item in after_boundaries}
+            readback = readback_by_name.get(spec["boundary_name"])
+            if readback is None:
+                raise LiveBackendError("HFSS boundary readback is missing")
+            _verify_hfss_boundary_readback(
+                spec,
+                readback,
+                preview["resolved_integration_line"],
+            )
+            before_names = {item["name"] for item in preview["state"]["boundaries"]}
+            after_names = {item["name"] for item in after_boundaries}
+            if after_names != before_names | {spec["boundary_name"]}:
+                raise LiveBackendError("unexpected HFSS boundary inventory change")
+        except Exception as exc:
+            rollback = _rollback_hfss_boundary(
+                app,
+                created_name or spec["boundary_name"],
+                before_boundaries=preview["state"]["boundaries"],
+            )
+            if not rollback["complete"]:
+                raise LiveBackendError(
+                    f"HFSS boundary creation failed and rollback is incomplete: {rollback}"
+                ) from exc
+            if isinstance(exc, LiveBackendError):
+                raise
+            raise LiveBackendError(
+                f"HFSS boundary creation failed: {type(exc).__name__}: {exc}"
+            ) from exc
         del self._previews[preview_id]
         return {
             "status": "verified",
             "preview_id": preview_id,
             **spec,
+            "created_boundary_name": spec["boundary_name"],
+            "boundary": readback,
+            "boundary_count": len(after_boundaries),
+            "automatic_rollback_on_failure": True,
             "project_dirty": True,
             "project_saved": False,
         }
@@ -4091,6 +4177,23 @@ _HFSS_BOUNDARY_OPTIONS = {
     "wave_port": {"modes", "impedance", "renormalize", "deembed", "integration_line"},
     "lumped_port": {"impedance", "renormalize", "deembed", "integration_line"},
 }
+_HFSS_TYPED_PORT_OPTIONS = {
+    "wave_port": {
+        "modes",
+        "renormalize",
+        "deembed",
+        "integration_line_direction",
+        "characteristic_impedance",
+    },
+    "lumped_port": {
+        "impedance",
+        "renormalize",
+        "deembed",
+        "integration_line_direction",
+    },
+}
+_HFSS_AXIS_DIRECTIONS = ("XNeg", "YNeg", "ZNeg", "XPos", "YPos", "ZPos")
+_HFSS_CHARACTERISTIC_IMPEDANCES = {"Zpi", "Zpv", "Zvi", "Zwave"}
 _HFSS_FACE_SELECTORS = {
     "only_face",
     "all_faces",
@@ -4538,6 +4641,138 @@ def _normalize_hfss_geometry_boundaries(
                 "options": options,
             }
         )
+    return normalized
+
+
+def _normalize_hfss_boundary_spec(args: dict[str, Any]) -> dict[str, Any]:
+    boundary_kind = str(args.get("boundary_kind") or "").strip().casefold()
+    if boundary_kind not in _HFSS_BOUNDARY_OPTIONS:
+        raise LiveBackendError(f"unsupported HFSS boundary kind: {boundary_kind}")
+    boundary_name = str(args.get("boundary_name") or "").strip()
+    if not _SAFE_AEDT_OBJECT_NAME.fullmatch(boundary_name):
+        raise LiveBackendError("boundary_name must be a safe AEDT name")
+    raw_face_ids = args.get("assignment_face_ids") or []
+    if not isinstance(raw_face_ids, list) or any(
+        type(item) is not int or item <= 0 for item in raw_face_ids
+    ):
+        raise LiveBackendError("assignment_face_ids must contain positive integer face IDs")
+    face_ids = list(raw_face_ids)
+    if len(face_ids) != len(set(face_ids)):
+        raise LiveBackendError("assignment_face_ids must not contain duplicates")
+    if len(face_ids) > 64:
+        raise LiveBackendError("assignment_face_ids exceeds the maximum of 64")
+    object_name = str(args.get("assignment_object_name") or "").strip()
+    if object_name and not _SAFE_AEDT_OBJECT_NAME.fullmatch(object_name):
+        raise LiveBackendError("assignment_object_name must be a safe AEDT object name")
+    if boundary_kind == "lumped_port":
+        if face_ids or not object_name:
+            raise LiveBackendError(
+                "lumped_port requires one assignment_object_name and no assignment_face_ids"
+            )
+    else:
+        if object_name:
+            raise LiveBackendError(
+                f"{boundary_kind} requires assignment_face_ids, not assignment_object_name"
+            )
+        if not face_ids:
+            raise LiveBackendError("assignment_face_ids must contain positive integer face IDs")
+        if boundary_kind == "wave_port" and len(face_ids) != 1:
+            raise LiveBackendError("wave_port requires exactly one assignment face ID")
+    references = list(args.get("references") or [])
+    if references:
+        raise LiveBackendError(
+            "typed DrivenModal boundary creation does not accept references; "
+            "terminal-port references require a separate verified Harness"
+        )
+    if boundary_kind == "radiation":
+        options = _normalize_hfss_boundary_options(boundary_kind, args.get("options"), "options")
+    else:
+        options = _normalize_hfss_typed_port_options(
+            boundary_kind,
+            args.get("options"),
+            "options",
+        )
+    return {
+        "boundary_kind": boundary_kind,
+        "boundary_name": boundary_name,
+        "assignment_face_ids": face_ids,
+        "assignment_object_name": object_name,
+        "references": [],
+        "options": options,
+    }
+
+
+def _normalize_hfss_typed_port_options(
+    port_kind: str,
+    raw_options: Any,
+    field: str,
+) -> dict[str, Any]:
+    if raw_options is None:
+        options: dict[str, Any] = {}
+    elif isinstance(raw_options, dict):
+        options = dict(raw_options)
+    else:
+        raise LiveBackendError(f"{field} must be an object")
+    unsupported = sorted(set(options).difference(_HFSS_TYPED_PORT_OPTIONS[port_kind]))
+    if unsupported:
+        raise LiveBackendError(f"unsupported typed {port_kind} option: {unsupported[0]}")
+    direction_raw = str(options.get("integration_line_direction") or "XNeg").strip()
+    direction_by_casefold = {item.casefold(): item for item in _HFSS_AXIS_DIRECTIONS}
+    direction = direction_by_casefold.get(direction_raw.casefold())
+    if direction is None:
+        raise LiveBackendError(
+            f"{field}.integration_line_direction must be one of "
+            + ", ".join(_HFSS_AXIS_DIRECTIONS)
+        )
+    renormalize = options.get("renormalize", True)
+    if type(renormalize) is not bool:
+        raise LiveBackendError(f"{field}.renormalize must be boolean")
+    normalized: dict[str, Any] = {
+        "integration_line_direction": direction,
+        "renormalize": renormalize,
+    }
+    if port_kind == "wave_port":
+        normalized["modes"] = _bounded_integer(
+            options.get("modes", 1),
+            f"{field}.modes",
+            minimum=1,
+            maximum=16,
+        )
+        deembed = options.get("deembed", 0.0)
+        if (
+            isinstance(deembed, bool)
+            or not isinstance(deembed, (int, float))
+            or not math.isfinite(float(deembed))
+            or not 0 <= float(deembed) <= 1000000
+        ):
+            raise LiveBackendError(
+                f"{field}.deembed must be a finite millimeter value between 0 and 1000000"
+            )
+        normalized["deembed"] = float(deembed)
+        characteristic = str(options.get("characteristic_impedance") or "Zpi").strip()
+        by_casefold = {item.casefold(): item for item in _HFSS_CHARACTERISTIC_IMPEDANCES}
+        characteristic = by_casefold.get(characteristic.casefold(), "")
+        if not characteristic:
+            raise LiveBackendError(
+                f"{field}.characteristic_impedance must be Zpi, Zpv, Zvi, or Zwave"
+            )
+        normalized["characteristic_impedance"] = characteristic
+    else:
+        impedance = options.get("impedance", 50.0)
+        if (
+            isinstance(impedance, bool)
+            or not isinstance(impedance, (int, float))
+            or not math.isfinite(float(impedance))
+            or not 0 < float(impedance) <= 1000000000
+        ):
+            raise LiveBackendError(
+                f"{field}.impedance must be a positive finite ohm value at most 1000000000"
+            )
+        deembed = options.get("deembed", False)
+        if type(deembed) is not bool:
+            raise LiveBackendError(f"{field}.deembed must be boolean for lumped_port")
+        normalized["impedance"] = float(impedance)
+        normalized["deembed"] = deembed
     return normalized
 
 
@@ -6448,25 +6683,373 @@ def _resolve_hfss_face_selector(
     return [int(selected[0]["face_id"])]
 
 
+def _modal_port_solution_supported(solution_type: str) -> bool:
+    normalized = re.sub(r"[\s_-]+", "", solution_type).casefold()
+    return normalized in {"modal", "drivenmodal"}
+
+
+def _hfss_boundary_target_snapshot(
+    geometry: dict[str, Any],
+    spec: dict[str, Any],
+) -> list[dict[str, Any]]:
+    if spec["assignment_object_name"]:
+        surface_spec = {
+            "object_names": [spec["assignment_object_name"]],
+            "face_ids": [],
+        }
+    else:
+        surface_spec = {
+            "object_names": [],
+            "face_ids": spec["assignment_face_ids"],
+        }
+    targets = _hfss_surface_boundary_targets(geometry, surface_spec)
+    return _hfss_surface_boundary_target_snapshot(targets, surface_spec)
+
+
+def _validate_hfss_boundary_target(
+    spec: dict[str, Any],
+    target_snapshot: list[dict[str, Any]],
+) -> None:
+    if spec["boundary_kind"] == "radiation":
+        return
+    if spec["boundary_kind"] == "wave_port":
+        faces = [
+            face
+            for item in target_snapshot
+            for face in list(item.get("faces") or [])
+        ]
+        if len(faces) != 1 or faces[0].get("is_planar") is not True:
+            raise LiveBackendError("HFSS wave_port requires exactly one planar face")
+        return
+    if len(target_snapshot) != 1:
+        raise LiveBackendError("HFSS lumped_port requires exactly one planar sheet object")
+    target = target_snapshot[0]
+    faces = list(target.get("faces") or [])
+    if (
+        target.get("is_solid") is not False
+        or not faces
+        or any(face.get("is_planar") is not True for face in faces)
+    ):
+        raise LiveBackendError(
+            "HFSS lumped_port requires exactly one planar sheet object: " + target["name"]
+        )
+
+
+def _hfss_axis_direction(app: Any, direction_name: str) -> Any:
+    try:
+        directions = app.axis_directions
+    except Exception:
+        directions = None
+    direction = getattr(directions, direction_name, None) if directions else None
+    if direction is None:
+        raise LiveBackendError("HFSS axis direction inventory is unavailable")
+    return direction
+
+
+def _hfss_port_integration_line(
+    app: Any,
+    assignment: str | int,
+    direction_name: str,
+) -> dict[str, list[str]]:
+    direction = _hfss_axis_direction(app, direction_name)
+    try:
+        wave_resolver = getattr(app, "_get_reference_and_integration_points", None)
+        if type(assignment) is int and callable(wave_resolver):
+            object_name = app.modeler.oeditor.GetObjectNameByFaceID(assignment)
+            _, raw_start, raw_end = wave_resolver(
+                assignment,
+                direction,
+                object_name,
+            )
+        else:
+            raw_start, raw_end = app.modeler.get_mid_points_on_dir(assignment, direction)
+        start = [float(item) for item in raw_start]
+        end = [float(item) for item in raw_end]
+    except Exception as exc:
+        raise LiveBackendError("HFSS port integration line could not be resolved") from exc
+    if (
+        len(start) != 3
+        or len(end) != 3
+        or not all(math.isfinite(item) for item in start + end)
+        or all(math.isclose(a, b, rel_tol=0.0, abs_tol=1e-15) for a, b in zip(start, end))
+    ):
+        raise LiveBackendError("HFSS port integration line must have two distinct 3D points")
+    model_units = str(_safe_attribute(app.modeler, "model_units") or "").strip()
+    if not re.fullmatch(r"[A-Za-z]+", model_units):
+        raise LiveBackendError("HFSS model units are unavailable for port creation")
+    return {
+        "start": [str(item) + model_units for item in start],
+        "end": [str(item) + model_units for item in end],
+    }
+
+
+def _hfss_port_boundary_snapshot(app: Any) -> list[dict[str, Any]]:
+    try:
+        boundaries = list(getattr(app, "boundaries", []) or [])
+    except Exception as exc:
+        raise LiveBackendError("HFSS boundary inventory is unavailable") from exc
+    records = []
+    for boundary in boundaries:
+        name = str(getattr(boundary, "name", "") or "").strip()
+        boundary_type = str(getattr(boundary, "type", "") or "").strip()
+        if not name or not boundary_type:
+            raise LiveBackendError("HFSS boundary name or type readback is unavailable")
+        try:
+            props = dict(getattr(boundary, "props", {}) or {})
+        except Exception as exc:
+            raise LiveBackendError(f"HFSS boundary properties are unavailable: {name}") from exc
+        records.append(_hfss_port_boundary_record(name, boundary_type, props))
+    return sorted(records, key=lambda item: item["name"].casefold())
+
+
+def _hfss_port_boundary_record(
+    name: str,
+    boundary_type: str,
+    props: dict[str, Any],
+) -> dict[str, Any]:
+    normalized_type = re.sub(r"[\s_-]+", "", boundary_type).casefold()
+    kind = {
+        "waveport": "wave_port",
+        "lumpedport": "lumped_port",
+        "radiation": "radiation",
+    }.get(normalized_type, "other")
+    object_names = _boundary_assignment_names(props.get("Objects"))
+    face_ids = _boundary_assignment_face_ids(props.get("Faces"))
+    record: dict[str, Any] = {
+        "name": name,
+        "type": boundary_type,
+        "kind": kind,
+        "assignment_kind": "objects" if object_names else "faces" if face_ids else "unavailable",
+        "object_names": object_names,
+        "face_ids": face_ids,
+        "property_digest": _digest(_json_value(props)),
+    }
+    if kind not in {"wave_port", "lumped_port"}:
+        record["options"] = {}
+        return record
+    try:
+        modes = dict(props.get("Modes") or {})
+    except Exception:
+        modes = {}
+    mode_records = []
+    for mode_name in sorted(modes, key=str.casefold):
+        try:
+            mode = dict(modes[mode_name] or {})
+        except Exception:
+            mode = {}
+        int_line = _boundary_integration_line(mode.get("IntLine"))
+        mode_records.append(
+            {
+                "name": str(mode_name),
+                "mode_number": int(mode.get("ModeNum") or 0),
+                "use_integration_line": _boundary_readback_bool(
+                    mode.get("UseIntLine"),
+                    False,
+                ),
+                "integration_line": int_line,
+                "characteristic_impedance": str(mode.get("CharImp") or "").strip(),
+            }
+        )
+    options: dict[str, Any] = {
+        "renormalize": _boundary_readback_bool(
+            props.get("RenormalizeAllTerminals"),
+            True,
+        ),
+        "deembed_enabled": _boundary_readback_bool(props.get("DoDeembed"), False),
+        "integration_line": next(
+            (
+                item["integration_line"]
+                for item in mode_records
+                if item["use_integration_line"]
+            ),
+            {"start": [], "end": []},
+        ),
+        "modes": mode_records,
+    }
+    if kind == "wave_port":
+        try:
+            options["mode_count"] = int(props.get("NumModes") or len(mode_records))
+        except (TypeError, ValueError):
+            options["mode_count"] = 0
+        options["deembed_distance"] = str(props.get("DeembedDist") or "").strip()
+    else:
+        options["mode_count"] = len(mode_records)
+        options["impedance"] = str(props.get("Impedance") or "").strip()
+    record["options"] = options
+    return record
+
+
 def _create_hfss_boundary(
     app: Any,
     spec: dict[str, Any],
     face_ids: list[int],
+    *,
+    resolved_integration_line: dict[str, list[str]] | None = None,
 ) -> Any:
     if spec["boundary_kind"] == "radiation":
         return app.assign_radiation_boundary_to_faces(
             face_ids,
             name=spec["boundary_name"],
         )
+    if "integration_line_direction" in spec["options"]:
+        if not isinstance(resolved_integration_line, dict):
+            raise LiveBackendError("resolved HFSS port integration line is unavailable")
+        integration_line = [
+            list(resolved_integration_line.get("start") or []),
+            list(resolved_integration_line.get("end") or []),
+        ]
+        if spec["boundary_kind"] == "wave_port":
+            return app.wave_port(
+                assignment=face_ids[0],
+                reference=None,
+                name=spec["boundary_name"],
+                integration_line=integration_line,
+                modes=spec["options"]["modes"],
+                renormalize=spec["options"]["renormalize"],
+                deembed=spec["options"]["deembed"],
+                characteristic_impedance=spec["options"]["characteristic_impedance"],
+            )
+        model_units = str(_safe_attribute(app.modeler, "model_units") or "").strip()
+        return app.lumped_port(
+            assignment=spec["assignment_object_name"],
+            reference=None,
+            name=spec["boundary_name"],
+            integration_line=_numeric_integration_line(integration_line, model_units),
+            impedance=spec["options"]["impedance"],
+            renormalize=spec["options"]["renormalize"],
+            deembed=spec["options"]["deembed"],
+        )
     if len(face_ids) != 1:
         raise LiveBackendError(f"{spec['boundary_kind']} requires exactly one resolved face")
     method = app.wave_port if spec["boundary_kind"] == "wave_port" else app.lumped_port
+    assignment = (
+        spec.get("assignment_object")
+        if spec["boundary_kind"] == "lumped_port"
+        else face_ids[0]
+    )
     return method(
-        assignment=face_ids[0],
+        assignment=assignment,
         reference=spec["references"] or None,
         name=spec["boundary_name"],
         **spec["options"],
     )
+
+
+def _numeric_integration_line(
+    integration_line: list[list[str]],
+    unit: str,
+) -> list[list[float]]:
+    if not re.fullmatch(r"[A-Za-z]+", unit):
+        raise LiveBackendError("HFSS model units are unavailable for port creation")
+    numeric: list[list[float]] = []
+    for point in integration_line:
+        if len(point) != 3:
+            raise LiveBackendError("HFSS port integration point must contain three coordinates")
+        values = []
+        for expression in point:
+            match = re.fullmatch(
+                r"\s*([+\-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+\-]?\d+)?)\s*([A-Za-z]+)\s*",
+                str(expression),
+            )
+            if not match or match.group(2).casefold() != unit.casefold():
+                raise LiveBackendError("HFSS port integration coordinate unit mismatch")
+            values.append(float(match.group(1)))
+        numeric.append(values)
+    return numeric
+
+
+def _verify_hfss_boundary_readback(
+    spec: dict[str, Any],
+    readback: dict[str, Any],
+    resolved_integration_line: dict[str, list[str]] | None,
+) -> None:
+    if readback.get("kind") != spec["boundary_kind"]:
+        raise LiveBackendError("HFSS boundary type readback failed")
+    if readback.get("face_ids") != spec["assignment_face_ids"]:
+        raise LiveBackendError("HFSS boundary face assignment readback failed")
+    expected_objects = [spec["assignment_object_name"]] if spec["assignment_object_name"] else []
+    if readback.get("object_names") != expected_objects:
+        raise LiveBackendError("HFSS boundary object assignment readback failed")
+    if spec["boundary_kind"] == "radiation":
+        return
+    expected = spec["options"]
+    actual = dict(readback.get("options") or {})
+    if actual.get("renormalize") is not expected["renormalize"]:
+        raise LiveBackendError("HFSS port renormalization readback failed")
+    if not _integration_line_readback_matches(
+        actual.get("integration_line"),
+        resolved_integration_line,
+    ):
+        raise LiveBackendError("HFSS port integration line readback failed")
+    if spec["boundary_kind"] == "wave_port":
+        if actual.get("mode_count") != expected["modes"]:
+            raise LiveBackendError("HFSS wave-port mode count readback failed")
+        modes = list(actual.get("modes") or [])
+        if len(modes) != expected["modes"] or any(
+            item.get("characteristic_impedance") != expected["characteristic_impedance"]
+            for item in modes
+        ):
+            raise LiveBackendError("HFSS wave-port characteristic impedance readback failed")
+        deembed_enabled = expected["deembed"] > 0
+        if actual.get("deembed_enabled") is not deembed_enabled:
+            raise LiveBackendError("HFSS wave-port deembed enable readback failed")
+        if deembed_enabled and not _quantity_boundary_readback_matches(
+            actual.get("deembed_distance"),
+            expected["deembed"],
+            "mm",
+        ):
+            raise LiveBackendError("HFSS wave-port deembed distance readback failed")
+        return
+    if actual.get("mode_count") != 1:
+        raise LiveBackendError("HFSS lumped-port mode count readback failed")
+    if actual.get("deembed_enabled") is not expected["deembed"]:
+        raise LiveBackendError("HFSS lumped-port deembed readback failed")
+    if not _quantity_boundary_readback_matches(
+        actual.get("impedance"),
+        expected["impedance"],
+        "ohm",
+    ):
+        raise LiveBackendError("HFSS lumped-port impedance readback failed")
+
+
+def _rollback_hfss_boundary(
+    app: Any,
+    created_name: str,
+    *,
+    before_boundaries: list[dict[str, Any]],
+) -> dict[str, Any]:
+    before_names = {item["name"] for item in before_boundaries}
+    delete_error = ""
+    try:
+        current = _hfss_port_boundary_snapshot(app)
+        if created_name in {item["name"] for item in current} and created_name not in before_names:
+            boundary = next(
+                item for item in list(app.boundaries or []) if item.name == created_name
+            )
+            if boundary.delete() is not True:
+                raise LiveBackendError("HFSS boundary delete returned false")
+    except Exception as exc:
+        try:
+            if created_name not in before_names:
+                app.oboundary.DeleteBoundaries([created_name])
+        except Exception as fallback_exc:
+            delete_error = (
+                f"{type(exc).__name__}: {exc}; raw fallback failed: "
+                f"{type(fallback_exc).__name__}: {fallback_exc}"
+            )
+    readback_error = ""
+    try:
+        after = _hfss_port_boundary_snapshot(app)
+    except Exception as exc:
+        after = []
+        readback_error = f"{type(exc).__name__}: {exc}"
+    return {
+        "complete": not delete_error and not readback_error and after == before_boundaries,
+        "deleted_boundary": created_name if after == before_boundaries else "",
+        "remaining_boundaries": [item["name"] for item in after],
+        "delete_error": delete_error,
+        "readback_error": readback_error,
+    }
 
 
 def _hfss_boundary_type_matches(boundary_kind: str, readback_type: str) -> bool:

@@ -351,6 +351,63 @@ class _Live:
             "project_saved": False,
         }
 
+    def preview_hfss_boundary(self, session_id: str, **kwargs) -> dict:
+        assert kwargs["boundary_kind"] == "wave_port"
+        assert kwargs["assignment_face_ids"] == [101]
+        return {
+            "preview_id": "typed-port-preview-1",
+            "boundary_kind": kwargs["boundary_kind"],
+            "boundary_name": kwargs["boundary_name"],
+            "resolved_integration_line": {
+                "start": ["0mm", "10mm", "5mm"],
+                "end": ["0mm", "0mm", "5mm"],
+            },
+            "approval_request": {"action": "hfss.boundary.create"},
+            "project_saved": False,
+        }
+
+    def apply_hfss_boundary(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        assert preview_id == "typed-port-preview-1"
+        assert approval_token == "typed-port-approved"
+        return {
+            "status": "verified",
+            "boundary_kind": "wave_port",
+            "boundary_name": "HarnessWave",
+            "assignment_face_ids": [101],
+            "assignment_object_name": "",
+            "created_boundary_name": "HarnessWave",
+            "boundary": {
+                "name": "HarnessWave",
+                "type": "Wave Port",
+                "kind": "wave_port",
+                "assignment_kind": "faces",
+                "object_names": [],
+                "face_ids": [101],
+                "options": {
+                    "renormalize": False,
+                    "deembed_enabled": True,
+                    "deembed_distance": "1.25mm",
+                    "integration_line": {
+                        "start": ["0mm", "10mm", "5mm"],
+                        "end": ["0mm", "0mm", "5mm"],
+                    },
+                    "mode_count": 2,
+                    "modes": [
+                        {"name": "Mode1", "characteristic_impedance": "Zwave"},
+                        {"name": "Mode2", "characteristic_impedance": "Zwave"},
+                    ],
+                },
+            },
+            "automatic_rollback_on_failure": True,
+            "project_saved": False,
+        }
+
     def preview_hfss_geometry_boundary_create(self, session_id: str, **kwargs) -> dict:
         return {
             "preview_id": "geometry-boundary-preview-1",
@@ -713,6 +770,12 @@ def test_default_workflow_catalog_includes_live_monitor_and_export(tmp_path: Pat
     assert descriptors["hfss_live_surface_boundary_create"]["risk"] == "reversible_edit"
     assert descriptors["hfss_live_surface_boundary_create"]["attached_live_session_reuse"] is True
     assert descriptors["hfss_live_surface_boundary_create"]["recommended_initial_fields"] == [
+        "boundary_kind",
+        "boundary_name",
+    ]
+    assert descriptors["hfss_live_port_create"]["risk"] == "reversible_edit"
+    assert descriptors["hfss_live_port_create"]["attached_live_session_reuse"] is True
+    assert descriptors["hfss_live_port_create"]["recommended_initial_fields"] == [
         "boundary_kind",
         "boundary_name",
     ]
@@ -1092,6 +1155,58 @@ def test_live_hfss_surface_boundary_workflow_creates_and_scores_boundary(tmp_pat
     assert scorecard["summary"]["boundary_kind"] == "finite_conductivity"
     assert scorecard["summary"]["face_ids"] == [101]
     assert scorecard["summary"]["options"]["material_name"] == "copper"
+    assert scorecard["summary"]["project_saved"] is False
+
+
+def test_live_hfss_port_workflow_creates_and_scores_typed_port(tmp_path: Path):
+    manager = AssistantWorkflowManager(
+        live_manager=_Live(),
+        db_path=tmp_path / "typed-port-missions.db",
+        template_ids=("hfss_live_port_create",),
+        runtime_factory=lambda path: AgentRuntime(SQLiteMissionStore(path)),
+    )
+    start = manager.preview_start(
+        "live-1",
+        workflow_id="hfss_live_port_create",
+        goal="Create a reviewed two-mode wave port",
+        initial_payload={
+            "boundary_kind": "wave_port",
+            "boundary_name": "HarnessWave",
+            "assignment_face_ids": [101],
+            "options": {
+                "modes": 2,
+                "renormalize": False,
+                "deembed": 1.25,
+                "integration_line_direction": "YPos",
+                "characteristic_impedance": "Zwave",
+            },
+        },
+    )
+    started = manager.apply_start(
+        "live-1",
+        preview_id=start["preview_id"],
+        approval_token="approved",
+    )
+    report = None
+    for index in range(3):
+        advance = manager.preview_advance("live-1", graph_run_id=started["graph_run_id"])
+        if index == 1:
+            assert advance["operation_approval_required"]["preview_id"] == "typed-port-preview-1"
+        report = manager.apply_advance(
+            "live-1",
+            preview_id=advance["preview_id"],
+            approval_token="approved",
+            operation_approval_token=("typed-port-approved" if index == 1 else ""),
+        )
+
+    assert report is not None and report["status"] == "succeeded"
+    assert "typed-port-approved" not in str(report)
+    scorecard = report["node_runs"][-1]["output_payload"]
+    assert scorecard["status"] == "passed"
+    assert scorecard["summary"]["port_name"] == "HarnessWave"
+    assert scorecard["summary"]["port_kind"] == "wave_port"
+    assert scorecard["summary"]["face_ids"] == [101]
+    assert scorecard["summary"]["options"]["mode_count"] == 2
     assert scorecard["summary"]["project_saved"] is False
 
 

@@ -899,6 +899,24 @@ class LiveAedtSessionManager:
         self._approval_contexts.pop((session_id, preview_id), None)
         return result
 
+    def hfss_port_inventory(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+        max_items: int = 100,
+    ) -> dict[str, Any]:
+        return self._execute(
+            session_id,
+            "hfss_port_inventory",
+            {
+                "project_name": project_name,
+                "design_name": design_name,
+                "max_items": max_items,
+            },
+        )
+
     def preview_hfss_boundary(
         self,
         session_id: str,
@@ -907,7 +925,8 @@ class LiveAedtSessionManager:
         design_name: str,
         boundary_kind: str,
         boundary_name: str,
-        assignment_face_ids: list[int],
+        assignment_face_ids: list[int] | None = None,
+        assignment_object_name: str | None = None,
         references: list[str | int] | None = None,
         options: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
@@ -919,7 +938,8 @@ class LiveAedtSessionManager:
                 "design_name": design_name,
                 "boundary_kind": boundary_kind,
                 "boundary_name": boundary_name,
-                "assignment_face_ids": assignment_face_ids,
+                "assignment_face_ids": assignment_face_ids or [],
+                "assignment_object_name": assignment_object_name or "",
                 "references": references or [],
                 "options": options or {},
             },

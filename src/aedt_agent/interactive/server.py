@@ -819,17 +819,33 @@ def create_server(
         )
 
     @server.tool()
+    async def get_live_hfss_port_inventory(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        max_items: int = 100,
+    ) -> dict:
+        """Read typed Wave/Lumped Port assignments and properties without modifying the HFSS design."""
+        return live.hfss_port_inventory(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            max_items=max_items,
+        )
+
+    @server.tool()
     async def preview_live_hfss_boundary_create(
         live_session_id: str,
         project_name: str,
         design_name: str,
         boundary_kind: str,
         boundary_name: str,
-        assignment_face_ids: list[int],
+        assignment_face_ids: list[int] | None = None,
+        assignment_object_name: str | None = None,
         references: list[str | int] | None = None,
         options: dict | None = None,
     ) -> dict:
-        """Preview radiation, wave-port, or lumped-port creation using explicit face IDs from geometry inventory."""
+        """Preview typed radiation, planar-face Wave Port, or planar-sheet Lumped Port creation."""
         return live.preview_hfss_boundary(
             live_session_id,
             project_name=project_name,
@@ -837,6 +853,7 @@ def create_server(
             boundary_kind=boundary_kind,
             boundary_name=boundary_name,
             assignment_face_ids=assignment_face_ids,
+            assignment_object_name=assignment_object_name,
             references=references,
             options=options,
         )

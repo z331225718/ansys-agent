@@ -411,6 +411,7 @@ class FakeObject:
         bounding_box=None,
         color=(120, 130, 140),
         transparency=0.1,
+        is_planar=True,
     ):
         self.id = object_id
         self.material_name = material_name
@@ -421,7 +422,12 @@ class FakeObject:
         self.transparency = transparency
         centers = face_centers or [[0, 0, 0]]
         self.faces = [
-            SimpleNamespace(id=face_id + index, center=center, area=1.5)
+            SimpleNamespace(
+                id=face_id + index,
+                center=center,
+                area=1.5,
+                is_planar=is_planar,
+            )
             for index, center in enumerate(centers)
         ]
 
@@ -434,6 +440,17 @@ class FakeHfssModeler:
 
     def __getitem__(self, name):
         return self._objects[name]
+
+    def get_mid_points_on_dir(self, assignment, direction):
+        points = {
+            0: ([1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]),
+            1: ([0.0, 1.0, 0.0], [0.0, -1.0, 0.0]),
+            2: ([0.0, 0.0, 1.0], [0.0, 0.0, -1.0]),
+            3: ([-1.0, 0.0, 0.0], [1.0, 0.0, 0.0]),
+            4: ([0.0, -1.0, 0.0], [0.0, 1.0, 0.0]),
+            5: ([0.0, 0.0, -1.0], [0.0, 0.0, 1.0]),
+        }
+        return points[int(direction)]
 
 
 class FakeGeometryModeler(FakeHfssModeler):
@@ -501,11 +518,12 @@ class FakeGeometryModeler(FakeHfssModeler):
 
 
 class FakeBoundary:
-    def __init__(self, owner, name, boundary_type, *, port=False):
+    def __init__(self, owner, name, boundary_type, *, port=False, props=None):
         self.owner = owner
         self.name = name
         self.type = boundary_type
         self.port = port
+        self.props = dict(props or {})
 
     def delete(self):
         self.owner.boundaries = [item for item in self.owner.boundaries if item.name != self.name]
@@ -550,9 +568,10 @@ def _fake_angle(value, units):
 
 
 class FakeHfss:
-    are_there_simulations_running = True
+    are_there_simulations_running = False
     solution_type = "DrivenModal"
     design_type = "HFSS"
+    axis_directions = SimpleNamespace(XNeg=0, YNeg=1, ZNeg=2, XPos=3, YPos=4, ZPos=5)
 
     def __init__(self, **kwargs):
         self.kwargs = kwargs
@@ -562,7 +581,7 @@ class FakeHfss:
         self.post = FakePost()
         self.modeler = FakeHfssModeler()
         self.ports = ["P1", "P2"]
-        self.boundaries = [FakeBoundary(self, "rad1", "Radiation")]
+        self.boundaries = [FakeBoundary(self, "rad1", "Radiation", props={"Faces": [102]})]
 
     @property
     def existing_analysis_setups(self):
@@ -600,13 +619,81 @@ class FakeHfss:
         return boundary
 
     def wave_port(self, assignment, reference=None, name=None, **kwargs):
-        boundary = FakeBoundary(self, name, "Wave Port", port=True)
+        direction = kwargs.get("integration_line", 0)
+        if isinstance(direction, list):
+            start, end = direction
+        else:
+            start, end = self.modeler.get_mid_points_on_dir(assignment, direction)
+        mode_count = int(kwargs.get("modes", 1))
+        characteristic = str(kwargs.get("characteristic_impedance", "Zpi"))
+        modes = {
+            f"Mode{index}": {
+                "ModeNum": index,
+                "UseIntLine": index == 1,
+                "IntLine": {
+                    "Start": [str(item) if isinstance(item, str) else f"{item}mm" for item in start],
+                    "End": [str(item) if isinstance(item, str) else f"{item}mm" for item in end],
+                }
+                if index == 1
+                else {},
+                "CharImp": characteristic,
+            }
+            for index in range(1, mode_count + 1)
+        }
+        deembed = float(kwargs.get("deembed", 0))
+        boundary = FakeBoundary(
+            self,
+            name,
+            "Wave Port",
+            port=True,
+            props={
+                "Faces": [assignment],
+                "NumModes": mode_count,
+                "DoDeembed": deembed > 0,
+                "DeembedDist": f"{deembed}mm" if deembed > 0 else "",
+                "RenormalizeAllTerminals": kwargs.get("renormalize", True),
+                "Modes": modes,
+            },
+        )
         self.boundaries.append(boundary)
         self.ports.append(name)
         return boundary
 
     def lumped_port(self, assignment, reference=None, name=None, **kwargs):
-        boundary = FakeBoundary(self, name, "Lumped Port", port=True)
+        direction = kwargs.get("integration_line", 0)
+        if isinstance(direction, list):
+            start, end = direction
+        else:
+            start, end = self.modeler.get_mid_points_on_dir(assignment, direction)
+        boundary = FakeBoundary(
+            self,
+            name,
+            "Lumped Port",
+            port=True,
+            props={
+                "Objects": [assignment],
+                "DoDeembed": kwargs.get("deembed", False),
+                "RenormalizeAllTerminals": kwargs.get("renormalize", True),
+                "Modes": {
+                    "Mode1": {
+                        "ModeNum": 1,
+                        "UseIntLine": True,
+                        "IntLine": {
+                            "Start": [
+                                str(item) if isinstance(item, str) else f"{item}mm"
+                                for item in start
+                            ],
+                            "End": [
+                                str(item) if isinstance(item, str) else f"{item}mm"
+                                for item in end
+                            ],
+                        },
+                        "CharImp": "Zpi",
+                    }
+                },
+                "Impedance": f"{float(kwargs.get('impedance', 50))}ohm",
+            },
+        )
         self.boundaries.append(boundary)
         self.ports.append(name)
         return boundary
@@ -637,6 +724,43 @@ class FakeControlledSolveHfss(FakeHfss):
         path = Path(output_file)
         path.write_text("# Hz S RI R 50\n", encoding="ascii")
         return str(path)
+
+
+class FakeTypedPortHfss(FakeHfss):
+    def __init__(self, *, mismatch_kind="", **kwargs):
+        super().__init__(**kwargs)
+        self.mismatch_kind = mismatch_kind
+        self.modeler.object_names.append("PortSheet")
+        self.modeler._objects["PortSheet"] = FakeObject(
+            object_id=10,
+            material_name="vacuum",
+            face_id=201,
+            face_centers=[[2.0, 0.0, 0.0]],
+            volume=0.0,
+            bounding_box=[1.0, -1.0, 0.0, 3.0, 1.0, 0.0],
+        )
+
+    def wave_port(self, assignment, reference=None, name=None, **kwargs):
+        boundary = super().wave_port(
+            assignment,
+            reference=reference,
+            name=name,
+            **kwargs,
+        )
+        if self.mismatch_kind == "wave_port":
+            boundary.props["NumModes"] = int(boundary.props["NumModes"]) + 1
+        return boundary
+
+    def lumped_port(self, assignment, reference=None, name=None, **kwargs):
+        boundary = super().lumped_port(
+            assignment,
+            reference=reference,
+            name=name,
+            **kwargs,
+        )
+        if self.mismatch_kind == "lumped_port":
+            boundary.props["Impedance"] = "999ohm"
+        return boundary
 
 
 class FakeFarFieldHfss(FakeHfss):
@@ -1328,13 +1452,16 @@ def test_backend_reuses_wrappers_and_lists_live_layout_paths():
         {
             "project_name": "Board",
             "design_name": "HFSS1",
-            "boundary_kind": "wave_port",
-            "boundary_name": "P3",
-            "assignment_face_ids": [101],
-            "references": ["box1"],
-            "options": {"modes": 1, "impedance": 50},
-        },
-    )
+                "boundary_kind": "wave_port",
+                "boundary_name": "P3",
+                "assignment_face_ids": [101],
+                "options": {
+                    "modes": 1,
+                    "integration_line_direction": "YPos",
+                    "characteristic_impedance": "Zpi",
+                },
+            },
+        )
     boundary_result = backend.execute(
         target,
         "hfss_boundary_apply",
@@ -1342,6 +1469,8 @@ def test_backend_reuses_wrappers_and_lists_live_layout_paths():
     )
     assert boundary_result["status"] == "verified"
     assert boundary_result["boundary_name"] == "P3"
+    assert boundary_result["boundary"]["kind"] == "wave_port"
+    assert boundary_result["boundary"]["options"]["mode_count"] == 1
     preview = backend.execute(
         target,
         "layout_width_preview",
@@ -2828,6 +2957,225 @@ def test_backend_hfss_geometry_batch_rolls_back_and_rejects_stale_preview():
         backend.execute(
             target,
             "hfss_geometry_create_apply",
+            {"preview_id": stale["preview_id"]},
+        )
+
+
+def test_backend_creates_and_reads_typed_hfss_wave_and_lumped_ports():
+    apps = []
+
+    def factory(**kwargs):
+        app = FakeTypedPortHfss(**kwargs)
+        apps.append(app)
+        return app
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, hfss_factory=factory)
+    target = AedtTarget("pid", 42)
+    initial = backend.execute(
+        target,
+        "hfss_port_inventory",
+        {"project_name": "Board", "design_name": "HFSS1"},
+    )
+    assert initial["port_count"] == 0
+    assert initial["design_unchanged"] is True
+
+    wave_preview = backend.execute(
+        target,
+        "hfss_boundary_preview",
+        {
+            "project_name": "Board",
+            "design_name": "HFSS1",
+            "boundary_kind": "wave_port",
+            "boundary_name": "TypedWave",
+            "assignment_face_ids": [101],
+            "options": {
+                "modes": 2,
+                "renormalize": False,
+                "deembed": 1.25,
+                "integration_line_direction": "YPos",
+                "characteristic_impedance": "Zwave",
+            },
+        },
+    )
+    assert wave_preview["resolved_integration_line"] == {
+        "start": ["0.0mm", "-1.0mm", "0.0mm"],
+        "end": ["0.0mm", "1.0mm", "0.0mm"],
+    }
+    wave = backend.execute(
+        target,
+        "hfss_boundary_apply",
+        {"preview_id": wave_preview["preview_id"]},
+    )
+    assert wave["status"] == "verified"
+    assert wave["boundary"]["kind"] == "wave_port"
+    assert wave["boundary"]["face_ids"] == [101]
+    assert wave["boundary"]["options"]["mode_count"] == 2
+    assert wave["boundary"]["options"]["deembed_distance"] == "1.25mm"
+    assert {
+        item["characteristic_impedance"] for item in wave["boundary"]["options"]["modes"]
+    } == {"Zwave"}
+
+    lumped_preview = backend.execute(
+        target,
+        "hfss_boundary_preview",
+        {
+            "project_name": "Board",
+            "design_name": "HFSS1",
+            "boundary_kind": "lumped_port",
+            "boundary_name": "TypedLumped",
+            "assignment_object_name": "PortSheet",
+            "options": {
+                "impedance": 60,
+                "renormalize": False,
+                "deembed": True,
+                "integration_line_direction": "XPos",
+            },
+        },
+    )
+    lumped = backend.execute(
+        target,
+        "hfss_boundary_apply",
+        {"preview_id": lumped_preview["preview_id"]},
+    )
+    assert lumped["status"] == "verified"
+    assert lumped["boundary"]["kind"] == "lumped_port"
+    assert lumped["boundary"]["object_names"] == ["PortSheet"]
+    assert lumped["boundary"]["options"]["impedance"] == "60.0ohm"
+    assert lumped["boundary"]["options"]["deembed_enabled"] is True
+
+    inventory = backend.execute(
+        target,
+        "hfss_port_inventory",
+        {"project_name": "Board", "design_name": "HFSS1"},
+    )
+    assert inventory["port_count"] == 2
+    assert [item["name"] for item in inventory["ports"]] == ["TypedLumped", "TypedWave"]
+    assert apps[0].ports[-2:] == ["TypedWave", "TypedLumped"]
+
+
+def test_backend_typed_hfss_port_rolls_back_readback_failure():
+    apps = []
+
+    def factory(**kwargs):
+        app = FakeTypedPortHfss(mismatch_kind="wave_port", **kwargs)
+        apps.append(app)
+        return app
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, hfss_factory=factory)
+    target = AedtTarget("pid", 42)
+    preview = backend.execute(
+        target,
+        "hfss_boundary_preview",
+        {
+            "project_name": "Board",
+            "design_name": "HFSS1",
+            "boundary_kind": "wave_port",
+            "boundary_name": "BadWave",
+            "assignment_face_ids": [101],
+            "options": {"modes": 2, "integration_line_direction": "YNeg"},
+        },
+    )
+    with pytest.raises(LiveBackendError, match="mode count readback failed"):
+        backend.execute(
+            target,
+            "hfss_boundary_apply",
+            {"preview_id": preview["preview_id"]},
+        )
+    assert [item.name for item in apps[0].boundaries] == ["rad1"]
+    assert apps[0].ports == ["P1", "P2"]
+
+
+def test_backend_typed_hfss_port_rejects_unsafe_and_stale_requests():
+    apps = []
+
+    def factory(**kwargs):
+        app = FakeTypedPortHfss(**kwargs)
+        apps.append(app)
+        return app
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, hfss_factory=factory)
+    target = AedtTarget("pid", 42)
+    base = {
+        "project_name": "Board",
+        "design_name": "HFSS1",
+        "boundary_name": "UnsafePort",
+    }
+    unsafe = [
+        (
+            {
+                **base,
+                "boundary_kind": "lumped_port",
+                "assignment_face_ids": [101],
+            },
+            "requires one assignment_object_name",
+        ),
+        (
+            {
+                **base,
+                "boundary_kind": "wave_port",
+                "assignment_object_name": "PortSheet",
+            },
+            "requires assignment_face_ids",
+        ),
+        (
+            {
+                **base,
+                "boundary_kind": "lumped_port",
+                "assignment_object_name": "box1",
+            },
+            "planar sheet object",
+        ),
+        (
+            {
+                **base,
+                "boundary_kind": "wave_port",
+                "assignment_face_ids": [101],
+                "references": ["box1"],
+            },
+            "does not accept references",
+        ),
+        (
+            {
+                **base,
+                "boundary_kind": "wave_port",
+                "assignment_face_ids": [101],
+                "options": {"integration_line_direction": "Diagonal"},
+            },
+            "integration_line_direction",
+        ),
+    ]
+    for request, error in unsafe:
+        with pytest.raises(LiveBackendError, match=error):
+            backend.execute(target, "hfss_boundary_preview", request)
+
+    apps[0].solution_type = "DrivenTerminal"
+    with pytest.raises(LiveBackendError, match="requires a DrivenModal solution"):
+        backend.execute(
+            target,
+            "hfss_boundary_preview",
+            {
+                **base,
+                "boundary_kind": "wave_port",
+                "assignment_face_ids": [101],
+            },
+        )
+    apps[0].solution_type = "DrivenModal"
+    stale = backend.execute(
+        target,
+        "hfss_boundary_preview",
+        {
+            **base,
+            "boundary_kind": "wave_port",
+            "assignment_face_ids": [101],
+        },
+    )
+    apps[0].boundaries.append(
+        FakeBoundary(apps[0], "ExternalPort", "Wave Port", port=True, props={"Faces": [201]})
+    )
+    with pytest.raises(LiveBackendError, match="stale HFSS boundary preview"):
+        backend.execute(
+            target,
+            "hfss_boundary_apply",
             {"preview_id": stale["preview_id"]},
         )
 
@@ -4970,6 +5318,7 @@ def test_mcp_registers_live_tools_without_changing_artifact_tools(monkeypatch):
     assert "apply_live_hfss_length_mesh_create" in server.tools
     assert "preview_live_hfss_report_create" in server.tools
     assert "apply_live_hfss_report_create" in server.tools
+    assert "get_live_hfss_port_inventory" in server.tools
     assert "preview_live_hfss_boundary_create" in server.tools
     assert "apply_live_hfss_boundary_create" in server.tools
     assert "preview_live_hfss_analysis_start" in server.tools

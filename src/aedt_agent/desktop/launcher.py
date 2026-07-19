@@ -78,6 +78,7 @@ _DESKTOP_ASSISTANT_MCP_TOOLS = (
     "apply_live_hfss_setup_sweep_create",
     "preview_live_hfss_report_create",
     "apply_live_hfss_report_create",
+    "get_live_hfss_port_inventory",
     "preview_live_hfss_boundary_create",
     "apply_live_hfss_boundary_create",
     "preview_live_hfss_analysis_start",

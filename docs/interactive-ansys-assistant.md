@@ -13,7 +13,7 @@
 
 新增 live control plane 还能受控启动 AEDT，或发现并显式连接正在运行的 AEDT，会话内复用
 PyAEDT broker，读取工程信息、HFSS geometry/setup/port/boundary/report inventory、受控创建
-typed geometry batch、为显式 solid batch 分配已有工程材料、创建 setup、radiation boundary、wave/lumped port
+typed geometry batch、为显式 solid batch 分配已有工程材料、创建 setup、radiation boundary、typed Wave/Lumped Port
 和 report、创建 Perfect E/Perfect H/Finite Conductivity/sheet Impedance/Lumped RLC 表面边界、受控 Length Based Mesh
 与有界 Infinite Sphere 远场设置、驱动 analysis，
 并能在单一事务中原子创建新几何和 Boundary/Port，或原子创建 Setup 和 Sweep，同时查询 live 3D Layout Path。
@@ -148,6 +148,7 @@ apply_live_hfss_infinite_sphere_create
 get_live_hfss_surface_boundary_inventory
 preview_live_hfss_surface_boundary_create
 apply_live_hfss_surface_boundary_create
+get_live_hfss_port_inventory
 preview_live_hfss_geometry_create
 apply_live_hfss_geometry_create
 preview_live_hfss_geometry_boundary_create
@@ -297,21 +298,28 @@ Lumped RLC 只接受一个 planar sheet。`rlc_type` 为 `Parallel` 或 `Serial`
 全局轴正负方向，preview 会把方向解析成带当前模型单位的 Start/End 三维点。R/L/C 分别按 Ω、H、F 接收正有限
 数值，至少启用一项；apply 后同时回读启用位、单位化数值和 integration line。
 
-几何和 Boundary/Port 的常规顺序为：
+已有 HFSS 几何上的 Wave/Lumped Port 使用独立严格 Workflow `hfss_live_port_create`：
 
 ```text
 get_live_hfss_geometry_inventory
-  -> 使用返回的显式 face_id 构造 boundary/port selector
+  -> get_live_hfss_port_inventory
+  -> Wave Port 使用一个 planar face ID；Lumped Port 使用一个 planar sheet 名称
   -> preview_live_hfss_boundary_create
+  -> 核对 preview 解析的实际 integration line
   -> Host approval
   -> apply_live_hfss_boundary_create
-  -> preview/apply setup 或 report
-  -> 按需独立批准 project save
-  -> release_live_aedt_session
+  -> 回读 type、assignment、mode、CharImp、renormalize、deembed/impedance 和 integration line
 ```
 
-setup properties 使用白名单；boundary 当前支持 `radiation`、`wave_port`、`lumped_port`。
-preview 会同时冻结 geometry、已有 boundary/setup/report 状态，apply 前变化会返回 stale preview。
+当前 typed Port Harness 只支持 DrivenModal。Wave Port 接受 `modes=1..16`、布尔 renormalize、毫米制
+deembed、六个全局轴方向和 `Zpi/Zpv/Zvi/Zwave`；Lumped Port 接受正有限欧姆值、布尔 deembed 和六个轴方向。
+Wave Port 的普通 `impedance` 参数在 DrivenModal 中没有稳定属性回读，因此严格路径不接受；terminal reference
+也留给独立的后续 Harness。preview 会冻结 solution type、model unit、完整 geometry 和 Boundary 属性，apply 前
+任一变化都返回 stale。创建与回读失败会删除本次端口并核对旧 Boundary 快照，默认不保存工程。
+
+`hfss_live_geometry_boundary_create` 也支持在同一原子批次中新建 rectangle sheet 和 Lumped Port。selector 必须先
+证明该对象只有一个明确平面 face；apply 随后把 sheet 对象名传给 PyAEDT，而不是把 face ID 当作 lumped-port
+geometry assignment。已有 sheet 则优先走上述独立 typed Port Workflow，以获得更完整的属性回读。
 
 生产求解应使用批准链路，而不是兼容入口 `start_live_hfss_analysis`：
 
