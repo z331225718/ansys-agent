@@ -278,6 +278,109 @@ class FakeLayout:
         return True
 
 
+class FakeViaCreateEditor:
+    def __init__(self, app):
+        self.app = app
+
+    def FindObjects(self, field, value):
+        if field != "Name":
+            return []
+        names = set(self.app.modeler.vias)
+        names.update(self.app.modeler.components)
+        names.update(self.app.modeler.line_names)
+        return [value] if value in names else []
+
+    def GetProperties(self, tab, name):
+        assert tab == "BaseElementTab"
+        assert name in self.app.modeler.vias
+        return [
+            "Type",
+            "LockPosition",
+            "Name",
+            "Net",
+            "Padstack Definition",
+            "Start Layer",
+            "Stop Layer",
+            "OverrideHoleDiameter",
+            "HoleDiameter",
+            "Location",
+            "Angle",
+        ]
+
+    def GetPropertyValue(self, tab, name, prop):
+        assert tab == "BaseElementTab"
+        via = self.app.modeler.vias[name]
+        values = {
+            "Type": "Via",
+            "LockPosition": str(via.lock_position).lower(),
+            "Name": via.name,
+            "Net": via.net_name,
+            "Padstack Definition": via.padstack,
+            "Start Layer": via.start_layer,
+            "Stop Layer": via.stop_layer,
+            "OverrideHoleDiameter": str(via.override_hole_diameter).lower(),
+            "HoleDiameter": via.holediam,
+            "Location": f"{via.location[0]} ,{via.location[1]}",
+            "Angle": via.angle,
+        }
+        return values[prop]
+
+    def Delete(self, names):
+        for name in names:
+            self.app.modeler.vias.pop(name, None)
+
+
+class FakeViaCreateLayout(FakeLayout):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.modeler.layers.stackup_layers.append(
+            SimpleNamespace(
+                name="BOT",
+                type="signal",
+                id=3,
+                thickness=0.035,
+                thickness_units="mm",
+                lower_elevation=-0.035,
+                material="copper",
+                fill_material="FR4_epoxy",
+                roughness="0mm",
+                etch=0.0,
+                is_negative=False,
+                top_bottom="bottom",
+            )
+        )
+        self.modeler.oeditor = FakeViaCreateEditor(self)
+        self.modeler._vias = self.modeler.vias
+        self.modeler.create_via = self.create_via
+
+    def create_via(
+        self,
+        *,
+        name,
+        padstack,
+        x,
+        y,
+        rotation,
+        hole_diam,
+        top_layer,
+        bot_layer,
+        net,
+    ):
+        if name in self.modeler.vias:
+            return False
+        via = FakeVia(name)
+        via.padstack = padstack
+        via.start_layer = top_layer
+        via.stop_layer = bot_layer
+        via.net_name = net
+        via.location = [float(x), float(y)]
+        via.angle = "0deg"
+        via.lock_position = False
+        via.override_hole_diameter = hole_diam is not None
+        via.holediam = f"{float(hole_diam)}mm" if hole_diam is not None else "0.2mm"
+        self.modeler.vias[name] = via
+        return via
+
 class FakePortLayout(FakeLayout):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -1433,6 +1536,11 @@ class FakeRegistry:
             return {
                 "preview_id": "layout-material-create-assign-preview-1",
                 "snapshot_digest": "layout-material-create-assign-digest-1",
+            }
+        if command == "layout_via_create_preview":
+            return {
+                "preview_id": "layout-via-create-preview-1",
+                "snapshot_digest": "layout-via-create-digest-1",
             }
         if command == "hfss_material_assign_preview":
             return {
@@ -2623,6 +2731,196 @@ def test_backend_layout_material_create_assign_rejects_unsafe_requests(
                 "design_name": "Layout1",
                 **request_payload,
             },
+        )
+
+
+def _layout_via_create_request():
+    return {
+        "project_name": "Board",
+        "design_name": "Layout1",
+        "vias": [
+            {
+                "name": "V_NEW_1",
+                "padstack": "VIA",
+                "x": 3.0,
+                "y": 4.0,
+                "rotation_degrees": 45.0,
+                "hole_diameter": 0.25,
+                "top_layer": "TOP",
+                "bottom_layer": "BOT",
+                "net_name": "GND",
+                "lock_position": True,
+            },
+            {
+                "name": "V_NEW_2",
+                "padstack": "VIA",
+                "x": -1.0,
+                "y": 2.5,
+                "rotation_degrees": -30.0,
+                "top_layer": "TOP",
+                "bottom_layer": "BOT",
+                "net_name": "GND",
+            },
+        ],
+        "max_vias": 4,
+    }
+
+
+def test_backend_layout_via_create_batch_has_native_typed_readback():
+    apps = []
+
+    def factory(**kwargs):
+        app = FakeViaCreateLayout(**kwargs)
+        apps.append(app)
+        return app
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, layout_factory=factory)
+    target = AedtTarget("pid", 42)
+    preview = backend.execute(target, "layout_via_create_preview", _layout_via_create_request())
+    assert preview["via_count"] == 2
+    assert preview["model_units"] == "mm"
+    assert preview["project_dirty"] is False
+    assert preview["project_saved"] is False
+    assert preview["dependency_summary"] == {
+        "padstacks": ["VIA"],
+        "signal_layers": ["BOT", "TOP"],
+        "nets": ["GND"],
+    }
+    assert "V_NEW_1" not in apps[0].modeler.vias
+
+    result = backend.execute(
+        target,
+        "layout_via_create_apply",
+        {"preview_id": preview["preview_id"]},
+    )
+    assert result["status"] == "verified"
+    assert result["via_count"] == 2
+    assert [item["name"] for item in result["vias"]] == ["V_NEW_1", "V_NEW_2"]
+    first, second = result["vias"]
+    assert first["location"] == [3.0, 4.0]
+    assert first["rotation_degrees"] == 45.0
+    assert first["lock_position"] is True
+    assert first["override_hole_diameter"] is True
+    assert first["hole_diameter"] == "0.25mm"
+    assert second["rotation_degrees"] == -30.0
+    assert second["override_hole_diameter"] is False
+    assert result["automatic_rollback_on_failure"] is True
+    assert result["project_saved"] is False
+
+
+def test_backend_layout_via_create_rejects_stale_and_rolls_back(monkeypatch):
+    apps = []
+
+    def factory(**kwargs):
+        app = FakeViaCreateLayout(**kwargs)
+        apps.append(app)
+        return app
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, layout_factory=factory)
+    target = AedtTarget("pid", 42)
+    request = _layout_via_create_request()
+    preview = backend.execute(target, "layout_via_create_preview", request)
+    state_before = dict(backend._previews[preview["preview_id"]]["state"])
+    monkeypatch.setattr(
+        "aedt_agent.live.backend._verify_layout_via_create_readback",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            LiveBackendError("injected layout via readback failure")
+        ),
+    )
+    with pytest.raises(LiveBackendError, match="injected layout via readback failure"):
+        backend.execute(
+            target,
+            "layout_via_create_apply",
+            {"preview_id": preview["preview_id"]},
+        )
+    assert "V_NEW_1" not in apps[0].modeler.vias
+    assert "V_NEW_2" not in apps[0].modeler.vias
+
+    monkeypatch.undo()
+    retry = backend.execute(target, "layout_via_create_preview", request)
+    assert backend._previews[retry["preview_id"]]["state"] == state_before
+    apps[0].modeler.layers.stackup_layers[-1].thickness = 0.05
+    with pytest.raises(LiveBackendError, match="stale 3D Layout via create preview"):
+        backend.execute(
+            target,
+            "layout_via_create_apply",
+            {"preview_id": retry["preview_id"]},
+        )
+
+
+def test_backend_layout_via_create_never_deletes_a_racing_external_name():
+    apps = []
+
+    def factory(**kwargs):
+        app = FakeViaCreateLayout(**kwargs)
+        apps.append(app)
+        return app
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, layout_factory=factory)
+    target = AedtTarget("pid", 42)
+    request = _layout_via_create_request()
+    request["vias"] = request["vias"][:1]
+    preview = backend.execute(target, "layout_via_create_preview", request)
+    original_create = apps[0].modeler.create_via
+
+    def raced_create(**kwargs):
+        external = FakeVia(kwargs["name"])
+        apps[0].modeler.vias[kwargs["name"]] = external
+        return original_create(**{**kwargs, "name": kwargs["name"] + "_1"})
+
+    apps[0].modeler.create_via = raced_create
+    with pytest.raises(LiveBackendError, match="rollback is incomplete"):
+        backend.execute(
+            target,
+            "layout_via_create_apply",
+            {"preview_id": preview["preview_id"]},
+        )
+    assert "V_NEW_1" in apps[0].modeler.vias
+    assert "V_NEW_1_1" not in apps[0].modeler.vias
+
+
+@pytest.mark.parametrize(
+    "mutate,error",
+    [
+        (lambda request: request.update(vias=[]), "at least one typed via"),
+        (
+            lambda request: request["vias"][0].update(name="V1"),
+            "object name already exists",
+        ),
+        (
+            lambda request: request["vias"][0].update(padstack="missing"),
+            "padstack does not exist",
+        ),
+        (
+            lambda request: request["vias"][0].update(top_layer="D1"),
+            "top_layer must reference a signal layer",
+        ),
+        (
+            lambda request: request["vias"][0].update(net_name="missing"),
+            "net_name does not exist",
+        ),
+        (
+            lambda request: request["vias"][0].update(hole_diameter=-1),
+            "hole_diameter must be between",
+        ),
+        (
+            lambda request: request["vias"][0].update(unsupported=True),
+            "unsupported vias\\[0\\] field",
+        ),
+    ],
+)
+def test_backend_layout_via_create_rejects_unsafe_requests(mutate, error):
+    request = _layout_via_create_request()
+    mutate(request)
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        layout_factory=FakeViaCreateLayout,
+    )
+    with pytest.raises(LiveBackendError, match=error):
+        backend.execute(
+            AedtTarget("pid", 42),
+            "layout_via_create_preview",
+            request,
         )
 
 
@@ -6002,6 +6300,35 @@ def test_manager_requires_action_bound_one_use_approval_for_layout_material_crea
     assert getattr(replay.value, "code", None) == "approval_required"
 
 
+def test_manager_requires_action_bound_one_use_approval_for_layout_via_create():
+    registry = FakeRegistry()
+    authority = HmacApprovalAuthority("v" * 32)
+    manager = LiveAedtSessionManager(registry=registry, approval_verifier=authority)
+    session_id = manager.attach(pid=42)["live_session_id"]
+    preview = manager.preview_layout_via_create(
+        session_id,
+        project_name="Board",
+        design_name="Layout1",
+        vias=_layout_via_create_request()["vias"],
+        max_vias=4,
+    )
+    assert preview["approval_request"]["action"] == "layout.vias.create"
+    token = authority.issue(**preview["approval_request"])
+    result = manager.apply_layout_via_create(
+        session_id,
+        preview_id=preview["preview_id"],
+        approval_token=token,
+    )
+    assert result["command"] == "layout_via_create_apply"
+    with pytest.raises(Exception) as replay:
+        manager.apply_layout_via_create(
+            session_id,
+            preview_id=preview["preview_id"],
+            approval_token=token,
+        )
+    assert getattr(replay.value, "code", None) == "approval_required"
+
+
 def test_manager_requires_action_bound_one_use_approval_for_hfss_length_mesh_create():
     registry = FakeRegistry()
     authority = HmacApprovalAuthority("h" * 32)
@@ -6412,6 +6739,8 @@ def test_mcp_registers_live_tools_without_changing_artifact_tools(monkeypatch):
     assert "apply_live_hfss_material_create" in server.tools
     assert "preview_live_layout_material_create_assign" in server.tools
     assert "apply_live_layout_material_create_assign" in server.tools
+    assert "preview_live_layout_via_create" in server.tools
+    assert "apply_live_layout_via_create" in server.tools
     assert "preview_live_hfss_material_assign" in server.tools
     assert "apply_live_hfss_material_assign" in server.tools
     assert "get_live_hfss_material_inventory" in server.tools
@@ -6512,6 +6841,8 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
         "apply_live_hfss_material_create",
         "preview_live_layout_material_create_assign",
         "apply_live_layout_material_create_assign",
+        "preview_live_layout_via_create",
+        "apply_live_layout_via_create",
         "list_live_layout_paths",
         "preview_live_parameterize_path_width",
         "apply_live_parameterize_path_width",
@@ -6559,6 +6890,13 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
     ]
     assert "layer_restored_before_new_material_removal_on_failure" in by_name[
         "layout.material.create_and_assign"
+    ]["postconditions"]
+    assert by_name["layout.vias.create"]["tools"] == [
+        "preview_live_layout_via_create",
+        "apply_live_layout_via_create",
+    ]
+    assert "native_via_property_readback_verified" in by_name[
+        "layout.vias.create"
     ]["postconditions"]
     assert "typed_property_and_optional_appearance_readback_verified" in by_name[
         "hfss.material.create"

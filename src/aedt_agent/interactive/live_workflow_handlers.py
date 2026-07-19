@@ -90,6 +90,26 @@ def register_live_workflow_handlers(
         _layout_material_create_assign_scorecard,
     )
     registry.register(
+        "assistant.live.layout.preview_via_create",
+        lambda context: _preview_layout_via_create(
+            context,
+            live_manager,
+            binding_resolver,
+        ),
+    )
+    registry.register(
+        "assistant.live.layout.apply_via_create",
+        lambda context: _apply_layout_via_create(
+            context,
+            live_manager,
+            binding_resolver,
+        ),
+    )
+    registry.register(
+        "assistant.live.layout.via_create_scorecard",
+        _layout_via_create_scorecard,
+    )
+    registry.register(
         "assistant.live.hfss.preview_material_assign",
         lambda context: _preview_hfss_material_assign(
             context,
@@ -890,6 +910,112 @@ def _layout_material_create_assign_scorecard(
                 "after_assignment": result.get("after_assignment"),
                 "material_catalog_digest": result.get("material_catalog_digest"),
                 "stackup_digest": result.get("stackup_digest"),
+                "project_saved": result.get("project_saved"),
+            },
+            "live_session_reused": True,
+        },
+        outcome="passed" if passed else "failed",
+    )
+
+
+def _preview_layout_via_create(
+    context,
+    live_manager,
+    binding_resolver,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, project_name, design_name, _ = _live_target(context, binding_resolver)
+    preview = live_manager.preview_layout_via_create(
+        session_id,
+        project_name=project_name,
+        design_name=design_name,
+        vias=list(payload.get("vias") or []),
+        max_vias=payload.get("max_vias", 16),
+    )
+    return _success(
+        {
+            **payload,
+            "operation_preview_id": preview["preview_id"],
+            "operation_approval": preview.get("approval_request") or {},
+            "operation_preview": preview,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _apply_layout_via_create(
+    context,
+    live_manager,
+    binding_resolver,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, _, _, binding = _live_target(context, binding_resolver)
+    token = str(binding.get("operation_approval_token") or "")
+    if not token:
+        raise ValueError(
+            "operation_approval_token is required after wait_for_live_approval approves "
+            "the 3D Layout via creation preview"
+        )
+    result = live_manager.apply_layout_via_create(
+        session_id,
+        preview_id=str(payload["operation_preview_id"]),
+        approval_token=token,
+    )
+    return _success(
+        {
+            **payload,
+            "operation_result": result,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _layout_via_create_scorecard(
+    context: GraphNodeExecutionContext,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    result = dict(payload.get("operation_result") or {})
+    requested = list(payload.get("vias") or [])
+    readback = list(result.get("vias") or [])
+    requested_names = [str(item.get("name") or "") for item in requested if isinstance(item, dict)]
+    readback_names = [str(item.get("name") or "") for item in readback if isinstance(item, dict)]
+    native_digests = [
+        str(item.get("native_property_digest") or "")
+        for item in readback
+        if isinstance(item, dict)
+    ]
+    checks = [
+        _check("verified", result.get("status") == "verified"),
+        _check(
+            "exact_via_names_preserved",
+            bool(requested_names) and readback_names == requested_names,
+        ),
+        _check(
+            "via_count_verified",
+            result.get("via_count") == len(requested_names) == len(readback),
+        ),
+        _check(
+            "native_property_readback",
+            len(native_digests) == len(readback) and all(native_digests),
+        ),
+        _check(
+            "automatic_rollback_on_failure",
+            result.get("automatic_rollback_on_failure") is True,
+        ),
+        _check("project_not_saved", result.get("project_saved") is False),
+        _check("live_session_reused", payload.get("live_session_reused") is True),
+    ]
+    passed = all(item["passed"] for item in checks)
+    return _success(
+        {
+            **payload,
+            "status": "passed" if passed else "failed",
+            "checks": checks,
+            "summary": {
+                "via_count": result.get("via_count"),
+                "via_names": readback_names,
+                "model_units": result.get("model_units"),
+                "readback_digest": result.get("readback_digest"),
                 "project_saved": result.get("project_saved"),
             },
             "live_session_reused": True,

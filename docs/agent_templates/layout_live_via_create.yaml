@@ -1,0 +1,43 @@
+id: layout_live_via_create
+version: 1
+description: Create a bounded batch of exact HFSS 3D Layout vias from existing padstacks, signal layers, and nets without saving the project.
+nodes:
+  - id: preview_vias
+    role: preview
+    kind: program
+    handler: assistant.live.layout.preview_via_create
+    input_schema: live_layout_via_create_request
+    output_schema: live_layout_via_create_preview
+    max_runs: 1
+  - id: apply_vias
+    role: apply
+    kind: program
+    handler: assistant.live.layout.apply_via_create
+    input_schema: live_layout_via_create_preview
+    output_schema: live_layout_via_create_result
+    max_runs: 1
+  - id: verify_scorecard
+    role: scorecard
+    kind: program
+    handler: assistant.live.layout.via_create_scorecard
+    input_schema: live_layout_via_create_result
+    output_schema: live_layout_via_create_scorecard
+    max_runs: 1
+edges:
+  - id: preview-to-apply
+    from: preview_vias
+    to: apply_vias
+    on: succeeded
+  - id: apply-to-scorecard
+    from: apply_vias
+    to: verify_scorecard
+    on: succeeded
+handoffs:
+  live_layout_via_create_request:
+    required_fields: [vias]
+  live_layout_via_create_preview:
+    required_fields: [vias, operation_preview_id, operation_approval, operation_preview, live_session_reused]
+  live_layout_via_create_result:
+    required_fields: [vias, operation_result, live_session_reused]
+  live_layout_via_create_scorecard:
+    required_fields: [status, checks, summary, live_session_reused]

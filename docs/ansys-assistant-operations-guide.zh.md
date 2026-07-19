@@ -431,6 +431,32 @@ PyAEDT 的 `ChangeLayer` 会把 `Thickness0` 从例如 `0.035mm` 重排为物理
 SHA-256 不变、真实写入后的故障注入回滚，以及回滚后同名重新 preview。AEDT 2024 R2 服务器上线前仍需在
 测试工程副本上复验。
 
+## 8B. 示例：批量创建 3D Layout Via
+
+推荐请求：
+
+```text
+使用 layout_live_via_create，在当前 3D Layout 中创建两个 Via：
+1. HarnessVia1，padstack=PlanarEMVia，位置 [1.0,2.0]mm，TOP 到 BOT，net=N_EXISTING，
+   rotation=45deg，hole override=0.25mm，创建后锁定；
+2. HarnessVia2，同一 padstack/layer/net，位置 [3.0,4.0]mm，rotation=-30deg，使用 padstack 默认孔径。
+先核对名称不存在，并冻结 padstack、完整 stackup、signal layer、net 和 model unit；审批后原子创建，
+用 AEDT 原生属性逐项回读。任何一项失败时删除本批全部新 Via。不要保存工程。
+```
+
+每个 Via 必须显式提供 `name`、`padstack`、`x`、`y`、`top_layer`、`bottom_layer` 和 `net_name`；可选
+`rotation_degrees`、`hole_diameter`、`lock_position`。一次最多 32 个。Harness 不会顺手新建 padstack、层或 net，
+名称大小写也必须与 AEDT 完全一致。
+
+PyAEDT 1.3.0 的 `create_via(rotation=...)` 在 AEDT 2026.1 实测不会可靠写入 Angle，因此 Harness 创建后会
+显式写入公开 `angle` 属性，再从 `BaseElementTab` 回读 Name、Net、Padstack Definition、Start/Stop Layer、
+Location、Angle、LockPosition 和 HoleDiameter。删除后不信任 PyAEDT 的旧 Via cache，而是再次调用 AEDT 原生
+`FindObjects` 确认对象确实消失。
+
+该能力已通过隔离 AEDT 2026.1 + PyAEDT 1.3.0 实测：两 Via 原子成功、孔径 override/默认孔径、正负旋转、
+锁定状态、外部同名对象导致 stale、磁盘工程 SHA-256 不变，以及真实创建后的故障注入全批回滚。目标
+AEDT 2024 R2 仍需按第 12 节在测试工程副本复验。
+
 ## 9. 保存工程
 
 完成修改后，如果确认要保存，应单独发送：

@@ -181,6 +181,10 @@ class LiveAedtBackend:
                 return self._layout_material_create_assign_preview(target, arguments)
             if command == "layout_material_create_assign_apply":
                 return self._layout_material_create_assign_apply(target, arguments)
+            if command == "layout_via_create_preview":
+                return self._layout_via_create_preview(target, arguments)
+            if command == "layout_via_create_apply":
+                return self._layout_via_create_apply(target, arguments)
             if command == "layout_connectivity_inventory":
                 return self._layout_connectivity_inventory(target, arguments)
             if command == "layout_port_candidate_inventory":
@@ -3457,6 +3461,147 @@ class LiveAedtBackend:
             "project_saved": False,
         }
 
+    def _layout_via_create_preview(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        project = _required(args, "project_name")
+        design = _required(args, "design_name")
+        app = self._app(target, "layout", project, design)
+        if _simulation_running(app):
+            raise LiveBackendError("cannot create 3D Layout vias while a simulation is running")
+        spec = _normalize_layout_via_create_spec(args)
+        state = _layout_via_create_state(app, spec)
+        state_digest = _digest(state)
+        preview_id = "layout-via-create-preview-" + _digest(
+            {"state": state, "spec": spec}
+        )[:24]
+        self._previews[preview_id] = {
+            "kind": "layout_via_create",
+            "target": target,
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "spec": spec,
+            "state": state,
+            "digest": state_digest,
+        }
+        return {
+            "preview_id": preview_id,
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "vias": spec["vias"],
+            "via_count": len(spec["vias"]),
+            "model_units": state["model_units"],
+            "snapshot_digest": state_digest,
+            "dependency_digest": state_digest,
+            "dependency_summary": {
+                "padstacks": sorted(state["padstacks"]),
+                "signal_layers": sorted(state["signal_layers"]),
+                "nets": sorted(state["nets"]),
+            },
+            "approval_required": True,
+            "automatic_rollback_on_failure": True,
+            "project_dirty": False,
+            "project_saved": False,
+        }
+
+    def _layout_via_create_apply(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        preview_id = _required(args, "preview_id")
+        preview = self._preview(preview_id, "layout_via_create", target)
+        app = self._app(
+            target,
+            "layout",
+            preview["project_name"],
+            preview["design_name"],
+        )
+        if _simulation_running(app):
+            raise LiveBackendError("cannot create 3D Layout vias while a simulation is running")
+        spec = preview["spec"]
+        try:
+            current_state = _layout_via_create_state(app, spec)
+        except LiveBackendError as exc:
+            raise LiveBackendError("stale 3D Layout via create preview") from exc
+        if _digest(current_state) != preview["digest"]:
+            raise LiveBackendError("stale 3D Layout via create preview")
+
+        created_names: list[str] = []
+        try:
+            create_via = getattr(_safe_attribute(app, "modeler"), "create_via", None)
+            if not callable(create_via):
+                raise LiveBackendError("3D Layout via creation API is unavailable")
+            for via_spec in spec["vias"]:
+                created = create_via(
+                    name=via_spec["name"],
+                    padstack=via_spec["padstack"],
+                    x=via_spec["x"],
+                    y=via_spec["y"],
+                    rotation=via_spec["rotation_degrees"],
+                    hole_diam=via_spec["hole_diameter"],
+                    top_layer=via_spec["top_layer"],
+                    bot_layer=via_spec["bottom_layer"],
+                    net=via_spec["net_name"],
+                )
+                created_name = str(_safe_attribute(created, "name") or "").strip()
+                if created_name:
+                    created_names.append(created_name)
+                if not created or created_name != via_spec["name"]:
+                    raise LiveBackendError(
+                        f"3D Layout via creation returned an unexpected name: {via_spec['name']}"
+                    )
+                # PyAEDT 1.3.0 passes vrotation to CreateVia, but AEDT 2026.1
+                # still reports 0deg. Set and verify the public Angle property.
+                created.angle = f"{via_spec['rotation_degrees']}deg"
+                created.lock_position = via_spec["lock_position"]
+
+            readback = [
+                _layout_native_via_record(app, via_spec["name"])
+                for via_spec in spec["vias"]
+            ]
+            _verify_layout_via_create_readback(
+                app,
+                spec,
+                readback,
+                before_state=preview["state"],
+            )
+        except Exception as exc:
+            rollback = _rollback_layout_via_create(
+                app,
+                spec,
+                created_names,
+                before_state=preview["state"],
+            )
+            if not rollback["complete"]:
+                raise LiveBackendError(
+                    "3D Layout via creation failed and rollback is incomplete: "
+                    f"{rollback}"
+                ) from exc
+            if isinstance(exc, LiveBackendError):
+                raise
+            raise LiveBackendError(
+                f"3D Layout via creation failed: {type(exc).__name__}: {exc}"
+            ) from exc
+
+        del self._previews[preview_id]
+        return {
+            "status": "verified",
+            "preview_id": preview_id,
+            "project_name": preview["project_name"],
+            "design_name": preview["design_name"],
+            "vias": readback,
+            "via_count": len(readback),
+            "model_units": preview["state"]["model_units"],
+            "dependency_digest": preview["digest"],
+            "readback_digest": _digest(readback),
+            "automatic_rollback_on_failure": True,
+            "project_dirty": True,
+            "project_saved": False,
+        }
+
     def _layout_connectivity_inventory(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
         app = self._app(
             target,
@@ -5238,6 +5383,19 @@ _LAYOUT_OBJECT_WRITABLE_PROPERTIES = {
     "component": {"enabled", "placement_layer", "location", "angle", "lock_position"},
 }
 
+_LAYOUT_VIA_CREATE_FIELDS = {
+    "name",
+    "padstack",
+    "x",
+    "y",
+    "rotation_degrees",
+    "hole_diameter",
+    "top_layer",
+    "bottom_layer",
+    "net_name",
+    "lock_position",
+}
+
 _SAFE_ARTIFACT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,127}")
 
 
@@ -5299,6 +5457,95 @@ def _normalize_hfss_material_create_spec(args: dict[str, Any]) -> dict[str, Any]
         **properties,
         "appearance": appearance,
     }
+
+
+def _normalize_layout_via_create_spec(args: dict[str, Any]) -> dict[str, Any]:
+    max_vias = _bounded_integer(
+        args.get("max_vias", 16),
+        "max_vias",
+        minimum=1,
+        maximum=32,
+    )
+    raw_vias = args.get("vias")
+    if not isinstance(raw_vias, list) or not raw_vias:
+        raise LiveBackendError("vias must contain at least one typed via specification")
+    if len(raw_vias) > max_vias:
+        raise LiveBackendError(f"vias exceeds the approved maximum of {max_vias}")
+    normalized = []
+    seen_names = set()
+    for index, raw in enumerate(raw_vias):
+        field = f"vias[{index}]"
+        if not isinstance(raw, dict):
+            raise LiveBackendError(f"{field} must be an object")
+        unsupported = sorted(set(raw).difference(_LAYOUT_VIA_CREATE_FIELDS))
+        if unsupported:
+            raise LiveBackendError(f"unsupported {field} field: {unsupported[0]}")
+        name = str(raw.get("name") or "").strip()
+        if not _SAFE_AEDT_OBJECT_NAME.fullmatch(name):
+            raise LiveBackendError(f"{field}.name must be a safe exact AEDT object name")
+        folded_name = name.casefold()
+        if folded_name in seen_names:
+            raise LiveBackendError("via names must be unique case-insensitively")
+        seen_names.add(folded_name)
+        padstack = str(raw.get("padstack") or "").strip()
+        if not _SAFE_AEDT_OBJECT_NAME.fullmatch(padstack):
+            raise LiveBackendError(f"{field}.padstack must be a safe exact padstack name")
+        top_layer = str(raw.get("top_layer") or "").strip()
+        bottom_layer = str(raw.get("bottom_layer") or "").strip()
+        for layer_field, layer_name in (
+            ("top_layer", top_layer),
+            ("bottom_layer", bottom_layer),
+        ):
+            if not _SAFE_AEDT_LAYER_NAME.fullmatch(layer_name):
+                raise LiveBackendError(
+                    f"{field}.{layer_field} must be a safe exact stackup layer name"
+                )
+        if top_layer == bottom_layer:
+            raise LiveBackendError(f"{field} top_layer and bottom_layer must be different")
+        net_name = str(raw.get("net_name") or "").strip()
+        if not _SAFE_AEDT_OBJECT_NAME.fullmatch(net_name):
+            raise LiveBackendError(f"{field}.net_name must be a safe exact existing net name")
+        hole_diameter = raw.get("hole_diameter")
+        if hole_diameter is not None:
+            hole_diameter = _bounded_float(
+                hole_diameter,
+                f"{field}.hole_diameter",
+                minimum=1e-12,
+                maximum=1e6,
+            )
+        lock_position = raw.get("lock_position", False)
+        if type(lock_position) is not bool:
+            raise LiveBackendError(f"{field}.lock_position must be boolean")
+        normalized.append(
+            {
+                "name": name,
+                "padstack": padstack,
+                "x": _bounded_float(
+                    raw.get("x"),
+                    f"{field}.x",
+                    minimum=-1e9,
+                    maximum=1e9,
+                ),
+                "y": _bounded_float(
+                    raw.get("y"),
+                    f"{field}.y",
+                    minimum=-1e9,
+                    maximum=1e9,
+                ),
+                "rotation_degrees": _bounded_float(
+                    raw.get("rotation_degrees", 0.0),
+                    f"{field}.rotation_degrees",
+                    minimum=-3600.0,
+                    maximum=3600.0,
+                ),
+                "hole_diameter": hole_diameter,
+                "top_layer": top_layer,
+                "bottom_layer": bottom_layer,
+                "net_name": net_name,
+                "lock_position": lock_position,
+            }
+        )
+    return {"vias": normalized, "max_vias": max_vias}
 
 
 def _normalize_layout_material_create_assign_spec(
@@ -9296,6 +9543,381 @@ def _property_values_equal(actual: Any, expected: Any) -> bool:
     if isinstance(actual, str) and isinstance(expected, str):
         return _normalized_expression(actual) == _normalized_expression(expected)
     return actual == expected
+
+
+def _layout_modeler_editor(app: Any) -> Any:
+    editor = _safe_attribute(_safe_attribute(app, "modeler"), "oeditor")
+    if editor is None:
+        raise LiveBackendError("3D Layout native editor API is unavailable")
+    return editor
+
+
+def _layout_native_name_matches(app: Any, name: str) -> list[str]:
+    find_objects = getattr(_layout_modeler_editor(app), "FindObjects", None)
+    if not callable(find_objects):
+        raise LiveBackendError("3D Layout native object lookup API is unavailable")
+    try:
+        matches = [str(item) for item in list(find_objects("Name", name) or [])]
+    except Exception as exc:
+        raise LiveBackendError(
+            f"3D Layout native object lookup failed for {name}: {type(exc).__name__}: {exc}"
+        ) from exc
+    return matches
+
+
+def _layout_exact_name(values: list[str], requested: str, label: str) -> str:
+    exact = [item for item in values if item == requested]
+    if len(exact) == 1:
+        return exact[0]
+    folded = [item for item in values if item.casefold() == requested.casefold()]
+    if folded:
+        raise LiveBackendError(f"{label} must match AEDT case exactly: {folded[0]}")
+    raise LiveBackendError(f"{label} does not exist: {requested}")
+
+
+def _layout_via_dependency_state(
+    app: Any,
+    spec: dict[str, Any],
+) -> dict[str, Any]:
+    design_type = str(_safe_attribute(app, "design_type") or "").strip()
+    if design_type != "HFSS 3D Layout Design":
+        raise LiveBackendError("3D Layout via creation requires HFSS 3D Layout Design")
+    stackup = _layout_full_stackup_snapshot(app)
+    stackup_names = [str(item["name"]) for item in stackup]
+    stackup_by_name = {str(item["name"]): item for item in stackup}
+
+    padstack_records, padstack_error = _layout_padstack_records(
+        app,
+        max_items=501,
+        include_layers=True,
+    )
+    if padstack_error or len(padstack_records) > 500:
+        raise LiveBackendError(
+            "3D Layout padstack catalog is unavailable or exceeds the 500 definition safety limit"
+        )
+    padstack_names = [str(item["name"]) for item in padstack_records]
+    padstack_by_name = {str(item["name"]): item for item in padstack_records}
+    try:
+        net_names = sorted(str(item) for item in dict(app.modeler.nets or {}))
+    except Exception as exc:
+        raise LiveBackendError(
+            f"3D Layout net inventory is unavailable: {type(exc).__name__}: {exc}"
+        ) from exc
+    if len(net_names) > 100_000:
+        raise LiveBackendError("3D Layout net inventory exceeds the 100000 name safety limit")
+
+    selected_padstacks = {}
+    selected_layers = {}
+    selected_nets = {}
+    target_presence = {}
+    for via in spec["vias"]:
+        padstack_name = _layout_exact_name(
+            padstack_names,
+            via["padstack"],
+            "padstack",
+        )
+        selected_padstacks[padstack_name] = padstack_by_name[padstack_name]
+        for field in ("top_layer", "bottom_layer"):
+            layer_name = _layout_exact_name(stackup_names, via[field], field)
+            layer = stackup_by_name[layer_name]
+            if str(layer.get("type") or "").casefold() != "signal":
+                raise LiveBackendError(f"{field} must reference a signal layer: {layer_name}")
+            selected_layers[layer_name] = layer
+        net_name = _layout_exact_name(net_names, via["net_name"], "net_name")
+        selected_nets[net_name] = {"name": net_name}
+        target_presence[via["name"]] = _layout_native_name_matches(app, via["name"])
+
+    model_units = str(_safe_attribute(_safe_attribute(app, "modeler"), "model_units") or "").strip()
+    if not model_units:
+        raise LiveBackendError("3D Layout model units are unavailable")
+    return {
+        "design_type": design_type,
+        "solution_type": str(_safe_attribute(app, "solution_type") or "").strip(),
+        "model_units": model_units,
+        "stackup": stackup,
+        "padstacks": selected_padstacks,
+        "signal_layers": selected_layers,
+        "nets": selected_nets,
+        "target_presence": target_presence,
+    }
+
+
+def _layout_via_create_state(app: Any, spec: dict[str, Any]) -> dict[str, Any]:
+    state = _layout_via_dependency_state(app, spec)
+    occupied = {
+        name: matches
+        for name, matches in state["target_presence"].items()
+        if matches
+    }
+    if occupied:
+        name = next(iter(occupied))
+        raise LiveBackendError(f"3D Layout object name already exists: {name}")
+    return state
+
+
+def _layout_native_via_record(app: Any, name: str) -> dict[str, Any]:
+    matches = _layout_native_name_matches(app, name)
+    if matches != [name]:
+        raise LiveBackendError(f"3D Layout via is missing or ambiguous: {name}")
+    editor = _layout_modeler_editor(app)
+    get_properties = getattr(editor, "GetProperties", None)
+    get_property_value = getattr(editor, "GetPropertyValue", None)
+    if not callable(get_properties) or not callable(get_property_value):
+        raise LiveBackendError("3D Layout native via property API is unavailable")
+    try:
+        property_names = [
+            str(item) for item in list(get_properties("BaseElementTab", name) or [])
+        ]
+        if not property_names or len(property_names) > 128:
+            raise LiveBackendError(
+                f"3D Layout via property list is empty or exceeds 128 fields: {name}"
+            )
+        native = {
+            property_name: _json_value(
+                get_property_value("BaseElementTab", name, property_name)
+            )
+            for property_name in property_names
+        }
+    except LiveBackendError:
+        raise
+    except Exception as exc:
+        raise LiveBackendError(
+            f"3D Layout native via readback failed for {name}: {type(exc).__name__}: {exc}"
+        ) from exc
+    if sum(len(str(key)) + len(str(value)) for key, value in native.items()) > 32 * 1024:
+        raise LiveBackendError(f"3D Layout via property readback exceeds 32 KiB: {name}")
+    required = {
+        "Type",
+        "Name",
+        "Net",
+        "Padstack Definition",
+        "Start Layer",
+        "Stop Layer",
+        "OverrideHoleDiameter",
+        "HoleDiameter",
+        "Location",
+        "Angle",
+        "LockPosition",
+    }
+    missing = sorted(required.difference(native))
+    if missing:
+        raise LiveBackendError(f"3D Layout via readback is missing property: {missing[0]}")
+    location_parts = [item.strip() for item in str(native["Location"]).split(",")]
+    if len(location_parts) != 2:
+        raise LiveBackendError(f"3D Layout via Location readback is invalid: {name}")
+    try:
+        location = [float(item) for item in location_parts]
+    except ValueError as exc:
+        raise LiveBackendError(f"3D Layout via Location readback is non-numeric: {name}") from exc
+    angle_text = str(native["Angle"]).strip()
+    if not angle_text.casefold().endswith("deg"):
+        raise LiveBackendError(f"3D Layout via Angle readback is invalid: {name}")
+    try:
+        angle_degrees = float(angle_text[:-3])
+    except ValueError as exc:
+        raise LiveBackendError(f"3D Layout via Angle readback is non-numeric: {name}") from exc
+    override_hole = _layout_native_bool(native["OverrideHoleDiameter"], "OverrideHoleDiameter")
+    return {
+        "name": str(native["Name"]),
+        "type": str(native["Type"]),
+        "padstack": str(native["Padstack Definition"]),
+        "top_layer": str(native["Start Layer"]),
+        "bottom_layer": str(native["Stop Layer"]),
+        "net_name": str(native["Net"]),
+        "location": location,
+        "rotation_degrees": angle_degrees,
+        "lock_position": _layout_native_bool(native["LockPosition"], "LockPosition"),
+        "override_hole_diameter": override_hole,
+        "hole_diameter": str(native["HoleDiameter"]),
+        "native_property_digest": _digest(native),
+        "native_properties": native,
+    }
+
+
+def _layout_native_bool(value: Any, field: str) -> bool:
+    if type(value) is bool:
+        return value
+    normalized = str(value).strip().casefold()
+    if normalized == "true":
+        return True
+    if normalized == "false":
+        return False
+    raise LiveBackendError(f"3D Layout native {field} readback is not boolean")
+
+
+def _layout_length_in_model_units(value: Any, model_units: str, field: str) -> float:
+    try:
+        from ansys.aedt.core.generic.constants import unit_converter
+        from ansys.aedt.core.generic.numbers_utils import decompose_variable_value
+
+        magnitude, units = decompose_variable_value(str(value).strip())
+        return float(
+            unit_converter(
+                magnitude,
+                input_units=units or model_units,
+                output_units=model_units,
+            )
+        )
+    except Exception as exc:
+        raise LiveBackendError(
+            f"3D Layout {field} readback cannot be converted to {model_units}: {value}"
+        ) from exc
+
+
+def _layout_angles_equal(actual: float, expected: float) -> bool:
+    delta = (actual - expected) % 360.0
+    return math.isclose(delta, 0.0, abs_tol=1e-9) or math.isclose(
+        delta,
+        360.0,
+        abs_tol=1e-9,
+    )
+
+
+def _verify_layout_via_create_readback(
+    app: Any,
+    spec: dict[str, Any],
+    readback: list[dict[str, Any]],
+    *,
+    before_state: dict[str, Any],
+) -> None:
+    if len(readback) != len(spec["vias"]):
+        raise LiveBackendError("3D Layout via batch readback count mismatch")
+    by_name = {item["name"]: item for item in readback}
+    if len(by_name) != len(readback):
+        raise LiveBackendError("3D Layout via batch readback contains duplicate names")
+    model_units = before_state["model_units"]
+    for expected in spec["vias"]:
+        actual = by_name.get(expected["name"])
+        if actual is None:
+            raise LiveBackendError(f"3D Layout via readback is missing: {expected['name']}")
+        for field in ("padstack", "top_layer", "bottom_layer", "net_name"):
+            if actual[field] != expected[field]:
+                raise LiveBackendError(
+                    f"3D Layout via {expected['name']} {field} readback mismatch"
+                )
+        if str(actual["type"]).casefold() != "via":
+            raise LiveBackendError(f"3D Layout object is not a via: {expected['name']}")
+        if any(
+            not math.isclose(float(actual_value), float(expected_value), rel_tol=0.0, abs_tol=1e-9)
+            for actual_value, expected_value in zip(
+                actual["location"],
+                [expected["x"], expected["y"]],
+            )
+        ):
+            raise LiveBackendError(
+                f"3D Layout via {expected['name']} location readback mismatch in {model_units}"
+            )
+        if not _layout_angles_equal(
+            float(actual["rotation_degrees"]),
+            float(expected["rotation_degrees"]),
+        ):
+            raise LiveBackendError(
+                f"3D Layout via {expected['name']} rotation readback mismatch"
+            )
+        if actual["lock_position"] is not expected["lock_position"]:
+            raise LiveBackendError(
+                f"3D Layout via {expected['name']} lock_position readback mismatch"
+            )
+        if expected["hole_diameter"] is None:
+            if actual["override_hole_diameter"] is not False:
+                raise LiveBackendError(
+                    f"3D Layout via {expected['name']} unexpectedly overrides hole diameter"
+                )
+        else:
+            if actual["override_hole_diameter"] is not True:
+                raise LiveBackendError(
+                    f"3D Layout via {expected['name']} hole override readback mismatch"
+                )
+            actual_hole = _layout_length_in_model_units(
+                actual["hole_diameter"],
+                model_units,
+                "HoleDiameter",
+            )
+            if not math.isclose(
+                actual_hole,
+                float(expected["hole_diameter"]),
+                rel_tol=1e-9,
+                abs_tol=1e-12,
+            ):
+                raise LiveBackendError(
+                    f"3D Layout via {expected['name']} hole diameter readback mismatch"
+                )
+    after_state = _layout_via_dependency_state(app, spec)
+    before_dependencies = dict(before_state)
+    after_dependencies = dict(after_state)
+    before_dependencies.pop("target_presence", None)
+    after_dependencies.pop("target_presence", None)
+    if _digest(after_dependencies) != _digest(before_dependencies):
+        raise LiveBackendError("3D Layout via creation changed a frozen dependency")
+    expected_presence = {item["name"]: [item["name"]] for item in spec["vias"]}
+    if after_state["target_presence"] != expected_presence:
+        raise LiveBackendError("3D Layout via creation target presence readback mismatch")
+
+
+def _invalidate_layout_via_cache(app: Any, names: list[str]) -> None:
+    modeler = _safe_attribute(app, "modeler")
+    cache = _safe_attribute(modeler, "_vias")
+    if isinstance(cache, dict):
+        for name in names:
+            cache.pop(name, None)
+
+
+def _rollback_layout_via_create(
+    app: Any,
+    spec: dict[str, Any],
+    created_names: list[str],
+    *,
+    before_state: dict[str, Any],
+) -> dict[str, Any]:
+    requested_names = [item["name"] for item in spec["vias"]]
+    # Delete only names positively returned by this transaction. If another
+    # client races in with a requested name, leaving rollback incomplete is
+    # safer than deleting an object that the Harness did not create.
+    candidates = list(dict.fromkeys(created_names))
+    errors = []
+    editor = None
+    try:
+        editor = _layout_modeler_editor(app)
+    except Exception as exc:
+        errors.append(f"native editor unavailable: {type(exc).__name__}: {exc}")
+    if editor is not None:
+        delete = getattr(editor, "Delete", None)
+        if not callable(delete):
+            errors.append("native via delete API unavailable")
+        else:
+            for name in reversed(candidates):
+                try:
+                    delete([name])
+                except Exception as exc:
+                    errors.append(f"delete {name} failed: {type(exc).__name__}: {exc}")
+    _invalidate_layout_via_cache(app, candidates)
+    remaining = {}
+    for name in requested_names:
+        try:
+            matches = _layout_native_name_matches(app, name)
+        except Exception as exc:
+            matches = [f"readback-error:{type(exc).__name__}:{exc}"]
+        if matches:
+            remaining[name] = matches
+    try:
+        restored_state = _layout_via_create_state(app, spec)
+        dependencies_restored = _digest(restored_state) == _digest(before_state)
+    except Exception as exc:
+        restored_state = {}
+        dependencies_restored = False
+        errors.append(f"dependency restore readback failed: {type(exc).__name__}: {exc}")
+    if remaining:
+        errors.append("created via names remain after rollback")
+    if not dependencies_restored:
+        errors.append("frozen via dependencies were not restored")
+    return {
+        "complete": not errors and not remaining and dependencies_restored,
+        "attempted_names": candidates,
+        "remaining_names": remaining,
+        "before_digest": _digest(before_state),
+        "after_digest": _digest(restored_state) if restored_state else "",
+        "errors": errors,
+    }
 
 
 def _layout_full_stackup_snapshot(app: Any) -> list[dict[str, Any]]:
