@@ -105,6 +105,12 @@ class LiveAedtBackend:
                 return self._hfss_infinite_sphere_create_preview(target, arguments)
             if command == "hfss_infinite_sphere_create_apply":
                 return self._hfss_infinite_sphere_create_apply(target, arguments)
+            if command == "hfss_surface_boundary_inventory":
+                return self._hfss_surface_boundary_inventory(target, arguments)
+            if command == "hfss_surface_boundary_create_preview":
+                return self._hfss_surface_boundary_create_preview(target, arguments)
+            if command == "hfss_surface_boundary_create_apply":
+                return self._hfss_surface_boundary_create_apply(target, arguments)
             if command == "hfss_geometry_create_preview":
                 return self._hfss_geometry_create_preview(target, arguments)
             if command == "hfss_geometry_create_apply":
@@ -491,8 +497,10 @@ class LiveAedtBackend:
                         "face_id": int(getattr(face, "id")),
                         "center": _json_value(getattr(face, "center", None)),
                         "area": _json_value(getattr(face, "area", None)),
+                        "is_planar": _json_value(_safe_attribute(face, "is_planar")),
                     }
                 )
+            faces.sort(key=lambda item: item["face_id"])
             objects.append(
                 {
                     "name": str(name),
@@ -1114,6 +1122,239 @@ class LiveAedtBackend:
             "created_field_setup_name": spec["sphere_name"],
             "field_setup": readback,
             "field_setup_count": len(after_records),
+            "automatic_rollback_on_failure": True,
+            "project_dirty": True,
+            "project_saved": False,
+        }
+
+    def _hfss_surface_boundary_inventory(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        app = self._app(
+            target,
+            "hfss",
+            _required(args, "project_name"),
+            _required(args, "design_name"),
+        )
+        if str(_safe_attribute(app, "design_type") or "").strip().casefold() != "hfss":
+            raise LiveBackendError("HFSS surface boundary inventory requires an HFSS 3D design")
+        max_items = _bounded_integer(
+            args.get("max_items", 100),
+            "max_items",
+            minimum=1,
+            maximum=500,
+        )
+        records = _hfss_surface_boundary_snapshot(app)
+        selected = records[:max_items]
+        supported = [item for item in records if item["kind"] != "other"]
+        return {
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "boundary_count": len(records),
+            "supported_surface_boundary_count": len(supported),
+            "returned_count": len(selected),
+            "truncated": len(records) > len(selected),
+            "boundaries": selected,
+            "snapshot_digest": _digest(records),
+            "design_unchanged": True,
+        }
+
+    def _hfss_surface_boundary_create_preview(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        app = self._app(
+            target,
+            "hfss",
+            _required(args, "project_name"),
+            _required(args, "design_name"),
+        )
+        if str(_safe_attribute(app, "design_type") or "").strip().casefold() != "hfss":
+            raise LiveBackendError("HFSS surface boundary creation requires an HFSS 3D design")
+        if _simulation_running(app):
+            raise LiveBackendError("cannot create HFSS surface boundaries while a simulation is running")
+        spec = _normalize_hfss_surface_boundary_spec(args)
+        solution_type = str(_safe_attribute(app, "solution_type") or "").strip()
+        if spec["boundary_kind"] == "impedance" and not _impedance_solution_supported(
+            solution_type
+        ):
+            raise LiveBackendError(
+                f"HFSS solution type does not support sheet impedance: {solution_type}"
+            )
+        geometry = self._hfss_geometry_inventory(
+            target,
+            {"project_name": app.project_name, "design_name": app.design_name},
+        )
+        target_records = _hfss_surface_boundary_targets(geometry, spec)
+        _validate_hfss_infinite_ground_targets(geometry, spec, target_records)
+        target_geometry = _hfss_surface_boundary_target_snapshot(target_records, spec)
+        if spec["boundary_kind"] == "impedance":
+            solids = [
+                item["name"]
+                for item in target_records
+                if _hfss_geometry_record_is_solid(item)
+            ]
+            if solids:
+                raise LiveBackendError(
+                    f"HFSS impedance boundary requires sheet objects: {solids[0]}"
+                )
+        boundaries = _hfss_surface_boundary_snapshot(app)
+        boundary_names = _boundary_names(app)
+        if len(boundary_names) > 500:
+            raise LiveBackendError(
+                "HFSS design has more than 500 boundaries; bounded preview is unavailable"
+            )
+        by_name = {item.casefold(): item for item in boundary_names}
+        if spec["boundary_name"].casefold() in by_name:
+            raise LiveBackendError(
+                f"HFSS boundary already exists: {by_name[spec['boundary_name'].casefold()]}"
+            )
+        material = None
+        if spec["boundary_kind"] == "finite_conductivity":
+            material = _hfss_material_snapshot(
+                app,
+                spec["options"]["material_name"],
+            )
+            spec["options"]["material_name"] = material["canonical_name"]
+        state = {
+            "solution_type": solution_type,
+            "target_geometry": target_geometry,
+            "boundary_names": boundary_names,
+            "boundaries": boundaries,
+            "material": material,
+        }
+        state_digest = _digest(state)
+        preview_id = "surface-boundary-preview-" + _digest(
+            spec | {"state": state_digest}
+        )[:24]
+        self._previews[preview_id] = {
+            "kind": "hfss_surface_boundary_create",
+            "target": target,
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "spec": spec,
+            "state": state,
+            "digest": state_digest,
+        }
+        return {
+            "preview_id": preview_id,
+            **spec,
+            "solution_type": solution_type,
+            "assignment_count": len(spec["object_names"] or spec["face_ids"]),
+            "target_geometry": target_geometry,
+            "target_material": material,
+            "existing_boundary_count": len(boundary_names),
+            "existing_boundary_names": boundary_names,
+            "snapshot_digest": state_digest,
+            "approval_required": True,
+            "project_dirty": False,
+            "project_saved": False,
+        }
+
+    def _hfss_surface_boundary_create_apply(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        preview_id = _required(args, "preview_id")
+        preview = self._preview(preview_id, "hfss_surface_boundary_create", target)
+        app = self._app(target, "hfss", preview["project_name"], preview["design_name"])
+        if _simulation_running(app):
+            raise LiveBackendError("cannot create HFSS surface boundaries while a simulation is running")
+        spec = preview["spec"]
+
+        def current_state() -> dict[str, Any]:
+            current_geometry = self._hfss_geometry_inventory(
+                target,
+                {"project_name": app.project_name, "design_name": app.design_name},
+            )
+            current_material = None
+            if spec["boundary_kind"] == "finite_conductivity":
+                current_material = _hfss_material_snapshot(
+                    app,
+                    spec["options"]["material_name"],
+                )
+            return {
+                "solution_type": str(_safe_attribute(app, "solution_type") or "").strip(),
+                "target_geometry": _hfss_surface_boundary_target_snapshot(
+                    _hfss_surface_boundary_targets(current_geometry, spec),
+                    spec,
+                ),
+                "boundary_names": _boundary_names(app),
+                "boundaries": _hfss_surface_boundary_snapshot(app),
+                "material": current_material,
+            }
+
+        try:
+            current = current_state()
+            if _digest(current) != preview["digest"]:
+                # PyAEDT lazily populates some material/boundary properties on first read.
+                # A second full snapshot distinguishes that cache warm-up from a real stale edit.
+                current = current_state()
+        except LiveBackendError as exc:
+            raise LiveBackendError("stale HFSS surface boundary create preview") from exc
+        if _digest(current) != preview["digest"]:
+            changed = [
+                name
+                for name in current
+                if _digest(current[name]) != _digest(preview["state"].get(name))
+            ]
+            if "target_geometry" in changed:
+                geometry_changes = _hfss_target_geometry_changes(
+                    preview["state"]["target_geometry"],
+                    current["target_geometry"],
+                )
+                changed[changed.index("target_geometry")] = (
+                    "target_geometry(" + ", ".join(geometry_changes[:8]) + ")"
+                )
+            detail = ", ".join(changed) or "unknown state"
+            raise LiveBackendError(
+                f"stale HFSS surface boundary create preview: changed {detail}"
+            )
+
+        created_name = ""
+        try:
+            boundary = _create_hfss_surface_boundary(app, spec)
+            created_name = str(getattr(boundary, "name", "") or "") if boundary else ""
+            if boundary is None or created_name != spec["boundary_name"]:
+                raise LiveBackendError("HFSS surface boundary creation returned an unexpected name")
+            after_boundaries = _hfss_surface_boundary_snapshot(app)
+            boundary_by_name = {item["name"]: item for item in after_boundaries}
+            readback = boundary_by_name.get(spec["boundary_name"])
+            if readback is None:
+                raise LiveBackendError("HFSS surface boundary readback is missing")
+            _verify_hfss_surface_boundary_readback(spec, readback)
+            before_names = set(preview["state"]["boundary_names"])
+            after_names = set(_boundary_names(app))
+            if after_names != before_names | {spec["boundary_name"]}:
+                raise LiveBackendError("unexpected HFSS boundary inventory change")
+        except Exception as exc:
+            rollback = _rollback_hfss_surface_boundary(
+                app,
+                created_name or spec["boundary_name"],
+                before_boundaries=preview["state"]["boundaries"],
+            )
+            if not rollback["complete"]:
+                raise LiveBackendError(
+                    f"HFSS surface boundary creation failed and rollback is incomplete: {rollback}"
+                ) from exc
+            if isinstance(exc, LiveBackendError):
+                raise
+            raise LiveBackendError(
+                f"HFSS surface boundary creation failed: {type(exc).__name__}: {exc}"
+            ) from exc
+
+        del self._previews[preview_id]
+        return {
+            "status": "verified",
+            "preview_id": preview_id,
+            **spec,
+            "created_boundary_name": spec["boundary_name"],
+            "boundary": readback,
+            "boundary_count": len(after_boundaries),
             "automatic_rollback_on_failure": True,
             "project_dirty": True,
             "project_saved": False,
@@ -5211,6 +5452,656 @@ def _rollback_hfss_field_setup(
         "complete": not delete_error and not readback_error and after == before_setups,
         "deleted_field_setup": created_name if after == before_setups else "",
         "remaining_field_setups": [item["name"] for item in after],
+        "delete_error": delete_error,
+        "readback_error": readback_error,
+    }
+
+
+_HFSS_SURFACE_BOUNDARY_TYPES = {
+    "perfect_e": "Perfect E",
+    "perfect_h": "Perfect H",
+    "finite_conductivity": "Finite Conductivity",
+    "impedance": "Impedance",
+}
+
+
+def _normalize_hfss_surface_boundary_spec(args: dict[str, Any]) -> dict[str, Any]:
+    boundary_kind = str(args.get("boundary_kind") or "").strip().casefold()
+    if boundary_kind not in _HFSS_SURFACE_BOUNDARY_TYPES:
+        raise LiveBackendError(
+            "boundary_kind must be perfect_e, perfect_h, finite_conductivity, or impedance"
+        )
+    boundary_name = str(args.get("boundary_name") or "").strip()
+    if not _SAFE_AEDT_OBJECT_NAME.fullmatch(boundary_name):
+        raise LiveBackendError("boundary_name must be a safe AEDT name")
+    max_assignments = _bounded_integer(
+        args.get("max_assignments", 16),
+        "max_assignments",
+        minimum=1,
+        maximum=64,
+    )
+    raw_object_names = args.get("object_names") or []
+    raw_face_ids = args.get("face_ids") or []
+    if raw_object_names and raw_face_ids:
+        raise LiveBackendError("use exactly one of object_names or face_ids")
+    if not raw_object_names and not raw_face_ids:
+        raise LiveBackendError("one of object_names or face_ids must be non-empty")
+    object_names: list[str] = []
+    face_ids: list[int] = []
+    if raw_object_names:
+        object_names = _normalize_explicit_names(
+            raw_object_names,
+            field="object_names",
+            maximum=max_assignments,
+        )
+    else:
+        if not isinstance(raw_face_ids, list) or len(raw_face_ids) > max_assignments:
+            raise LiveBackendError(
+                f"face_ids must contain at most {max_assignments} explicit face IDs"
+            )
+        for item in raw_face_ids:
+            if type(item) is not int or item <= 0:
+                raise LiveBackendError("face_ids must contain positive integer face IDs")
+            if item in face_ids:
+                raise LiveBackendError(f"face_ids must not contain duplicates: {item}")
+            face_ids.append(item)
+    if boundary_kind == "impedance" and face_ids:
+        raise LiveBackendError("impedance requires explicit sheet object_names, not face_ids")
+    options = _normalize_hfss_surface_boundary_options(
+        boundary_kind,
+        args.get("options"),
+    )
+    return {
+        "boundary_kind": boundary_kind,
+        "boundary_type": _HFSS_SURFACE_BOUNDARY_TYPES[boundary_kind],
+        "boundary_name": boundary_name,
+        "assignment_kind": "objects" if object_names else "faces",
+        "object_names": object_names,
+        "face_ids": face_ids,
+        "options": options,
+        "max_assignments": max_assignments,
+    }
+
+
+def _normalize_hfss_surface_boundary_options(
+    boundary_kind: str,
+    raw_options: Any,
+) -> dict[str, Any]:
+    if raw_options is None:
+        raw_options = {}
+    if not isinstance(raw_options, dict):
+        raise LiveBackendError("options must be an object")
+    allowed = {
+        "perfect_e": {"is_infinite_ground"},
+        "perfect_h": set(),
+        "finite_conductivity": {
+            "material_name",
+            "use_thickness",
+            "thickness",
+            "roughness",
+            "is_infinite_ground",
+            "is_two_sided",
+            "is_internal",
+            "is_shell_element",
+        },
+        "impedance": {"resistance", "reactance", "is_infinite_ground"},
+    }[boundary_kind]
+    unsupported = sorted(set(raw_options).difference(allowed))
+    if unsupported:
+        raise LiveBackendError(
+            f"unsupported {boundary_kind} option: {unsupported[0]}"
+        )
+    if boundary_kind == "perfect_h":
+        return {}
+    if boundary_kind == "perfect_e":
+        return {
+            "is_infinite_ground": _surface_boundary_bool_option(
+                raw_options,
+                "is_infinite_ground",
+                False,
+            )
+        }
+    if boundary_kind == "impedance":
+        return {
+            "resistance": _bounded_float(
+                raw_options.get("resistance", 50.0),
+                "options.resistance",
+                minimum=0.0,
+                maximum=1e12,
+            ),
+            "reactance": _bounded_float(
+                raw_options.get("reactance", 0.0),
+                "options.reactance",
+                minimum=-1e12,
+                maximum=1e12,
+            ),
+            "is_infinite_ground": _surface_boundary_bool_option(
+                raw_options,
+                "is_infinite_ground",
+                False,
+            ),
+        }
+    material_name = str(raw_options.get("material_name") or "").strip()
+    if not _SAFE_AEDT_MATERIAL_NAME.fullmatch(material_name):
+        raise LiveBackendError(
+            "finite_conductivity options.material_name must name an existing material"
+        )
+    use_thickness = _surface_boundary_bool_option(
+        raw_options,
+        "use_thickness",
+        False,
+    )
+    is_two_sided = _surface_boundary_bool_option(
+        raw_options,
+        "is_two_sided",
+        False,
+    )
+    is_internal = _surface_boundary_bool_option(
+        raw_options,
+        "is_internal",
+        True,
+    )
+    is_shell_element = _surface_boundary_bool_option(
+        raw_options,
+        "is_shell_element",
+        False,
+    )
+    if not is_two_sided and is_shell_element:
+        raise LiveBackendError(
+            "options.is_shell_element requires options.is_two_sided=true"
+        )
+    return {
+        "material_name": material_name,
+        "use_thickness": use_thickness,
+        "thickness": _normalize_surface_length(
+            raw_options.get("thickness", "0.1mm"),
+            "options.thickness",
+            allow_zero=False,
+        ),
+        "roughness": _normalize_surface_length(
+            raw_options.get("roughness", "0um"),
+            "options.roughness",
+            allow_zero=True,
+        ),
+        "is_infinite_ground": _surface_boundary_bool_option(
+            raw_options,
+            "is_infinite_ground",
+            False,
+        ),
+        "is_two_sided": is_two_sided,
+        "is_internal": is_internal,
+        "is_shell_element": is_shell_element,
+    }
+
+
+def _surface_boundary_bool_option(
+    options: dict[str, Any],
+    name: str,
+    default: bool,
+) -> bool:
+    value = options.get(name, default)
+    if type(value) is not bool:
+        raise LiveBackendError(f"options.{name} must be boolean")
+    return value
+
+
+def _normalize_surface_length(value: Any, field: str, *, allow_zero: bool) -> str:
+    if not isinstance(value, str):
+        raise LiveBackendError(f"{field} must be an AEDT expression with explicit units")
+    expression = value.strip()
+    if not _SAFE_AEDT_EXPRESSION.fullmatch(expression):
+        raise LiveBackendError(f"{field} contains unsupported AEDT expression characters")
+    literal = re.fullmatch(
+        r"([+]?(?:\d+(?:\.\d*)?|\.\d+))(?:[eE]([+-]?\d+))?([A-Za-z]+)",
+        expression,
+    )
+    if literal:
+        numeric = float(literal.group(1)) * (10 ** int(literal.group(2) or 0))
+        if not math.isfinite(numeric) or numeric < 0 or (not allow_zero and numeric == 0):
+            qualifier = "non-negative" if allow_zero else "positive"
+            raise LiveBackendError(f"{field} literal must be {qualifier}")
+    elif re.fullmatch(
+        r"[+\-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+\-]?\d+)?",
+        expression,
+    ):
+        raise LiveBackendError(f"{field} numeric literal must include explicit units")
+    elif expression.startswith("-"):
+        raise LiveBackendError(f"{field} must not be explicitly negative")
+    return expression
+
+
+def _impedance_solution_supported(solution_type: str) -> bool:
+    normalized = re.sub(r"[\s_-]+", "", solution_type).casefold()
+    return normalized in {
+        "modal",
+        "terminal",
+        "drivenmodal",
+        "driventerminal",
+        "transient",
+        "eigenmode",
+    }
+
+
+def _hfss_surface_boundary_targets(
+    geometry: dict[str, Any],
+    spec: dict[str, Any],
+) -> list[dict[str, Any]]:
+    objects = list(geometry.get("objects") or [])
+    by_name = {item["name"]: item for item in objects}
+    if spec["object_names"]:
+        missing = [name for name in spec["object_names"] if name not in by_name]
+        if missing:
+            raise LiveBackendError(f"unknown HFSS object: {missing[0]}")
+        return [by_name[name] for name in spec["object_names"]]
+    owners = []
+    owner_names = set()
+    face_owner = {
+        int(face["face_id"]): item
+        for item in objects
+        for face in list(item.get("faces") or [])
+    }
+    for face_id in spec["face_ids"]:
+        owner = face_owner.get(face_id)
+        if owner is None:
+            raise LiveBackendError(f"unknown HFSS face ID: {face_id}")
+        if owner["name"] not in owner_names:
+            owners.append(owner)
+            owner_names.add(owner["name"])
+    return owners
+
+
+def _hfss_geometry_record_is_solid(record: dict[str, Any]) -> bool:
+    volume = _optional_float(record.get("volume"))
+    return volume is not None and abs(volume) > 1e-18
+
+
+def _hfss_surface_boundary_target_snapshot(
+    target_geometry: list[dict[str, Any]],
+    spec: dict[str, Any],
+) -> list[dict[str, Any]]:
+    selected_faces = set(spec["face_ids"])
+    records = []
+    for item in target_geometry:
+        faces = [
+            {
+                "face_id": int(face["face_id"]),
+                "center": _stable_geometry_value(face.get("center")),
+                "area": _stable_geometry_value(face.get("area")),
+                "is_planar": face.get("is_planar"),
+            }
+            for face in list(item.get("faces") or [])
+            if not selected_faces or int(face["face_id"]) in selected_faces
+        ]
+        records.append(
+            {
+                "name": item["name"],
+                "object_id": item.get("object_id"),
+                "material_name": item.get("material_name"),
+                "solve_inside": item.get("solve_inside"),
+                "bounding_box": _stable_geometry_value(item.get("bounding_box")),
+                "is_solid": _hfss_geometry_record_is_solid(item),
+                "faces": sorted(faces, key=lambda face: face["face_id"]),
+            }
+        )
+    return records
+
+
+def _stable_geometry_value(value: Any) -> Any:
+    if isinstance(value, float):
+        return round(value, 12)
+    if isinstance(value, list):
+        return [_stable_geometry_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_stable_geometry_value(item) for item in value]
+    return value
+
+
+def _hfss_target_geometry_changes(
+    before: list[dict[str, Any]],
+    after: list[dict[str, Any]],
+) -> list[str]:
+    changes: list[str] = []
+    before_objects = {item["name"]: item for item in before}
+    after_objects = {item["name"]: item for item in after}
+    for name in sorted(set(before_objects) | set(after_objects), key=str.casefold):
+        old = before_objects.get(name)
+        new = after_objects.get(name)
+        if old is None or new is None:
+            changes.append(f"{name}:presence")
+            continue
+        for field in sorted((set(old) | set(new)) - {"faces"}):
+            if _digest(old.get(field)) != _digest(new.get(field)):
+                changes.append(f"{name}:{field}")
+        old_faces = {int(item["face_id"]): item for item in list(old.get("faces") or [])}
+        new_faces = {int(item["face_id"]): item for item in list(new.get("faces") or [])}
+        for face_id in sorted(set(old_faces) | set(new_faces)):
+            old_face = old_faces.get(face_id)
+            new_face = new_faces.get(face_id)
+            if old_face is None or new_face is None:
+                changes.append(f"{name}:face[{face_id}]:presence")
+                continue
+            for field in sorted(set(old_face) | set(new_face)):
+                if _digest(old_face.get(field)) != _digest(new_face.get(field)):
+                    changes.append(f"{name}:face[{face_id}]:{field}")
+    return changes or ["unclassified"]
+
+
+def _validate_hfss_infinite_ground_targets(
+    geometry: dict[str, Any],
+    spec: dict[str, Any],
+    target_geometry: list[dict[str, Any]],
+) -> None:
+    if not (spec.get("options") or {}).get("is_infinite_ground", False):
+        return
+    if spec["object_names"]:
+        invalid = []
+        for item in target_geometry:
+            faces = list(item.get("faces") or [])
+            if _hfss_geometry_record_is_solid(item) or not faces or any(
+                face.get("is_planar") is not True for face in faces
+            ):
+                invalid.append(item["name"])
+        if invalid:
+            raise LiveBackendError(
+                "HFSS infinite-ground boundary requires planar sheet objects: " + invalid[0]
+            )
+        return
+
+    face_records = {
+        int(face["face_id"]): face
+        for item in list(geometry.get("objects") or [])
+        for face in list(item.get("faces") or [])
+    }
+    non_planar = [
+        face_id
+        for face_id in spec["face_ids"]
+        if face_records[face_id].get("is_planar") is not True
+    ]
+    if non_planar:
+        raise LiveBackendError(
+            f"HFSS infinite-ground boundary requires planar faces: {non_planar[0]}"
+        )
+
+
+def _hfss_surface_boundary_snapshot(app: Any) -> list[dict[str, Any]]:
+    try:
+        boundaries = list(getattr(app, "boundaries", []) or [])
+    except Exception as exc:
+        raise LiveBackendError("HFSS boundary inventory is unavailable") from exc
+    records = []
+    for boundary in boundaries:
+        name = str(getattr(boundary, "name", "") or "").strip()
+        if not name:
+            raise LiveBackendError("HFSS boundary name readback is unavailable")
+        props = dict(getattr(boundary, "props", {}) or {})
+        properties = dict(getattr(boundary, "properties", {}) or {})
+        boundary_type = str(
+            _field_property(properties, "Type")
+            or getattr(boundary, "type", "")
+            or props.get("Type")
+            or ""
+        ).strip()
+        records.append(
+            _hfss_surface_boundary_record(
+                name,
+                boundary_type,
+                props,
+                properties,
+            )
+        )
+    return sorted(records, key=lambda item: item["name"].casefold())
+
+
+def _hfss_surface_boundary_record(
+    name: str,
+    boundary_type: str,
+    props: dict[str, Any],
+    properties: dict[str, Any],
+) -> dict[str, Any]:
+    normalized_type = re.sub(r"[\s_-]+", "", boundary_type).casefold()
+    kind_by_type = {
+        "perfecte": "perfect_e",
+        "perfecth": "perfect_h",
+        "finiteconductivity": "finite_conductivity",
+        "impedance": "impedance",
+    }
+    kind = kind_by_type.get(normalized_type, "other")
+    object_names = _boundary_assignment_names(props.get("Objects"))
+    face_ids = _boundary_assignment_face_ids(props.get("Faces"))
+    record: dict[str, Any] = {
+        "name": name,
+        "type": boundary_type,
+        "kind": kind,
+        "assignment_kind": "objects" if object_names else "faces" if face_ids else "unavailable",
+        "object_names": object_names,
+        "face_ids": face_ids,
+        "property_digest": _digest(
+            {"props": _json_value(props), "properties": _json_value(properties)}
+        ),
+    }
+    if kind == "perfect_e":
+        record["options"] = {
+            "is_infinite_ground": _boundary_readback_bool(
+                props.get("InfGroundPlane", _field_property(properties, "Inf Ground Plane")),
+                False,
+            )
+        }
+    elif kind == "perfect_h":
+        record["options"] = {}
+    elif kind == "finite_conductivity":
+        record["options"] = {
+            "material_name": str(
+                _field_property(properties, "Material/Material")
+                or props.get("Material")
+                or ""
+            ).strip(),
+            "use_thickness": _boundary_readback_bool(
+                props.get("UseThickness", _field_property(properties, "Use Thickness")),
+                False,
+            ),
+            "thickness": str(
+                _field_property(properties, "Thickness") or props.get("Thickness") or ""
+            ).strip(),
+            "roughness": str(
+                _field_property(properties, "Roughness") or props.get("Roughness") or ""
+            ).strip(),
+            "is_infinite_ground": _boundary_readback_bool(
+                props.get("InfGroundPlane", _field_property(properties, "Inf Ground Plane")),
+                False,
+            ),
+            "is_two_sided": _boundary_readback_bool(props.get("IsTwoSided"), False),
+            "is_internal": _boundary_readback_bool(props.get("IsInternal"), False),
+            "is_shell_element": _boundary_readback_bool(props.get("IsShellElement"), False),
+        }
+    elif kind == "impedance":
+        record["options"] = {
+            "resistance": str(
+                _field_property(properties, "Resistance") or props.get("Resistance") or ""
+            ).strip(),
+            "reactance": str(
+                _field_property(properties, "Reactance") or props.get("Reactance") or ""
+            ).strip(),
+            "is_infinite_ground": _boundary_readback_bool(
+                props.get("InfGroundPlane", _field_property(properties, "Inf Ground Plane")),
+                False,
+            ),
+        }
+    else:
+        record["options"] = {}
+    return record
+
+
+def _boundary_assignment_names(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    if isinstance(value, (list, tuple)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return []
+
+
+def _boundary_assignment_face_ids(value: Any) -> list[int]:
+    if isinstance(value, (list, tuple)):
+        values = value
+    elif value is None:
+        values = []
+    else:
+        values = [value]
+    face_ids = []
+    for item in values:
+        try:
+            face_id = int(item)
+        except (TypeError, ValueError):
+            continue
+        if face_id > 0:
+            face_ids.append(face_id)
+    return face_ids
+
+
+def _boundary_readback_bool(value: Any, default: bool) -> bool:
+    if type(value) is bool:
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().casefold()
+        if normalized in {"true", "1"}:
+            return True
+        if normalized in {"false", "0"}:
+            return False
+    return default
+
+
+def _create_hfss_surface_boundary(app: Any, spec: dict[str, Any]) -> Any:
+    assignment = spec["object_names"] or spec["face_ids"]
+    options = spec["options"]
+    name = spec["boundary_name"]
+    if spec["boundary_kind"] == "perfect_e":
+        return app.assign_perfect_e(
+            assignment,
+            is_infinite_ground=options["is_infinite_ground"],
+            name=name,
+        )
+    if spec["boundary_kind"] == "perfect_h":
+        return app.assign_perfect_h(assignment, name=name)
+    if spec["boundary_kind"] == "finite_conductivity":
+        return app.assign_finite_conductivity(
+            assignment,
+            material=options["material_name"],
+            use_thickness=options["use_thickness"],
+            thickness=options["thickness"],
+            roughness=options["roughness"],
+            is_infinite_ground=options["is_infinite_ground"],
+            is_two_side=options["is_two_sided"],
+            is_internal=options["is_internal"],
+            is_shell_element=options["is_shell_element"],
+            name=name,
+        )
+    return app.assign_impedance_to_sheet(
+        assignment,
+        name=name,
+        resistance=options["resistance"],
+        reactance=options["reactance"],
+        is_infinite_ground=options["is_infinite_ground"],
+        coordinate_system="Global",
+    )
+
+
+def _verify_hfss_surface_boundary_readback(
+    spec: dict[str, Any],
+    readback: dict[str, Any],
+) -> None:
+    if readback.get("kind") != spec["boundary_kind"]:
+        raise LiveBackendError("HFSS surface boundary type readback failed")
+    if readback.get("assignment_kind") != spec["assignment_kind"]:
+        raise LiveBackendError("HFSS surface boundary assignment kind readback failed")
+    if readback.get("object_names") != spec["object_names"]:
+        raise LiveBackendError("HFSS surface boundary object assignment readback failed")
+    if readback.get("face_ids") != spec["face_ids"]:
+        raise LiveBackendError("HFSS surface boundary face assignment readback failed")
+    expected = spec["options"]
+    actual = readback.get("options") or {}
+    kind = spec["boundary_kind"]
+    if kind == "perfect_h":
+        return
+    if actual.get("is_infinite_ground") is not expected["is_infinite_ground"]:
+        raise LiveBackendError("HFSS surface boundary infinite-ground readback failed")
+    if kind == "perfect_e":
+        return
+    if kind == "impedance":
+        if not _numeric_boundary_readback_matches(
+            actual.get("resistance"), expected["resistance"]
+        ):
+            raise LiveBackendError("HFSS impedance resistance readback failed")
+        if not _numeric_boundary_readback_matches(
+            actual.get("reactance"), expected["reactance"]
+        ):
+            raise LiveBackendError("HFSS impedance reactance readback failed")
+        return
+    if str(actual.get("material_name") or "").casefold() != expected[
+        "material_name"
+    ].casefold():
+        raise LiveBackendError("HFSS finite-conductivity material readback failed")
+    for field in ("use_thickness", "is_two_sided"):
+        if actual.get(field) is not expected[field]:
+            raise LiveBackendError(f"HFSS finite-conductivity {field} readback failed")
+    if expected["use_thickness"] and _normalized_expression(
+        str(actual.get("thickness") or "")
+    ) != _normalized_expression(expected["thickness"]):
+        raise LiveBackendError("HFSS finite-conductivity thickness readback failed")
+    if _normalized_expression(str(actual.get("roughness") or "")) != _normalized_expression(
+        expected["roughness"]
+    ):
+        raise LiveBackendError("HFSS finite-conductivity roughness readback failed")
+    relevant_side_field = "is_shell_element" if expected["is_two_sided"] else "is_internal"
+    if actual.get(relevant_side_field) is not expected[relevant_side_field]:
+        raise LiveBackendError(
+            f"HFSS finite-conductivity {relevant_side_field} readback failed"
+        )
+
+
+def _numeric_boundary_readback_matches(actual: Any, expected: float) -> bool:
+    try:
+        value = float(actual)
+    except (TypeError, ValueError):
+        return False
+    return math.isclose(value, expected, rel_tol=1e-9, abs_tol=1e-9)
+
+
+def _rollback_hfss_surface_boundary(
+    app: Any,
+    created_name: str,
+    *,
+    before_boundaries: list[dict[str, Any]],
+) -> dict[str, Any]:
+    before_names = {item["name"] for item in before_boundaries}
+    delete_error = ""
+    try:
+        current = _hfss_surface_boundary_snapshot(app)
+        current_names = {item["name"] for item in current}
+        if created_name in current_names and created_name not in before_names:
+            boundary = next(
+                item for item in list(app.boundaries or []) if item.name == created_name
+            )
+            deleted = boundary.delete()
+            if deleted is not True:
+                raise LiveBackendError("surface boundary delete returned false")
+    except Exception as exc:
+        try:
+            if created_name not in before_names:
+                app.oboundary.DeleteBoundaries([created_name])
+        except Exception as fallback_exc:
+            delete_error = (
+                f"{type(exc).__name__}: {exc}; raw fallback failed: "
+                f"{type(fallback_exc).__name__}: {fallback_exc}"
+            )
+    readback_error = ""
+    try:
+        after = _hfss_surface_boundary_snapshot(app)
+    except Exception as exc:
+        after = []
+        readback_error = f"{type(exc).__name__}: {exc}"
+    return {
+        "complete": not delete_error and not readback_error and after == before_boundaries,
+        "deleted_boundary": created_name if after == before_boundaries else "",
+        "remaining_boundaries": [item["name"] for item in after],
         "delete_error": delete_error,
         "readback_error": readback_error,
     }

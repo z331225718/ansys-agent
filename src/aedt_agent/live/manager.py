@@ -560,6 +560,74 @@ class LiveAedtSessionManager:
         self._approval_contexts.pop((session_id, preview_id), None)
         return result
 
+    def hfss_surface_boundary_inventory(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+        max_items: int = 100,
+    ) -> dict[str, Any]:
+        return self._execute(
+            session_id,
+            "hfss_surface_boundary_inventory",
+            {
+                "project_name": project_name,
+                "design_name": design_name,
+                "max_items": max_items,
+            },
+        )
+
+    def preview_hfss_surface_boundary_create(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+        boundary_kind: str,
+        boundary_name: str,
+        object_names: list[str] | None = None,
+        face_ids: list[int] | None = None,
+        options: dict[str, Any] | None = None,
+        max_assignments: int = 16,
+    ) -> dict[str, Any]:
+        result = self._execute(
+            session_id,
+            "hfss_surface_boundary_create_preview",
+            {
+                "project_name": project_name,
+                "design_name": design_name,
+                "boundary_kind": boundary_kind,
+                "boundary_name": boundary_name,
+                "object_names": object_names or [],
+                "face_ids": face_ids or [],
+                "options": options or {},
+                "max_assignments": max_assignments,
+            },
+        )
+        return self._register_approval(session_id, "hfss.surface_boundary.create", result)
+
+    def apply_hfss_surface_boundary_create(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict[str, Any]:
+        self._require_approval(
+            session_id,
+            "hfss.surface_boundary.create",
+            preview_id,
+            approval_token,
+        )
+        result = self._execute(
+            session_id,
+            "hfss_surface_boundary_create_apply",
+            {"preview_id": preview_id},
+        )
+        self._approval_contexts.pop((session_id, preview_id), None)
+        return result
+
     def preview_hfss_geometry_create(
         self,
         session_id: str,

@@ -526,6 +526,59 @@ def create_server(
         )
 
     @server.tool()
+    async def get_live_hfss_surface_boundary_inventory(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        max_items: int = 100,
+    ) -> dict:
+        """Read bounded HFSS boundary assignments, typed options, and property digests."""
+        return live.hfss_surface_boundary_inventory(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            max_items=max_items,
+        )
+
+    @server.tool()
+    async def preview_live_hfss_surface_boundary_create(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        boundary_kind: str,
+        boundary_name: str,
+        object_names: list[str] | None = None,
+        face_ids: list[int] | None = None,
+        options: dict | None = None,
+        max_assignments: int = 16,
+    ) -> dict:
+        """Preview Perfect E/H, finite-conductivity, or sheet-impedance creation."""
+        return live.preview_hfss_surface_boundary_create(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            boundary_kind=boundary_kind,
+            boundary_name=boundary_name,
+            object_names=object_names,
+            face_ids=face_ids,
+            options=options,
+            max_assignments=max_assignments,
+        )
+
+    @server.tool()
+    async def apply_live_hfss_surface_boundary_create(
+        live_session_id: str,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        """Create and verify one typed HFSS surface boundary; rollback and do not save."""
+        return live.apply_hfss_surface_boundary_create(
+            live_session_id,
+            preview_id=preview_id,
+            approval_token=approval_token,
+        )
+
+    @server.tool()
     async def preview_live_hfss_geometry_create(
         live_session_id: str,
         project_name: str,

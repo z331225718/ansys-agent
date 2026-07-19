@@ -823,6 +823,126 @@ class FakeMaterialHfss(FakeHfss):
         return True
 
 
+class FakeSurfaceBoundaryHfss(FakeMaterialHfss):
+    def __init__(self, *, mismatch_readback=False, fail_create=False, **kwargs):
+        super().__init__(**kwargs)
+        self.modeler._objects["box2"].faces[0].id = 201
+        self.modeler._objects["sheet1"].faces[0].id = 301
+        for obj in self.modeler._objects.values():
+            for face in obj.faces:
+                face.is_planar = True
+        self.mismatch_readback = mismatch_readback
+        self.fail_create = fail_create
+
+    def _surface_boundary(self, name, boundary_type, assignment, options):
+        if self.fail_create:
+            raise RuntimeError("synthetic surface boundary create failure")
+        selections = list(assignment) if isinstance(assignment, list) else [assignment]
+        props = {
+            "Objects" if isinstance(selections[0], str) else "Faces": list(selections),
+            **options,
+        }
+        properties = {
+            "Name": name,
+            "Type": boundary_type,
+            "Assignment": ",".join(str(item) for item in selections),
+        }
+        if boundary_type == "Perfect E":
+            properties["Inf Ground Plane"] = props.get("InfGroundPlane", False)
+        elif boundary_type == "Finite Conductivity":
+            properties.update(
+                {
+                    "Material/Material": props["Material"],
+                    "Inf Ground Plane": props["InfGroundPlane"],
+                    "Use Thickness": props["UseThickness"],
+                    "Thickness": props["Thickness"],
+                    "Roughness": props["Roughness"],
+                }
+            )
+        elif boundary_type == "Impedance":
+            properties.update(
+                {
+                    "Resistance": props["Resistance"],
+                    "Reactance": props["Reactance"],
+                    "Inf Ground Plane": props["InfGroundPlane"],
+                }
+            )
+        if self.mismatch_readback:
+            self.mismatch_readback = False
+            if boundary_type == "Perfect E":
+                props["InfGroundPlane"] = not props.get("InfGroundPlane", False)
+            else:
+                boundary_type = "Perfect H"
+                properties["Type"] = boundary_type
+        boundary = FakeBoundary(self, name, boundary_type)
+        boundary.props = props
+        boundary.properties = properties
+        self.boundaries.append(boundary)
+        return boundary
+
+    def assign_perfect_e(self, assignment, is_infinite_ground=False, name=None, **kwargs):
+        return self._surface_boundary(
+            name,
+            "Perfect E",
+            assignment,
+            {"InfGroundPlane": is_infinite_ground},
+        )
+
+    def assign_perfect_h(self, assignment, name=None, **kwargs):
+        return self._surface_boundary(name, "Perfect H", assignment, {})
+
+    def assign_finite_conductivity(
+        self,
+        assignment,
+        material=None,
+        use_thickness=False,
+        thickness="0.1mm",
+        roughness="0um",
+        is_infinite_ground=False,
+        is_two_side=False,
+        is_internal=True,
+        is_shell_element=False,
+        name=None,
+        **kwargs,
+    ):
+        return self._surface_boundary(
+            name,
+            "Finite Conductivity",
+            assignment,
+            {
+                "UseMaterial": True,
+                "Material": material,
+                "UseThickness": use_thickness,
+                "Thickness": thickness,
+                "Roughness": roughness,
+                "InfGroundPlane": is_infinite_ground,
+                "IsTwoSided": is_two_side,
+                "IsInternal": is_internal,
+                "IsShellElement": is_shell_element,
+            },
+        )
+
+    def assign_impedance_to_sheet(
+        self,
+        assignment,
+        name=None,
+        resistance=50.0,
+        reactance=0.0,
+        is_infinite_ground=False,
+        coordinate_system="Global",
+    ):
+        return self._surface_boundary(
+            name,
+            "Impedance",
+            assignment,
+            {
+                "Resistance": str(resistance),
+                "Reactance": str(reactance),
+                "InfGroundPlane": is_infinite_ground,
+            },
+        )
+
+
 class FakeMeshOperation:
     def __init__(self, mesh, name, props):
         self._mesh = mesh
@@ -949,6 +1069,11 @@ class FakeRegistry:
                 "preview_id": "infinite-sphere-preview-1",
                 "snapshot_digest": "infinite-sphere-digest-1",
             }
+        if command == "hfss_surface_boundary_create_preview":
+            return {
+                "preview_id": "surface-boundary-preview-1",
+                "snapshot_digest": "surface-boundary-digest-1",
+            }
         if command == "hfss_report_preview":
             return {"preview_id": "report-preview-1", "snapshot_digest": "report-digest-1"}
         if command == "hfss_boundary_preview":
@@ -1054,6 +1179,9 @@ def test_backend_reuses_wrappers_and_lists_live_layout_paths():
         {"project_name": "Board", "design_name": "HFSS1", "object_names": ["box1"]},
     )
     assert geometry["objects"][0]["faces"][0]["face_id"] == 101
+    assert [face["face_id"] for face in geometry["objects"][0]["faces"]] == sorted(
+        face["face_id"] for face in geometry["objects"][0]["faces"]
+    )
     setup_preview = backend.execute(
         target,
         "hfss_setup_preview",
@@ -2159,6 +2287,211 @@ def test_backend_hfss_infinite_sphere_preview_rejects_unsafe_requests(payload, e
         backend.execute(
             AedtTarget("pid", 42),
             "hfss_infinite_sphere_create_preview",
+            {"project_name": "Board", "design_name": "HFSS1", **payload},
+        )
+
+
+def test_backend_lists_and_creates_four_typed_hfss_surface_boundaries():
+    app = FakeSurfaceBoundaryHfss(project="Board", design="HFSS1")
+    app.solution_type = "Modal"
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=lambda **kwargs: app,
+    )
+    target = AedtTarget("pid", 42)
+    inventory = backend.execute(
+        target,
+        "hfss_surface_boundary_inventory",
+        {"project_name": "Board", "design_name": "HFSS1"},
+    )
+    assert inventory["boundary_count"] == 1
+    assert inventory["supported_surface_boundary_count"] == 0
+    assert inventory["design_unchanged"] is True
+
+    requests = [
+        {
+            "boundary_kind": "perfect_e",
+            "boundary_name": "HarnessPerfectE",
+            "object_names": ["sheet1"],
+            "options": {"is_infinite_ground": True},
+        },
+        {
+            "boundary_kind": "perfect_h",
+            "boundary_name": "HarnessPerfectH",
+            "face_ids": [201],
+        },
+        {
+            "boundary_kind": "finite_conductivity",
+            "boundary_name": "HarnessFinite",
+            "face_ids": [101],
+            "options": {
+                "material_name": "copper",
+                "use_thickness": True,
+                "thickness": "35um",
+                "roughness": "0.5um",
+                "is_two_sided": False,
+                "is_internal": True,
+            },
+        },
+        {
+            "boundary_kind": "impedance",
+            "boundary_name": "HarnessImpedance",
+            "object_names": ["sheet1"],
+            "options": {
+                "resistance": 75,
+                "reactance": -10,
+                "is_infinite_ground": False,
+            },
+        },
+    ]
+    results = []
+    for request in requests:
+        preview = backend.execute(
+            target,
+            "hfss_surface_boundary_create_preview",
+            {"project_name": "Board", "design_name": "HFSS1", **request},
+        )
+        assert preview["project_dirty"] is False
+        assert preview["project_saved"] is False
+        results.append(
+            backend.execute(
+                target,
+                "hfss_surface_boundary_create_apply",
+                {"preview_id": preview["preview_id"]},
+            )
+        )
+
+    assert [item["status"] for item in results] == ["verified"] * 4
+    assert [item["boundary"]["kind"] for item in results] == [
+        "perfect_e",
+        "perfect_h",
+        "finite_conductivity",
+        "impedance",
+    ]
+    assert results[0]["boundary"]["object_names"] == ["sheet1"]
+    assert results[1]["boundary"]["face_ids"] == [201]
+    assert results[2]["boundary"]["options"]["material_name"] == "copper"
+    assert results[2]["boundary"]["options"]["thickness"] == "35um"
+    assert float(results[3]["boundary"]["options"]["resistance"]) == 75.0
+    assert all(item["automatic_rollback_on_failure"] is True for item in results)
+    assert all(item["project_saved"] is False for item in results)
+
+
+def test_backend_hfss_surface_boundary_rolls_back_readback_failure_and_rejects_stale():
+    app = FakeSurfaceBoundaryHfss(
+        project="Board",
+        design="HFSS1",
+        mismatch_readback=True,
+    )
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=lambda **kwargs: app,
+    )
+    target = AedtTarget("pid", 42)
+    request = {
+        "project_name": "Board",
+        "design_name": "HFSS1",
+        "boundary_kind": "perfect_e",
+        "boundary_name": "MustRollback",
+        "object_names": ["sheet1"],
+        "options": {"is_infinite_ground": True},
+    }
+    preview = backend.execute(target, "hfss_surface_boundary_create_preview", request)
+    with pytest.raises(LiveBackendError, match="infinite-ground readback failed"):
+        backend.execute(
+            target,
+            "hfss_surface_boundary_create_apply",
+            {"preview_id": preview["preview_id"]},
+        )
+    assert "MustRollback" not in [item.name for item in app.boundaries]
+
+    stale = backend.execute(target, "hfss_surface_boundary_create_preview", request)
+    app.assign_perfect_h([201], name="ExternalPerfectH")
+    with pytest.raises(LiveBackendError, match="stale HFSS surface boundary create preview"):
+        backend.execute(
+            target,
+            "hfss_surface_boundary_create_apply",
+            {"preview_id": stale["preview_id"]},
+        )
+    assert "MustRollback" not in [item.name for item in app.boundaries]
+    assert "ExternalPerfectH" in [item.name for item in app.boundaries]
+
+
+@pytest.mark.parametrize(
+    "payload,error",
+    [
+        (
+            {
+                "boundary_kind": "perfect_e",
+                "boundary_name": "B",
+                "object_names": ["box1"],
+                "face_ids": [101],
+            },
+            "exactly one",
+        ),
+        (
+            {
+                "boundary_kind": "impedance",
+                "boundary_name": "B",
+                "face_ids": [101],
+            },
+            "requires explicit sheet object_names",
+        ),
+        (
+            {
+                "boundary_kind": "impedance",
+                "boundary_name": "B",
+                "object_names": ["box1"],
+            },
+            "requires sheet objects",
+        ),
+        (
+            {
+                "boundary_kind": "finite_conductivity",
+                "boundary_name": "B",
+                "object_names": ["box1"],
+                "options": {"material_name": "missing"},
+            },
+            "must already exist",
+        ),
+        (
+            {
+                "boundary_kind": "finite_conductivity",
+                "boundary_name": "B",
+                "object_names": ["box1"],
+                "options": {"material_name": "copper", "thickness": "0"},
+            },
+            "must include explicit units",
+        ),
+        (
+            {
+                "boundary_kind": "perfect_e",
+                "boundary_name": "B",
+                "object_names": ["box1"],
+                "options": {"is_infinite_ground": True},
+            },
+            "requires planar sheet objects",
+        ),
+        (
+            {
+                "boundary_kind": "perfect_h",
+                "boundary_name": "B",
+                "object_names": ["box1"],
+                "options": {"is_infinite_ground": True},
+            },
+            "unsupported perfect_h option",
+        ),
+    ],
+)
+def test_backend_hfss_surface_boundary_preview_rejects_unsafe_requests(payload, error):
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=FakeSurfaceBoundaryHfss,
+    )
+    with pytest.raises(LiveBackendError, match=error):
+        backend.execute(
+            AedtTarget("pid", 42),
+            "hfss_surface_boundary_create_preview",
             {"project_name": "Board", "design_name": "HFSS1", **payload},
         )
 
@@ -4138,6 +4471,42 @@ def test_manager_requires_action_bound_one_use_approval_for_hfss_infinite_sphere
     assert getattr(replay.value, "code", None) == "approval_required"
 
 
+def test_manager_requires_action_bound_one_use_approval_for_hfss_surface_boundary():
+    registry = FakeRegistry()
+    authority = HmacApprovalAuthority("s" * 32)
+    manager = LiveAedtSessionManager(registry=registry, approval_verifier=authority)
+    session_id = manager.attach(pid=42)["live_session_id"]
+    preview = manager.preview_hfss_surface_boundary_create(
+        session_id,
+        project_name="Board",
+        design_name="HFSS1",
+        boundary_kind="finite_conductivity",
+        boundary_name="HarnessFinite",
+        face_ids=[101],
+        options={
+            "material_name": "copper",
+            "use_thickness": True,
+            "thickness": "35um",
+            "roughness": "0.5um",
+        },
+    )
+    assert preview["approval_request"]["action"] == "hfss.surface_boundary.create"
+    token = authority.issue(**preview["approval_request"])
+    result = manager.apply_hfss_surface_boundary_create(
+        session_id,
+        preview_id=preview["preview_id"],
+        approval_token=token,
+    )
+    assert result["command"] == "hfss_surface_boundary_create_apply"
+    with pytest.raises(Exception) as replay:
+        manager.apply_hfss_surface_boundary_create(
+            session_id,
+            preview_id=preview["preview_id"],
+            approval_token=token,
+        )
+    assert getattr(replay.value, "code", None) == "approval_required"
+
+
 def test_manager_requires_action_bound_approval_for_layout_edge_ports():
     registry = FakeRegistry()
     authority = HmacApprovalAuthority("e" * 32)
@@ -4392,6 +4761,9 @@ def test_mcp_registers_live_tools_without_changing_artifact_tools(monkeypatch):
     assert "get_live_hfss_far_field_inventory" in server.tools
     assert "preview_live_hfss_infinite_sphere_create" in server.tools
     assert "apply_live_hfss_infinite_sphere_create" in server.tools
+    assert "get_live_hfss_surface_boundary_inventory" in server.tools
+    assert "preview_live_hfss_surface_boundary_create" in server.tools
+    assert "apply_live_hfss_surface_boundary_create" in server.tools
     assert "preview_live_hfss_setup_create" in server.tools
     assert "apply_live_hfss_setup_create" in server.tools
     assert "preview_live_hfss_setup_sweep_create" in server.tools
@@ -4481,6 +4853,9 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
         "get_live_hfss_far_field_inventory",
         "preview_live_hfss_infinite_sphere_create",
         "apply_live_hfss_infinite_sphere_create",
+        "get_live_hfss_surface_boundary_inventory",
+        "preview_live_hfss_surface_boundary_create",
+        "apply_live_hfss_surface_boundary_create",
         "preview_live_hfss_setup_create",
         "apply_live_hfss_setup_create",
         "list_live_layout_paths",
