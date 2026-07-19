@@ -1,6 +1,6 @@
 # ansys-agent
 
-面向 AEDT 2024 R2 远端服务器的安装、连接、Desktop 入口、日常对话、审批和验收步骤见
+面向 AEDT 2024 R2 远端服务器的安装、连接、Desktop 入口、标准对话范例、审批、故障处理和验收步骤见
 [`docs/ansys-assistant-operations-guide.zh.md`](docs/ansys-assistant-operations-guide.zh.md)。完整能力、Workflow、
 故障排查和维护者说明见
 [`docs/ansys-assistant-user-guide.zh.md`](docs/ansys-assistant-user-guide.zh.md)。

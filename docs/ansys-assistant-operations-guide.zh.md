@@ -11,6 +11,31 @@
 本文不介绍 Claude Code 和模型的安装。完整能力、全部 Workflow、离线 wheelhouse 和维护者验收细节见
 [Ansys Assistant 中文使用手册](ansys-assistant-user-guide.zh.md)。
 
+## 阅读路线
+
+这份说明按“安装一次、每天使用、出现问题时排查”的顺序组织。不同读者可以直接从对应章节开始：
+
+| 使用者 | 建议阅读顺序 |
+|---|---|
+| 首次部署管理员 | 第 1～6、12～16 节 |
+| 每天操作 AEDT 的工程师 | 第 1、4～11 节 |
+| 只需要把 4.3mil 线宽参数化 | 第 4～8 节 |
+| 需要创建 Layout 材料或 Via | 第 4～7、8A～8B 节 |
+| Harness 没有现成能力 | 第 10 节 |
+| 升级、移交或故障恢复 | 第 12～16 节 |
+
+全文命令中的目录、端口、版本、工程和设计名都是示例。执行前至少替换以下值：
+
+```text
+D:\ansys-agent     -> 实际项目安装目录
+50051               -> live-sessions 发现的实际 gRPC 端口
+2024.2              -> 目标 AEDT 版本
+Board               -> AEDT GUI 中的活动工程名
+Layout1             -> AEDT GUI 中的活动设计名
+```
+
+最重要的默认约定是：**只读无需审批；写入必须 preview 和原生审批；未明确要求时不保存工程。**
+
 ## 1. 使用原则
 
 助手不是自由执行 PyAEDT 脚本的终端。它按以下顺序选择能力：
@@ -349,6 +374,74 @@ project_saved = false     # 除非本次另行批准了保存
 
 失败时还要看到明确的 rollback 状态。若 rollback 不完整，立即停止后续操作并保留 AEDT 现场，不要自动保存。
 
+### 7.5 一轮标准对话示例
+
+下面是一轮推荐的完整对话。重点不是逐字照抄，而是让每个阶段都有明确停止条件。
+
+第一步，只核对身份：
+
+```text
+请复用 AEDT 按钮来源的会话，只连接一次。报告实际端口、AEDT 版本、活动工程、活动设计和设计类型。
+不要创建或打开其他工程、不要创建设计、不要修改、不要保存。报告后等待我的下一条指令。
+```
+
+此时人工把五项信息与 AEDT GUI 比较。设计名带 `0;`、工程不一致或连接后继续反复 attach，均应退出当前
+PowerShell，而不是让模型继续尝试。
+
+第二步，只读盘点目标：
+
+```text
+只读列出当前 3D Layout 的所有 Path。返回总数，以及每条 Path 的 name、net、layer 和 width expression。
+如果结果被截断请明确说明。不要修改、不要保存，完成后等待。
+```
+
+第三步，提出有边界的写任务：
+
+```text
+只处理 net=DDR_DQ0、layer=L1 且 width expression=4.3mil 的 Path。
+把命中的 Path 参数化为设计变量 W_line=4.3mil。使用已注册的 typed Harness 或严格 Workflow：
+先给出精确目标和 preview，等待 Windows 原生审批；批准后 apply 并逐项 readback。
+其他 Path、变量、工程和设计不得修改。失败时报告 rollback 是否完整。不要保存工程。
+```
+
+第四步，检查 preview 和原生审批框。数量、名称、原值或新值任一项不符合预期就点击 `No`，然后改写任务条件；
+不要先批准再要求助手“改回来”。
+
+第五步，检查结果：
+
+```text
+请汇总本次 action、目标数、verified 数、failed 数、rollback 状态、工程是否 dirty、是否保存，
+并再次只读回报 W_line 和所有目标 Path 的 width expression。不要执行新的修改。
+```
+
+只有结果回读正确后，才决定是否另起一次保存审批。测试工程通常直接保持未保存，由工程师在 AEDT GUI 中检查。
+
+### 7.6 复杂任务怎么描述
+
+复杂请求建议按下面七项组织。信息不足时先让助手只读查询，不要让它自行猜测：
+
+| 项目 | 应提供的内容 | 示例 |
+|---|---|---|
+| 范围 | 当前工程、当前设计或文件副本 | 当前活动 3D Layout 设计 |
+| 对象 | 对象类型和精确筛选条件 | Path，net=DDR_DQ0，layer=L1 |
+| 前置条件 | 必须已存在或必须不存在的对象 | `W_line` 不存在；padstack 已存在 |
+| 修改 | 属性和目标表达式 | width 改为 `W_line` |
+| 验证 | apply 后必须回读的字段 | Path width、变量值、目标数量 |
+| 失败策略 | 停止、rollback 和现场保留要求 | 任一失败则全批 rollback |
+| 保存策略 | 不保存或单独审批保存 | 不保存 |
+
+可复用模板：
+
+```text
+在当前 <设计类型> 中，只处理 <对象类型和精确筛选条件>。
+前置条件是 <必须存在/不存在的依赖>；目标修改为 <属性和值>。
+先 inventory，再 preview；Windows 原生审批后才能 apply。apply 后回读 <验证字段>。
+任一对象失败时 <全批回滚/停止并报告>。不得修改 <排除范围>。不要保存工程。
+```
+
+当一个任务同时包含“创建对象、求解、导出、保存”时，应拆成多个审批阶段。不要用一句“全部完成”授权所有写入；
+每一阶段完成 readback 或 evidence 检查后，再批准下一阶段。
+
 ## 8. 示例：把 4.3mil 线宽参数化为 W_line
 
 ### 8.1 推荐请求
@@ -628,6 +721,32 @@ D:\ansys-agent\.venv\Scripts\python.exe `
 
 确认项目 `.venv` 安装了当前锁定的 `pyedb[dotnet]` 和 `ansys-pythonnet`，然后重新运行依赖更新脚本与
 import preflight。系统 Python 可以 import 不代表项目环境可以 import。
+
+### 14.9 命令提示找不到模块或使用了错误 Python
+
+不要直接运行裸命令 `python`、`pip` 或依赖全局 PATH。先确认工作目录和解释器：
+
+```powershell
+Set-Location D:\ansys-agent
+Test-Path .\.venv\Scripts\python.exe
+.\.venv\Scripts\python.exe -c "import sys; print(sys.executable)"
+.\.venv\Scripts\python.exe -m pip check
+```
+
+解释器必须位于当前批准安装目录的 `.venv`。如果按钮仍从旧目录启动，应在新目录重新执行 Desktop `install`，
+而不是修改旧会话生成的 `launch-claude.ps1`。
+
+### 14.10 Agent 声称成功，但没有 preview 或 readback
+
+把该次任务视为未验收，不要保存工程。先只读检查工程、设计、对象数量和属性，再确认
+`capabilities-v2` 中是否存在对应能力。对于写操作，缺少以下任一项都不能视为项目 Harness 的成功结果：
+
+```text
+preview + Windows 原生审批 + apply + typed readback
+```
+
+如果能力目录中不存在该操作，按第 10 节转入 API Memory 和受控 Exploration；不能让模型改用任意 Python、
+PowerShell 或 COM 绕过审批链路。
 
 ## 15. 交付验收清单
 
