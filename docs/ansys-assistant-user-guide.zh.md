@@ -21,7 +21,7 @@
 
 ## 十分钟上手
 
-已经完成离线安装、AEDT 2024 R2 正在运行且 Claude Code 可用时，最短路径如下。
+已经完成安装、AEDT 2024 R2 正在运行且 Claude Code 可用时，最短路径如下。
 
 1. 在 AEDT GUI 中打开目标工程，并单击激活目标设计。
 2. 在项目安装目录发现实际会话：
@@ -135,22 +135,85 @@ API Memory 只回答“某个版本的 PyAEDT/PyEDB 有什么 API、源码和示
 AEDT 2024 R2 使用 PyEDB DotNet 路径。只安装基础 `pyedb` 而没有 `[dotnet]` 依赖，会导致
 `clr` 导入或 EDB 初始化失败。
 
-## 4. 获取离线发布包
+## 4. 选择部署方式
+
+根据目标服务器的联网条件选择一种方式，不要把两套安装方法混在同一个目录里：
+
+| 条件 | 推荐方式 | 适用场景 |
+|---|---|---|
+| 服务器可访问 GitHub 和 PyPI | 源码联网安装 | 需要尽快使用当前分支的最新 Harness；后续升级最方便 |
+| 服务器只能访问 PyPI，不能访问 GitHub | 先传源码 ZIP，再联网安装依赖 | 内网允许 Python 包下载，但限制代码托管站点 |
+| 服务器完全离线 | 离线发布包 | 使用带 wheelhouse、清单和 SHA256 的冻结版本 |
+
+无论选择哪种方式，Claude Code 和模型都由服务器现有环境提供，本项目不会安装、替换或修改它们。
+项目自己的 Python 依赖必须安装进 `D:\ansys-agent\.venv`，不要装进 AEDT 内嵌 Python，也不要依赖
+用户全局 `site-packages`。
+
+### 4.1 服务器可联网：首次安装当前代码
+
+下面是远端服务器可以访问 GitHub 和 PyPI 时的推荐路径。当前开发验收分支是
+`codex/ansys-assistant-runtime`；正式发布后应把 `$Ref` 替换为已批准的 release tag 或主分支 commit，
+不要在生产服务器上无条件跟随一个会变化的分支。
+
+```powershell
+$Root = "D:\ansys-agent"
+$Ref = "codex/ansys-assistant-runtime"
+
+git clone --branch $Ref --single-branch `
+  https://github.com/z331225718/ansys-agent.git $Root
+
+Set-Location $Root
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install --editable ".[desktop]"
+.\.venv\Scripts\python.exe -m pip check
+```
+
+`.[desktop]` 会按项目锁定的兼容基线安装 PyAEDT、PyEDB DotNet 后端、FastMCP 和
+codebase-memory-mcp。不要再执行无版本约束的 `pip install -U pyaedt pyedb`，否则服务器环境可能
+领先于已经实测的 Harness 契约。
+
+安装完成后构建本机 API Memory，并检查能力目录：
+
+```powershell
+.\.venv\Scripts\python.exe -m aedt_agent.knowledge.api_memory_cli prepare --force
+.\.venv\Scripts\python.exe -m aedt_agent.knowledge.api_memory_cli status
+.\.venv\Scripts\python.exe -m aedt_agent.interactive capabilities-v2
+```
+
+最后确认关键依赖来自项目虚拟环境：
+
+```powershell
+.\.venv\Scripts\python.exe -c `
+  "import importlib.metadata as m,sys; print(sys.executable); print('pyaedt',m.version('pyaedt')); print('pyedb',m.version('pyedb')); print('fastmcp',m.version('fastmcp'))"
+```
+
+Python 路径必须位于 `D:\ansys-agent\.venv`。版本应与第 3 节一致。随后继续执行第 7 节的会话发现、
+第 8 节的 Desktop 入口安装和第 21 节的上线验收。
+
+如果服务器不能访问 GitHub，可以在联网机下载该 ref 的源码 ZIP，传到服务器并解压到
+`D:\ansys-agent`，然后从 `py -3.11 -m venv .venv` 开始执行相同命令。源码 ZIP 不包含 wheelhouse，
+这种方式仍要求服务器能够访问 PyPI。
+
+### 4.2 服务器完全离线：获取发布包
 
 发布包位于 GitHub Releases，不放进 Git 历史，避免每次 clone 都携带约 100 MB wheelhouse。
 
-打开发布页 <https://github.com/z331225718/ansys-agent/releases>，选择最新的
-`Ansys Assistant Offline` 预发布版本，并同时下载：
+打开发布页 <https://github.com/z331225718/ansys-agent/releases>，选择目标 commit 对应的
+`Ansys Assistant Offline` 版本，并同时下载：
 
 - `ansys-agent-offline-0.1.0-win-amd64-py311.zip`；
 - `ansys-agent-offline-0.1.0-win-amd64-py311.zip.sha256`。
 
 具体 SHA256 以对应 Release 描述和同一 Release 下的 `.sha256` 文件为准。
+“最新 Release”不一定等于“当前开发分支 HEAD”。部署前应核对 Release 的 target commit、包内
+`bundle.json` 的 `project.git_revision` 和本次准备验收的代码版本；缺少目标 Harness 时不要用旧包硬跑。
 
 联网中转机可以使用：
 
 ```powershell
-gh release download <release-tag> `
+$Tag = "v0.1.0-ansys-assistant-preview.3"  # 示例；按发布页选择实际版本
+gh release download $Tag `
   --repo z331225718/ansys-agent `
   --pattern "ansys-agent-offline-*.zip*" `
   --dir C:\AnsysAgentTransfer
@@ -249,16 +312,24 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
 
 ## 6. 已有源码环境的在线更新
 
-只有在远端项目源码已经更新到目标 commit 后，才能单独运行依赖更新脚本。这个脚本不会替你更新
-项目源码：
+只有在远端项目源码已经更新到目标 commit 后，才能运行依赖更新脚本。这个脚本不会替你执行
+`git pull`，也不会安装 Claude Code。推荐先确认工作区没有待保留的本地修改，再做快进更新：
 
 ```powershell
 Set-Location D:\ansys-agent
+
+git status --short --branch
+git fetch origin
+git checkout codex/ansys-assistant-runtime
+git pull --ff-only origin codex/ansys-assistant-runtime
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
   .\scripts\online\Update-AnsysAgentDependencies.ps1 `
   -InstallRoot D:\ansys-agent
 ```
+
+如果服务器固定在 release tag，应改为 `git checkout <approved-tag>`，不要执行分支 `pull`。如果
+`git status` 显示本地修改，先审查并备份，不能用 `reset --hard` 覆盖服务器配置或工程文件。
 
 运行前退出已经打开的 Ansys Agent PowerShell。AEDT 可以保持打开。更新完成后重新从 Automation Tab
 启动助手，使 broker 和 MCP server 加载新代码。
