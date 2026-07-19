@@ -1100,11 +1100,67 @@ class FakeMaterial:
         self.name = name
         self._dielectric = dielectric
         self.material_appearance = color
-        self.conductivity = FakeMaterialProperty(conductivity, "S_per_meter")
-        self.permittivity = FakeMaterialProperty(1.0)
-        self.permeability = FakeMaterialProperty(1.0)
-        self.dielectric_loss_tangent = FakeMaterialProperty(0.0)
-        self.magnetic_loss_tangent = FakeMaterialProperty(0.0)
+        self._conductivity = FakeMaterialProperty(conductivity, "S_per_meter")
+        self._permittivity = FakeMaterialProperty(1.0)
+        self._permeability = FakeMaterialProperty(1.0)
+        self._dielectric_loss_tangent = FakeMaterialProperty(0.0)
+        self._magnetic_loss_tangent = FakeMaterialProperty(0.0)
+
+    @property
+    def conductivity(self):
+        return self._conductivity
+
+    @conductivity.setter
+    def conductivity(self, value):
+        if isinstance(value, FakeMaterialProperty):
+            self._conductivity = value
+        else:
+            self._conductivity.value = value
+            self._dielectric = float(value) < 100000.0
+
+    @property
+    def permittivity(self):
+        return self._permittivity
+
+    @permittivity.setter
+    def permittivity(self, value):
+        if isinstance(value, FakeMaterialProperty):
+            self._permittivity = value
+        else:
+            self._permittivity.value = value
+
+    @property
+    def permeability(self):
+        return self._permeability
+
+    @permeability.setter
+    def permeability(self, value):
+        if isinstance(value, FakeMaterialProperty):
+            self._permeability = value
+        else:
+            self._permeability.value = value
+
+    @property
+    def dielectric_loss_tangent(self):
+        return self._dielectric_loss_tangent
+
+    @dielectric_loss_tangent.setter
+    def dielectric_loss_tangent(self, value):
+        if isinstance(value, FakeMaterialProperty):
+            self._dielectric_loss_tangent = value
+        else:
+            self._dielectric_loss_tangent.value = value
+
+    @property
+    def magnetic_loss_tangent(self):
+        return self._magnetic_loss_tangent
+
+    @magnetic_loss_tangent.setter
+    def magnetic_loss_tangent(self, value):
+        if isinstance(value, FakeMaterialProperty):
+            self._magnetic_loss_tangent = value
+        else:
+            self._magnetic_loss_tangent.value = value
 
     def is_dielectric(self):
         return self._dielectric
@@ -1138,6 +1194,25 @@ class FakeDefinitionManager:
     def GetProjectMaterialNames(self):
         return [item.name for item in self.materials.values()]
 
+    def EditMaterial(self, name, definition):
+        material = next(item for item in self.materials.values() if item.name == name)
+        values = {}
+        for index, item in enumerate(definition[:-1]):
+            if isinstance(item, str) and item.endswith(":="):
+                values[item[:-2]] = definition[index + 1]
+        for property_name in (
+            "permittivity",
+            "permeability",
+            "conductivity",
+            "dielectric_loss_tangent",
+            "magnetic_loss_tangent",
+        ):
+            if property_name in values:
+                setattr(material, property_name, float(values[property_name]))
+        if "appearance" in values:
+            material.material_appearance = list(values["appearance"])
+        return True
+
 
 class FakeMaterials:
     def __init__(self, *, mismatch_create_readback=False):
@@ -1163,6 +1238,9 @@ class FakeMaterials:
     def _get_aedt_case_name(self, name):
         by_name = {item.casefold(): item for item in self.mat_names_aedt}
         return by_name.get(str(name).casefold(), False)
+
+    def _aedmattolibrary(self, name):
+        return self.material_keys.get(str(name).casefold(), False)
 
     def add_material(self, name, properties=None):
         if self._get_aedt_case_name(name):
@@ -1536,6 +1614,11 @@ class FakeRegistry:
             return {
                 "preview_id": "material-create-preview-1",
                 "snapshot_digest": "material-create-digest-1",
+            }
+        if command == "hfss_material_update_preview":
+            return {
+                "preview_id": "material-update-preview-1",
+                "snapshot_digest": "material-update-digest-1",
             }
         if command == "layout_material_create_assign_preview":
             return {
@@ -2542,6 +2625,384 @@ def test_backend_hfss_material_create_preview_rejects_unsafe_specs(
                 **request_payload,
             },
         )
+
+
+def test_backend_updates_exact_hfss_material_batch_and_preserves_references():
+    apps = []
+
+    def factory(**kwargs):
+        app = FakeMaterialHfss(**kwargs)
+        first = app.materials.add_material(
+            "HarnessLaminateA",
+            properties={
+                "permittivity": 3.2,
+                "permeability": 1.01,
+                "conductivity": 0.02,
+                "dielectric_loss_tangent": 0.011,
+                "magnetic_loss_tangent": 0.003,
+            },
+        )
+        first.material_appearance = [11, 22, 33, 0.35]
+        second = app.materials.add_material(
+            "HarnessLaminateB",
+            properties={
+                "permittivity": 4.1,
+                "permeability": 1.02,
+                "conductivity": 0.04,
+                "dielectric_loss_tangent": 0.015,
+                "magnetic_loss_tangent": 0.005,
+            },
+        )
+        second.material_appearance = [41, 42, 43, 0.45]
+        assert app.assign_material("box1", "HarnessLaminateA") is True
+        assert app.assign_material("box2", "HarnessLaminateB") is True
+        apps.append(app)
+        return app
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, hfss_factory=factory)
+    target = AedtTarget("pid", 42)
+    updates = [
+        {
+            "material_name": "HarnessLaminateA",
+            "permittivity": 4.4,
+            "appearance": [44, 55, 66, 0.6],
+        },
+        {
+            "material_name": "HarnessLaminateB",
+            "conductivity": 0.5,
+            "dielectric_loss_tangent": 0.021,
+        },
+    ]
+    preview = backend.execute(
+        target,
+        "hfss_material_update_preview",
+        {
+            "project_name": "Board",
+            "design_name": "HFSS1",
+            "updates": updates,
+            "max_materials": 2,
+        },
+    )
+    assert preview["target_count"] == 2
+    assert preview["reference_count"] == 2
+    assert preview["project_dirty"] is False
+    assert apps[0].materials.material_keys["harnesslaminatea"].permittivity.value == 3.2
+
+    result = backend.execute(
+        target,
+        "hfss_material_update_apply",
+        {"preview_id": preview["preview_id"]},
+    )
+    assert result["status"] == "verified"
+    assert result["updated_material_names"] == [
+        "HarnessLaminateA",
+        "HarnessLaminateB",
+    ]
+    assert result["updated_material_count"] == 2
+    assert result["references_after"] == result["references_before"]
+    after = {item["canonical_name"]: item for item in result["targets_after"]}
+    assert after["HarnessLaminateA"]["electrical_properties"]["permittivity"][
+        "value"
+    ] == 4.4
+    assert after["HarnessLaminateA"]["appearance"] == [44, 55, 66, 0.6]
+    assert after["HarnessLaminateA"]["electrical_properties"]["conductivity"][
+        "value"
+    ] == 0.02
+    assert after["HarnessLaminateB"]["electrical_properties"]["conductivity"][
+        "value"
+    ] == 0.5
+    assert after["HarnessLaminateB"]["electrical_properties"][
+        "dielectric_loss_tangent"
+    ]["value"] == 0.021
+    assert result["automatic_rollback_on_failure"] is True
+    assert result["project_saved"] is False
+
+
+def test_backend_hfss_material_update_rejects_stale_and_rolls_back_batch(
+    monkeypatch,
+):
+    apps = []
+
+    def factory(**kwargs):
+        app = FakeMaterialHfss(**kwargs)
+        app.materials.add_material(
+            "HarnessUpdateA",
+            properties={"permittivity": 3.0, "conductivity": 0.01},
+        )
+        app.materials.add_material(
+            "HarnessUpdateB",
+            properties={"permittivity": 4.0, "conductivity": 0.02},
+        )
+        apps.append(app)
+        return app
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, hfss_factory=factory)
+    target = AedtTarget("pid", 42)
+    request = {
+        "project_name": "Board",
+        "design_name": "HFSS1",
+        "updates": [
+            {"material_name": "HarnessUpdateA", "permittivity": 3.5},
+            {"material_name": "HarnessUpdateB", "permittivity": 4.5},
+        ],
+    }
+    stale = backend.execute(target, "hfss_material_update_preview", request)
+    apps[0].materials.add_material("ExternalMaterial", properties={"permittivity": 2.2})
+    with pytest.raises(LiveBackendError, match="stale HFSS material update preview"):
+        backend.execute(
+            target,
+            "hfss_material_update_apply",
+            {"preview_id": stale["preview_id"]},
+        )
+    assert apps[0].materials.material_keys["harnessupdatea"].permittivity.value == 3.0
+    assert apps[0].materials.remove_material("ExternalMaterial") is True
+
+    rollback_preview = backend.execute(target, "hfss_material_update_preview", request)
+    before = backend.execute(
+        target,
+        "hfss_material_inventory",
+        {"project_name": "Board", "design_name": "HFSS1", "max_items": 500},
+    )
+    from aedt_agent.live import backend as backend_module
+
+    monkeypatch.setattr(
+        backend_module,
+        "_verify_hfss_material_update_catalog",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            LiveBackendError("injected material update readback failure")
+        ),
+    )
+    with pytest.raises(LiveBackendError, match="injected material update readback failure"):
+        backend.execute(
+            target,
+            "hfss_material_update_apply",
+            {"preview_id": rollback_preview["preview_id"]},
+        )
+    after = backend.execute(
+        target,
+        "hfss_material_inventory",
+        {"project_name": "Board", "design_name": "HFSS1", "max_items": 500},
+    )
+    assert after["snapshot_digest"] == before["snapshot_digest"]
+    assert apps[0].materials.material_keys["harnessupdatea"].permittivity.value == 3.0
+    assert apps[0].materials.material_keys["harnessupdateb"].permittivity.value == 4.0
+
+
+@pytest.mark.parametrize(
+    "updates,error",
+    [
+        ([], "at least one typed material update"),
+        ([{"material_name": "HarnessUpdate", "unknown": 1}], "unsupported"),
+        ([{"material_name": "HarnessUpdate"}], "change at least one"),
+        (
+            [
+                {"material_name": "HarnessUpdate", "permittivity": 4.0},
+                {"material_name": "harnessupdate", "permittivity": 5.0},
+            ],
+            "unique case-insensitively",
+        ),
+        ([{"material_name": "harnessupdate", "permittivity": 4.0}], "exact case"),
+        ([{"material_name": "HarnessUpdate", "permittivity": 3.0}], "no-op"),
+        (
+            [{"material_name": "HarnessUpdate", "conductivity": 100000.0}],
+            "cannot cross the dielectric/conductor threshold",
+        ),
+        (
+            [{"material_name": "HarnessUpdate", "appearance": [0, 0, 0]}],
+            "must contain",
+        ),
+    ],
+)
+def test_backend_hfss_material_update_rejects_unsafe_specs(updates, error):
+    def factory(**kwargs):
+        app = FakeMaterialHfss(**kwargs)
+        material = app.materials.add_material(
+            "HarnessUpdate",
+            properties={"permittivity": 3.0, "conductivity": 0.01},
+        )
+        material.material_appearance = [10, 20, 30, 0.4]
+        return app
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, hfss_factory=factory)
+    with pytest.raises(LiveBackendError, match=error):
+        backend.execute(
+            AedtTarget("pid", 42),
+            "hfss_material_update_preview",
+            {
+                "project_name": "Board",
+                "design_name": "HFSS1",
+                "updates": updates,
+            },
+        )
+
+
+def test_backend_hfss_material_update_rejects_complex_running_and_wrong_design():
+    def complex_factory(**kwargs):
+        app = FakeMaterialHfss(**kwargs)
+        material = app.materials.add_material(
+            "HarnessComplex",
+            properties={"permittivity": 3.0, "conductivity": 0.01},
+        )
+        material.permittivity.type = "anisotropic"
+        return app
+
+    request = {
+        "project_name": "Board",
+        "design_name": "HFSS1",
+        "updates": [{"material_name": "HarnessComplex", "conductivity": 0.02}],
+    }
+    complex_backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=complex_factory,
+    )
+    with pytest.raises(LiveBackendError, match="five electromagnetic properties"):
+        complex_backend.execute(
+            AedtTarget("pid", 42),
+            "hfss_material_update_preview",
+            request,
+        )
+
+    def running_factory(**kwargs):
+        app = complex_factory(**kwargs)
+        app.materials.material_keys["harnesscomplex"].permittivity.type = "simple"
+        app.are_there_simulations_running = True
+        return app
+
+    running_backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=running_factory,
+    )
+    with pytest.raises(LiveBackendError, match="while a simulation is running"):
+        running_backend.execute(
+            AedtTarget("pid", 42),
+            "hfss_material_update_preview",
+            request,
+        )
+
+    def wrong_factory(**kwargs):
+        app = complex_factory(**kwargs)
+        app.materials.material_keys["harnesscomplex"].permittivity.type = "simple"
+        app.design_type = "HFSS 3D Layout Design"
+        return app
+
+    wrong_backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=wrong_factory,
+    )
+    with pytest.raises(LiveBackendError, match="requires an HFSS 3D design"):
+        wrong_backend.execute(
+            AedtTarget("pid", 42),
+            "hfss_material_update_preview",
+            request,
+        )
+
+
+def test_backend_hfss_material_update_never_overwrites_racing_replacement(monkeypatch):
+    apps = []
+
+    def factory(**kwargs):
+        app = FakeMaterialHfss(**kwargs)
+        app.materials.add_material(
+            "HarnessRace",
+            properties={"permittivity": 3.0, "conductivity": 0.01},
+        )
+        apps.append(app)
+        return app
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, hfss_factory=factory)
+    target = AedtTarget("pid", 42)
+    preview = backend.execute(
+        target,
+        "hfss_material_update_preview",
+        {
+            "project_name": "Board",
+            "design_name": "HFSS1",
+            "updates": [{"material_name": "HarnessRace", "permittivity": 4.0}],
+        },
+    )
+    replacement = FakeMaterial(
+        "HarnessRace",
+        dielectric=True,
+        color=[99, 98, 97, 0.2],
+        conductivity=0.01,
+    )
+    replacement.permittivity.value = 8.8
+    from aedt_agent.live import backend as backend_module
+
+    def replace_then_fail(*args, **kwargs):
+        apps[0].materials.material_keys["harnessrace"] = replacement
+        raise LiveBackendError("injected racing replacement")
+
+    monkeypatch.setattr(
+        backend_module,
+        "_verify_hfss_material_update_catalog",
+        replace_then_fail,
+    )
+    with pytest.raises(LiveBackendError, match="rollback is incomplete"):
+        backend.execute(
+            target,
+            "hfss_material_update_apply",
+            {"preview_id": preview["preview_id"]},
+        )
+    assert apps[0].materials.material_keys["harnessrace"] is replacement
+    assert replacement.permittivity.value == 8.8
+
+
+def test_hfss_material_update_raw_definition_mask_allows_only_requested_fields():
+    from aedt_agent.live.backend import _verify_hfss_material_raw_definition_updates
+
+    before = {
+        "HarnessRaw": [
+            "NAME:HarnessRaw",
+            "permittivity:=",
+            3.2,
+            "thermal_conductivity:=",
+            0.5,
+            [
+                "NAME:AttachedData",
+                "Red:=",
+                10,
+                "Green:=",
+                20,
+                "Blue:=",
+                30,
+                "Transparency:=",
+                0.4,
+            ],
+        ]
+    }
+    after = {
+        "HarnessRaw": [
+            "NAME:HarnessRaw",
+            "permittivity:=",
+            4.4,
+            "thermal_conductivity:=",
+            0.5,
+            [
+                "NAME:AttachedData",
+                "Red:=",
+                40,
+                "Green:=",
+                50,
+                "Blue:=",
+                60,
+                "Transparency:=",
+                0.6,
+            ],
+        ]
+    }
+    updates = [
+        {
+            "material_name": "HarnessRaw",
+            "permittivity": 4.4,
+            "appearance": [40, 50, 60, 0.6],
+        }
+    ]
+    _verify_hfss_material_raw_definition_updates(before, after, updates)
+
+    after["HarnessRaw"][4] = 0.7
+    with pytest.raises(LiveBackendError, match="unrequested native"):
+        _verify_hfss_material_raw_definition_updates(before, after, updates)
 
 
 def test_backend_layout_material_create_assign_supports_all_stackup_roles():
@@ -6766,6 +7227,35 @@ def test_manager_requires_action_bound_one_use_approval_for_hfss_material_create
     assert getattr(replay.value, "code", None) == "approval_required"
 
 
+def test_manager_requires_action_bound_one_use_approval_for_hfss_material_update():
+    registry = FakeRegistry()
+    authority = HmacApprovalAuthority("u" * 32)
+    manager = LiveAedtSessionManager(registry=registry, approval_verifier=authority)
+    session_id = manager.attach(pid=42)["live_session_id"]
+    preview = manager.preview_hfss_material_update(
+        session_id,
+        project_name="Board",
+        design_name="HFSS1",
+        updates=[{"material_name": "HarnessLaminate", "permittivity": 4.4}],
+        max_materials=4,
+    )
+    assert preview["approval_request"]["action"] == "hfss.material.update"
+    token = authority.issue(**preview["approval_request"])
+    result = manager.apply_hfss_material_update(
+        session_id,
+        preview_id=preview["preview_id"],
+        approval_token=token,
+    )
+    assert result["command"] == "hfss_material_update_apply"
+    with pytest.raises(Exception) as replay:
+        manager.apply_hfss_material_update(
+            session_id,
+            preview_id=preview["preview_id"],
+            approval_token=token,
+        )
+    assert getattr(replay.value, "code", None) == "approval_required"
+
+
 def test_manager_requires_action_bound_one_use_approval_for_layout_material_create_assign():
     registry = FakeRegistry()
     authority = HmacApprovalAuthority("l" * 32)
@@ -7295,6 +7785,8 @@ def test_mcp_registers_live_tools_without_changing_artifact_tools(monkeypatch):
     assert "apply_live_hfss_setup_sweep_create" in server.tools
     assert "preview_live_hfss_material_create" in server.tools
     assert "apply_live_hfss_material_create" in server.tools
+    assert "preview_live_hfss_material_update" in server.tools
+    assert "apply_live_hfss_material_update" in server.tools
     assert "preview_live_layout_material_create_assign" in server.tools
     assert "apply_live_layout_material_create_assign" in server.tools
     assert "preview_live_layout_via_create" in server.tools
@@ -7401,6 +7893,8 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
         "apply_live_hfss_setup_create",
         "preview_live_hfss_material_create",
         "apply_live_hfss_material_create",
+        "preview_live_hfss_material_update",
+        "apply_live_hfss_material_update",
         "preview_live_layout_material_create_assign",
         "apply_live_layout_material_create_assign",
         "preview_live_layout_via_create",
@@ -7450,6 +7944,10 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
         "preview_live_hfss_material_create",
         "apply_live_hfss_material_create",
     ]
+    assert by_name["hfss.material.update"]["tools"] == [
+        "preview_live_hfss_material_update",
+        "apply_live_hfss_material_update",
+    ]
     assert by_name["layout.material.create_and_assign"]["tools"] == [
         "preview_live_layout_material_create_assign",
         "apply_live_layout_material_create_assign",
@@ -7480,6 +7978,9 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
     ]["postconditions"]
     assert "typed_property_and_optional_appearance_readback_verified" in by_name[
         "hfss.material.create"
+    ]["postconditions"]
+    assert "material_references_and_solve_inside_preserved" in by_name[
+        "hfss.material.update"
     ]["postconditions"]
     assert by_name["hfss.material.inventory"]["tools"] == [
         "get_live_hfss_material_inventory"

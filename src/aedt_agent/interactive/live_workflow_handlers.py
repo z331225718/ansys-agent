@@ -70,6 +70,26 @@ def register_live_workflow_handlers(
         _hfss_material_create_scorecard,
     )
     registry.register(
+        "assistant.live.hfss.preview_material_update",
+        lambda context: _preview_hfss_material_update(
+            context,
+            live_manager,
+            binding_resolver,
+        ),
+    )
+    registry.register(
+        "assistant.live.hfss.apply_material_update",
+        lambda context: _apply_hfss_material_update(
+            context,
+            live_manager,
+            binding_resolver,
+        ),
+    )
+    registry.register(
+        "assistant.live.hfss.material_update_scorecard",
+        _hfss_material_update_scorecard,
+    )
+    registry.register(
         "assistant.live.layout.preview_material_create_assign",
         lambda context: _preview_layout_material_create_assign(
             context,
@@ -780,6 +800,168 @@ def _hfss_material_create_scorecard(
                 "created_material_name": result.get("created_material_name"),
                 "material_count": result.get("material_count"),
                 "definition_digest": material.get("definition_digest"),
+                "project_saved": result.get("project_saved"),
+            },
+            "live_session_reused": True,
+        },
+        outcome="passed" if passed else "failed",
+    )
+
+
+def _preview_hfss_material_update(
+    context,
+    live_manager,
+    binding_resolver,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, project_name, design_name, _ = _live_target(context, binding_resolver)
+    preview = live_manager.preview_hfss_material_update(
+        session_id,
+        project_name=project_name,
+        design_name=design_name,
+        updates=list(payload.get("updates") or []),
+        max_materials=payload.get("max_materials", 16),
+    )
+    return _success(
+        {
+            **payload,
+            "operation_preview_id": preview["preview_id"],
+            "operation_approval": preview.get("approval_request") or {},
+            "operation_preview": preview,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _apply_hfss_material_update(
+    context,
+    live_manager,
+    binding_resolver,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, _, _, binding = _live_target(context, binding_resolver)
+    token = str(binding.get("operation_approval_token") or "")
+    if not token:
+        raise ValueError(
+            "operation_approval_token is required after wait_for_live_approval approves "
+            "the material update preview"
+        )
+    result = live_manager.apply_hfss_material_update(
+        session_id,
+        preview_id=str(payload["operation_preview_id"]),
+        approval_token=token,
+    )
+    return _success(
+        {
+            **payload,
+            "operation_result": result,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _hfss_material_update_scorecard(
+    context: GraphNodeExecutionContext,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    result = dict(payload.get("operation_result") or {})
+    requested_updates = list(payload.get("updates") or [])
+    requested_names = [str(item.get("material_name") or "") for item in requested_updates]
+    before_by_name = {
+        str(item.get("canonical_name") or ""): dict(item)
+        for item in list(result.get("targets_before") or [])
+    }
+    after_by_name = {
+        str(item.get("canonical_name") or ""): dict(item)
+        for item in list(result.get("targets_after") or [])
+    }
+    requested_fields_match = True
+    unrequested_fields_preserved = True
+    for update in requested_updates:
+        name = str(update.get("material_name") or "")
+        before = before_by_name.get(name) or {}
+        after = after_by_name.get(name) or {}
+        before_properties = dict(before.get("electrical_properties") or {})
+        after_properties = dict(after.get("electrical_properties") or {})
+        for property_name in (
+            "permittivity",
+            "permeability",
+            "conductivity",
+            "dielectric_loss_tangent",
+            "magnetic_loss_tangent",
+        ):
+            if property_name not in update:
+                if after_properties.get(property_name) != before_properties.get(property_name):
+                    unrequested_fields_preserved = False
+                continue
+            record = dict(after_properties.get(property_name) or {})
+            try:
+                actual = float(record.get("value"))
+                expected = float(update[property_name])
+            except (TypeError, ValueError):
+                requested_fields_match = False
+                continue
+            if (
+                record.get("type") != "simple"
+                or not math.isfinite(actual)
+                or not math.isclose(actual, expected, rel_tol=1e-9, abs_tol=1e-12)
+            ):
+                requested_fields_match = False
+        if "appearance" in update:
+            actual_appearance = after.get("appearance")
+            expected_appearance = update["appearance"]
+            appearance_match = (
+                isinstance(actual_appearance, list)
+                and len(actual_appearance) == 4
+                and actual_appearance[:3] == expected_appearance[:3]
+            )
+            if appearance_match:
+                try:
+                    appearance_match = math.isclose(
+                        float(actual_appearance[3]),
+                        float(expected_appearance[3]),
+                        rel_tol=1e-9,
+                        abs_tol=1e-12,
+                    )
+                except (TypeError, ValueError):
+                    appearance_match = False
+            requested_fields_match = requested_fields_match and appearance_match
+        elif after.get("appearance") != before.get("appearance"):
+            unrequested_fields_preserved = False
+        if after.get("is_dielectric") is not before.get("is_dielectric"):
+            unrequested_fields_preserved = False
+    checks = [
+        _check("verified", result.get("status") == "verified"),
+        _check(
+            "exact_material_batch_preserved",
+            bool(requested_names)
+            and result.get("updated_material_names") == requested_names
+            and set(before_by_name) == set(requested_names)
+            and set(after_by_name) == set(requested_names),
+        ),
+        _check("requested_fields_readback", requested_fields_match),
+        _check("unrequested_fields_preserved", unrequested_fields_preserved),
+        _check(
+            "material_references_preserved",
+            result.get("references_after") == result.get("references_before"),
+        ),
+        _check(
+            "automatic_rollback_on_failure",
+            result.get("automatic_rollback_on_failure") is True,
+        ),
+        _check("project_not_saved", result.get("project_saved") is False),
+        _check("live_session_reused", payload.get("live_session_reused") is True),
+    ]
+    passed = all(item["passed"] for item in checks)
+    return _success(
+        {
+            **payload,
+            "status": "passed" if passed else "failed",
+            "checks": checks,
+            "summary": {
+                "updated_material_count": result.get("updated_material_count"),
+                "updated_material_names": result.get("updated_material_names"),
+                "reference_count": result.get("reference_count"),
                 "project_saved": result.get("project_saved"),
             },
             "live_session_reused": True,

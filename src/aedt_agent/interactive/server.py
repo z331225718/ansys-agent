@@ -416,6 +416,36 @@ def create_server(
         )
 
     @server.tool()
+    async def preview_live_hfss_material_update(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        updates: list[dict],
+        max_materials: int = 16,
+    ) -> dict:
+        """Preview strict updates to an exact, bounded batch of existing HFSS project materials."""
+        return live.preview_hfss_material_update(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            updates=updates,
+            max_materials=max_materials,
+        )
+
+    @server.tool()
+    async def apply_live_hfss_material_update(
+        live_session_id: str,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        """Update, read back, and rollback an HFSS material batch without saving the project."""
+        return live.apply_hfss_material_update(
+            live_session_id,
+            preview_id=preview_id,
+            approval_token=approval_token,
+        )
+
+    @server.tool()
     async def preview_live_layout_material_create_assign(
         live_session_id: str,
         project_name: str,

@@ -258,6 +258,79 @@ class _Live:
             "project_saved": False,
         }
 
+    def preview_hfss_material_update(self, session_id: str, **kwargs) -> dict:
+        return {
+            "preview_id": "material-update-preview-1",
+            "updates": list(kwargs["updates"]),
+            "approval_request": {"action": "hfss.material.update"},
+            "project_saved": False,
+        }
+
+    def apply_hfss_material_update(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        assert preview_id == "material-update-preview-1"
+        assert approval_token == "material-update-approved"
+        before_properties = {
+            "permittivity": {"type": "simple", "value": 3.2, "unit": None},
+            "permeability": {"type": "simple", "value": 1.01, "unit": None},
+            "conductivity": {"type": "simple", "value": 0.02, "unit": None},
+            "dielectric_loss_tangent": {
+                "type": "simple",
+                "value": 0.011,
+                "unit": None,
+            },
+            "magnetic_loss_tangent": {
+                "type": "simple",
+                "value": 0.003,
+                "unit": None,
+            },
+        }
+        after_properties = {
+            **before_properties,
+            "permittivity": {"type": "simple", "value": 4.4, "unit": None},
+        }
+        references = [
+            {
+                "name": "Substrate",
+                "object_id": 11,
+                "material_name": "HarnessLaminate",
+                "solve_inside": True,
+            }
+        ]
+        return {
+            "status": "verified",
+            "updated_material_names": ["HarnessLaminate"],
+            "updated_material_count": 1,
+            "targets_before": [
+                {
+                    "canonical_name": "HarnessLaminate",
+                    "is_dielectric": True,
+                    "electrical_properties": before_properties,
+                    "appearance": [10, 20, 30, 0.4],
+                    "definition_digest": "material-before-1",
+                }
+            ],
+            "targets_after": [
+                {
+                    "canonical_name": "HarnessLaminate",
+                    "is_dielectric": True,
+                    "electrical_properties": after_properties,
+                    "appearance": [40, 50, 60, 0.5],
+                    "definition_digest": "material-after-1",
+                }
+            ],
+            "reference_count": 1,
+            "references_before": references,
+            "references_after": references,
+            "automatic_rollback_on_failure": True,
+            "project_saved": False,
+        }
+
     def preview_layout_material_create_assign(self, session_id: str, **kwargs) -> dict:
         return {
             "preview_id": "layout-material-create-assign-preview-1",
@@ -1066,6 +1139,11 @@ def test_default_workflow_catalog_includes_live_monitor_and_export(tmp_path: Pat
     assert descriptors["hfss_live_material_create"]["recommended_initial_fields"] == [
         "material_name",
     ]
+    assert descriptors["hfss_live_material_update"]["risk"] == "reversible_edit"
+    assert descriptors["hfss_live_material_update"]["attached_live_session_reuse"] is True
+    assert descriptors["hfss_live_material_update"]["recommended_initial_fields"] == [
+        "updates",
+    ]
     assert descriptors["layout_live_material_create_assign"]["risk"] == (
         "reversible_edit"
     )
@@ -1388,6 +1466,57 @@ def test_live_hfss_material_create_workflow_creates_and_scores_definition(tmp_pa
     assert scorecard["status"] == "passed"
     assert scorecard["summary"]["created_material_name"] == "HarnessLaminate"
     assert scorecard["summary"]["definition_digest"] == "material-definition-1"
+    assert scorecard["summary"]["project_saved"] is False
+
+
+def test_live_hfss_material_update_workflow_updates_and_scores_batch(tmp_path: Path):
+    manager = AssistantWorkflowManager(
+        live_manager=_Live(),
+        db_path=tmp_path / "material-update-missions.db",
+        template_ids=("hfss_live_material_update",),
+        runtime_factory=lambda path: AgentRuntime(SQLiteMissionStore(path)),
+    )
+    updates = [
+        {
+            "material_name": "HarnessLaminate",
+            "permittivity": 4.4,
+            "appearance": [40, 50, 60, 0.5],
+        }
+    ]
+    start = manager.preview_start(
+        "live-1",
+        workflow_id="hfss_live_material_update",
+        goal="Update one reviewed isotropic HFSS material",
+        initial_payload={"updates": updates, "max_materials": 4},
+    )
+    started = manager.apply_start(
+        "live-1",
+        preview_id=start["preview_id"],
+        approval_token="approved",
+    )
+    report = None
+    for index in range(3):
+        advance = manager.preview_advance("live-1", graph_run_id=started["graph_run_id"])
+        if index == 1:
+            assert advance["operation_approval_required"]["preview_id"] == (
+                "material-update-preview-1"
+            )
+        report = manager.apply_advance(
+            "live-1",
+            preview_id=advance["preview_id"],
+            approval_token="approved",
+            operation_approval_token=(
+                "material-update-approved" if index == 1 else ""
+            ),
+        )
+
+    assert report is not None and report["status"] == "succeeded"
+    assert "material-update-approved" not in str(report)
+    scorecard = report["node_runs"][-1]["output_payload"]
+    assert scorecard["status"] == "passed"
+    assert scorecard["summary"]["updated_material_count"] == 1
+    assert scorecard["summary"]["updated_material_names"] == ["HarnessLaminate"]
+    assert scorecard["summary"]["reference_count"] == 1
     assert scorecard["summary"]["project_saved"] is False
 
 

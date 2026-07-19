@@ -420,6 +420,48 @@ class LiveAedtSessionManager:
         self._approval_contexts.pop((session_id, preview_id), None)
         return result
 
+    def preview_hfss_material_update(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+        updates: list[dict[str, Any]],
+        max_materials: int = 16,
+    ) -> dict[str, Any]:
+        result = self._execute(
+            session_id,
+            "hfss_material_update_preview",
+            {
+                "project_name": project_name,
+                "design_name": design_name,
+                "updates": updates,
+                "max_materials": max_materials,
+            },
+        )
+        return self._register_approval(session_id, "hfss.material.update", result)
+
+    def apply_hfss_material_update(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict[str, Any]:
+        self._require_approval(
+            session_id,
+            "hfss.material.update",
+            preview_id,
+            approval_token,
+        )
+        result = self._execute(
+            session_id,
+            "hfss_material_update_apply",
+            {"preview_id": preview_id},
+        )
+        self._approval_contexts.pop((session_id, preview_id), None)
+        return result
+
     def preview_layout_material_create_assign(
         self,
         session_id: str,

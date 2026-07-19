@@ -131,6 +131,31 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             products=["hfss"],
         ),
         _cap(
+            "hfss.material.update",
+            "reversible_edit",
+            ["live"],
+            [
+                "preview_live_hfss_material_update",
+                "apply_live_hfss_material_update",
+            ],
+            approval="external_host_token",
+            side_effects=[
+                "project_becomes_dirty",
+                "existing_project_material_definitions_changed",
+            ],
+            postconditions=[
+                "one_to_32_exact_existing_project_materials",
+                "numeric_isotropic_electromagnetic_properties_and_optional_appearance_only",
+                "dielectric_conductor_classification_preserved",
+                "full_project_material_catalog_and_references_frozen_before_apply",
+                "requested_fields_changed_and_unrequested_fields_preserved",
+                "material_references_and_solve_inside_preserved",
+                "full_batch_rollback_on_failure",
+                "project_not_saved",
+            ],
+            products=["hfss"],
+        ),
+        _cap(
             "hfss.material.assign",
             "reversible_edit",
             ["live"],

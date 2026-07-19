@@ -1,0 +1,43 @@
+id: hfss_live_material_update
+version: 1
+description: Preview, approve, update, and type-check an exact bounded batch of existing numeric isotropic HFSS project materials without changing their classification or saving the project.
+nodes:
+  - id: preview_material_updates
+    role: preview
+    kind: program
+    handler: assistant.live.hfss.preview_material_update
+    input_schema: live_hfss_material_update_request
+    output_schema: live_hfss_material_update_preview
+    max_runs: 1
+  - id: apply_material_updates
+    role: apply
+    kind: program
+    handler: assistant.live.hfss.apply_material_update
+    input_schema: live_hfss_material_update_preview
+    output_schema: live_hfss_material_update_result
+    max_runs: 1
+  - id: verify_scorecard
+    role: scorecard
+    kind: program
+    handler: assistant.live.hfss.material_update_scorecard
+    input_schema: live_hfss_material_update_result
+    output_schema: live_hfss_material_update_scorecard
+    max_runs: 1
+edges:
+  - id: preview-to-apply
+    from: preview_material_updates
+    to: apply_material_updates
+    on: succeeded
+  - id: apply-to-scorecard
+    from: apply_material_updates
+    to: verify_scorecard
+    on: succeeded
+handoffs:
+  live_hfss_material_update_request:
+    required_fields: [updates]
+  live_hfss_material_update_preview:
+    required_fields: [updates, operation_preview_id, operation_approval, operation_preview, live_session_reused]
+  live_hfss_material_update_result:
+    required_fields: [updates, operation_result, live_session_reused]
+  live_hfss_material_update_scorecard:
+    required_fields: [status, checks, summary, live_session_reused]
