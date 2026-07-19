@@ -506,6 +506,32 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             products=["layout"],
         ),
         _cap(
+            "layout.material.create_and_assign",
+            "reversible_edit",
+            ["live"],
+            [
+                "preview_live_layout_material_create_assign",
+                "apply_live_layout_material_create_assign",
+            ],
+            approval="external_host_token",
+            side_effects=[
+                "project_becomes_dirty",
+                "new_project_material_definition_created",
+                "one_stackup_layer_material_field_changed",
+            ],
+            postconditions=[
+                "numeric_isotropic_electromagnetic_properties_only",
+                "exact_existing_signal_or_dielectric_layer_only",
+                "material_name_absent_from_project_and_aedt_libraries",
+                "full_material_catalog_and_stackup_snapshot_unchanged_before_apply",
+                "material_class_matches_stackup_layer_role",
+                "typed_material_and_exact_layer_field_readback_verified",
+                "layer_restored_before_new_material_removal_on_failure",
+                "project_not_saved",
+            ],
+            products=["layout"],
+        ),
+        _cap(
             "layout.connectivity.inventory",
             "read_only",
             ["live"],

@@ -416,6 +416,50 @@ def create_server(
         )
 
     @server.tool()
+    async def preview_live_layout_material_create_assign(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        material_name: str,
+        layer_name: str,
+        assignment_field: str = "material",
+        permittivity: float = 1.0,
+        permeability: float = 1.0,
+        conductivity: float = 0.0,
+        dielectric_loss_tangent: float = 0.0,
+        magnetic_loss_tangent: float = 0.0,
+        appearance: list[int | float] | None = None,
+    ) -> dict:
+        """Preview atomically creating a project material and assigning one stackup layer field."""
+        return live.preview_layout_material_create_assign(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            material_name=material_name,
+            layer_name=layer_name,
+            assignment_field=assignment_field,
+            permittivity=permittivity,
+            permeability=permeability,
+            conductivity=conductivity,
+            dielectric_loss_tangent=dielectric_loss_tangent,
+            magnetic_loss_tangent=magnetic_loss_tangent,
+            appearance=appearance,
+        )
+
+    @server.tool()
+    async def apply_live_layout_material_create_assign(
+        live_session_id: str,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        """Create, assign, read back, and rollback on failure without saving the layout project."""
+        return live.apply_layout_material_create_assign(
+            live_session_id,
+            preview_id=preview_id,
+            approval_token=approval_token,
+        )
+
+    @server.tool()
     async def preview_live_hfss_material_assign(
         live_session_id: str,
         project_name: str,

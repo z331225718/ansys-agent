@@ -258,6 +258,65 @@ class _Live:
             "project_saved": False,
         }
 
+    def preview_layout_material_create_assign(self, session_id: str, **kwargs) -> dict:
+        return {
+            "preview_id": "layout-material-create-assign-preview-1",
+            "material_name": kwargs["material_name"],
+            "layer_name": kwargs["layer_name"],
+            "assignment_field": kwargs["assignment_field"],
+            "approval_request": {
+                "action": "layout.material.create_and_assign"
+            },
+            "project_saved": False,
+        }
+
+    def apply_layout_material_create_assign(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        assert preview_id == "layout-material-create-assign-preview-1"
+        assert approval_token == "layout-material-create-assign-approved"
+        properties = {
+            "permittivity": 3.7,
+            "permeability": 1.0,
+            "conductivity": 0.001,
+            "dielectric_loss_tangent": 0.012,
+            "magnetic_loss_tangent": 0.0,
+        }
+        return {
+            "status": "verified",
+            "created_material_name": "HarnessLayoutLaminate",
+            "expected_material_class": "dielectric",
+            "material_count": 4,
+            "stackup_layer_count": 2,
+            "material": {
+                "canonical_name": "HarnessLayoutLaminate",
+                "is_dielectric": True,
+                "electrical_properties": {
+                    name: {"type": "simple", "value": value, "unit": None}
+                    for name, value in properties.items()
+                },
+                "appearance": [20, 30, 40, 0.2],
+                "definition_digest": "layout-material-definition-1",
+            },
+            "layer": {
+                "name": "D1",
+                "type": "dielectric",
+                "id": 2,
+                "material": "HarnessLayoutLaminate",
+                "fill_material": "",
+            },
+            "before_assignment": "FR4_epoxy",
+            "after_assignment": "HarnessLayoutLaminate",
+            "material_catalog_digest": "layout-material-catalog-1",
+            "stackup_digest": "layout-stackup-1",
+            "automatic_rollback_on_failure": True,
+            "project_saved": False,
+        }
+
     def preview_hfss_material_assign(self, session_id: str, **kwargs) -> dict:
         return {
             "preview_id": "material-preview-1",
@@ -906,6 +965,15 @@ def test_default_workflow_catalog_includes_live_monitor_and_export(tmp_path: Pat
     assert descriptors["hfss_live_material_create"]["recommended_initial_fields"] == [
         "material_name",
     ]
+    assert descriptors["layout_live_material_create_assign"]["risk"] == (
+        "reversible_edit"
+    )
+    assert descriptors["layout_live_material_create_assign"][
+        "attached_live_session_reuse"
+    ] is True
+    assert descriptors["layout_live_material_create_assign"][
+        "recommended_initial_fields"
+    ] == ["assignment_field", "layer_name", "material_name"]
     assert descriptors["hfss_live_material_assign"]["risk"] == "reversible_edit"
     assert descriptors["hfss_live_material_assign"]["attached_live_session_reuse"] is True
     assert descriptors["hfss_live_material_assign"]["recommended_initial_fields"] == [
@@ -1204,6 +1272,70 @@ def test_live_hfss_material_create_workflow_creates_and_scores_definition(tmp_pa
     assert scorecard["status"] == "passed"
     assert scorecard["summary"]["created_material_name"] == "HarnessLaminate"
     assert scorecard["summary"]["definition_digest"] == "material-definition-1"
+    assert scorecard["summary"]["project_saved"] is False
+
+
+def test_live_layout_material_create_assign_workflow_scores_atomic_change(
+    tmp_path: Path,
+):
+    manager = AssistantWorkflowManager(
+        live_manager=_Live(),
+        db_path=tmp_path / "layout-material-create-assign-missions.db",
+        template_ids=("layout_live_material_create_assign",),
+        runtime_factory=lambda path: AgentRuntime(SQLiteMissionStore(path)),
+    )
+    start = manager.preview_start(
+        "live-1",
+        workflow_id="layout_live_material_create_assign",
+        goal="Create one laminate and assign it to D1",
+        initial_payload={
+            "material_name": "HarnessLayoutLaminate",
+            "layer_name": "D1",
+            "assignment_field": "material",
+            "permittivity": 3.7,
+            "permeability": 1.0,
+            "conductivity": 0.001,
+            "dielectric_loss_tangent": 0.012,
+            "magnetic_loss_tangent": 0.0,
+            "appearance": [20, 30, 40, 0.2],
+        },
+    )
+    started = manager.apply_start(
+        "live-1",
+        preview_id=start["preview_id"],
+        approval_token="approved",
+    )
+    report = None
+    for index in range(3):
+        advance = manager.preview_advance(
+            "live-1",
+            graph_run_id=started["graph_run_id"],
+        )
+        if index == 1:
+            assert advance["operation_approval_required"]["preview_id"] == (
+                "layout-material-create-assign-preview-1"
+            )
+        report = manager.apply_advance(
+            "live-1",
+            preview_id=advance["preview_id"],
+            approval_token="approved",
+            operation_approval_token=(
+                "layout-material-create-assign-approved" if index == 1 else ""
+            ),
+        )
+
+    assert report is not None and report["status"] == "succeeded"
+    assert "layout-material-create-assign-approved" not in str(report)
+    scorecard = report["node_runs"][-1]["output_payload"]
+    assert scorecard["status"] == "passed"
+    assert scorecard["summary"]["created_material_name"] == (
+        "HarnessLayoutLaminate"
+    )
+    assert scorecard["summary"]["layer_name"] == "D1"
+    assert scorecard["summary"]["assignment_field"] == "material"
+    assert scorecard["summary"]["after_assignment"] == (
+        "HarnessLayoutLaminate"
+    )
     assert scorecard["summary"]["project_saved"] is False
 
 

@@ -96,6 +96,8 @@ _DESKTOP_ASSISTANT_MCP_TOOLS = (
     "list_live_layout_paths",
     "get_live_layout_routing_inventory",
     "get_live_layout_technology_inventory",
+    "preview_live_layout_material_create_assign",
+    "apply_live_layout_material_create_assign",
     "get_live_layout_connectivity_inventory",
     "get_live_layout_port_candidate_inventory",
     "preview_live_layout_component_ports_create",

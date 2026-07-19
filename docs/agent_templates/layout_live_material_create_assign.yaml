@@ -1,0 +1,43 @@
+id: layout_live_material_create_assign
+version: 1
+description: Atomically create one numeric isotropic project material and assign it to one exact HFSS 3D Layout stackup layer field without saving the project.
+nodes:
+  - id: preview_material_assignment
+    role: preview
+    kind: program
+    handler: assistant.live.layout.preview_material_create_assign
+    input_schema: live_layout_material_create_assign_request
+    output_schema: live_layout_material_create_assign_preview
+    max_runs: 1
+  - id: apply_material_assignment
+    role: apply
+    kind: program
+    handler: assistant.live.layout.apply_material_create_assign
+    input_schema: live_layout_material_create_assign_preview
+    output_schema: live_layout_material_create_assign_result
+    max_runs: 1
+  - id: verify_scorecard
+    role: scorecard
+    kind: program
+    handler: assistant.live.layout.material_create_assign_scorecard
+    input_schema: live_layout_material_create_assign_result
+    output_schema: live_layout_material_create_assign_scorecard
+    max_runs: 1
+edges:
+  - id: preview-to-apply
+    from: preview_material_assignment
+    to: apply_material_assignment
+    on: succeeded
+  - id: apply-to-scorecard
+    from: apply_material_assignment
+    to: verify_scorecard
+    on: succeeded
+handoffs:
+  live_layout_material_create_assign_request:
+    required_fields: [material_name, layer_name, assignment_field]
+  live_layout_material_create_assign_preview:
+    required_fields: [material_name, layer_name, assignment_field, operation_preview_id, operation_approval, operation_preview, live_session_reused]
+  live_layout_material_create_assign_result:
+    required_fields: [material_name, layer_name, assignment_field, operation_result, live_session_reused]
+  live_layout_material_create_assign_scorecard:
+    required_fields: [status, checks, summary, live_session_reused]

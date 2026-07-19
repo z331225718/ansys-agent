@@ -173,6 +173,21 @@ class FakeLayout:
                 top_bottom="neither",
             ),
         ]
+
+        def get_layer_info(name):
+            layer = next(item for item in stackup_layers if item.name == name)
+            return [
+                f"LayerId: {layer.id}",
+                f"Type: {layer.type}",
+                f"LayerThickness: {layer.thickness}{layer.thickness_units}",
+                f"LowerElevation0: {layer.lower_elevation}{layer.thickness_units}",
+                f"Material0: {layer.material}",
+                f"FillMaterial0: {layer.fill_material}",
+                f"IsLocked: False",
+                f"TopBottomAssociation: {layer.top_bottom}",
+                f"IsVisible: True",
+                f"EtchFactor: {layer.etch}",
+            ]
         hole = SimpleNamespace(shape="Cir", sizes=["0.2mm"], x="0mm", y="0mm", rot="0deg")
         pad_layer = SimpleNamespace(
             id=1,
@@ -214,7 +229,10 @@ class FakeLayout:
             line_voids_names=[],
             rectangle_void_names=[],
             circle_voids_names=[],
-            layers=SimpleNamespace(stackup_layers=stackup_layers),
+            layers=SimpleNamespace(
+                stackup_layers=stackup_layers,
+                oeditor=SimpleNamespace(GetLayerInfo=get_layer_info),
+            ),
             padstacks=padstacks,
             model_units="mm",
         )
@@ -223,6 +241,7 @@ class FakeLayout:
             set_variable=lambda name, value, sweep=True: self._set_variable(name, value),
             delete_variable=lambda name: self.variable_manager.variables.pop(name, None) is not None,
         )
+        self.materials = FakeMaterials()
         self._setups = {"SetupL": FakeSetup("SetupL", {"Frequency": "10GHz"})}
         self.are_there_simulations_running = False
         self.excitation_names = ["P1", "P2", "P3", "P4"]
@@ -1410,6 +1429,11 @@ class FakeRegistry:
                 "preview_id": "material-create-preview-1",
                 "snapshot_digest": "material-create-digest-1",
             }
+        if command == "layout_material_create_assign_preview":
+            return {
+                "preview_id": "layout-material-create-assign-preview-1",
+                "snapshot_digest": "layout-material-create-assign-digest-1",
+            }
         if command == "hfss_material_assign_preview":
             return {
                 "preview_id": "material-preview-1",
@@ -2392,6 +2416,211 @@ def test_backend_hfss_material_create_preview_rejects_unsafe_specs(
             {
                 "project_name": "Board",
                 "design_name": "HFSS1",
+                **request_payload,
+            },
+        )
+
+
+def test_backend_layout_material_create_assign_supports_all_stackup_roles():
+    apps = []
+
+    def factory(**kwargs):
+        app = FakeLayout(**kwargs)
+        apps.append(app)
+        return app
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, layout_factory=factory)
+    target = AedtTarget("pid", 42)
+    cases = [
+        {
+            "material_name": "HarnessLaminate",
+            "layer_name": "D1",
+            "assignment_field": "material",
+            "permittivity": 4.2,
+            "conductivity": 0.005,
+            "dielectric_loss_tangent": 0.018,
+            "expected_class": "dielectric",
+        },
+        {
+            "material_name": "HarnessFill",
+            "layer_name": "TOP",
+            "assignment_field": "fill_material",
+            "permittivity": 3.6,
+            "conductivity": 0.001,
+            "expected_class": "dielectric",
+        },
+        {
+            "material_name": "HarnessCopper",
+            "layer_name": "TOP",
+            "assignment_field": "material",
+            "conductivity": 58_000_000.0,
+            "expected_class": "conductor",
+        },
+    ]
+    for case in cases:
+        request = {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            **{key: value for key, value in case.items() if key != "expected_class"},
+        }
+        preview = backend.execute(
+            target,
+            "layout_material_create_assign_preview",
+            request,
+        )
+        assert preview["project_dirty"] is False
+        assert preview["project_saved"] is False
+        assert preview["expected_material_class"] == case["expected_class"]
+        assert preview["layer"]["name"] == case["layer_name"]
+        assert case["material_name"].casefold() not in apps[0].materials.material_keys
+
+        result = backend.execute(
+            target,
+            "layout_material_create_assign_apply",
+            {"preview_id": preview["preview_id"]},
+        )
+        assert result["status"] == "verified"
+        assert result["created_material_name"] == case["material_name"]
+        assert result["layer"][case["assignment_field"]] == case["material_name"]
+        assert result["material"]["is_dielectric"] is (
+            case["expected_class"] == "dielectric"
+        )
+        assert result["automatic_rollback_on_failure"] is True
+        assert result["project_saved"] is False
+
+
+def test_backend_layout_material_create_assign_rejects_stale_and_rolls_back(
+    monkeypatch,
+):
+    apps = []
+
+    def factory(**kwargs):
+        app = FakeLayout(**kwargs)
+        apps.append(app)
+        return app
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, layout_factory=factory)
+    target = AedtTarget("pid", 42)
+    request = {
+        "project_name": "Board",
+        "design_name": "Layout1",
+        "material_name": "RollbackLaminate",
+        "layer_name": "D1",
+        "assignment_field": "material",
+        "permittivity": 3.7,
+        "dielectric_loss_tangent": 0.012,
+    }
+    preview = backend.execute(
+        target,
+        "layout_material_create_assign_preview",
+        request,
+    )
+    before_stackup = [
+        vars(item).copy() for item in apps[0].modeler.layers.stackup_layers
+    ]
+    before_materials = sorted(apps[0].materials.material_keys)
+    monkeypatch.setattr(
+        "aedt_agent.live.backend._verify_layout_material_create_assign_readback",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            LiveBackendError("injected layout material readback failure")
+        ),
+    )
+    with pytest.raises(
+        LiveBackendError,
+        match="injected layout material readback failure",
+    ):
+        backend.execute(
+            target,
+            "layout_material_create_assign_apply",
+            {"preview_id": preview["preview_id"]},
+        )
+    assert [vars(item).copy() for item in apps[0].modeler.layers.stackup_layers] == before_stackup
+    assert sorted(apps[0].materials.material_keys) == before_materials
+
+    monkeypatch.undo()
+    stale = backend.execute(
+        target,
+        "layout_material_create_assign_preview",
+        {**request, "material_name": "StaleLaminate"},
+    )
+    apps[0].modeler.layers.stackup_layers[1].thickness = 0.25
+    with pytest.raises(
+        LiveBackendError,
+        match="stale 3D Layout material create-and-assign preview",
+    ):
+        backend.execute(
+            target,
+            "layout_material_create_assign_apply",
+            {"preview_id": stale["preview_id"]},
+        )
+    assert "stalelaminate" not in apps[0].materials.material_keys
+
+
+@pytest.mark.parametrize(
+    "request_payload,error",
+    [
+        (
+            {"material_name": "M", "layer_name": "missing"},
+            "stackup layer does not exist",
+        ),
+        (
+            {
+                "material_name": "M",
+                "layer_name": "D1",
+                "assignment_field": "fill_material",
+            },
+            "dielectric layers require",
+        ),
+        (
+            {
+                "material_name": "M",
+                "layer_name": "D1",
+                "conductivity": 58_000_000.0,
+            },
+            "requires a dielectric material",
+        ),
+        (
+            {
+                "material_name": "M",
+                "layer_name": "TOP",
+                "assignment_field": "material",
+                "conductivity": 0.0,
+            },
+            "requires a conductor material",
+        ),
+        (
+            {"material_name": "copper", "layer_name": "D1"},
+            "already exists",
+        ),
+        (
+            {"material_name": "library_only", "layer_name": "D1"},
+            "material library entry",
+        ),
+        (
+            {
+                "material_name": "M",
+                "layer_name": "D1",
+                "assignment_field": "unsupported",
+            },
+            "assignment_field must be",
+        ),
+    ],
+)
+def test_backend_layout_material_create_assign_rejects_unsafe_requests(
+    request_payload,
+    error,
+):
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        layout_factory=FakeLayout,
+    )
+    with pytest.raises(LiveBackendError, match=error):
+        backend.execute(
+            AedtTarget("pid", 42),
+            "layout_material_create_assign_preview",
+            {
+                "project_name": "Board",
+                "design_name": "Layout1",
                 **request_payload,
             },
         )
@@ -5739,6 +5968,40 @@ def test_manager_requires_action_bound_one_use_approval_for_hfss_material_create
     assert getattr(replay.value, "code", None) == "approval_required"
 
 
+def test_manager_requires_action_bound_one_use_approval_for_layout_material_create_assign():
+    registry = FakeRegistry()
+    authority = HmacApprovalAuthority("l" * 32)
+    manager = LiveAedtSessionManager(registry=registry, approval_verifier=authority)
+    session_id = manager.attach(pid=42)["live_session_id"]
+    preview = manager.preview_layout_material_create_assign(
+        session_id,
+        project_name="Board",
+        design_name="Layout1",
+        material_name="HarnessLaminate",
+        layer_name="D1",
+        assignment_field="material",
+        permittivity=4.2,
+        dielectric_loss_tangent=0.018,
+    )
+    assert preview["approval_request"]["action"] == (
+        "layout.material.create_and_assign"
+    )
+    token = authority.issue(**preview["approval_request"])
+    result = manager.apply_layout_material_create_assign(
+        session_id,
+        preview_id=preview["preview_id"],
+        approval_token=token,
+    )
+    assert result["command"] == "layout_material_create_assign_apply"
+    with pytest.raises(Exception) as replay:
+        manager.apply_layout_material_create_assign(
+            session_id,
+            preview_id=preview["preview_id"],
+            approval_token=token,
+        )
+    assert getattr(replay.value, "code", None) == "approval_required"
+
+
 def test_manager_requires_action_bound_one_use_approval_for_hfss_length_mesh_create():
     registry = FakeRegistry()
     authority = HmacApprovalAuthority("h" * 32)
@@ -6147,6 +6410,8 @@ def test_mcp_registers_live_tools_without_changing_artifact_tools(monkeypatch):
     assert "apply_live_hfss_setup_sweep_create" in server.tools
     assert "preview_live_hfss_material_create" in server.tools
     assert "apply_live_hfss_material_create" in server.tools
+    assert "preview_live_layout_material_create_assign" in server.tools
+    assert "apply_live_layout_material_create_assign" in server.tools
     assert "preview_live_hfss_material_assign" in server.tools
     assert "apply_live_hfss_material_assign" in server.tools
     assert "get_live_hfss_material_inventory" in server.tools
@@ -6245,6 +6510,8 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
         "apply_live_hfss_setup_create",
         "preview_live_hfss_material_create",
         "apply_live_hfss_material_create",
+        "preview_live_layout_material_create_assign",
+        "apply_live_layout_material_create_assign",
         "list_live_layout_paths",
         "preview_live_parameterize_path_width",
         "apply_live_parameterize_path_width",
@@ -6286,6 +6553,13 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
         "preview_live_hfss_material_create",
         "apply_live_hfss_material_create",
     ]
+    assert by_name["layout.material.create_and_assign"]["tools"] == [
+        "preview_live_layout_material_create_assign",
+        "apply_live_layout_material_create_assign",
+    ]
+    assert "layer_restored_before_new_material_removal_on_failure" in by_name[
+        "layout.material.create_and_assign"
+    ]["postconditions"]
     assert "typed_property_and_optional_appearance_readback_verified" in by_name[
         "hfss.material.create"
     ]["postconditions"]

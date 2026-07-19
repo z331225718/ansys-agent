@@ -177,6 +177,10 @@ class LiveAedtBackend:
                 return self._layout_routing_inventory(target, arguments)
             if command == "layout_technology_inventory":
                 return self._layout_technology_inventory(target, arguments)
+            if command == "layout_material_create_assign_preview":
+                return self._layout_material_create_assign_preview(target, arguments)
+            if command == "layout_material_create_assign_apply":
+                return self._layout_material_create_assign_apply(target, arguments)
             if command == "layout_connectivity_inventory":
                 return self._layout_connectivity_inventory(target, arguments)
             if command == "layout_port_candidate_inventory":
@@ -3224,6 +3228,235 @@ class LiveAedtBackend:
             "design_unchanged": True,
         }
 
+    def _layout_material_create_assign_preview(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        app = self._app(
+            target,
+            "layout",
+            _required(args, "project_name"),
+            _required(args, "design_name"),
+        )
+        if str(_safe_attribute(app, "design_type") or "").strip().casefold() != (
+            "hfss 3d layout design"
+        ):
+            raise LiveBackendError(
+                "3D Layout material creation and assignment requires an HFSS 3D Layout design"
+            )
+        if _simulation_running(app):
+            raise LiveBackendError(
+                "cannot create or assign 3D Layout materials while a simulation is running"
+            )
+        spec = _normalize_layout_material_create_assign_spec(args)
+        material_catalog = _hfss_material_catalog_snapshot(app)
+        by_name = {
+            item["canonical_name"].casefold(): item
+            for item in material_catalog["materials"]
+        }
+        existing = by_name.get(spec["material_name"].casefold())
+        if existing is not None:
+            raise LiveBackendError(
+                f"3D Layout project material already exists: {existing['canonical_name']}"
+            )
+        library_name = _hfss_existing_material_name(app, spec["material_name"])
+        if library_name:
+            raise LiveBackendError(
+                "3D Layout material name collides with an AEDT material library entry: "
+                f"{library_name}"
+            )
+        stackup = _layout_full_stackup_snapshot(app)
+        layer = _layout_stackup_layer_record(stackup, spec["layer_name"])
+        spec["expected_material_class"] = _validate_layout_material_assignment_role(
+            spec,
+            layer,
+        )
+        state = {
+            "design_type": str(_safe_attribute(app, "design_type") or "").strip(),
+            "solution_type": str(_safe_attribute(app, "solution_type") or "").strip(),
+            "material_catalog": material_catalog,
+            "stackup": stackup,
+        }
+        state_digest = _digest(state)
+        preview_id = "layout-material-create-assign-preview-" + _digest(
+            spec | {"state": state_digest}
+        )[:24]
+        self._previews[preview_id] = {
+            "kind": "layout_material_create_assign",
+            "target": target,
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "spec": spec,
+            "state": state,
+            "digest": state_digest,
+            "layer": layer,
+        }
+        return {
+            "preview_id": preview_id,
+            **spec,
+            "layer": layer,
+            "before_assignment": layer[spec["assignment_field"]],
+            "after_assignment": spec["material_name"],
+            "existing_material_count": len(material_catalog["materials"]),
+            "stackup_layer_count": len(stackup),
+            "snapshot_digest": state_digest,
+            "approval_required": True,
+            "automatic_rollback_on_failure": True,
+            "project_dirty": False,
+            "project_saved": False,
+        }
+
+    def _layout_material_create_assign_apply(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        preview_id = _required(args, "preview_id")
+        preview = self._preview(
+            preview_id,
+            "layout_material_create_assign",
+            target,
+        )
+        app = self._app(
+            target,
+            "layout",
+            preview["project_name"],
+            preview["design_name"],
+        )
+        if _simulation_running(app):
+            raise LiveBackendError(
+                "cannot create or assign 3D Layout materials while a simulation is running"
+            )
+        current = {
+            "design_type": str(_safe_attribute(app, "design_type") or "").strip(),
+            "solution_type": str(_safe_attribute(app, "solution_type") or "").strip(),
+            "material_catalog": _hfss_material_catalog_snapshot(app),
+            "stackup": _layout_full_stackup_snapshot(app),
+        }
+        if _digest(current) != preview["digest"]:
+            raise LiveBackendError(
+                "stale 3D Layout material create-and-assign preview"
+            )
+
+        spec = preview["spec"]
+        before_catalog = preview["state"]["material_catalog"]
+        before_stackup = preview["state"]["stackup"]
+        created_name = ""
+        try:
+            materials = _safe_attribute(app, "materials")
+            add_material = getattr(materials, "add_material", None)
+            if not callable(add_material):
+                raise LiveBackendError(
+                    "3D Layout project material creation API is unavailable"
+                )
+            properties = {
+                name: spec[name]
+                for name in (
+                    "permittivity",
+                    "permeability",
+                    "conductivity",
+                    "dielectric_loss_tangent",
+                    "magnetic_loss_tangent",
+                )
+            }
+            material = add_material(spec["material_name"], properties=properties)
+            created_name = str(_safe_attribute(material, "name") or "").strip()
+            if not material or created_name != spec["material_name"]:
+                raise LiveBackendError(
+                    "3D Layout material creation returned an unexpected name"
+                )
+            if spec["appearance"] is not None:
+                material.material_appearance = list(spec["appearance"])
+                update = getattr(material, "update", None)
+                if not callable(update) or update() is False:
+                    raise LiveBackendError(
+                        "3D Layout material appearance update returned false"
+                    )
+
+            layer_object = _layout_stackup_layer_object(
+                app,
+                name=spec["layer_name"],
+                expected_id=preview["layer"]["id"],
+                expected_type=preview["layer"]["type"],
+            )
+            setattr(layer_object, spec["assignment_field"], spec["material_name"])
+            _restore_layout_layer_native_color(layer_object, preview["layer"])
+
+            after_catalog = _hfss_material_catalog_snapshot(app)
+            after_stackup = _layout_full_stackup_snapshot(app)
+            before_names = {
+                item["canonical_name"] for item in before_catalog["materials"]
+            }
+            after_names = {
+                item["canonical_name"] for item in after_catalog["materials"]
+            }
+            if after_names != before_names | {spec["material_name"]}:
+                raise LiveBackendError(
+                    "unexpected 3D Layout project material catalog change"
+                )
+            material_readback = next(
+                (
+                    item
+                    for item in after_catalog["materials"]
+                    if item["canonical_name"] == spec["material_name"]
+                ),
+                None,
+            )
+            if material_readback is None:
+                raise LiveBackendError("3D Layout material readback is missing")
+            layer_readback = _layout_stackup_layer_record(
+                after_stackup,
+                spec["layer_name"],
+            )
+            _verify_layout_material_create_assign_readback(
+                spec,
+                preview["layer"],
+                material_readback,
+                layer_readback,
+                before_stackup=before_stackup,
+                after_stackup=after_stackup,
+            )
+        except Exception as exc:
+            rollback = _rollback_layout_material_create_assign(
+                app,
+                spec,
+                preview["layer"],
+                created_name or spec["material_name"],
+                before_catalog=before_catalog,
+                before_stackup=before_stackup,
+            )
+            if not rollback["complete"]:
+                raise LiveBackendError(
+                    "3D Layout material create-and-assign failed and rollback is incomplete: "
+                    f"{rollback}"
+                ) from exc
+            if isinstance(exc, LiveBackendError):
+                raise
+            raise LiveBackendError(
+                "3D Layout material create-and-assign failed: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
+
+        del self._previews[preview_id]
+        return {
+            "status": "verified",
+            "preview_id": preview_id,
+            **spec,
+            "created_material_name": spec["material_name"],
+            "material": material_readback,
+            "layer": layer_readback,
+            "before_assignment": preview["layer"][spec["assignment_field"]],
+            "after_assignment": layer_readback[spec["assignment_field"]],
+            "material_count": len(after_catalog["materials"]),
+            "stackup_layer_count": len(after_stackup),
+            "material_catalog_digest": _digest(after_catalog),
+            "stackup_digest": _digest(after_stackup),
+            "automatic_rollback_on_failure": True,
+            "project_dirty": True,
+            "project_saved": False,
+        }
+
     def _layout_connectivity_inventory(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
         app = self._app(
             target,
@@ -4989,6 +5222,7 @@ _HFSS_REGION_PADDING_TYPES = {
 }
 _SAFE_AEDT_OBJECT_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_. -]{0,127}")
 _SAFE_AEDT_MATERIAL_NAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_. +()-]{0,127}")
+_SAFE_AEDT_LAYER_NAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_. +()-]{0,127}")
 _SAFE_AEDT_EXPRESSION = re.compile(r"[A-Za-z0-9_$+\-*/^().,% \t]{1,128}")
 
 _LAYOUT_OBJECT_COLLECTIONS = {
@@ -5064,6 +5298,25 @@ def _normalize_hfss_material_create_spec(args: dict[str, Any]) -> dict[str, Any]
         "material_name": material_name,
         **properties,
         "appearance": appearance,
+    }
+
+
+def _normalize_layout_material_create_assign_spec(
+    args: dict[str, Any],
+) -> dict[str, Any]:
+    material_spec = _normalize_hfss_material_create_spec(args)
+    layer_name = str(args.get("layer_name") or "").strip()
+    if not _SAFE_AEDT_LAYER_NAME.fullmatch(layer_name):
+        raise LiveBackendError("layer_name must be a safe exact AEDT stackup layer name")
+    assignment_field = str(args.get("assignment_field") or "material").strip()
+    if assignment_field not in {"material", "fill_material"}:
+        raise LiveBackendError(
+            "assignment_field must be material or fill_material"
+        )
+    return {
+        **material_spec,
+        "layer_name": layer_name,
+        "assignment_field": assignment_field,
     }
 
 
@@ -6253,6 +6506,8 @@ def _rollback_hfss_material_create(
                 try:
                     if remover(removed_name) is not True:
                         errors.append("HFSS material removal returned false")
+                    else:
+                        _invalidate_pyaedt_material_name_cache(materials)
                 except Exception as exc:
                     errors.append(f"{type(exc).__name__}: {exc}")
     readback_error = ""
@@ -6274,6 +6529,16 @@ def _rollback_hfss_material_create(
         "errors": errors,
         "readback_error": readback_error,
     }
+
+
+def _invalidate_pyaedt_material_name_cache(materials: Any) -> None:
+    """Force PyAEDT to rebuild names after Definition Manager removal."""
+    for attribute in ("_mats", "_mats_lower"):
+        if hasattr(materials, attribute):
+            try:
+                setattr(materials, attribute, [])
+            except Exception:
+                pass
 
 
 def _hfss_material_target_snapshot(
@@ -9031,6 +9296,293 @@ def _property_values_equal(actual: Any, expected: Any) -> bool:
     if isinstance(actual, str) and isinstance(expected, str):
         return _normalized_expression(actual) == _normalized_expression(expected)
     return actual == expected
+
+
+def _layout_full_stackup_snapshot(app: Any) -> list[dict[str, Any]]:
+    records, error = _layout_stackup_records(app, max_items=501)
+    if error:
+        raise LiveBackendError(
+            f"3D Layout full stackup snapshot is unavailable: {error}"
+        )
+    if len(records) > 500:
+        raise LiveBackendError(
+            "3D Layout stackup exceeds the 500 layer write safety limit"
+        )
+    names = [str(item.get("name") or "") for item in records]
+    folded = [item.casefold() for item in names]
+    if not all(names):
+        raise LiveBackendError("3D Layout stackup contains an unnamed layer")
+    if len(set(folded)) != len(folded):
+        raise LiveBackendError(
+            "3D Layout stackup contains duplicate case-insensitive layer names"
+        )
+    editor = _safe_attribute(_safe_attribute(app, "modeler"), "layers")
+    editor = _safe_attribute(editor, "oeditor") if editor is not None else None
+    get_layer_info = getattr(editor, "GetLayerInfo", None)
+    if not callable(get_layer_info):
+        raise LiveBackendError(
+            "3D Layout native stackup layer readback API is unavailable"
+        )
+    for record in records:
+        name = record["name"]
+        try:
+            raw_info = [str(item) for item in list(get_layer_info(name) or [])]
+        except Exception as exc:
+            raise LiveBackendError(
+                f"3D Layout native layer readback failed for {name}: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
+        if not raw_info or len(raw_info) > 256:
+            raise LiveBackendError(
+                f"3D Layout native layer readback is empty or exceeds 256 fields: {name}"
+            )
+        if sum(len(item) for item in raw_info) > 64 * 1024:
+            raise LiveBackendError(
+                f"3D Layout native layer readback exceeds 64 KiB: {name}"
+            )
+        native_properties = {}
+        for index, item in enumerate(raw_info):
+            key, separator, value = item.partition(": ")
+            property_name = key.strip() if separator else f"__raw_{index}"
+            if property_name in native_properties:
+                raise LiveBackendError(
+                    f"3D Layout native layer readback contains duplicate field {property_name}: {name}"
+                )
+            native_properties[property_name] = value if separator else item
+        # ChangeLayer serializes Thickness0 in base units even when its physical
+        # value is unchanged. The typed thickness fields above retain the
+        # semantic value, while all non-redundant native fields remain exact.
+        if "Thickness0" in native_properties:
+            native_properties["Thickness0"] = {
+                "value": record.get("thickness"),
+                "units": record.get("thickness_units"),
+            }
+        record["native_properties"] = native_properties
+    return records
+
+
+def _restore_layout_layer_native_color(
+    layer: Any,
+    before_layer: dict[str, Any],
+) -> None:
+    native_properties = before_layer.get("native_properties")
+    if not isinstance(native_properties, dict) or "Color" not in native_properties:
+        return
+    raw_color = str(native_properties["Color"]).strip()
+    if raw_color.endswith("d"):
+        raw_color = raw_color[:-1]
+    try:
+        color = int(raw_color)
+    except ValueError as exc:
+        raise LiveBackendError("3D Layout native layer color readback is invalid") from exc
+    if color < 0 or color > 0xFFFFFF:
+        raise LiveBackendError("3D Layout native layer color is outside RGB bounds")
+    setter = getattr(layer, "set_layer_color", None)
+    if not callable(setter):
+        raise LiveBackendError("3D Layout layer color restore API is unavailable")
+    red = (color >> 16) & 0xFF
+    green = (color >> 8) & 0xFF
+    blue = color & 0xFF
+    if setter(red, green, blue) is False:
+        raise LiveBackendError("3D Layout layer color restore returned false")
+
+
+def _layout_stackup_layer_record(
+    stackup: list[dict[str, Any]],
+    name: str,
+) -> dict[str, Any]:
+    exact = [item for item in stackup if item.get("name") == name]
+    if len(exact) == 1:
+        return exact[0]
+    folded = [
+        str(item.get("name") or "")
+        for item in stackup
+        if str(item.get("name") or "").casefold() == name.casefold()
+    ]
+    if folded:
+        raise LiveBackendError(
+            f"layer_name must match AEDT case exactly: {folded[0]}"
+        )
+    raise LiveBackendError(f"3D Layout stackup layer does not exist: {name}")
+
+
+def _layout_stackup_layer_object(
+    app: Any,
+    *,
+    name: str,
+    expected_id: Any,
+    expected_type: str,
+) -> Any:
+    try:
+        layers = list(app.modeler.layers.stackup_layers or [])
+    except Exception as exc:
+        raise LiveBackendError(
+            "3D Layout stackup layer API is unavailable: "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
+    matches = [item for item in layers if str(_safe_attribute(item, "name") or "") == name]
+    if len(matches) != 1:
+        raise LiveBackendError(
+            f"3D Layout stackup layer object is missing or ambiguous: {name}"
+        )
+    layer = matches[0]
+    if _safe_json_attribute(layer, "id") != expected_id:
+        raise LiveBackendError(f"3D Layout stackup layer id changed: {name}")
+    if str(_safe_attribute(layer, "type") or "") != expected_type:
+        raise LiveBackendError(f"3D Layout stackup layer type changed: {name}")
+    return layer
+
+
+def _validate_layout_material_assignment_role(
+    spec: dict[str, Any],
+    layer: dict[str, Any],
+) -> str:
+    layer_type = str(layer.get("type") or "").casefold()
+    field = spec["assignment_field"]
+    if layer_type not in {"signal", "dielectric"}:
+        raise LiveBackendError(
+            "3D Layout material assignment supports only signal and dielectric layers"
+        )
+    if layer_type == "dielectric" and field != "material":
+        raise LiveBackendError(
+            "dielectric layers require assignment_field=material"
+        )
+    expected_class = (
+        "conductor"
+        if layer_type == "signal" and field == "material"
+        else "dielectric"
+    )
+    is_dielectric = float(spec["conductivity"]) < 100_000.0
+    if (expected_class == "dielectric") != is_dielectric:
+        raise LiveBackendError(
+            f"{layer_type} layer {field} requires a {expected_class} material; "
+            f"conductivity={spec['conductivity']} S/m classifies as "
+            f"{'dielectric' if is_dielectric else 'conductor'} at the PyAEDT 100000 S/m threshold"
+        )
+    return expected_class
+
+
+def _verify_layout_material_create_assign_readback(
+    spec: dict[str, Any],
+    before_layer: dict[str, Any],
+    material_readback: dict[str, Any],
+    layer_readback: dict[str, Any],
+    *,
+    before_stackup: list[dict[str, Any]],
+    after_stackup: list[dict[str, Any]],
+) -> None:
+    _verify_hfss_material_create_readback(spec, material_readback)
+    expected_is_dielectric = spec["expected_material_class"] == "dielectric"
+    if material_readback.get("is_dielectric") is not expected_is_dielectric:
+        raise LiveBackendError(
+            "3D Layout material classification readback does not match the target layer role"
+        )
+    for field in ("name", "id", "type"):
+        if layer_readback.get(field) != before_layer.get(field):
+            raise LiveBackendError(
+                f"3D Layout target layer {field} changed during assignment"
+            )
+    assignment_field = spec["assignment_field"]
+    if layer_readback.get(assignment_field) != spec["material_name"]:
+        raise LiveBackendError(
+            f"3D Layout layer {assignment_field} readback mismatch"
+        )
+    expected_stackup = json.loads(json.dumps(before_stackup))
+    expected_layer = _layout_stackup_layer_record(
+        expected_stackup,
+        spec["layer_name"],
+    )
+    expected_layer[assignment_field] = spec["material_name"]
+    native_field = {
+        "material": "Material0",
+        "fill_material": "FillMaterial0",
+    }[assignment_field]
+    native_properties = expected_layer.get("native_properties")
+    if not isinstance(native_properties, dict) or native_field not in native_properties:
+        raise LiveBackendError(
+            f"3D Layout native {native_field} readback is unavailable"
+        )
+    native_properties[native_field] = spec["material_name"]
+    if _digest(after_stackup) != _digest(expected_stackup):
+        raise LiveBackendError(
+            "unexpected 3D Layout stackup change outside the approved layer field"
+        )
+
+
+def _rollback_layout_material_create_assign(
+    app: Any,
+    spec: dict[str, Any],
+    before_layer: dict[str, Any],
+    created_name: str,
+    *,
+    before_catalog: dict[str, Any],
+    before_stackup: list[dict[str, Any]],
+) -> dict[str, Any]:
+    errors = []
+    field = spec["assignment_field"]
+    try:
+        current_stackup = _layout_full_stackup_snapshot(app)
+        current_layer = _layout_stackup_layer_record(
+            current_stackup,
+            spec["layer_name"],
+        )
+        layer_object = None
+        if current_layer.get(field) != before_layer.get(field):
+            layer_object = _layout_stackup_layer_object(
+                app,
+                name=spec["layer_name"],
+                expected_id=before_layer["id"],
+                expected_type=before_layer["type"],
+            )
+            setattr(layer_object, field, before_layer.get(field))
+        current_native = current_layer.get("native_properties")
+        before_native = before_layer.get("native_properties")
+        if (
+            isinstance(current_native, dict)
+            and isinstance(before_native, dict)
+            and current_native.get("Color") != before_native.get("Color")
+        ):
+            if layer_object is None:
+                layer_object = _layout_stackup_layer_object(
+                    app,
+                    name=spec["layer_name"],
+                    expected_id=before_layer["id"],
+                    expected_type=before_layer["type"],
+                )
+            _restore_layout_layer_native_color(layer_object, before_layer)
+    except Exception as exc:
+        errors.append(f"layer restore failed: {type(exc).__name__}: {exc}")
+
+    material_rollback = _rollback_hfss_material_create(
+        app,
+        created_name,
+        before_catalog=before_catalog,
+    )
+    if not material_rollback["complete"]:
+        errors.append("material removal or catalog restore failed")
+
+    stackup_readback_error = ""
+    try:
+        after_stackup = _layout_full_stackup_snapshot(app)
+    except Exception as exc:
+        after_stackup = []
+        stackup_readback_error = f"{type(exc).__name__}: {exc}"
+    stackup_complete = (
+        not stackup_readback_error
+        and _digest(after_stackup) == _digest(before_stackup)
+    )
+    if not stackup_complete:
+        errors.append("full stackup snapshot was not restored")
+    return {
+        "complete": not errors and material_rollback["complete"] and stackup_complete,
+        "layer_name": spec["layer_name"],
+        "assignment_field": field,
+        "stackup_before_digest": _digest(before_stackup),
+        "stackup_after_digest": _digest(after_stackup) if not stackup_readback_error else "",
+        "stackup_readback_error": stackup_readback_error,
+        "material_rollback": material_rollback,
+        "errors": errors,
+    }
 
 
 def _layout_stackup_records(

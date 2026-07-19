@@ -420,6 +420,66 @@ class LiveAedtSessionManager:
         self._approval_contexts.pop((session_id, preview_id), None)
         return result
 
+    def preview_layout_material_create_assign(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+        material_name: str,
+        layer_name: str,
+        assignment_field: str = "material",
+        permittivity: float = 1.0,
+        permeability: float = 1.0,
+        conductivity: float = 0.0,
+        dielectric_loss_tangent: float = 0.0,
+        magnetic_loss_tangent: float = 0.0,
+        appearance: list[int | float] | None = None,
+    ) -> dict[str, Any]:
+        result = self._execute(
+            session_id,
+            "layout_material_create_assign_preview",
+            {
+                "project_name": project_name,
+                "design_name": design_name,
+                "material_name": material_name,
+                "layer_name": layer_name,
+                "assignment_field": assignment_field,
+                "permittivity": permittivity,
+                "permeability": permeability,
+                "conductivity": conductivity,
+                "dielectric_loss_tangent": dielectric_loss_tangent,
+                "magnetic_loss_tangent": magnetic_loss_tangent,
+                "appearance": appearance,
+            },
+        )
+        return self._register_approval(
+            session_id,
+            "layout.material.create_and_assign",
+            result,
+        )
+
+    def apply_layout_material_create_assign(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict[str, Any]:
+        self._require_approval(
+            session_id,
+            "layout.material.create_and_assign",
+            preview_id,
+            approval_token,
+        )
+        result = self._execute(
+            session_id,
+            "layout_material_create_assign_apply",
+            {"preview_id": preview_id},
+        )
+        self._approval_contexts.pop((session_id, preview_id), None)
+        return result
+
     def preview_hfss_material_assign(
         self,
         session_id: str,

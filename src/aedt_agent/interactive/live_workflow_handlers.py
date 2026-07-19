@@ -70,6 +70,26 @@ def register_live_workflow_handlers(
         _hfss_material_create_scorecard,
     )
     registry.register(
+        "assistant.live.layout.preview_material_create_assign",
+        lambda context: _preview_layout_material_create_assign(
+            context,
+            live_manager,
+            binding_resolver,
+        ),
+    )
+    registry.register(
+        "assistant.live.layout.apply_material_create_assign",
+        lambda context: _apply_layout_material_create_assign(
+            context,
+            live_manager,
+            binding_resolver,
+        ),
+    )
+    registry.register(
+        "assistant.live.layout.material_create_assign_scorecard",
+        _layout_material_create_assign_scorecard,
+    )
+    registry.register(
         "assistant.live.hfss.preview_material_assign",
         lambda context: _preview_hfss_material_assign(
             context,
@@ -700,6 +720,176 @@ def _hfss_material_create_scorecard(
                 "created_material_name": result.get("created_material_name"),
                 "material_count": result.get("material_count"),
                 "definition_digest": material.get("definition_digest"),
+                "project_saved": result.get("project_saved"),
+            },
+            "live_session_reused": True,
+        },
+        outcome="passed" if passed else "failed",
+    )
+
+
+def _preview_layout_material_create_assign(
+    context,
+    live_manager,
+    binding_resolver,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, project_name, design_name, _ = _live_target(context, binding_resolver)
+    preview = live_manager.preview_layout_material_create_assign(
+        session_id,
+        project_name=project_name,
+        design_name=design_name,
+        material_name=str(payload.get("material_name") or ""),
+        layer_name=str(payload.get("layer_name") or ""),
+        assignment_field=str(payload.get("assignment_field") or "material"),
+        permittivity=payload.get("permittivity", 1.0),
+        permeability=payload.get("permeability", 1.0),
+        conductivity=payload.get("conductivity", 0.0),
+        dielectric_loss_tangent=payload.get("dielectric_loss_tangent", 0.0),
+        magnetic_loss_tangent=payload.get("magnetic_loss_tangent", 0.0),
+        appearance=payload.get("appearance"),
+    )
+    return _success(
+        {
+            **payload,
+            "operation_preview_id": preview["preview_id"],
+            "operation_approval": preview.get("approval_request") or {},
+            "operation_preview": preview,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _apply_layout_material_create_assign(
+    context,
+    live_manager,
+    binding_resolver,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, _, _, binding = _live_target(context, binding_resolver)
+    token = str(binding.get("operation_approval_token") or "")
+    if not token:
+        raise ValueError(
+            "operation_approval_token is required after wait_for_live_approval approves "
+            "the 3D Layout material create-and-assign preview"
+        )
+    result = live_manager.apply_layout_material_create_assign(
+        session_id,
+        preview_id=str(payload["operation_preview_id"]),
+        approval_token=token,
+    )
+    return _success(
+        {
+            **payload,
+            "operation_result": result,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _layout_material_create_assign_scorecard(
+    context: GraphNodeExecutionContext,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    result = dict(payload.get("operation_result") or {})
+    material = dict(result.get("material") or {})
+    layer = dict(result.get("layer") or {})
+    properties = dict(material.get("electrical_properties") or {})
+    expected_properties = {
+        "permittivity": float(payload.get("permittivity", 1.0)),
+        "permeability": float(payload.get("permeability", 1.0)),
+        "conductivity": float(payload.get("conductivity", 0.0)),
+        "dielectric_loss_tangent": float(
+            payload.get("dielectric_loss_tangent", 0.0)
+        ),
+        "magnetic_loss_tangent": float(payload.get("magnetic_loss_tangent", 0.0)),
+    }
+    property_matches = []
+    for name, expected_value in expected_properties.items():
+        record = dict(properties.get(name) or {})
+        try:
+            actual_value = float(record.get("value"))
+        except (TypeError, ValueError):
+            actual_value = math.nan
+        property_matches.append(
+            record.get("type") == "simple"
+            and math.isfinite(actual_value)
+            and math.isclose(
+                actual_value,
+                expected_value,
+                rel_tol=1e-9,
+                abs_tol=1e-12,
+            )
+        )
+    requested_appearance = payload.get("appearance")
+    appearance_matches = True
+    if requested_appearance is not None:
+        actual_appearance = material.get("appearance")
+        appearance_matches = (
+            isinstance(actual_appearance, list)
+            and len(actual_appearance) == 4
+            and actual_appearance[:3] == requested_appearance[:3]
+        )
+        if appearance_matches:
+            try:
+                appearance_matches = math.isclose(
+                    float(actual_appearance[3]),
+                    float(requested_appearance[3]),
+                    rel_tol=1e-9,
+                    abs_tol=1e-12,
+                )
+            except (TypeError, ValueError):
+                appearance_matches = False
+    requested_name = str(payload.get("material_name") or "")
+    requested_layer = str(payload.get("layer_name") or "")
+    assignment_field = str(payload.get("assignment_field") or "material")
+    checks = [
+        _check("verified", result.get("status") == "verified"),
+        _check(
+            "exact_material_name_preserved",
+            bool(requested_name)
+            and result.get("created_material_name") == requested_name
+            and material.get("canonical_name") == requested_name,
+        ),
+        _check("typed_property_readback", bool(property_matches) and all(property_matches)),
+        _check("optional_appearance_readback", appearance_matches),
+        _check("definition_digest_returned", bool(material.get("definition_digest"))),
+        _check(
+            "exact_layer_preserved",
+            bool(requested_layer) and layer.get("name") == requested_layer,
+        ),
+        _check(
+            "exact_assignment_readback",
+            assignment_field in {"material", "fill_material"}
+            and layer.get(assignment_field) == requested_name
+            and result.get("after_assignment") == requested_name,
+        ),
+        _check(
+            "material_role_verified",
+            result.get("expected_material_class") in {"dielectric", "conductor"}
+            and material.get("is_dielectric")
+            is (result.get("expected_material_class") == "dielectric"),
+        ),
+        _check(
+            "automatic_rollback_on_failure",
+            result.get("automatic_rollback_on_failure") is True,
+        ),
+        _check("project_not_saved", result.get("project_saved") is False),
+        _check("live_session_reused", payload.get("live_session_reused") is True),
+    ]
+    passed = all(item["passed"] for item in checks)
+    return _success(
+        {
+            **payload,
+            "status": "passed" if passed else "failed",
+            "checks": checks,
+            "summary": {
+                "created_material_name": result.get("created_material_name"),
+                "layer_name": layer.get("name"),
+                "assignment_field": assignment_field,
+                "after_assignment": result.get("after_assignment"),
+                "material_catalog_digest": result.get("material_catalog_digest"),
+                "stackup_digest": result.get("stackup_digest"),
                 "project_saved": result.get("project_saved"),
             },
             "live_session_reused": True,

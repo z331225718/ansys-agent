@@ -141,6 +141,8 @@ preview_live_hfss_material_create
 apply_live_hfss_material_create
 preview_live_hfss_material_assign
 apply_live_hfss_material_assign
+preview_live_layout_material_create_assign
+apply_live_layout_material_create_assign
 get_live_hfss_mesh_inventory
 preview_live_hfss_length_mesh_create
 apply_live_hfss_length_mesh_create
@@ -297,6 +299,20 @@ get_live_hfss_material_inventory
 以及可选 `[R,G,B,transparency]`。表达式、频散、各向异性、非线性和热/机械属性需要独立 Harness。
 名称不能与工程或 AEDT 材料库冲突；失败时只删除本次新材料，并验证完整材料目录恢复。
 
+在 3D Layout 中创建一个数值型各向同性工程材料，并立即分配给一个明确 stackup layer 字段时：
+
+```text
+get_live_layout_technology_inventory
+  -> preview_live_layout_material_create_assign
+  -> wait_for_live_approval
+  -> apply_live_layout_material_create_assign
+  -> 核对材料定义、层 ID/type、material 或 fill_material、完整目录/stackup digest 和 project_saved=false
+```
+
+该操作是一个原子 Harness：dielectric 层只允许写 `material`；signal 层可写导体 `material` 或介质
+`fill_material`。材料角色按 PyAEDT 的 100000 S/m 导体阈值预检。preview 冻结完整工程材料目录和完整
+stackup；失败时先恢复层字段，再删除新材料并使 PyAEDT 名称缓存失效，最终比较两个完整快照。
+
 为已有 solid 分配材料时，目标材料必须已经存在于当前工程 material catalog：
 
 ```text
@@ -425,7 +441,7 @@ token = authority.issue(**preview["approval_request"])
 - 写操作暂不支持覆盖源工程。
 - 只读查询也打开临时快照副本，关闭会话后自动清理，避免 EDB lock/tmp 文件触碰源目录。
 - `.aedt` 输入必须存在同名 `.aedb` sidecar。
-- Live HFSS/3D Layout 当前支持 routing/object/variable/setup inventory、有序变量原子批量事务、HFSS typed surface boundary、数值型各向同性电磁材料创建、solid 材料批量分配、Length Based Mesh 和 Infinite Sphere 远场设置、受控变量和对象属性更新、setup/sweep、
+- Live HFSS/3D Layout 当前支持 routing/object/variable/setup inventory、有序变量原子批量事务、HFSS typed surface boundary、数值型各向同性电磁材料创建、solid 材料批量分配、3D Layout 工程材料原子创建和明确 stackup layer 分配、Length Based Mesh 和 Infinite Sphere 远场设置、受控变量和对象属性更新、setup/sweep、
   radiation/wave/lumped port、report 创建、批准式 analysis start/cancel/status、Layout 有界求解监控、
   HFSS/Layout 受限结果导出和受控 project save。
 - `create_live_hfss_design` 与 `start_live_hfss_analysis` 仅为通用 MCP 兼容入口；Desktop strict 模式禁用直接写入，生产求解使用批准链路。
