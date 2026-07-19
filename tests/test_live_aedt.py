@@ -614,6 +614,23 @@ class FakeGeometryHfss(FakeHfss):
         )
 
 
+class FakeAtomicSetupSweepHfss(FakeHfss):
+    def __init__(self, *, sweep_fail_on="", **kwargs):
+        super().__init__(**kwargs)
+        self.are_there_simulations_running = False
+        self.sweep_fail_on = sweep_fail_on
+
+    def create_linear_count_sweep(self, *, setup, name, **kwargs):
+        if name == self.sweep_fail_on:
+            raise RuntimeError("synthetic sweep failure")
+        return super().create_linear_count_sweep(setup=setup, name=name, **kwargs)
+
+    def create_linear_step_sweep(self, *, setup, name, **kwargs):
+        if name == self.sweep_fail_on:
+            raise RuntimeError("synthetic sweep failure")
+        return super().create_linear_step_sweep(setup=setup, name=name, **kwargs)
+
+
 class FakeSubmittedSolveHfss(FakeControlledSolveHfss):
     def analyze_setup(self, setup, **kwargs):
         self.analysis_calls.append((setup, kwargs))
@@ -645,6 +662,11 @@ class FakeRegistry:
             return {"preview_id": "save-preview-1", "snapshot_digest": "save-digest-1"}
         if command == "hfss_setup_preview":
             return {"preview_id": "setup-preview-1", "snapshot_digest": "setup-digest-1"}
+        if command == "hfss_setup_sweep_create_preview":
+            return {
+                "preview_id": "setup-sweep-preview-1",
+                "snapshot_digest": "setup-sweep-digest-1",
+            }
         if command == "hfss_report_preview":
             return {"preview_id": "report-preview-1", "snapshot_digest": "report-digest-1"}
         if command == "hfss_boundary_preview":
@@ -1137,6 +1159,230 @@ def test_backend_reuses_wrappers_and_lists_live_layout_paths():
     backend.execute(target, "hfss_analysis_cancel_apply", {"preview_id": layout_cancel_preview["preview_id"]})
     backend.release()
     assert desktop.releases[-1] == {"close_projects": False, "close_on_exit": False}
+
+
+def test_backend_atomically_creates_hfss_setup_and_sweep_with_readback():
+    apps = []
+
+    def factory(**kwargs):
+        app = FakeAtomicSetupSweepHfss(**kwargs)
+        apps.append(app)
+        return app
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, hfss_factory=factory)
+    target = AedtTarget("pid", 42)
+    preview = backend.execute(
+        target,
+        "hfss_setup_sweep_create_preview",
+        {
+            "project_name": "Board",
+            "design_name": "HFSS1",
+            "setup": {
+                "name": "AtomicSetup",
+                "type": "HFSSDriven",
+                "properties": {
+                    "Frequency": "10GHz",
+                    "MaximumPasses": 5,
+                    "MaxDeltaS": 0.02,
+                },
+            },
+            "sweep": {
+                "name": "AtomicSweep",
+                "range_type": "LinearCount",
+                "sweep_type": "Interpolating",
+                "unit": "GHz",
+                "start_frequency": 1,
+                "stop_frequency": 20,
+                "count": 201,
+                "save_fields": True,
+            },
+        },
+    )
+    assert preview["project_dirty"] is False
+    assert preview["project_saved"] is False
+    assert preview["setup"]["name"] == "AtomicSetup"
+    assert preview["sweep"]["name"] == "AtomicSweep"
+
+    result = backend.execute(
+        target,
+        "hfss_setup_sweep_create_apply",
+        {"preview_id": preview["preview_id"]},
+    )
+    assert result["status"] == "verified"
+    assert result["created_setup_name"] == "AtomicSetup"
+    assert result["created_sweep_name"] == "AtomicSweep"
+    assert result["setup_inventory"] == {
+        "name": "AtomicSetup",
+        "type": "HFSSDriven",
+        "properties": {
+            "Frequency": "10GHz",
+            "MaximumPasses": 5,
+            "MaxDeltaS": 0.02,
+        },
+        "sweeps": ["AtomicSweep"],
+    }
+    assert result["atomic_setup_sweep_transaction"] is True
+    assert result["automatic_rollback_on_failure"] is True
+    assert result["project_saved"] is False
+    assert _sweep_names_for_test(apps[0], "AtomicSetup") == ["AtomicSweep"]
+
+
+def test_backend_atomic_hfss_setup_sweep_rolls_back_and_rejects_stale_preview():
+    apps = []
+
+    def factory(**kwargs):
+        app = FakeAtomicSetupSweepHfss(sweep_fail_on="BadSweep", **kwargs)
+        apps.append(app)
+        return app
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, hfss_factory=factory)
+    target = AedtTarget("pid", 42)
+    request = {
+        "project_name": "Board",
+        "design_name": "HFSS1",
+        "setup": {
+            "name": "MustRollback",
+            "type": "HFSSDriven",
+            "properties": {"Frequency": "10GHz"},
+        },
+        "sweep": {
+            "name": "BadSweep",
+            "range_type": "LinearCount",
+            "start_frequency": 1,
+            "stop_frequency": 10,
+            "count": 11,
+        },
+    }
+    preview = backend.execute(target, "hfss_setup_sweep_create_preview", request)
+    with pytest.raises(LiveBackendError, match="synthetic sweep failure"):
+        backend.execute(
+            target,
+            "hfss_setup_sweep_create_apply",
+            {"preview_id": preview["preview_id"]},
+        )
+    assert apps[0].setup_names == ["Setup1"]
+
+    apps[0].sweep_fail_on = ""
+    stale = backend.execute(target, "hfss_setup_sweep_create_preview", request)
+    apps[0].create_setup("ExternalSetup")
+    with pytest.raises(LiveBackendError, match="stale HFSS setup and sweep"):
+        backend.execute(
+            target,
+            "hfss_setup_sweep_create_apply",
+            {"preview_id": stale["preview_id"]},
+        )
+    assert "MustRollback" not in apps[0].setup_names
+
+    port_stale = backend.execute(target, "hfss_setup_sweep_create_preview", request)
+    apps[0].ports = []
+    with pytest.raises(LiveBackendError, match="stale HFSS setup and sweep"):
+        backend.execute(
+            target,
+            "hfss_setup_sweep_create_apply",
+            {"preview_id": port_stale["preview_id"]},
+        )
+
+
+def test_backend_atomic_hfss_setup_sweep_rejects_interpolating_without_ports():
+    class NoPortHfss(FakeAtomicSetupSweepHfss):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.ports = []
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, hfss_factory=NoPortHfss)
+    request = {
+        "project_name": "Board",
+        "design_name": "HFSS1",
+        "setup": {"name": "NoPortSetup", "properties": {"Frequency": "10GHz"}},
+        "sweep": {
+            "name": "NoPortSweep",
+            "sweep_type": "Interpolating",
+            "start_frequency": 1,
+            "stop_frequency": 10,
+            "count": 11,
+        },
+    }
+    with pytest.raises(LiveBackendError, match="require at least one existing port"):
+        backend.execute(
+            AedtTarget("pid", 42),
+            "hfss_setup_sweep_create_preview",
+            request,
+        )
+    request["sweep"]["sweep_type"] = "Discrete"
+    preview = backend.execute(
+        AedtTarget("pid", 42),
+        "hfss_setup_sweep_create_preview",
+        request,
+    )
+    assert preview["existing_port_names"] == []
+
+
+@pytest.mark.parametrize(
+    "setup,sweep,error",
+    [
+        (
+            {"name": "S", "type": "HFSSTransient"},
+            {"name": "Sw", "start_frequency": 1, "stop_frequency": 2, "count": 3},
+            "HFSSDriven or HFSSDrivenAuto",
+        ),
+        (
+            {"name": "S", "properties": {"MaximumPasses": 0}},
+            {"name": "Sw", "start_frequency": 1, "stop_frequency": 2, "count": 3},
+            "MaximumPasses must be an integer between 1 and 1000",
+        ),
+        (
+            {"name": "S", "properties": {"MinimumPasses": 5, "MaximumPasses": 2}},
+            {"name": "Sw", "start_frequency": 1, "stop_frequency": 2, "count": 3},
+            "MinimumPasses must not exceed MaximumPasses",
+        ),
+        (
+            {"name": "S"},
+            {
+                "name": "Sw",
+                "range_type": "LinearStep",
+                "start_frequency": 1,
+                "stop_frequency": 2,
+                "step_size": 0.000001,
+            },
+            "exceed 100001 frequency points",
+        ),
+        (
+            {"name": "S"},
+            {
+                "name": "Sw",
+                "start_frequency": 1,
+                "stop_frequency": 2,
+                "count": 3,
+                "save_fields": "yes",
+            },
+            "save_fields must be boolean",
+        ),
+    ],
+)
+def test_backend_atomic_hfss_setup_sweep_preview_rejects_unsafe_requests(
+    setup,
+    sweep,
+    error,
+):
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=FakeAtomicSetupSweepHfss,
+    )
+    with pytest.raises(LiveBackendError, match=error):
+        backend.execute(
+            AedtTarget("pid", 42),
+            "hfss_setup_sweep_create_preview",
+            {
+                "project_name": "Board",
+                "design_name": "HFSS1",
+                "setup": setup,
+                "sweep": sweep,
+            },
+        )
+
+
+def _sweep_names_for_test(app, setup_name):
+    return sorted(item.name for item in app.get_setup(setup_name).sweeps)
 
 
 def test_backend_creates_typed_hfss_geometry_batch_with_readback():
@@ -2973,6 +3219,43 @@ def test_manager_requires_action_bound_one_use_approval_for_atomic_hfss_geometry
     assert getattr(replay.value, "code", None) == "approval_required"
 
 
+def test_manager_requires_action_bound_one_use_approval_for_atomic_hfss_setup_sweep():
+    registry = FakeRegistry()
+    authority = HmacApprovalAuthority("u" * 32)
+    manager = LiveAedtSessionManager(registry=registry, approval_verifier=authority)
+    session_id = manager.attach(pid=42)["live_session_id"]
+    preview = manager.preview_hfss_setup_sweep_create(
+        session_id,
+        project_name="Board",
+        design_name="HFSS1",
+        setup={
+            "name": "AtomicSetup",
+            "type": "HFSSDriven",
+            "properties": {"Frequency": "10GHz"},
+        },
+        sweep={
+            "name": "AtomicSweep",
+            "start_frequency": 1,
+            "stop_frequency": 20,
+            "count": 201,
+        },
+    )
+    token = authority.issue(**preview["approval_request"])
+    result = manager.apply_hfss_setup_sweep_create(
+        session_id,
+        preview_id=preview["preview_id"],
+        approval_token=token,
+    )
+    assert result["command"] == "hfss_setup_sweep_create_apply"
+    with pytest.raises(Exception) as replay:
+        manager.apply_hfss_setup_sweep_create(
+            session_id,
+            preview_id=preview["preview_id"],
+            approval_token=token,
+        )
+    assert getattr(replay.value, "code", None) == "approval_required"
+
+
 def test_manager_requires_action_bound_approval_for_layout_edge_ports():
     registry = FakeRegistry()
     authority = HmacApprovalAuthority("e" * 32)
@@ -3226,6 +3509,8 @@ def test_mcp_registers_live_tools_without_changing_artifact_tools(monkeypatch):
     assert "apply_live_hfss_geometry_boundary_create" in server.tools
     assert "preview_live_hfss_setup_create" in server.tools
     assert "apply_live_hfss_setup_create" in server.tools
+    assert "preview_live_hfss_setup_sweep_create" in server.tools
+    assert "apply_live_hfss_setup_sweep_create" in server.tools
     assert "preview_live_hfss_report_create" in server.tools
     assert "apply_live_hfss_report_create" in server.tools
     assert "preview_live_hfss_boundary_create" in server.tools

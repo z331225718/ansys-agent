@@ -49,6 +49,26 @@ def register_live_workflow_handlers(
         _hfss_geometry_boundary_create_scorecard,
     )
     registry.register(
+        "assistant.live.hfss.preview_setup_sweep_create",
+        lambda context: _preview_hfss_setup_sweep_create(
+            context,
+            live_manager,
+            binding_resolver,
+        ),
+    )
+    registry.register(
+        "assistant.live.hfss.apply_setup_sweep_create",
+        lambda context: _apply_hfss_setup_sweep_create(
+            context,
+            live_manager,
+            binding_resolver,
+        ),
+    )
+    registry.register(
+        "assistant.live.hfss.setup_sweep_create_scorecard",
+        _hfss_setup_sweep_create_scorecard,
+    )
+    registry.register(
         "assistant.live.layout.collect_inventory",
         lambda context: _collect_layout_inventory(context, live_manager, binding_resolver),
     )
@@ -523,6 +543,118 @@ def _hfss_geometry_boundary_create_scorecard(
                 "created_boundary_count": len(created_boundaries),
                 "created_boundary_names": created_boundaries,
                 "geometry_snapshot_digest": result.get("geometry_snapshot_digest"),
+                "project_saved": result.get("project_saved"),
+            },
+            "live_session_reused": payload.get("live_session_reused") is True,
+        },
+        outcome="passed" if passed else "failed",
+    )
+
+
+def _preview_hfss_setup_sweep_create(
+    context,
+    live_manager,
+    binding_resolver,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, project_name, design_name, _ = _live_target(context, binding_resolver)
+    preview = live_manager.preview_hfss_setup_sweep_create(
+        session_id,
+        project_name=project_name,
+        design_name=design_name,
+        setup=dict(payload.get("setup") or {}),
+        sweep=dict(payload.get("sweep") or {}),
+    )
+    return _success(
+        {
+            **payload,
+            "operation_preview_id": preview["preview_id"],
+            "operation_approval": preview.get("approval_request") or {},
+            "operation_preview": preview,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _apply_hfss_setup_sweep_create(
+    context,
+    live_manager,
+    binding_resolver,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, _, _, binding = _live_target(context, binding_resolver)
+    token = str(binding.get("operation_approval_token") or "")
+    if not token:
+        raise ValueError(
+            "operation_approval_token is required after wait_for_live_approval approves "
+            "the setup and sweep preview"
+        )
+    result = live_manager.apply_hfss_setup_sweep_create(
+        session_id,
+        preview_id=str(payload["operation_preview_id"]),
+        approval_token=token,
+    )
+    return _success(
+        {
+            **payload,
+            "operation_result": result,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _hfss_setup_sweep_create_scorecard(
+    context: GraphNodeExecutionContext,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    result = dict(payload.get("operation_result") or {})
+    requested_setup = str((payload.get("setup") or {}).get("name") or "")
+    requested_sweep = str((payload.get("sweep") or {}).get("name") or "")
+    inventory = dict(result.get("setup_inventory") or {})
+    expected_properties = dict((result.get("setup") or {}).get("properties") or {})
+    readback_properties = dict(inventory.get("properties") or {})
+    properties_match = set(readback_properties) == set(expected_properties) and all(
+        str(readback_properties[key]) == str(expected_properties[key])
+        for key in expected_properties
+    )
+    checks = [
+        _check("verified", result.get("status") == "verified"),
+        _check(
+            "setup_name_preserved",
+            bool(requested_setup) and result.get("created_setup_name") == requested_setup,
+        ),
+        _check(
+            "sweep_name_preserved",
+            bool(requested_sweep) and result.get("created_sweep_name") == requested_sweep,
+        ),
+        _check("setup_readback", inventory.get("name") == requested_setup),
+        _check("sweep_readback", inventory.get("sweeps") == [requested_sweep]),
+        _check(
+            "setup_properties_readback",
+            properties_match,
+        ),
+        _check(
+            "atomic_setup_sweep_transaction",
+            result.get("atomic_setup_sweep_transaction") is True,
+        ),
+        _check(
+            "automatic_rollback_on_failure",
+            result.get("automatic_rollback_on_failure") is True,
+        ),
+        _check("project_not_saved", result.get("project_saved") is False),
+        _check("live_session_reused", payload.get("live_session_reused") is True),
+    ]
+    passed = all(item["passed"] for item in checks)
+    return _success(
+        {
+            **payload,
+            "status": "passed" if passed else "failed",
+            "checks": checks,
+            "summary": {
+                "created_setup_name": result.get("created_setup_name"),
+                "created_sweep_name": result.get("created_sweep_name"),
+                "setup_type": inventory.get("type"),
+                "properties": inventory.get("properties"),
                 "project_saved": result.get("project_saved"),
             },
             "live_session_reused": payload.get("live_session_reused") is True,

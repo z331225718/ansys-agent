@@ -14,7 +14,7 @@
 新增 live control plane 还能受控启动 AEDT，或发现并显式连接正在运行的 AEDT，会话内复用
 PyAEDT broker，读取工程信息、HFSS geometry/setup/port/boundary/report inventory、受控创建
 typed geometry batch、setup、radiation boundary、wave/lumped port 和 report、驱动 analysis，
-并能在单一事务中原子创建新几何和 Boundary/Port，同时查询 live 3D Layout Path。
+并能在单一事务中原子创建新几何和 Boundary/Port，或原子创建 Setup 和 Sweep，同时查询 live 3D Layout Path。
 在 Desktop-bound strict 会话和推荐的生产链路中，live edit、setup/boundary/report、solve/cancel/export
 与 project save 都采用 preview/apply 两阶段操作，并使用外部 Host 签发的短期批准令牌。通用 MCP
 仍保留 `create_live_hfss_design` 和 `start_live_hfss_analysis` 兼容入口；它们不属于 Desktop 生产链路，
@@ -136,6 +136,8 @@ get_live_aedt_setup_inventory
 get_live_hfss_geometry_inventory
 preview_live_hfss_setup_create
 apply_live_hfss_setup_create
+preview_live_hfss_setup_sweep_create
+apply_live_hfss_setup_sweep_create
 preview_live_hfss_setup_update
 apply_live_hfss_setup_update
 preview_live_frequency_sweep_create
@@ -207,7 +209,18 @@ list_live_aedt_sessions
   -> release_live_aedt_session
 ```
 
-HFSS 建模写操作遵循同样边界：
+HFSS 建模写操作遵循同样边界。需要成对创建新 Setup 和 Sweep 时，使用原子接口，不要把两个独立写操作
+临时串联：
+
+```text
+get_live_aedt_setup_inventory
+  -> preview_live_hfss_setup_sweep_create
+  -> Host approval
+  -> apply_live_hfss_setup_sweep_create
+  -> 核对 setup_inventory、atomic_setup_sweep_transaction 和 project_saved=false
+```
+
+几何和 Boundary/Port 的常规顺序为：
 
 ```text
 get_live_hfss_geometry_inventory

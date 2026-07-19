@@ -204,6 +204,49 @@ class _Live:
             "project_saved": False,
         }
 
+    def preview_hfss_setup_sweep_create(self, session_id: str, **kwargs) -> dict:
+        return {
+            "preview_id": "setup-sweep-preview-1",
+            "setup": dict(kwargs["setup"]),
+            "sweep": dict(kwargs["sweep"]),
+            "approval_request": {"action": "hfss.setup_sweep.create"},
+            "project_saved": False,
+        }
+
+    def apply_hfss_setup_sweep_create(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        assert preview_id == "setup-sweep-preview-1"
+        assert approval_token == "setup-sweep-approved"
+        return {
+            "status": "verified",
+            "setup": {
+                "name": "AtomicSetup",
+                "type": "HFSSDriven",
+                "properties": {"Frequency": "10GHz", "MaximumPasses": 3},
+            },
+            "sweep": {
+                "name": "AtomicSweep",
+                "range_type": "LinearCount",
+                "count": 101,
+            },
+            "setup_inventory": {
+                "name": "AtomicSetup",
+                "type": "HFSSDriven",
+                "properties": {"Frequency": "10GHz", "MaximumPasses": 3},
+                "sweeps": ["AtomicSweep"],
+            },
+            "created_setup_name": "AtomicSetup",
+            "created_sweep_name": "AtomicSweep",
+            "atomic_setup_sweep_transaction": True,
+            "automatic_rollback_on_failure": True,
+            "project_saved": False,
+        }
+
     def list_layout_paths(self, session_id: str, **kwargs) -> dict:
         return {
             "count": 2,
@@ -464,6 +507,12 @@ def test_default_workflow_catalog_includes_live_monitor_and_export(tmp_path: Pat
         "boundaries",
         "primitives",
     ]
+    assert descriptors["hfss_live_setup_sweep_create"]["risk"] == "reversible_edit"
+    assert descriptors["hfss_live_setup_sweep_create"]["attached_live_session_reuse"] is True
+    assert descriptors["hfss_live_setup_sweep_create"]["recommended_initial_fields"] == [
+        "setup",
+        "sweep",
+    ]
     assert descriptors["layout_live_solve_monitor"]["risk"] == "read_only"
     assert descriptors["layout_live_solve_monitor"]["attached_live_session_reuse"] is True
     assert descriptors["layout_live_results_export"]["risk"] == "persistent_write"
@@ -689,6 +738,62 @@ def test_live_hfss_geometry_boundary_workflow_is_atomic_and_scored(tmp_path: Pat
     assert scorecard["status"] == "passed"
     assert scorecard["summary"]["created_object_names"] == ["PortBody", "AirRegion"]
     assert scorecard["summary"]["created_boundary_names"] == ["P1", "Radiation1"]
+    assert scorecard["summary"]["project_saved"] is False
+
+
+def test_live_hfss_setup_sweep_workflow_is_atomic_and_scored(tmp_path: Path):
+    manager = AssistantWorkflowManager(
+        live_manager=_Live(),
+        db_path=tmp_path / "setup-sweep-missions.db",
+        template_ids=("hfss_live_setup_sweep_create",),
+        runtime_factory=lambda path: AgentRuntime(SQLiteMissionStore(path)),
+    )
+    setup = {
+        "name": "AtomicSetup",
+        "type": "HFSSDriven",
+        "properties": {"Frequency": "10GHz", "MaximumPasses": 3},
+    }
+    sweep = {
+        "name": "AtomicSweep",
+        "range_type": "LinearCount",
+        "sweep_type": "Interpolating",
+        "unit": "GHz",
+        "start_frequency": 1,
+        "stop_frequency": 20,
+        "count": 101,
+    }
+    start = manager.preview_start(
+        "live-1",
+        workflow_id="hfss_live_setup_sweep_create",
+        goal="Atomically create a reviewed HFSS setup and sweep",
+        initial_payload={"setup": setup, "sweep": sweep},
+    )
+    started = manager.apply_start(
+        "live-1",
+        preview_id=start["preview_id"],
+        approval_token="approved",
+    )
+    report = None
+    for index in range(3):
+        advance = manager.preview_advance("live-1", graph_run_id=started["graph_run_id"])
+        if index == 1:
+            assert (
+                advance["operation_approval_required"]["preview_id"]
+                == "setup-sweep-preview-1"
+            )
+        report = manager.apply_advance(
+            "live-1",
+            preview_id=advance["preview_id"],
+            approval_token="approved",
+            operation_approval_token="setup-sweep-approved" if index == 1 else "",
+        )
+
+    assert report is not None and report["status"] == "succeeded"
+    assert "setup-sweep-approved" not in str(report)
+    scorecard = report["node_runs"][-1]["output_payload"]
+    assert scorecard["status"] == "passed"
+    assert scorecard["summary"]["created_setup_name"] == "AtomicSetup"
+    assert scorecard["summary"]["created_sweep_name"] == "AtomicSweep"
     assert scorecard["summary"]["project_saved"] is False
 
 

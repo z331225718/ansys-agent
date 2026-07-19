@@ -107,6 +107,10 @@ class LiveAedtBackend:
                 return self._frequency_sweep_create_preview(target, arguments)
             if command == "frequency_sweep_create_apply":
                 return self._frequency_sweep_create_apply(target, arguments)
+            if command == "hfss_setup_sweep_create_preview":
+                return self._hfss_setup_sweep_create_preview(target, arguments)
+            if command == "hfss_setup_sweep_create_apply":
+                return self._hfss_setup_sweep_create_apply(target, arguments)
             if command == "hfss_report_preview":
                 return self._hfss_report_preview(target, arguments)
             if command == "hfss_report_apply":
@@ -1147,6 +1151,161 @@ class LiveAedtBackend:
             "status": "verified",
             "preview_id": preview_id,
             **spec,
+            "project_dirty": True,
+            "project_saved": False,
+        }
+
+    def _hfss_setup_sweep_create_preview(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        app = self._app(
+            target,
+            "hfss",
+            _required(args, "project_name"),
+            _required(args, "design_name"),
+        )
+        if str(_safe_attribute(app, "design_type") or "").strip().casefold() != "hfss":
+            raise LiveBackendError("HFSS setup and sweep creation requires an HFSS 3D design")
+        if _simulation_running(app):
+            raise LiveBackendError("cannot create an HFSS setup while a simulation is running")
+        setup_spec = _normalize_hfss_setup_spec(args.get("setup"))
+        sweep_spec = _normalize_hfss_sweep_spec(args.get("sweep"))
+        setup_names = _setup_names(app)
+        port_names = _hfss_port_names(app)
+        if sweep_spec["sweep_type"] != "Discrete" and not port_names:
+            raise LiveBackendError(
+                f"{sweep_spec['sweep_type']} HFSS sweeps require at least one existing port"
+            )
+        existing_casefold = {item.casefold(): item for item in setup_names}
+        setup_name = setup_spec["name"]
+        if setup_name.casefold() in existing_casefold:
+            raise LiveBackendError(
+                f"HFSS setup already exists: {existing_casefold[setup_name.casefold()]}"
+            )
+        state = {"setup_names": setup_names, "port_names": port_names}
+        state_digest = _digest(state)
+        spec = {"setup": setup_spec, "sweep": sweep_spec}
+        preview_id = "setup-sweep-preview-" + _digest(
+            spec | {"state": state_digest}
+        )[:24]
+        self._previews[preview_id] = {
+            "kind": "hfss_setup_sweep_create",
+            "target": target,
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "spec": spec,
+            "state": state,
+            "digest": state_digest,
+        }
+        return {
+            "preview_id": preview_id,
+            **spec,
+            "snapshot_digest": state_digest,
+            "existing_setup_names": setup_names,
+            "existing_port_names": port_names,
+            "approval_required": True,
+            "project_dirty": False,
+            "project_saved": False,
+        }
+
+    def _hfss_setup_sweep_create_apply(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        preview_id = _required(args, "preview_id")
+        preview = self._preview(preview_id, "hfss_setup_sweep_create", target)
+        app = self._app(target, "hfss", preview["project_name"], preview["design_name"])
+        if _simulation_running(app):
+            raise LiveBackendError("cannot create an HFSS setup while a simulation is running")
+        current = {
+            "setup_names": _setup_names(app),
+            "port_names": _hfss_port_names(app),
+        }
+        if _digest(current) != preview["digest"]:
+            raise LiveBackendError("stale HFSS setup and sweep create preview")
+
+        setup_spec = preview["spec"]["setup"]
+        sweep_spec = preview["spec"]["sweep"]
+        setup_name = setup_spec["name"]
+        sweep_name = sweep_spec["name"]
+        try:
+            setup = app.create_setup(setup_name, setup_type=setup_spec["type"])
+            if not setup or setup_name not in _setup_names(app):
+                raise LiveBackendError("HFSS setup readback failed after creation")
+            for name, value in setup_spec["properties"].items():
+                setup.props[name] = value
+            if setup_spec["properties"] and not setup.update():
+                raise LiveBackendError("failed to update HFSS setup properties")
+            setup_readback = app.get_setup(setup_name)
+            property_readback = {
+                name: _json_value(setup_readback.props.get(name))
+                for name in setup_spec["properties"]
+            }
+            if any(
+                str(property_readback[name]) != str(value)
+                for name, value in setup_spec["properties"].items()
+            ):
+                raise LiveBackendError("HFSS setup property readback verification failed")
+
+            common = {
+                "setup": setup_name,
+                "unit": sweep_spec["unit"],
+                "start_frequency": sweep_spec["start_frequency"],
+                "stop_frequency": sweep_spec["stop_frequency"],
+                "name": sweep_name,
+                "save_fields": sweep_spec["save_fields"],
+                "sweep_type": sweep_spec["sweep_type"],
+            }
+            if sweep_spec["range_type"] == "LinearCount":
+                sweep = app.create_linear_count_sweep(
+                    **common,
+                    num_of_freq_points=sweep_spec["count"],
+                )
+            else:
+                sweep = app.create_linear_step_sweep(
+                    **common,
+                    step_size=sweep_spec["step_size"],
+                )
+            if not sweep or sweep_name not in _sweep_names(app, setup_name):
+                raise LiveBackendError("HFSS sweep readback failed after creation")
+            setup_inventory = {
+                "name": setup_name,
+                "type": setup_spec["type"],
+                "properties": property_readback,
+                "sweeps": _sweep_names(app, setup_name),
+            }
+            if setup_inventory["sweeps"] != [sweep_name]:
+                raise LiveBackendError("HFSS setup and sweep inventory verification failed")
+        except Exception as exc:
+            rollback = _rollback_hfss_setup(
+                app,
+                setup_name,
+                before_names=preview["state"]["setup_names"],
+            )
+            if not rollback["complete"]:
+                raise LiveBackendError(
+                    f"HFSS setup and sweep creation failed and rollback is incomplete: {rollback}"
+                ) from exc
+            if isinstance(exc, LiveBackendError):
+                raise
+            raise LiveBackendError(
+                f"HFSS setup and sweep creation failed: {type(exc).__name__}: {exc}"
+            ) from exc
+
+        del self._previews[preview_id]
+        return {
+            "status": "verified",
+            "preview_id": preview_id,
+            "setup": setup_spec,
+            "sweep": sweep_spec,
+            "setup_inventory": setup_inventory,
+            "created_setup_name": setup_name,
+            "created_sweep_name": sweep_name,
+            "atomic_setup_sweep_transaction": True,
+            "automatic_rollback_on_failure": True,
             "project_dirty": True,
             "project_saved": False,
         }
@@ -3039,6 +3198,10 @@ _HFSS_SETUP_PROPERTIES = {
     "PercentRefinement",
     "BasisOrder",
 }
+_HFSS_SETUP_TYPES_WITH_FREQUENCY_SWEEP = {
+    "HFSSDriven",
+    "HFSSDrivenAuto",
+}
 
 _HFSS_BOUNDARY_OPTIONS = {
     "radiation": set(),
@@ -3101,6 +3264,170 @@ _LAYOUT_OBJECT_WRITABLE_PROPERTIES = {
 }
 
 _SAFE_ARTIFACT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,127}")
+
+
+def _normalize_hfss_setup_spec(raw_setup: Any) -> dict[str, Any]:
+    if not isinstance(raw_setup, dict):
+        raise LiveBackendError("setup must be an object")
+    unsupported = sorted(set(raw_setup).difference({"name", "type", "properties"}))
+    if unsupported:
+        raise LiveBackendError(f"unsupported setup field: {unsupported[0]}")
+    name = str(raw_setup.get("name") or "").strip()
+    if not _SAFE_AEDT_OBJECT_NAME.fullmatch(name):
+        raise LiveBackendError("setup.name must be a safe AEDT name")
+    setup_type = str(raw_setup.get("type") or "HFSSDriven").strip()
+    if setup_type not in _HFSS_SETUP_TYPES_WITH_FREQUENCY_SWEEP:
+        raise LiveBackendError(
+            "setup.type must be HFSSDriven or HFSSDrivenAuto for a frequency sweep"
+        )
+    properties = _normalize_hfss_setup_properties(raw_setup.get("properties"))
+    return {"name": name, "type": setup_type, "properties": properties}
+
+
+def _normalize_hfss_setup_properties(raw_properties: Any) -> dict[str, Any]:
+    if raw_properties is None:
+        properties: dict[str, Any] = {}
+    elif isinstance(raw_properties, dict):
+        properties = dict(raw_properties)
+    else:
+        raise LiveBackendError("setup.properties must be an object")
+    unsupported = sorted(set(properties).difference(_HFSS_SETUP_PROPERTIES))
+    if unsupported:
+        raise LiveBackendError(f"unsupported HFSS setup property: {unsupported[0]}")
+    normalized: dict[str, Any] = {}
+    if "Frequency" in properties:
+        frequency = properties["Frequency"]
+        if not isinstance(frequency, str) or not _SAFE_AEDT_EXPRESSION.fullmatch(
+            frequency.strip()
+        ):
+            raise LiveBackendError(
+                "setup.properties.Frequency must be a bounded AEDT expression with explicit units"
+            )
+        normalized["Frequency"] = frequency.strip()
+    integer_bounds = {
+        "MaximumPasses": (1, 1000),
+        "MinimumPasses": (1, 1000),
+        "MinimumConvergedPasses": (0, 1000),
+    }
+    for name, (minimum, maximum) in integer_bounds.items():
+        if name in properties:
+            normalized[name] = _bounded_integer(
+                properties[name],
+                f"setup.properties.{name}",
+                minimum=minimum,
+                maximum=maximum,
+            )
+    if (
+        "MaximumPasses" in normalized
+        and "MinimumPasses" in normalized
+        and normalized["MinimumPasses"] > normalized["MaximumPasses"]
+    ):
+        raise LiveBackendError(
+            "setup.properties.MinimumPasses must not exceed MaximumPasses"
+        )
+    numeric_bounds = {
+        "MaxDeltaS": (0.0, 1.0),
+        "PercentRefinement": (0.0, 100.0),
+    }
+    for name, (minimum, maximum) in numeric_bounds.items():
+        if name not in properties:
+            continue
+        value = properties[name]
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or not minimum < float(value) <= maximum
+        ):
+            raise LiveBackendError(
+                f"setup.properties.{name} must be greater than {minimum:g} and at most {maximum:g}"
+            )
+        normalized[name] = value
+    if "BasisOrder" in properties:
+        basis_order = properties["BasisOrder"]
+        if type(basis_order) is not int or basis_order not in {-1, 1, 2}:
+            raise LiveBackendError("setup.properties.BasisOrder must be -1, 1, or 2")
+        normalized["BasisOrder"] = basis_order
+    return normalized
+
+
+def _normalize_hfss_sweep_spec(raw_sweep: Any) -> dict[str, Any]:
+    if not isinstance(raw_sweep, dict):
+        raise LiveBackendError("sweep must be an object")
+    allowed = {
+        "name",
+        "range_type",
+        "sweep_type",
+        "unit",
+        "start_frequency",
+        "stop_frequency",
+        "count",
+        "step_size",
+        "save_fields",
+    }
+    unsupported = sorted(set(raw_sweep).difference(allowed))
+    if unsupported:
+        raise LiveBackendError(f"unsupported sweep field: {unsupported[0]}")
+    name = str(raw_sweep.get("name") or "").strip()
+    if not _SAFE_AEDT_OBJECT_NAME.fullmatch(name):
+        raise LiveBackendError("sweep.name must be a safe AEDT name")
+    range_type = str(raw_sweep.get("range_type") or "LinearCount")
+    if range_type not in {"LinearCount", "LinearStep"}:
+        raise LiveBackendError("sweep.range_type must be LinearCount or LinearStep")
+    sweep_type = str(raw_sweep.get("sweep_type") or "Interpolating")
+    if sweep_type not in {"Discrete", "Interpolating", "Fast"}:
+        raise LiveBackendError(
+            "sweep.sweep_type must be Discrete, Interpolating, or Fast"
+        )
+    unit = str(raw_sweep.get("unit") or "GHz")
+    if unit not in {"Hz", "kHz", "MHz", "GHz", "THz"}:
+        raise LiveBackendError("unsupported sweep frequency unit")
+    start = _positive_finite(raw_sweep.get("start_frequency", 1.0), "sweep.start_frequency")
+    stop = _positive_finite(raw_sweep.get("stop_frequency", 10.0), "sweep.stop_frequency")
+    if stop <= start:
+        raise LiveBackendError("sweep.stop_frequency must be greater than start_frequency")
+    save_fields = raw_sweep.get("save_fields", True)
+    if type(save_fields) is not bool:
+        raise LiveBackendError("sweep.save_fields must be boolean")
+    count = None
+    step_size = None
+    if range_type == "LinearCount":
+        count = _bounded_integer(
+            raw_sweep.get("count", 401),
+            "sweep.count",
+            minimum=2,
+            maximum=100001,
+        )
+    else:
+        step_size = _positive_finite(raw_sweep.get("step_size"), "sweep.step_size")
+        span = stop - start
+        if step_size >= span:
+            raise LiveBackendError("sweep.step_size must be smaller than the sweep span")
+        estimated_points = math.ceil(span / step_size) + 1
+        if estimated_points > 100001:
+            raise LiveBackendError("sweep LinearStep would exceed 100001 frequency points")
+    return {
+        "name": name,
+        "range_type": range_type,
+        "sweep_type": sweep_type,
+        "unit": unit,
+        "start_frequency": start,
+        "stop_frequency": stop,
+        "count": count,
+        "step_size": step_size,
+        "save_fields": save_fields,
+    }
+
+
+def _positive_finite(value: Any, field: str) -> float:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+        or float(value) <= 0
+    ):
+        raise LiveBackendError(f"{field} must be a positive finite number")
+    return float(value)
 
 
 def _bounded_integer(
@@ -3710,6 +4037,62 @@ def _raw_hfss_object_names(app: Any) -> list[str]:
 def _setup_names(app: Any) -> list[str]:
     attribute = "existing_analysis_setups" if hasattr(app, "existing_analysis_setups") else "setup_names"
     return sorted(str(item) for item in list(_read(app, attribute)))
+
+
+def _rollback_hfss_setup(
+    app: Any,
+    setup_name: str,
+    *,
+    before_names: list[str],
+) -> dict[str, Any]:
+    inventory_error = ""
+    try:
+        current_before_delete = set(_setup_names(app))
+    except Exception as exc:
+        current_before_delete = set(before_names)
+        current_before_delete.add(setup_name)
+        inventory_error = f"{type(exc).__name__}: {exc}"
+    delete_error = ""
+    if setup_name in current_before_delete:
+        try:
+            app.oanalysis.DeleteSetups([setup_name])
+        except Exception as exc:
+            try:
+                deleted = app.delete_setup(setup_name)
+                if deleted is False:
+                    raise LiveBackendError("setup delete returned false")
+            except Exception as fallback_exc:
+                delete_error = (
+                    f"{type(exc).__name__}: {exc}; public fallback failed: "
+                    f"{type(fallback_exc).__name__}: {fallback_exc}"
+                )
+    readback_error = ""
+    try:
+        current = set(_setup_names(app))
+    except Exception as exc:
+        current = set()
+        readback_error = f"{type(exc).__name__}: {exc}"
+    before = set(before_names)
+    created = {setup_name}.intersection(current_before_delete)
+    missing_old = sorted(before.difference(current))
+    remaining_created = sorted(created.intersection(current))
+    unexpected = sorted(current.difference(before).difference(created))
+    return {
+        "complete": (
+            not delete_error
+            and not readback_error
+            and not missing_old
+            and not remaining_created
+            and not unexpected
+        ),
+        "deleted_setups": sorted(created.difference(current)),
+        "remaining_created_setups": remaining_created,
+        "missing_old_setups": missing_old,
+        "unexpected_setups": unexpected,
+        "initial_inventory_error": inventory_error,
+        "delete_error": delete_error,
+        "readback_error": readback_error,
+    }
 
 
 def _sweep_names(app: Any, setup_name: str) -> list[str]:
@@ -4336,6 +4719,14 @@ def _port_order_source(app: Any) -> str:
         if values is not None and list(values or []):
             return f"pyaedt.{attribute}"
     return "unavailable"
+
+
+def _hfss_port_names(app: Any) -> list[str]:
+    for attribute in ("ports", "excitation_names", "port_list"):
+        names = _safe_string_list(app, attribute)
+        if names:
+            return sorted(set(names))
+    return []
 
 
 def _boundary_names(app: Any) -> list[str]:

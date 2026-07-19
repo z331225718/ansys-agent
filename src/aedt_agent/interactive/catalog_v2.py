@@ -167,6 +167,30 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             postconditions=["bounded_range", "setup_snapshot_unchanged", "readback_verified", "rollback_on_failure"],
         ),
         _cap(
+            "hfss.setup_sweep.create",
+            "reversible_edit",
+            ["live"],
+            [
+                "preview_live_hfss_setup_sweep_create",
+                "apply_live_hfss_setup_sweep_create",
+            ],
+            approval="external_host_token",
+            side_effects=[
+                "project_becomes_dirty",
+                "hfss_setup_created",
+                "hfss_frequency_sweep_created",
+            ],
+            postconditions=[
+                "typed_setup_properties_only",
+                "bounded_sweep_range_and_point_count",
+                "setup_snapshot_unchanged",
+                "setup_and_sweep_readback_verified",
+                "atomic_rollback_on_failure",
+                "project_not_saved",
+            ],
+            products=["hfss"],
+        ),
+        _cap(
             "hfss.report.create",
             "reversible_edit",
             ["live"],

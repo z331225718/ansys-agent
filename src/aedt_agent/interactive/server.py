@@ -535,6 +535,36 @@ def create_server(
         )
 
     @server.tool()
+    async def preview_live_hfss_setup_sweep_create(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        setup: dict,
+        sweep: dict,
+    ) -> dict:
+        """Preview atomic creation of one typed HFSS setup and its bounded frequency sweep."""
+        return live.preview_hfss_setup_sweep_create(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            setup=setup,
+            sweep=sweep,
+        )
+
+    @server.tool()
+    async def apply_live_hfss_setup_sweep_create(
+        live_session_id: str,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        """Create and verify one HFSS setup plus sweep atomically; rollback both on failure."""
+        return live.apply_hfss_setup_sweep_create(
+            live_session_id,
+            preview_id=preview_id,
+            approval_token=approval_token,
+        )
+
+    @server.tool()
     async def preview_live_hfss_report_create(
         live_session_id: str,
         project_name: str,
