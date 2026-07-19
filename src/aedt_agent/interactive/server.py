@@ -461,6 +461,71 @@ def create_server(
         )
 
     @server.tool()
+    async def get_live_hfss_far_field_inventory(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        max_items: int = 100,
+    ) -> dict:
+        """List bounded HFSS field setups and Radiation/PML/Hybrid prerequisites."""
+        return live.hfss_far_field_inventory(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            max_items=max_items,
+        )
+
+    @server.tool()
+    async def preview_live_hfss_infinite_sphere_create(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        sphere_name: str,
+        definition: str = "Theta-Phi",
+        angle1_start: float = 0.0,
+        angle1_stop: float = 180.0,
+        angle1_step: float = 10.0,
+        angle2_start: float = 0.0,
+        angle2_stop: float = 180.0,
+        angle2_step: float = 10.0,
+        units: str = "deg",
+        polarization: str = "Linear",
+        polarization_angle: float = 45.0,
+        max_samples: int = 200_000,
+    ) -> dict:
+        """Preview one bounded HFSS Infinite Sphere using two explicit angle axes."""
+        return live.preview_hfss_infinite_sphere_create(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            sphere_name=sphere_name,
+            definition=definition,
+            angle1_start=angle1_start,
+            angle1_stop=angle1_stop,
+            angle1_step=angle1_step,
+            angle2_start=angle2_start,
+            angle2_stop=angle2_stop,
+            angle2_step=angle2_step,
+            units=units,
+            polarization=polarization,
+            polarization_angle=polarization_angle,
+            max_samples=max_samples,
+        )
+
+    @server.tool()
+    async def apply_live_hfss_infinite_sphere_create(
+        live_session_id: str,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        """Create and read back one HFSS Infinite Sphere; rollback on failure and do not save."""
+        return live.apply_hfss_infinite_sphere_create(
+            live_session_id,
+            preview_id=preview_id,
+            approval_token=approval_token,
+        )
+
+    @server.tool()
     async def preview_live_hfss_geometry_create(
         live_session_id: str,
         project_name: str,

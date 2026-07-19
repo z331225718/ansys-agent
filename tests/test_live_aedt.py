@@ -514,6 +514,41 @@ class FakeBoundary:
         return True
 
 
+class FakeFieldSetup:
+    def __init__(self, owner, name, definition, values, units, polarization, polarization_angle):
+        self.owner = owner
+        self.name = name
+        self.type = "FarFieldSphere"
+        axes = {
+            "Theta-Phi": ("Theta", "Phi"),
+            "El Over Az": ("Azimuth", "Elevation"),
+            "Az Over El": ("Elevation", "Azimuth"),
+        }[definition]
+        self.properties = {
+            "Name": name,
+            "Type": "Infinite Sphere",
+            "CS Definition": definition,
+            f"Start {axes[0]}": _fake_angle(values[0], units),
+            f"Stop {axes[0]}": _fake_angle(values[1], units),
+            f"{axes[0]} Step": _fake_angle(values[2], units),
+            f"Start {axes[1]}": _fake_angle(values[3], units),
+            f"Stop {axes[1]}": _fake_angle(values[4], units),
+            f"{axes[1]} Step": _fake_angle(values[5], units),
+            "Coordinate System": "Global",
+            "Polarization": polarization,
+            "Slant Angle": _fake_angle(polarization_angle, units),
+        }
+        self.props = dict(self.properties)
+
+    def delete(self):
+        self.owner._field_setups.pop(self.name, None)
+        return True
+
+
+def _fake_angle(value, units):
+    return f"{float(value):g}{units}"
+
+
 class FakeHfss:
     are_there_simulations_running = True
     solution_type = "DrivenModal"
@@ -602,6 +637,63 @@ class FakeControlledSolveHfss(FakeHfss):
         path = Path(output_file)
         path.write_text("# Hz S RI R 50\n", encoding="ascii")
         return str(path)
+
+
+class FakeFarFieldHfss(FakeHfss):
+    def __init__(self, *, fail_create=False, mismatch_readback=False, **kwargs):
+        super().__init__(**kwargs)
+        self.are_there_simulations_running = False
+        self._field_setups = {}
+        self.fail_create = fail_create
+        self.mismatch_readback = mismatch_readback
+
+    @property
+    def field_setup_names(self):
+        return list(self._field_setups)
+
+    @property
+    def field_setups(self):
+        return list(self._field_setups.values())
+
+    def insert_infinite_sphere(
+        self,
+        *,
+        definition,
+        theta_start,
+        theta_stop,
+        theta_step,
+        phi_start,
+        phi_stop,
+        phi_step,
+        units,
+        custom_coordinate_system,
+        use_slant_polarization,
+        polarization_angle,
+        name,
+    ):
+        if self.fail_create:
+            raise RuntimeError("synthetic far-field create failure")
+        values = [
+            theta_start,
+            theta_stop,
+            theta_step,
+            phi_start,
+            phi_stop,
+            phi_step,
+        ]
+        if self.mismatch_readback:
+            values[2] = float(theta_step) * 2
+        setup = FakeFieldSetup(
+            self,
+            name,
+            definition,
+            values,
+            units,
+            "Slant" if use_slant_polarization else "Linear",
+            polarization_angle,
+        )
+        self._field_setups[name] = setup
+        return setup
 
 
 class FakeGeometryHfss(FakeHfss):
@@ -851,6 +943,11 @@ class FakeRegistry:
             return {
                 "preview_id": "length-mesh-preview-1",
                 "snapshot_digest": "length-mesh-digest-1",
+            }
+        if command == "hfss_infinite_sphere_create_preview":
+            return {
+                "preview_id": "infinite-sphere-preview-1",
+                "snapshot_digest": "infinite-sphere-digest-1",
             }
         if command == "hfss_report_preview":
             return {"preview_id": "report-preview-1", "snapshot_digest": "report-digest-1"}
@@ -1872,6 +1969,196 @@ def test_backend_hfss_length_mesh_preview_rejects_unsafe_requests(payload, error
         backend.execute(
             AedtTarget("pid", 42),
             "hfss_length_mesh_create_preview",
+            {"project_name": "Board", "design_name": "HFSS1", **payload},
+        )
+
+
+def test_backend_lists_and_creates_hfss_infinite_sphere_with_verified_readback():
+    apps = []
+
+    def factory(**kwargs):
+        app = FakeFarFieldHfss(**kwargs)
+        apps.append(app)
+        return app
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, hfss_factory=factory)
+    target = AedtTarget("pid", 42)
+    inventory = backend.execute(
+        target,
+        "hfss_far_field_inventory",
+        {"project_name": "Board", "design_name": "HFSS1", "max_items": 10},
+    )
+    assert inventory["field_setup_count"] == 0
+    assert inventory["creation_ready"] is True
+    assert [
+        (item["name"], item["type"])
+        for item in inventory["radiated_field_sources"]
+    ] == [("rad1", "Radiation")]
+    assert inventory["design_unchanged"] is True
+
+    preview = backend.execute(
+        target,
+        "hfss_infinite_sphere_create_preview",
+        {
+            "project_name": "Board",
+            "design_name": "HFSS1",
+            "sphere_name": "HarnessSphere",
+            "definition": "El Over Az",
+            "angle1_start": -180,
+            "angle1_stop": 180,
+            "angle1_step": 5,
+            "angle2_start": -90,
+            "angle2_stop": 90,
+            "angle2_step": 5,
+            "units": "deg",
+            "polarization": "Slant",
+            "polarization_angle": 45,
+            "max_samples": 5000,
+        },
+    )
+    assert preview["angle1_axis"] == "Azimuth"
+    assert preview["angle2_axis"] == "Elevation"
+    assert preview["sample_count"] == 2701
+    assert preview["project_dirty"] is False
+    assert preview["project_saved"] is False
+
+    result = backend.execute(
+        target,
+        "hfss_infinite_sphere_create_apply",
+        {"preview_id": preview["preview_id"]},
+    )
+    assert result["status"] == "verified"
+    assert result["created_field_setup_name"] == "HarnessSphere"
+    assert result["field_setup"]["kind"] == "infinite_sphere"
+    assert result["field_setup"]["definition"] == "El Over Az"
+    assert result["field_setup"]["angle1_axis"] == "Azimuth"
+    assert result["field_setup"]["angle2_axis"] == "Elevation"
+    assert result["field_setup"]["polarization"] == "Slant"
+    assert result["automatic_rollback_on_failure"] is True
+    assert result["project_saved"] is False
+    assert list(apps[0]._field_setups) == ["HarnessSphere"]
+
+
+def test_backend_hfss_infinite_sphere_rolls_back_readback_failure_and_rejects_stale():
+    apps = []
+
+    def factory(**kwargs):
+        app = FakeFarFieldHfss(mismatch_readback=True, **kwargs)
+        apps.append(app)
+        return app
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, hfss_factory=factory)
+    target = AedtTarget("pid", 42)
+    request = {
+        "project_name": "Board",
+        "design_name": "HFSS1",
+        "sphere_name": "MustRollback",
+        "definition": "Theta-Phi",
+        "angle1_start": 0,
+        "angle1_stop": 180,
+        "angle1_step": 10,
+        "angle2_start": 0,
+        "angle2_stop": 360,
+        "angle2_step": 10,
+    }
+    preview = backend.execute(target, "hfss_infinite_sphere_create_preview", request)
+    with pytest.raises(LiveBackendError, match="angle1_step readback failed"):
+        backend.execute(
+            target,
+            "hfss_infinite_sphere_create_apply",
+            {"preview_id": preview["preview_id"]},
+        )
+    assert apps[0].field_setup_names == []
+
+    apps[0].mismatch_readback = False
+    stale = backend.execute(target, "hfss_infinite_sphere_create_preview", request)
+    apps[0].insert_infinite_sphere(
+        definition="Theta-Phi",
+        theta_start=0,
+        theta_stop=180,
+        theta_step=30,
+        phi_start=0,
+        phi_stop=360,
+        phi_step=30,
+        units="deg",
+        custom_coordinate_system=None,
+        use_slant_polarization=False,
+        polarization_angle=45,
+        name="ExternalSphere",
+    )
+    with pytest.raises(LiveBackendError, match="stale HFSS infinite sphere create preview"):
+        backend.execute(
+            target,
+            "hfss_infinite_sphere_create_apply",
+            {"preview_id": stale["preview_id"]},
+        )
+    assert "MustRollback" not in apps[0].field_setup_names
+    assert "ExternalSphere" in apps[0].field_setup_names
+
+
+@pytest.mark.parametrize(
+    "mutator,error",
+    [
+        (lambda app: app.boundaries.clear(), "requires an existing Radiation"),
+        (lambda app: setattr(app, "solution_type", "EigenMode"), "does not support"),
+    ],
+)
+def test_backend_hfss_infinite_sphere_requires_real_radiated_field_prerequisites(
+    mutator, error
+):
+    app = FakeFarFieldHfss(project="Board", design="HFSS1")
+    mutator(app)
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=lambda **kwargs: app,
+    )
+    with pytest.raises(LiveBackendError, match=error):
+        backend.execute(
+            AedtTarget("pid", 42),
+            "hfss_infinite_sphere_create_preview",
+            {
+                "project_name": "Board",
+                "design_name": "HFSS1",
+                "sphere_name": "Sphere1",
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    "payload,error",
+    [
+        ({"sphere_name": "bad/name"}, "safe AEDT name"),
+        ({"sphere_name": "S", "definition": "bad"}, "definition must be"),
+        ({"sphere_name": "S", "units": "grad"}, "units must be"),
+        (
+            {"sphere_name": "S", "angle1_start": 10, "angle1_stop": 0},
+            "angle1_stop must be greater",
+        ),
+        (
+            {"sphere_name": "S", "angle1_step": 0},
+            "angle1_step must be positive",
+        ),
+        (
+            {
+                "sphere_name": "S",
+                "angle1_step": 1,
+                "angle2_step": 1,
+                "max_samples": 100,
+            },
+            "sample count .* exceeds max_samples",
+        ),
+        ({"sphere_name": "S", "polarization": "circular"}, "polarization must be"),
+    ],
+)
+def test_backend_hfss_infinite_sphere_preview_rejects_unsafe_requests(payload, error):
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=FakeFarFieldHfss,
+    )
+    with pytest.raises(LiveBackendError, match=error):
+        backend.execute(
+            AedtTarget("pid", 42),
+            "hfss_infinite_sphere_create_preview",
             {"project_name": "Board", "design_name": "HFSS1", **payload},
         )
 
@@ -3810,6 +4097,47 @@ def test_manager_requires_action_bound_one_use_approval_for_hfss_length_mesh_cre
     assert getattr(replay.value, "code", None) == "approval_required"
 
 
+def test_manager_requires_action_bound_one_use_approval_for_hfss_infinite_sphere():
+    registry = FakeRegistry()
+    authority = HmacApprovalAuthority("f" * 32)
+    manager = LiveAedtSessionManager(registry=registry, approval_verifier=authority)
+    session_id = manager.attach(pid=42)["live_session_id"]
+    preview = manager.preview_hfss_infinite_sphere_create(
+        session_id,
+        project_name="Board",
+        design_name="HFSS1",
+        sphere_name="HarnessSphere",
+        definition="Theta-Phi",
+        angle1_start=-90,
+        angle1_stop=90,
+        angle1_step=5,
+        angle2_start=0,
+        angle2_stop=360,
+        angle2_step=10,
+        polarization="Slant",
+        polarization_angle=45,
+        max_samples=5000,
+    )
+    assert (
+        preview["approval_request"]["action"]
+        == "hfss.far_field.infinite_sphere.create"
+    )
+    token = authority.issue(**preview["approval_request"])
+    result = manager.apply_hfss_infinite_sphere_create(
+        session_id,
+        preview_id=preview["preview_id"],
+        approval_token=token,
+    )
+    assert result["command"] == "hfss_infinite_sphere_create_apply"
+    with pytest.raises(Exception) as replay:
+        manager.apply_hfss_infinite_sphere_create(
+            session_id,
+            preview_id=preview["preview_id"],
+            approval_token=token,
+        )
+    assert getattr(replay.value, "code", None) == "approval_required"
+
+
 def test_manager_requires_action_bound_approval_for_layout_edge_ports():
     registry = FakeRegistry()
     authority = HmacApprovalAuthority("e" * 32)
@@ -4061,6 +4389,9 @@ def test_mcp_registers_live_tools_without_changing_artifact_tools(monkeypatch):
     assert "apply_live_hfss_geometry_create" in server.tools
     assert "preview_live_hfss_geometry_boundary_create" in server.tools
     assert "apply_live_hfss_geometry_boundary_create" in server.tools
+    assert "get_live_hfss_far_field_inventory" in server.tools
+    assert "preview_live_hfss_infinite_sphere_create" in server.tools
+    assert "apply_live_hfss_infinite_sphere_create" in server.tools
     assert "preview_live_hfss_setup_create" in server.tools
     assert "apply_live_hfss_setup_create" in server.tools
     assert "preview_live_hfss_setup_sweep_create" in server.tools
@@ -4147,6 +4478,9 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
         "get_live_aedt_project_info",
         "get_live_hfss_design_inventory",
         "get_live_hfss_geometry_inventory",
+        "get_live_hfss_far_field_inventory",
+        "preview_live_hfss_infinite_sphere_create",
+        "apply_live_hfss_infinite_sphere_create",
         "preview_live_hfss_setup_create",
         "apply_live_hfss_setup_create",
         "list_live_layout_paths",

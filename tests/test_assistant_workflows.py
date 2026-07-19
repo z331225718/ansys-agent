@@ -241,6 +241,59 @@ class _Live:
             "project_saved": False,
         }
 
+    def preview_hfss_infinite_sphere_create(self, session_id: str, **kwargs) -> dict:
+        return {
+            "preview_id": "infinite-sphere-preview-1",
+            "sphere_name": kwargs["sphere_name"],
+            "definition": kwargs["definition"],
+            "approval_request": {"action": "hfss.far_field.infinite_sphere.create"},
+            "project_saved": False,
+        }
+
+    def apply_hfss_infinite_sphere_create(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        assert preview_id == "infinite-sphere-preview-1"
+        assert approval_token == "infinite-sphere-approved"
+        return {
+            "status": "verified",
+            "sphere_name": "HarnessSphere",
+            "definition": "Theta-Phi",
+            "angle1_axis": "Theta",
+            "angle2_axis": "Phi",
+            "angle1_start": -90.0,
+            "angle1_stop": 90.0,
+            "angle1_step": 5.0,
+            "angle2_start": 0.0,
+            "angle2_stop": 360.0,
+            "angle2_step": 10.0,
+            "units": "deg",
+            "angle1_count": 37,
+            "angle2_count": 37,
+            "sample_count": 1369,
+            "max_samples": 5000,
+            "coordinate_system": "Global",
+            "polarization": "Slant",
+            "polarization_angle": 45.0,
+            "created_field_setup_name": "HarnessSphere",
+            "field_setup": {
+                "name": "HarnessSphere",
+                "type": "Infinite Sphere",
+                "kind": "infinite_sphere",
+                "definition": "Theta-Phi",
+                "angle1_axis": "Theta",
+                "angle2_axis": "Phi",
+                "coordinate_system": "Global",
+                "polarization": "Slant",
+            },
+            "automatic_rollback_on_failure": True,
+            "project_saved": False,
+        }
+
     def preview_hfss_geometry_boundary_create(self, session_id: str, **kwargs) -> dict:
         return {
             "preview_id": "geometry-boundary-preview-1",
@@ -595,6 +648,11 @@ def test_default_workflow_catalog_includes_live_monitor_and_export(tmp_path: Pat
         "mesh_name",
         "object_names",
     ]
+    assert descriptors["hfss_live_infinite_sphere_create"]["risk"] == "reversible_edit"
+    assert descriptors["hfss_live_infinite_sphere_create"]["attached_live_session_reuse"] is True
+    assert descriptors["hfss_live_infinite_sphere_create"]["recommended_initial_fields"] == [
+        "sphere_name"
+    ]
     assert descriptors["hfss_live_geometry_boundary_create"]["risk"] == "reversible_edit"
     assert descriptors["hfss_live_geometry_boundary_create"]["attached_live_session_reuse"] is True
     assert descriptors["hfss_live_geometry_boundary_create"]["recommended_initial_fields"] == [
@@ -855,6 +913,65 @@ def test_live_hfss_length_mesh_workflow_creates_and_scores_operation(tmp_path: P
     assert scorecard["summary"]["object_names"] == ["box1", "box2"]
     assert scorecard["summary"]["maximum_length"] == "0.4mm"
     assert scorecard["summary"]["maximum_elements"] == 500
+    assert scorecard["summary"]["project_saved"] is False
+
+
+def test_live_hfss_infinite_sphere_workflow_creates_and_scores_field_setup(tmp_path: Path):
+    manager = AssistantWorkflowManager(
+        live_manager=_Live(),
+        db_path=tmp_path / "infinite-sphere-missions.db",
+        template_ids=("hfss_live_infinite_sphere_create",),
+        runtime_factory=lambda path: AgentRuntime(SQLiteMissionStore(path)),
+    )
+    start = manager.preview_start(
+        "live-1",
+        workflow_id="hfss_live_infinite_sphere_create",
+        goal="Create a reviewed HFSS far-field sphere",
+        initial_payload={
+            "sphere_name": "HarnessSphere",
+            "definition": "Theta-Phi",
+            "angle1_start": -90,
+            "angle1_stop": 90,
+            "angle1_step": 5,
+            "angle2_start": 0,
+            "angle2_stop": 360,
+            "angle2_step": 10,
+            "units": "deg",
+            "polarization": "Slant",
+            "polarization_angle": 45,
+            "max_samples": 5000,
+        },
+    )
+    started = manager.apply_start(
+        "live-1",
+        preview_id=start["preview_id"],
+        approval_token="approved",
+    )
+    report = None
+    for index in range(3):
+        advance = manager.preview_advance("live-1", graph_run_id=started["graph_run_id"])
+        if index == 1:
+            assert (
+                advance["operation_approval_required"]["preview_id"]
+                == "infinite-sphere-preview-1"
+            )
+        report = manager.apply_advance(
+            "live-1",
+            preview_id=advance["preview_id"],
+            approval_token="approved",
+            operation_approval_token=(
+                "infinite-sphere-approved" if index == 1 else ""
+            ),
+        )
+
+    assert report is not None and report["status"] == "succeeded"
+    assert "infinite-sphere-approved" not in str(report)
+    scorecard = report["node_runs"][-1]["output_payload"]
+    assert scorecard["status"] == "passed"
+    assert scorecard["summary"]["sphere_name"] == "HarnessSphere"
+    assert scorecard["summary"]["definition"] == "Theta-Phi"
+    assert scorecard["summary"]["sample_count"] == 1369
+    assert scorecard["summary"]["polarization"] == "Slant"
     assert scorecard["summary"]["project_saved"] is False
 
 

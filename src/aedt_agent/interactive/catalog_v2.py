@@ -167,6 +167,43 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             products=["hfss"],
         ),
         _cap(
+            "hfss.far_field.inventory",
+            "read_only",
+            ["live"],
+            ["get_live_hfss_far_field_inventory"],
+            postconditions=[
+                "design_unchanged",
+                "bounded_field_setup_inventory_returned",
+                "radiated_field_prerequisites_reported",
+                "field_setup_property_digests_returned",
+            ],
+            products=["hfss"],
+        ),
+        _cap(
+            "hfss.far_field.infinite_sphere.create",
+            "reversible_edit",
+            ["live"],
+            [
+                "preview_live_hfss_infinite_sphere_create",
+                "apply_live_hfss_infinite_sphere_create",
+            ],
+            approval="external_host_token",
+            side_effects=[
+                "project_becomes_dirty",
+                "hfss_infinite_sphere_field_setup_created",
+            ],
+            postconditions=[
+                "radiation_pml_or_hybrid_boundary_required",
+                "solution_type_supports_radiated_fields",
+                "bounded_angle_sample_count",
+                "field_setup_and_boundary_snapshot_unchanged",
+                "infinite_sphere_readback_verified",
+                "rollback_on_failure",
+                "project_not_saved",
+            ],
+            products=["hfss"],
+        ),
+        _cap(
             "hfss.geometry.create",
             "reversible_edit",
             ["live"],

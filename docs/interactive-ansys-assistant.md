@@ -14,7 +14,7 @@
 新增 live control plane 还能受控启动 AEDT，或发现并显式连接正在运行的 AEDT，会话内复用
 PyAEDT broker，读取工程信息、HFSS geometry/setup/port/boundary/report inventory、受控创建
 typed geometry batch、为显式 solid batch 分配已有工程材料、创建 setup、radiation boundary、wave/lumped port
-和 report、创建受控 Length Based Mesh、驱动 analysis，
+和 report、创建受控 Length Based Mesh 与有界 Infinite Sphere 远场设置、驱动 analysis，
 并能在单一事务中原子创建新几何和 Boundary/Port，或原子创建 Setup 和 Sweep，同时查询 live 3D Layout Path。
 在 Desktop-bound strict 会话和推荐的生产链路中，live edit、setup/boundary/report、solve/cancel/export
 与 project save 都采用 preview/apply 两阶段操作，并使用外部 Host 签发的短期批准令牌。通用 MCP
@@ -141,6 +141,9 @@ apply_live_hfss_material_assign
 get_live_hfss_mesh_inventory
 preview_live_hfss_length_mesh_create
 apply_live_hfss_length_mesh_create
+get_live_hfss_far_field_inventory
+preview_live_hfss_infinite_sphere_create
+apply_live_hfss_infinite_sphere_create
 preview_live_hfss_geometry_create
 apply_live_hfss_geometry_create
 preview_live_hfss_geometry_boundary_create
@@ -253,6 +256,22 @@ get_live_hfss_geometry_inventory
   -> 核对 Type、Assignment、Region、Max Length、Max Elems 和 project_saved=false
 ```
 
+创建 HFSS Infinite Sphere 远场设置时，设计必须已经有 Radiation、PML 或 free-standing hybrid
+边界，且 solution type 不能是 EigenMode/CharacteristicMode：
+
+```text
+get_live_hfss_far_field_inventory
+  -> 核对 creation_ready 和 radiated_field_sources
+  -> preview_live_hfss_infinite_sphere_create
+  -> Host approval
+  -> apply_live_hfss_infinite_sphere_create
+  -> 核对 definition、两条角度轴、polarization、sample_count 和 project_saved=false
+```
+
+Harness 支持 `Theta-Phi`、`El Over Az`、`Az Over El` 以及 `deg`/`rad` 数值输入，限制角度网格总样本数，
+并在 apply 前冻结 Boundary 和全部 Field Setup。当前只允许 `Global` coordinate system，不接受自定义
+radiation surface 或未验证的表达式输入。
+
 几何和 Boundary/Port 的常规顺序为：
 
 ```text
@@ -315,7 +334,7 @@ token = authority.issue(**preview["approval_request"])
 - 写操作暂不支持覆盖源工程。
 - 只读查询也打开临时快照副本，关闭会话后自动清理，避免 EDB lock/tmp 文件触碰源目录。
 - `.aedt` 输入必须存在同名 `.aedb` sidecar。
-- Live HFSS/3D Layout 当前支持 routing/object/variable/setup inventory、HFSS solid 材料批量分配和 Length Based Mesh、受控变量和对象属性更新、setup/sweep、
+- Live HFSS/3D Layout 当前支持 routing/object/variable/setup inventory、HFSS solid 材料批量分配、Length Based Mesh 和 Infinite Sphere 远场设置、受控变量和对象属性更新、setup/sweep、
   radiation/wave/lumped port、report 创建、批准式 analysis start/cancel/status、Layout 有界求解监控、
   HFSS/Layout 受限结果导出和受控 project save。
 - `create_live_hfss_design` 与 `start_live_hfss_analysis` 仅为通用 MCP 兼容入口；Desktop strict 模式禁用直接写入，生产求解使用批准链路。

@@ -99,6 +99,12 @@ class LiveAedtBackend:
                 return self._hfss_length_mesh_create_preview(target, arguments)
             if command == "hfss_length_mesh_create_apply":
                 return self._hfss_length_mesh_create_apply(target, arguments)
+            if command == "hfss_far_field_inventory":
+                return self._hfss_far_field_inventory(target, arguments)
+            if command == "hfss_infinite_sphere_create_preview":
+                return self._hfss_infinite_sphere_create_preview(target, arguments)
+            if command == "hfss_infinite_sphere_create_apply":
+                return self._hfss_infinite_sphere_create_apply(target, arguments)
             if command == "hfss_geometry_create_preview":
                 return self._hfss_geometry_create_preview(target, arguments)
             if command == "hfss_geometry_create_apply":
@@ -904,6 +910,210 @@ class LiveAedtBackend:
             "created_mesh_operation_name": spec["mesh_name"],
             "mesh_operation": readback,
             "mesh_operation_count": len(after_operations),
+            "automatic_rollback_on_failure": True,
+            "project_dirty": True,
+            "project_saved": False,
+        }
+
+    def _hfss_far_field_inventory(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        app = self._app(
+            target,
+            "hfss",
+            _required(args, "project_name"),
+            _required(args, "design_name"),
+        )
+        if str(_safe_attribute(app, "design_type") or "").strip().casefold() != "hfss":
+            raise LiveBackendError("HFSS far-field inventory requires an HFSS 3D design")
+        max_items = _bounded_integer(
+            args.get("max_items", 100),
+            "max_items",
+            minimum=1,
+            maximum=500,
+        )
+        names = _hfss_field_setup_names(app)
+        selected_names = names[:max_items]
+        records = _hfss_field_setup_snapshot(app, selected_names)
+        boundaries = _hfss_boundary_records(app)
+        sources = [item for item in boundaries if _supports_radiated_fields(item["type"])]
+        solution_type = str(_safe_attribute(app, "solution_type") or "").strip()
+        blockers = []
+        if _far_field_solution_forbidden(solution_type):
+            blockers.append("solution_type_does_not_support_radiated_fields")
+        if not sources:
+            blockers.append("radiation_pml_or_hybrid_boundary_required")
+        return {
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "solution_type": solution_type,
+            "field_setup_count": len(names),
+            "returned_count": len(records),
+            "truncated": len(names) > len(records),
+            "field_setups": records,
+            "radiated_field_sources": sources,
+            "creation_ready": not blockers,
+            "creation_blockers": blockers,
+            "snapshot_digest": _digest(
+                {
+                    "solution_type": solution_type,
+                    "boundaries": boundaries,
+                    "field_setup_names": names,
+                    "records": records,
+                }
+            ),
+            "design_unchanged": True,
+        }
+
+    def _hfss_infinite_sphere_create_preview(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        app = self._app(
+            target,
+            "hfss",
+            _required(args, "project_name"),
+            _required(args, "design_name"),
+        )
+        if str(_safe_attribute(app, "design_type") or "").strip().casefold() != "hfss":
+            raise LiveBackendError("HFSS infinite sphere creation requires an HFSS 3D design")
+        if _simulation_running(app):
+            raise LiveBackendError("cannot create HFSS far-field setups while a simulation is running")
+        solution_type = str(_safe_attribute(app, "solution_type") or "").strip()
+        if _far_field_solution_forbidden(solution_type):
+            raise LiveBackendError(
+                f"HFSS solution type does not support infinite spheres: {solution_type}"
+            )
+        spec = _normalize_hfss_infinite_sphere_spec(args)
+        names = _hfss_field_setup_names(app)
+        if len(names) > 500:
+            raise LiveBackendError(
+                "HFSS design has more than 500 field setups; bounded preview is unavailable"
+            )
+        records = _hfss_field_setup_snapshot(app, names)
+        existing_casefold = {item["name"].casefold(): item["name"] for item in records}
+        if spec["sphere_name"].casefold() in existing_casefold:
+            raise LiveBackendError(
+                f"HFSS field setup already exists: {existing_casefold[spec['sphere_name'].casefold()]}"
+            )
+        boundaries = _hfss_boundary_records(app)
+        sources = [item for item in boundaries if _supports_radiated_fields(item["type"])]
+        if not sources:
+            raise LiveBackendError(
+                "HFSS infinite sphere creation requires an existing Radiation, PML, or hybrid boundary"
+            )
+        state = {
+            "solution_type": solution_type,
+            "boundaries": boundaries,
+            "field_setups": records,
+        }
+        state_digest = _digest(state)
+        preview_id = "infinite-sphere-preview-" + _digest(
+            spec | {"state": state_digest}
+        )[:24]
+        self._previews[preview_id] = {
+            "kind": "hfss_infinite_sphere_create",
+            "target": target,
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "spec": spec,
+            "state": state,
+            "digest": state_digest,
+        }
+        return {
+            "preview_id": preview_id,
+            **spec,
+            "solution_type": solution_type,
+            "radiated_field_sources": sources,
+            "existing_field_setup_count": len(records),
+            "existing_field_setup_names": [item["name"] for item in records],
+            "snapshot_digest": state_digest,
+            "approval_required": True,
+            "project_dirty": False,
+            "project_saved": False,
+        }
+
+    def _hfss_infinite_sphere_create_apply(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        preview_id = _required(args, "preview_id")
+        preview = self._preview(preview_id, "hfss_infinite_sphere_create", target)
+        app = self._app(target, "hfss", preview["project_name"], preview["design_name"])
+        if _simulation_running(app):
+            raise LiveBackendError("cannot create HFSS far-field setups while a simulation is running")
+        try:
+            current_names = _hfss_field_setup_names(app)
+            if len(current_names) > 500:
+                raise LiveBackendError("HFSS field setup inventory exceeded preview bound")
+            current = {
+                "solution_type": str(_safe_attribute(app, "solution_type") or "").strip(),
+                "boundaries": _hfss_boundary_records(app),
+                "field_setups": _hfss_field_setup_snapshot(app, current_names),
+            }
+        except LiveBackendError as exc:
+            raise LiveBackendError("stale HFSS infinite sphere create preview") from exc
+        if _digest(current) != preview["digest"]:
+            raise LiveBackendError("stale HFSS infinite sphere create preview")
+
+        spec = preview["spec"]
+        created_name = ""
+        try:
+            sphere = app.insert_infinite_sphere(
+                definition=spec["definition"],
+                theta_start=spec["angle1_start"],
+                theta_stop=spec["angle1_stop"],
+                theta_step=spec["angle1_step"],
+                phi_start=spec["angle2_start"],
+                phi_stop=spec["angle2_stop"],
+                phi_step=spec["angle2_step"],
+                units=spec["units"],
+                custom_coordinate_system=None,
+                use_slant_polarization=spec["polarization"] == "Slant",
+                polarization_angle=spec["polarization_angle"],
+                name=spec["sphere_name"],
+            )
+            created_name = str(getattr(sphere, "name", "") or "") if sphere else ""
+            if sphere is None or created_name != spec["sphere_name"]:
+                raise LiveBackendError("HFSS infinite sphere creation returned an unexpected name")
+            after_records = _hfss_field_setup_snapshot(app)
+            record_by_name = {item["name"]: item for item in after_records}
+            readback = record_by_name.get(spec["sphere_name"])
+            if readback is None:
+                raise LiveBackendError("HFSS infinite sphere readback is missing")
+            _verify_hfss_infinite_sphere_readback(spec, readback)
+            before_names = {item["name"] for item in preview["state"]["field_setups"]}
+            after_names = {item["name"] for item in after_records}
+            if after_names != before_names | {spec["sphere_name"]}:
+                raise LiveBackendError("unexpected HFSS field setup inventory change")
+        except Exception as exc:
+            rollback = _rollback_hfss_field_setup(
+                app,
+                created_name or spec["sphere_name"],
+                before_setups=preview["state"]["field_setups"],
+            )
+            if not rollback["complete"]:
+                raise LiveBackendError(
+                    f"HFSS infinite sphere creation failed and rollback is incomplete: {rollback}"
+                ) from exc
+            if isinstance(exc, LiveBackendError):
+                raise
+            raise LiveBackendError(
+                f"HFSS infinite sphere creation failed: {type(exc).__name__}: {exc}"
+            ) from exc
+
+        del self._previews[preview_id]
+        return {
+            "status": "verified",
+            "preview_id": preview_id,
+            **spec,
+            "created_field_setup_name": spec["sphere_name"],
+            "field_setup": readback,
+            "field_setup_count": len(after_records),
             "automatic_rollback_on_failure": True,
             "project_dirty": True,
             "project_saved": False,
@@ -4648,6 +4858,359 @@ def _rollback_hfss_mesh_operation(
         "complete": not delete_error and not readback_error and after == before_operations,
         "deleted_mesh_operation": created_name if after == before_operations else "",
         "remaining_mesh_operations": [item["name"] for item in after],
+        "delete_error": delete_error,
+        "readback_error": readback_error,
+    }
+
+
+def _normalize_hfss_infinite_sphere_spec(args: dict[str, Any]) -> dict[str, Any]:
+    sphere_name = str(args.get("sphere_name") or "").strip()
+    if not _SAFE_AEDT_OBJECT_NAME.fullmatch(sphere_name):
+        raise LiveBackendError("sphere_name must be a safe AEDT name")
+    definition_aliases = {
+        "theta-phi": "Theta-Phi",
+        "el over az": "El Over Az",
+        "az over el": "Az Over El",
+    }
+    requested_definition = str(args.get("definition") or "Theta-Phi").strip().casefold()
+    definition = definition_aliases.get(requested_definition)
+    if definition is None:
+        raise LiveBackendError("definition must be Theta-Phi, El Over Az, or Az Over El")
+    units = str(args.get("units") or "deg").strip().casefold()
+    if units not in {"deg", "rad"}:
+        raise LiveBackendError("units must be deg or rad")
+    angle_limit = 360_000.0 if units == "deg" else 2_000.0 * math.pi
+    angles = {
+        field: _bounded_float(
+            args.get(field, default),
+            field,
+            minimum=-angle_limit,
+            maximum=angle_limit,
+        )
+        for field, default in (
+            ("angle1_start", 0.0),
+            ("angle1_stop", 180.0),
+            ("angle1_step", 10.0),
+            ("angle2_start", 0.0),
+            ("angle2_stop", 180.0),
+            ("angle2_step", 10.0),
+        )
+    }
+    for prefix in ("angle1", "angle2"):
+        start = angles[f"{prefix}_start"]
+        stop = angles[f"{prefix}_stop"]
+        step = angles[f"{prefix}_step"]
+        if stop <= start:
+            raise LiveBackendError(f"{prefix}_stop must be greater than {prefix}_start")
+        if step <= 0:
+            raise LiveBackendError(f"{prefix}_step must be positive")
+        if step > stop - start:
+            raise LiveBackendError(f"{prefix}_step must not exceed the requested angle span")
+    angle1_count = _inclusive_sample_count(
+        angles["angle1_start"], angles["angle1_stop"], angles["angle1_step"]
+    )
+    angle2_count = _inclusive_sample_count(
+        angles["angle2_start"], angles["angle2_stop"], angles["angle2_step"]
+    )
+    sample_count = angle1_count * angle2_count
+    max_samples = _bounded_integer(
+        args.get("max_samples", 200_000),
+        "max_samples",
+        minimum=4,
+        maximum=1_000_000,
+    )
+    if sample_count > max_samples:
+        raise LiveBackendError(
+            f"far-field sample count {sample_count} exceeds max_samples {max_samples}"
+        )
+    polarization_aliases = {"linear": "Linear", "slant": "Slant"}
+    polarization = polarization_aliases.get(
+        str(args.get("polarization") or "Linear").strip().casefold()
+    )
+    if polarization is None:
+        raise LiveBackendError("polarization must be Linear or Slant")
+    polarization_angle = _bounded_float(
+        args.get("polarization_angle", 45.0),
+        "polarization_angle",
+        minimum=-angle_limit,
+        maximum=angle_limit,
+    )
+    angle1_axis, angle2_axis = _far_field_axis_names(definition)
+    return {
+        "sphere_name": sphere_name,
+        "definition": definition,
+        "angle1_axis": angle1_axis,
+        "angle2_axis": angle2_axis,
+        **angles,
+        "units": units,
+        "angle1_count": angle1_count,
+        "angle2_count": angle2_count,
+        "sample_count": sample_count,
+        "max_samples": max_samples,
+        "coordinate_system": "Global",
+        "polarization": polarization,
+        "polarization_angle": polarization_angle,
+    }
+
+
+def _bounded_float(
+    value: Any,
+    field: str,
+    *,
+    minimum: float,
+    maximum: float,
+) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise LiveBackendError(f"{field} must be a finite number")
+    normalized = float(value)
+    if not math.isfinite(normalized) or normalized < minimum or normalized > maximum:
+        raise LiveBackendError(f"{field} must be between {minimum} and {maximum}")
+    return normalized
+
+
+def _inclusive_sample_count(start: float, stop: float, step: float) -> int:
+    return int(math.floor((stop - start) / step + 1e-12)) + 1
+
+
+def _far_field_axis_names(definition: str) -> tuple[str, str]:
+    if definition == "Theta-Phi":
+        return "Theta", "Phi"
+    if definition == "El Over Az":
+        return "Azimuth", "Elevation"
+    return "Elevation", "Azimuth"
+
+
+def _far_field_solution_forbidden(solution_type: str) -> bool:
+    normalized = re.sub(r"[\s_-]+", "", solution_type).casefold()
+    return normalized in {"eigenmode", "characteristicmode"}
+
+
+def _hfss_boundary_records(app: Any) -> list[dict[str, Any]]:
+    records = []
+    for item in list(getattr(app, "boundaries", []) or []):
+        properties = dict(getattr(item, "properties", {}) or {})
+        if not properties:
+            properties = dict(getattr(item, "props", {}) or {})
+        records.append(
+            {
+                "name": str(getattr(item, "name", item)).strip(),
+                "type": str(getattr(item, "type", item.__class__.__name__)).strip(),
+                "property_digest": _digest(_json_value(properties)) if properties else None,
+            }
+        )
+    return sorted(records, key=lambda item: (item["name"].casefold(), item["type"].casefold()))
+
+
+def _supports_radiated_fields(boundary_type: str) -> bool:
+    normalized = re.sub(r"[\s_-]+", "", boundary_type).casefold()
+    return any(token in normalized for token in ("radiation", "pml", "hybrid"))
+
+
+def _hfss_field_setup_names(app: Any) -> list[str]:
+    try:
+        names = [str(item).strip() for item in list(app.field_setup_names or [])]
+    except Exception as exc:
+        raise LiveBackendError("HFSS field setup names are unavailable") from exc
+    if any(not item for item in names):
+        raise LiveBackendError("HFSS field setup name is unavailable")
+    return sorted(set(names), key=str.casefold)
+
+
+def _hfss_field_setup_snapshot(
+    app: Any,
+    setup_names: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    requested_names = _hfss_field_setup_names(app) if setup_names is None else setup_names
+    if not requested_names:
+        return []
+    try:
+        setups = list(app.field_setups or [])
+    except Exception as exc:
+        raise LiveBackendError("HFSS field setup inventory is unavailable") from exc
+    records: dict[str, dict[str, Any]] = {}
+    for setup in setups:
+        name = str(getattr(setup, "name", "") or "").strip()
+        if not name:
+            raise LiveBackendError("HFSS field setup name readback is unavailable")
+        properties = dict(getattr(setup, "properties", {}) or {})
+        if not properties:
+            properties = dict(getattr(setup, "props", {}) or {})
+        if not properties:
+            raise LiveBackendError(f"HFSS field setup properties are unavailable: {name}")
+        records[name] = _hfss_field_setup_record(
+            name,
+            getattr(setup, "type", ""),
+            properties,
+        )
+    missing = [name for name in requested_names if name not in records]
+    if missing:
+        raise LiveBackendError(f"HFSS field setup readback is missing: {missing[0]}")
+    return sorted(
+        [records[name] for name in requested_names],
+        key=lambda item: item["name"].casefold(),
+    )
+
+
+def _hfss_field_setup_record(
+    name: str,
+    setup_type: Any,
+    properties: dict[str, Any],
+) -> dict[str, Any]:
+    readback_type = str(
+        _field_property(properties, "Type") or setup_type or ""
+    ).strip()
+    normalized_type = re.sub(r"[\s_-]+", "", readback_type).casefold()
+    record: dict[str, Any] = {
+        "name": name,
+        "type": readback_type,
+        "kind": (
+            "infinite_sphere"
+            if "infinitesphere" in normalized_type or "farfieldsphere" in normalized_type
+            else "other_field_setup"
+        ),
+        "property_digest": _digest(_json_value(properties)),
+    }
+    if record["kind"] != "infinite_sphere":
+        return record
+    definition = str(
+        _field_property(properties, "CS Definition", "CSDefinition") or ""
+    ).strip()
+    if definition not in {"Theta-Phi", "El Over Az", "Az Over El"}:
+        raise LiveBackendError(f"HFSS infinite sphere definition is unavailable: {name}")
+    angle1_axis, angle2_axis = _far_field_axis_names(definition)
+    record.update(
+        {
+            "definition": definition,
+            "angle1_axis": angle1_axis,
+            "angle2_axis": angle2_axis,
+            "angle1_start": _field_axis_property(properties, angle1_axis, "start"),
+            "angle1_stop": _field_axis_property(properties, angle1_axis, "stop"),
+            "angle1_step": _field_axis_property(properties, angle1_axis, "step"),
+            "angle2_start": _field_axis_property(properties, angle2_axis, "start"),
+            "angle2_stop": _field_axis_property(properties, angle2_axis, "stop"),
+            "angle2_step": _field_axis_property(properties, angle2_axis, "step"),
+            "coordinate_system": str(
+                _field_property(properties, "Coordinate System", "CoordSystem") or ""
+            ).strip(),
+            "polarization": str(
+                _field_property(properties, "Polarization") or ""
+            ).strip(),
+            "polarization_angle": str(
+                _field_property(properties, "Slant Angle", "SlantAngle") or ""
+            ).strip(),
+        }
+    )
+    return record
+
+
+def _field_property(properties: dict[str, Any], *aliases: str) -> Any:
+    normalized = {
+        re.sub(r"[^a-z0-9]", "", str(key).casefold()): value
+        for key, value in properties.items()
+    }
+    for alias in aliases:
+        key = re.sub(r"[^a-z0-9]", "", alias.casefold())
+        if key in normalized:
+            return normalized[key]
+    return None
+
+
+def _field_axis_property(properties: dict[str, Any], axis: str, position: str) -> str:
+    aliases = (
+        f"{position} {axis}",
+        f"{axis} {position}",
+        f"{axis}{position}",
+        f"{position}{axis}",
+    )
+    value = _field_property(properties, *aliases)
+    if value is None or not str(value).strip():
+        raise LiveBackendError(f"HFSS far-field {axis} {position} readback is unavailable")
+    return str(value).strip()
+
+
+def _verify_hfss_infinite_sphere_readback(
+    spec: dict[str, Any],
+    readback: dict[str, Any],
+) -> None:
+    if readback.get("kind") != "infinite_sphere":
+        raise LiveBackendError("HFSS field setup type readback is not Infinite Sphere")
+    if readback.get("definition") != spec["definition"]:
+        raise LiveBackendError("HFSS infinite sphere definition readback failed")
+    if (
+        readback.get("angle1_axis") != spec["angle1_axis"]
+        or readback.get("angle2_axis") != spec["angle2_axis"]
+    ):
+        raise LiveBackendError("HFSS infinite sphere angle axis readback failed")
+    for field in (
+        "angle1_start",
+        "angle1_stop",
+        "angle1_step",
+        "angle2_start",
+        "angle2_stop",
+        "angle2_step",
+    ):
+        if not _angle_readback_matches(readback.get(field), spec[field], spec["units"]):
+            raise LiveBackendError(f"HFSS infinite sphere {field} readback failed")
+    if str(readback.get("coordinate_system") or "").casefold() != "global":
+        raise LiveBackendError("HFSS infinite sphere coordinate system readback failed")
+    if readback.get("polarization") != spec["polarization"]:
+        raise LiveBackendError("HFSS infinite sphere polarization readback failed")
+    if spec["polarization"] == "Slant" and not _angle_readback_matches(
+        readback.get("polarization_angle"),
+        spec["polarization_angle"],
+        spec["units"],
+    ):
+        raise LiveBackendError("HFSS infinite sphere polarization angle readback failed")
+
+
+def _angle_readback_matches(actual: Any, expected: float, units: str) -> bool:
+    match = re.fullmatch(
+        r"([+\-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+\-]?\d+)?)\s*([A-Za-z]+)",
+        str(actual or "").strip(),
+    )
+    if match is None or match.group(2).casefold() != units.casefold():
+        return False
+    try:
+        value = float(match.group(1))
+    except ValueError:
+        return False
+    return math.isclose(value, expected, rel_tol=1e-9, abs_tol=1e-9)
+
+
+def _rollback_hfss_field_setup(
+    app: Any,
+    created_name: str,
+    *,
+    before_setups: list[dict[str, Any]],
+) -> dict[str, Any]:
+    before_names = {item["name"] for item in before_setups}
+    delete_error = ""
+    try:
+        current_names = set(_hfss_field_setup_names(app))
+        if created_name in current_names and created_name not in before_names:
+            setup = next(item for item in list(app.field_setups or []) if item.name == created_name)
+            deleted = setup.delete()
+            if deleted is not True:
+                raise LiveBackendError("field setup delete returned false")
+    except Exception as exc:
+        try:
+            if created_name not in before_names:
+                app.oradfield.DeleteSetup([created_name])
+        except Exception as fallback_exc:
+            delete_error = (
+                f"{type(exc).__name__}: {exc}; raw fallback failed: "
+                f"{type(fallback_exc).__name__}: {fallback_exc}"
+            )
+    readback_error = ""
+    try:
+        after = _hfss_field_setup_snapshot(app)
+    except Exception as exc:
+        after = []
+        readback_error = f"{type(exc).__name__}: {exc}"
+    return {
+        "complete": not delete_error and not readback_error and after == before_setups,
+        "deleted_field_setup": created_name if after == before_setups else "",
+        "remaining_field_setups": [item["name"] for item in after],
         "delete_error": delete_error,
         "readback_error": readback_error,
     }

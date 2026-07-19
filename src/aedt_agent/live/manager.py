@@ -480,6 +480,86 @@ class LiveAedtSessionManager:
         self._approval_contexts.pop((session_id, preview_id), None)
         return result
 
+    def hfss_far_field_inventory(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+        max_items: int = 100,
+    ) -> dict[str, Any]:
+        return self._execute(
+            session_id,
+            "hfss_far_field_inventory",
+            {
+                "project_name": project_name,
+                "design_name": design_name,
+                "max_items": max_items,
+            },
+        )
+
+    def preview_hfss_infinite_sphere_create(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+        sphere_name: str,
+        definition: str = "Theta-Phi",
+        angle1_start: float = 0.0,
+        angle1_stop: float = 180.0,
+        angle1_step: float = 10.0,
+        angle2_start: float = 0.0,
+        angle2_stop: float = 180.0,
+        angle2_step: float = 10.0,
+        units: str = "deg",
+        polarization: str = "Linear",
+        polarization_angle: float = 45.0,
+        max_samples: int = 200_000,
+    ) -> dict[str, Any]:
+        result = self._execute(
+            session_id,
+            "hfss_infinite_sphere_create_preview",
+            {
+                "project_name": project_name,
+                "design_name": design_name,
+                "sphere_name": sphere_name,
+                "definition": definition,
+                "angle1_start": angle1_start,
+                "angle1_stop": angle1_stop,
+                "angle1_step": angle1_step,
+                "angle2_start": angle2_start,
+                "angle2_stop": angle2_stop,
+                "angle2_step": angle2_step,
+                "units": units,
+                "polarization": polarization,
+                "polarization_angle": polarization_angle,
+                "max_samples": max_samples,
+            },
+        )
+        return self._register_approval(session_id, "hfss.far_field.infinite_sphere.create", result)
+
+    def apply_hfss_infinite_sphere_create(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict[str, Any]:
+        self._require_approval(
+            session_id,
+            "hfss.far_field.infinite_sphere.create",
+            preview_id,
+            approval_token,
+        )
+        result = self._execute(
+            session_id,
+            "hfss_infinite_sphere_create_apply",
+            {"preview_id": preview_id},
+        )
+        self._approval_contexts.pop((session_id, preview_id), None)
+        return result
+
     def preview_hfss_geometry_create(
         self,
         session_id: str,

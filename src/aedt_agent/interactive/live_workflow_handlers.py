@@ -69,6 +69,26 @@ def register_live_workflow_handlers(
         _hfss_length_mesh_create_scorecard,
     )
     registry.register(
+        "assistant.live.hfss.preview_infinite_sphere_create",
+        lambda context: _preview_hfss_infinite_sphere_create(
+            context,
+            live_manager,
+            binding_resolver,
+        ),
+    )
+    registry.register(
+        "assistant.live.hfss.apply_infinite_sphere_create",
+        lambda context: _apply_hfss_infinite_sphere_create(
+            context,
+            live_manager,
+            binding_resolver,
+        ),
+    )
+    registry.register(
+        "assistant.live.hfss.infinite_sphere_create_scorecard",
+        _hfss_infinite_sphere_create_scorecard,
+    )
+    registry.register(
         "assistant.live.hfss.preview_geometry_boundary_create",
         lambda context: _preview_hfss_geometry_boundary_create(
             context,
@@ -550,6 +570,128 @@ def _hfss_length_mesh_create_scorecard(
                 "maximum_length": readback.get("maximum_length"),
                 "maximum_elements": readback.get("maximum_elements"),
                 "inside_selection": readback.get("inside_selection"),
+                "project_saved": result.get("project_saved"),
+            },
+            "live_session_reused": True,
+        },
+        outcome="passed" if passed else "failed",
+    )
+
+
+def _preview_hfss_infinite_sphere_create(
+    context,
+    live_manager,
+    binding_resolver,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, project_name, design_name, _ = _live_target(context, binding_resolver)
+    preview = live_manager.preview_hfss_infinite_sphere_create(
+        session_id,
+        project_name=project_name,
+        design_name=design_name,
+        sphere_name=str(payload.get("sphere_name") or ""),
+        definition=str(payload.get("definition") or "Theta-Phi"),
+        angle1_start=payload.get("angle1_start", 0.0),
+        angle1_stop=payload.get("angle1_stop", 180.0),
+        angle1_step=payload.get("angle1_step", 10.0),
+        angle2_start=payload.get("angle2_start", 0.0),
+        angle2_stop=payload.get("angle2_stop", 180.0),
+        angle2_step=payload.get("angle2_step", 10.0),
+        units=str(payload.get("units") or "deg"),
+        polarization=str(payload.get("polarization") or "Linear"),
+        polarization_angle=payload.get("polarization_angle", 45.0),
+        max_samples=payload.get("max_samples", 200_000),
+    )
+    return _success(
+        {
+            **payload,
+            "operation_preview_id": preview["preview_id"],
+            "operation_approval": preview.get("approval_request") or {},
+            "operation_preview": preview,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _apply_hfss_infinite_sphere_create(
+    context,
+    live_manager,
+    binding_resolver,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, _, _, binding = _live_target(context, binding_resolver)
+    token = str(binding.get("operation_approval_token") or "")
+    if not token:
+        raise ValueError(
+            "operation_approval_token is required after wait_for_live_approval approves "
+            "the infinite sphere preview"
+        )
+    result = live_manager.apply_hfss_infinite_sphere_create(
+        session_id,
+        preview_id=str(payload["operation_preview_id"]),
+        approval_token=token,
+    )
+    return _success(
+        {
+            **payload,
+            "operation_result": result,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _hfss_infinite_sphere_create_scorecard(
+    context: GraphNodeExecutionContext,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    result = dict(payload.get("operation_result") or {})
+    readback = dict(result.get("field_setup") or {})
+    requested_name = str(payload.get("sphere_name") or "")
+    fields_match = all(
+        readback.get(field) == result.get(field)
+        for field in (
+            "definition",
+            "angle1_axis",
+            "angle2_axis",
+            "polarization",
+            "coordinate_system",
+        )
+    )
+    checks = [
+        _check("verified", result.get("status") == "verified"),
+        _check(
+            "sphere_name_preserved",
+            bool(requested_name)
+            and result.get("created_field_setup_name") == requested_name
+            and readback.get("name") == requested_name,
+        ),
+        _check("infinite_sphere_type_readback", readback.get("kind") == "infinite_sphere"),
+        _check("definition_axes_and_polarization_readback", fields_match),
+        _check(
+            "sample_count_bounded",
+            isinstance(result.get("sample_count"), int)
+            and result.get("sample_count", 0) <= result.get("max_samples", 0),
+        ),
+        _check(
+            "automatic_rollback_on_failure",
+            result.get("automatic_rollback_on_failure") is True,
+        ),
+        _check("project_not_saved", result.get("project_saved") is False),
+        _check("live_session_reused", payload.get("live_session_reused") is True),
+    ]
+    passed = all(item["passed"] for item in checks)
+    return _success(
+        {
+            **payload,
+            "status": "passed" if passed else "failed",
+            "checks": checks,
+            "summary": {
+                "sphere_name": result.get("created_field_setup_name"),
+                "definition": readback.get("definition"),
+                "angle1_axis": readback.get("angle1_axis"),
+                "angle2_axis": readback.get("angle2_axis"),
+                "sample_count": result.get("sample_count"),
+                "polarization": readback.get("polarization"),
                 "project_saved": result.get("project_saved"),
             },
             "live_session_reused": True,
