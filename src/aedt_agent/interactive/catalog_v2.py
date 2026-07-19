@@ -132,6 +132,41 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             products=["hfss"],
         ),
         _cap(
+            "hfss.mesh.inventory",
+            "read_only",
+            ["live"],
+            ["get_live_hfss_mesh_inventory"],
+            postconditions=[
+                "design_unchanged",
+                "bounded_mesh_operation_inventory_returned",
+                "mesh_property_digests_returned",
+            ],
+            products=["hfss"],
+        ),
+        _cap(
+            "hfss.mesh.length.create",
+            "reversible_edit",
+            ["live"],
+            [
+                "preview_live_hfss_length_mesh_create",
+                "apply_live_hfss_length_mesh_create",
+            ],
+            approval="external_host_token",
+            side_effects=[
+                "project_becomes_dirty",
+                "hfss_length_mesh_operation_created",
+            ],
+            postconditions=[
+                "exact_solid_object_names_only",
+                "bounded_length_and_element_constraints",
+                "target_and_mesh_snapshot_unchanged",
+                "length_mesh_readback_verified",
+                "rollback_on_failure",
+                "project_not_saved",
+            ],
+            products=["hfss"],
+        ),
+        _cap(
             "hfss.geometry.create",
             "reversible_edit",
             ["live"],

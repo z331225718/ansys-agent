@@ -93,6 +93,12 @@ class LiveAedtBackend:
                 return self._hfss_material_assign_preview(target, arguments)
             if command == "hfss_material_assign_apply":
                 return self._hfss_material_assign_apply(target, arguments)
+            if command == "hfss_mesh_inventory":
+                return self._hfss_mesh_inventory(target, arguments)
+            if command == "hfss_length_mesh_create_preview":
+                return self._hfss_length_mesh_create_preview(target, arguments)
+            if command == "hfss_length_mesh_create_apply":
+                return self._hfss_length_mesh_create_apply(target, arguments)
             if command == "hfss_geometry_create_preview":
                 return self._hfss_geometry_create_preview(target, arguments)
             if command == "hfss_geometry_create_apply":
@@ -716,6 +722,188 @@ class LiveAedtBackend:
             "targets_before": preview["state"]["targets"],
             "targets_after": targets_after,
             "target_material": current["target_material"],
+            "automatic_rollback_on_failure": True,
+            "project_dirty": True,
+            "project_saved": False,
+        }
+
+    def _hfss_mesh_inventory(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        app = self._app(
+            target,
+            "hfss",
+            _required(args, "project_name"),
+            _required(args, "design_name"),
+        )
+        if str(_safe_attribute(app, "design_type") or "").strip().casefold() != "hfss":
+            raise LiveBackendError("HFSS mesh inventory requires an HFSS 3D design")
+        max_items = _bounded_integer(
+            args.get("max_items", 100),
+            "max_items",
+            minimum=1,
+            maximum=500,
+        )
+        operation_names = _hfss_mesh_operation_names(app)
+        selected_names = operation_names[:max_items]
+        selected = _hfss_mesh_operation_snapshot(app, selected_names)
+        return {
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "mesh_operation_count": len(operation_names),
+            "returned_count": len(selected),
+            "truncated": len(operation_names) > len(selected),
+            "mesh_operations": selected,
+            "snapshot_digest": _digest(
+                {"operation_names": operation_names, "records": selected}
+            ),
+            "design_unchanged": True,
+        }
+
+    def _hfss_length_mesh_create_preview(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        app = self._app(
+            target,
+            "hfss",
+            _required(args, "project_name"),
+            _required(args, "design_name"),
+        )
+        if str(_safe_attribute(app, "design_type") or "").strip().casefold() != "hfss":
+            raise LiveBackendError("HFSS length mesh creation requires an HFSS 3D design")
+        if _simulation_running(app):
+            raise LiveBackendError("cannot create HFSS mesh operations while a simulation is running")
+        spec = _normalize_hfss_length_mesh_spec(args)
+        targets = _hfss_material_target_snapshot(app, spec["object_names"])
+        sheets = [item["name"] for item in targets if not item["is_solid"]]
+        if sheets:
+            raise LiveBackendError(
+                f"HFSS length mesh creation only supports solid objects: {sheets[0]}"
+            )
+        mesh_operation_names = _hfss_mesh_operation_names(app)
+        if len(mesh_operation_names) > 500:
+            raise LiveBackendError(
+                "HFSS design has more than 500 mesh operations; bounded preview is unavailable"
+            )
+        mesh_operations = _hfss_mesh_operation_snapshot(app, mesh_operation_names)
+        existing_casefold = {
+            item["name"].casefold(): item["name"] for item in mesh_operations
+        }
+        if spec["mesh_name"].casefold() in existing_casefold:
+            raise LiveBackendError(
+                f"HFSS mesh operation already exists: {existing_casefold[spec['mesh_name'].casefold()]}"
+            )
+        state = {
+            "targets": targets,
+            "mesh_operations": mesh_operations,
+        }
+        state_digest = _digest(state)
+        preview_id = "length-mesh-preview-" + _digest(
+            spec | {"state": state_digest}
+        )[:24]
+        self._previews[preview_id] = {
+            "kind": "hfss_length_mesh_create",
+            "target": target,
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "spec": spec,
+            "state": state,
+            "digest": state_digest,
+        }
+        return {
+            "preview_id": preview_id,
+            **spec,
+            "target_count": len(targets),
+            "targets": targets,
+            "existing_mesh_operation_count": len(mesh_operations),
+            "existing_mesh_operation_names": [item["name"] for item in mesh_operations],
+            "snapshot_digest": state_digest,
+            "approval_required": True,
+            "project_dirty": False,
+            "project_saved": False,
+        }
+
+    def _hfss_length_mesh_create_apply(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        preview_id = _required(args, "preview_id")
+        preview = self._preview(preview_id, "hfss_length_mesh_create", target)
+        app = self._app(target, "hfss", preview["project_name"], preview["design_name"])
+        if _simulation_running(app):
+            raise LiveBackendError("cannot create HFSS mesh operations while a simulation is running")
+        try:
+            current_mesh_names = _hfss_mesh_operation_names(app)
+            if len(current_mesh_names) > 500:
+                raise LiveBackendError("HFSS mesh operation inventory exceeded preview bound")
+            current = {
+                "targets": _hfss_material_target_snapshot(
+                    app,
+                    preview["spec"]["object_names"],
+                ),
+                "mesh_operations": _hfss_mesh_operation_snapshot(
+                    app,
+                    current_mesh_names,
+                ),
+            }
+        except LiveBackendError as exc:
+            raise LiveBackendError("stale HFSS length mesh create preview") from exc
+        if _digest(current) != preview["digest"]:
+            raise LiveBackendError("stale HFSS length mesh create preview")
+
+        spec = preview["spec"]
+        created_name = ""
+        try:
+            operation = app.mesh.assign_length_mesh(
+                assignment=spec["object_names"],
+                inside_selection=spec["inside_selection"],
+                maximum_length=spec["maximum_length"],
+                maximum_elements=spec["maximum_elements"],
+                name=spec["mesh_name"],
+            )
+            created_name = str(getattr(operation, "name", "")) if operation else ""
+            if operation is None or created_name != spec["mesh_name"]:
+                raise LiveBackendError("HFSS length mesh creation returned an unexpected name")
+            after_operations = _hfss_mesh_operation_snapshot(app)
+            operation_by_name = {item["name"]: item for item in after_operations}
+            readback = operation_by_name.get(spec["mesh_name"])
+            if readback is None:
+                raise LiveBackendError("HFSS length mesh readback is missing")
+            _verify_hfss_length_mesh_readback(spec, readback)
+            before_names = {item["name"] for item in preview["state"]["mesh_operations"]}
+            after_names = {item["name"] for item in after_operations}
+            if after_names != before_names | {spec["mesh_name"]}:
+                raise LiveBackendError("unexpected HFSS mesh operation inventory change")
+        except Exception as exc:
+            rollback = _rollback_hfss_mesh_operation(
+                app,
+                created_name or spec["mesh_name"],
+                before_operations=preview["state"]["mesh_operations"],
+            )
+            if not rollback["complete"]:
+                raise LiveBackendError(
+                    f"HFSS length mesh creation failed and rollback is incomplete: {rollback}"
+                ) from exc
+            if isinstance(exc, LiveBackendError):
+                raise
+            raise LiveBackendError(
+                f"HFSS length mesh creation failed: {type(exc).__name__}: {exc}"
+            ) from exc
+
+        del self._previews[preview_id]
+        return {
+            "status": "verified",
+            "preview_id": preview_id,
+            **spec,
+            "target_count": len(spec["object_names"]),
+            "created_mesh_operation_name": spec["mesh_name"],
+            "mesh_operation": readback,
+            "mesh_operation_count": len(after_operations),
             "automatic_rollback_on_failure": True,
             "project_dirty": True,
             "project_saved": False,
@@ -4193,6 +4381,274 @@ def _rollback_hfss_material_assignment(
         "restored_object_names": restored_names,
         "mismatched_object_names": mismatched,
         "errors": errors,
+        "readback_error": readback_error,
+    }
+
+
+def _normalize_hfss_length_mesh_spec(args: dict[str, Any]) -> dict[str, Any]:
+    mesh_name = str(args.get("mesh_name") or "").strip()
+    if not _SAFE_AEDT_OBJECT_NAME.fullmatch(mesh_name):
+        raise LiveBackendError("mesh_name must be a safe AEDT name")
+    max_objects = _bounded_integer(
+        args.get("max_objects", 16),
+        "max_objects",
+        minimum=1,
+        maximum=32,
+    )
+    object_names = _normalize_explicit_names(
+        args.get("object_names"),
+        field="object_names",
+        maximum=max_objects,
+    )
+    inside_selection = args.get("inside_selection", True)
+    if type(inside_selection) is not bool:
+        raise LiveBackendError("inside_selection must be boolean")
+    maximum_length = args.get("maximum_length", "1mm")
+    if maximum_length is not None:
+        maximum_length = _normalize_hfss_mesh_length(maximum_length)
+    maximum_elements = args.get("maximum_elements", 1000)
+    if maximum_elements is not None:
+        maximum_elements = _bounded_integer(
+            maximum_elements,
+            "maximum_elements",
+            minimum=1,
+            maximum=10_000_000,
+        )
+    if maximum_length is None and maximum_elements is None:
+        raise LiveBackendError(
+            "maximum_length and maximum_elements must not both be null"
+        )
+    return {
+        "mesh_name": mesh_name,
+        "object_names": object_names,
+        "inside_selection": inside_selection,
+        "maximum_length": maximum_length,
+        "maximum_elements": maximum_elements,
+        "max_objects": max_objects,
+    }
+
+
+def _normalize_hfss_mesh_length(value: Any) -> str:
+    if not isinstance(value, str):
+        raise LiveBackendError(
+            "maximum_length must be a bounded AEDT expression with explicit units"
+        )
+    expression = value.strip()
+    if not _SAFE_AEDT_EXPRESSION.fullmatch(expression):
+        raise LiveBackendError("maximum_length contains unsupported AEDT expression characters")
+    literal = re.fullmatch(
+        r"([+]?(?:\d+(?:\.\d*)?|\.\d+))(?:[eE]([+-]?\d+))?([A-Za-z]+)",
+        expression,
+    )
+    if literal:
+        numeric = float(literal.group(1)) * (10 ** int(literal.group(2) or 0))
+        if not math.isfinite(numeric) or numeric <= 0:
+            raise LiveBackendError("maximum_length literal must be positive")
+    elif re.fullmatch(r"[+\-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+\-]?\d+)?", expression):
+        raise LiveBackendError("maximum_length numeric literal must include explicit units")
+    elif expression.startswith("-"):
+        raise LiveBackendError("maximum_length must not be explicitly negative")
+    return expression
+
+
+def _hfss_mesh_operation_names(app: Any) -> list[str]:
+    mesh = _safe_attribute(app, "mesh")
+    if mesh is None:
+        raise LiveBackendError("HFSS mesh API is unavailable")
+    try:
+        names = [str(item) for item in list(mesh.meshoperation_names or [])]
+    except Exception as exc:
+        raise LiveBackendError("HFSS mesh operation names are unavailable") from exc
+    return sorted(names, key=str.casefold)
+
+
+def _hfss_mesh_operation_snapshot(
+    app: Any,
+    operation_names: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    requested_names = operation_names or _hfss_mesh_operation_names(app)
+    if not requested_names:
+        return []
+    try:
+        mesh_oo = app.get_oo_object(app.odesign, "Mesh")
+        records = []
+        for name in requested_names:
+            prop_names = list(app.get_oo_properties(mesh_oo, name) or [])
+            if not prop_names:
+                raise LiveBackendError("HFSS mesh OO properties are unavailable")
+            props = {
+                str(prop): app.get_oo_property_value(mesh_oo, name, str(prop))
+                for prop in prop_names
+            }
+            records.append(_hfss_mesh_operation_record(name, props.get("Type"), props))
+        return sorted(records, key=lambda item: item["name"].casefold())
+    except Exception:
+        pass
+
+    mesh = _safe_attribute(app, "mesh")
+    if mesh is None:
+        raise LiveBackendError("HFSS mesh API is unavailable")
+    try:
+        setattr(mesh, "_meshoperations", None)
+    except Exception:
+        pass
+    try:
+        operations = list(mesh.meshoperations or [])
+    except Exception as exc:
+        raise LiveBackendError("HFSS mesh operation inventory is unavailable") from exc
+    by_name = {}
+    for operation in operations:
+        name = str(getattr(operation, "name", "") or "").strip()
+        if not name:
+            raise LiveBackendError("HFSS mesh operation name is unavailable")
+        props = dict(getattr(operation, "props", {}) or {})
+        by_name[name] = _hfss_mesh_operation_record(
+            name,
+            getattr(operation, "type", "") or props.get("Type"),
+            props,
+        )
+    missing = [name for name in requested_names if name not in by_name]
+    if missing:
+        raise LiveBackendError(f"HFSS mesh operation readback is missing: {missing[0]}")
+    records = [by_name[name] for name in requested_names]
+    return sorted(records, key=lambda item: item["name"].casefold())
+
+
+def _hfss_mesh_operation_record(
+    name: str,
+    operation_type: Any,
+    props: dict[str, Any],
+) -> dict[str, Any]:
+    region = str(props.get("Region") or "").strip()
+    if "RefineInside" in props:
+        inside_selection = _mesh_bool(props["RefineInside"], default=False)
+    else:
+        inside_selection = region.casefold().startswith("inside")
+    return {
+        "name": name,
+        "type": str(operation_type or "").strip(),
+        "object_names": _hfss_mesh_assignments(props),
+        "inside_selection": inside_selection,
+        "enabled": _mesh_bool(props.get("Enabled"), default=True),
+        "restrict_length": _mesh_bool(
+            props.get("RestrictLength", props.get("Restrict Length")),
+            default=False,
+        ),
+        "maximum_length": str(
+            props.get("MaxLength", props.get("Max Length", "")) or ""
+        ),
+        "restrict_elements": _mesh_bool(
+            props.get("RestrictElem", props.get("Restrict Max Elems")),
+            default=False,
+        ),
+        "maximum_elements": _optional_int(
+            props.get("NumMaxElem", props.get("Max Elems"))
+        ),
+        "property_digest": _digest(_json_value(props)),
+    }
+
+
+def _mesh_bool(value: Any, *, default: bool) -> bool:
+    if type(value) is bool:
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().casefold()
+        if normalized == "true":
+            return True
+        if normalized == "false":
+            return False
+    return default
+
+
+def _hfss_mesh_assignments(props: dict[str, Any]) -> list[str]:
+    raw = props.get("Objects", props.get("Assignment", []))
+    if isinstance(raw, str):
+        values = [item.strip() for item in raw.split(",") if item.strip()]
+    elif isinstance(raw, (list, tuple)):
+        values = [str(item).strip() for item in raw if str(item).strip()]
+    else:
+        values = []
+    return values
+
+
+def _optional_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _verify_hfss_length_mesh_readback(
+    spec: dict[str, Any],
+    readback: dict[str, Any],
+) -> None:
+    normalized_type = readback["type"].casefold().replace(" ", "")
+    if normalized_type != "lengthbased":
+        raise LiveBackendError("HFSS mesh operation type readback is not Length Based")
+    if readback["object_names"] != spec["object_names"]:
+        raise LiveBackendError("HFSS length mesh object assignment readback failed")
+    if readback["inside_selection"] is not spec["inside_selection"]:
+        raise LiveBackendError("HFSS length mesh region readback failed")
+    if readback["enabled"] is not True:
+        raise LiveBackendError("HFSS length mesh operation is not enabled")
+    expected_restrict_length = spec["maximum_length"] is not None
+    if readback["restrict_length"] is not expected_restrict_length:
+        raise LiveBackendError("HFSS length restriction readback failed")
+    if expected_restrict_length and readback["maximum_length"] != spec["maximum_length"]:
+        raise LiveBackendError("HFSS maximum length readback failed")
+    expected_restrict_elements = spec["maximum_elements"] is not None
+    if readback["restrict_elements"] is not expected_restrict_elements:
+        raise LiveBackendError("HFSS maximum element restriction readback failed")
+    if expected_restrict_elements and readback["maximum_elements"] != spec[
+        "maximum_elements"
+    ]:
+        raise LiveBackendError("HFSS maximum element count readback failed")
+
+
+def _rollback_hfss_mesh_operation(
+    app: Any,
+    created_name: str,
+    *,
+    before_operations: list[dict[str, Any]],
+) -> dict[str, Any]:
+    before_names = {item["name"] for item in before_operations}
+    delete_error = ""
+    try:
+        current = _hfss_mesh_operation_snapshot(app)
+        operation_names = {item["name"] for item in current}
+        if created_name in operation_names and created_name not in before_names:
+            mesh = app.mesh
+            try:
+                setattr(mesh, "_meshoperations", None)
+            except Exception:
+                pass
+            operation = next(
+                item for item in list(mesh.meshoperations or []) if item.name == created_name
+            )
+            deleted = operation.delete()
+            if deleted is not True:
+                raise LiveBackendError("mesh operation delete returned false")
+    except Exception as exc:
+        try:
+            if created_name not in before_names:
+                app.mesh.omeshmodule.DeleteOp([created_name])
+                setattr(app.mesh, "_meshoperations", None)
+        except Exception as fallback_exc:
+            delete_error = (
+                f"{type(exc).__name__}: {exc}; raw fallback failed: "
+                f"{type(fallback_exc).__name__}: {fallback_exc}"
+            )
+    readback_error = ""
+    try:
+        after = _hfss_mesh_operation_snapshot(app)
+    except Exception as exc:
+        after = []
+        readback_error = f"{type(exc).__name__}: {exc}"
+    return {
+        "complete": not delete_error and not readback_error and after == before_operations,
+        "deleted_mesh_operation": created_name if after == before_operations else "",
+        "remaining_mesh_operations": [item["name"] for item in after],
+        "delete_error": delete_error,
         "readback_error": readback_error,
     }
 

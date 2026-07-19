@@ -49,6 +49,26 @@ def register_live_workflow_handlers(
         _hfss_material_assign_scorecard,
     )
     registry.register(
+        "assistant.live.hfss.preview_length_mesh_create",
+        lambda context: _preview_hfss_length_mesh_create(
+            context,
+            live_manager,
+            binding_resolver,
+        ),
+    )
+    registry.register(
+        "assistant.live.hfss.apply_length_mesh_create",
+        lambda context: _apply_hfss_length_mesh_create(
+            context,
+            live_manager,
+            binding_resolver,
+        ),
+    )
+    registry.register(
+        "assistant.live.hfss.length_mesh_create_scorecard",
+        _hfss_length_mesh_create_scorecard,
+    )
+    registry.register(
         "assistant.live.hfss.preview_geometry_boundary_create",
         lambda context: _preview_hfss_geometry_boundary_create(
             context,
@@ -402,6 +422,134 @@ def _hfss_material_assign_scorecard(
                 "object_names": readback_names,
                 "material_name": result.get("material_name"),
                 "target_solve_inside": result.get("target_solve_inside"),
+                "project_saved": result.get("project_saved"),
+            },
+            "live_session_reused": True,
+        },
+        outcome="passed" if passed else "failed",
+    )
+
+
+def _preview_hfss_length_mesh_create(
+    context,
+    live_manager,
+    binding_resolver,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, project_name, design_name, _ = _live_target(context, binding_resolver)
+    preview = live_manager.preview_hfss_length_mesh_create(
+        session_id,
+        project_name=project_name,
+        design_name=design_name,
+        mesh_name=str(payload.get("mesh_name") or ""),
+        object_names=list(payload.get("object_names") or []),
+        inside_selection=payload.get("inside_selection", True),
+        maximum_length=payload.get("maximum_length", "1mm"),
+        maximum_elements=payload.get("maximum_elements", 1000),
+        max_objects=payload.get("max_objects", 16),
+    )
+    return _success(
+        {
+            **payload,
+            "operation_preview_id": preview["preview_id"],
+            "operation_approval": preview.get("approval_request") or {},
+            "operation_preview": preview,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _apply_hfss_length_mesh_create(
+    context,
+    live_manager,
+    binding_resolver,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, _, _, binding = _live_target(context, binding_resolver)
+    token = str(binding.get("operation_approval_token") or "")
+    if not token:
+        raise ValueError(
+            "operation_approval_token is required after wait_for_live_approval approves "
+            "the length mesh preview"
+        )
+    result = live_manager.apply_hfss_length_mesh_create(
+        session_id,
+        preview_id=str(payload["operation_preview_id"]),
+        approval_token=token,
+    )
+    return _success(
+        {
+            **payload,
+            "operation_result": result,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _hfss_length_mesh_create_scorecard(
+    context: GraphNodeExecutionContext,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    result = dict(payload.get("operation_result") or {})
+    readback = dict(result.get("mesh_operation") or {})
+    requested_names = [str(item) for item in list(payload.get("object_names") or [])]
+    requested_mesh_name = str(payload.get("mesh_name") or "")
+    expected_length = result.get("maximum_length")
+    expected_elements = result.get("maximum_elements")
+    constraints_match = (
+        readback.get("inside_selection") is result.get("inside_selection")
+        and readback.get("restrict_length") is (expected_length is not None)
+        and (expected_length is None or readback.get("maximum_length") == expected_length)
+        and readback.get("restrict_elements") is (expected_elements is not None)
+        and (
+            expected_elements is None
+            or readback.get("maximum_elements") == expected_elements
+        )
+    )
+    checks = [
+        _check("verified", result.get("status") == "verified"),
+        _check(
+            "mesh_name_preserved",
+            bool(requested_mesh_name)
+            and result.get("created_mesh_operation_name") == requested_mesh_name
+            and readback.get("name") == requested_mesh_name,
+        ),
+        _check(
+            "exact_object_names_preserved",
+            bool(requested_names) and readback.get("object_names") == requested_names,
+        ),
+        _check(
+            "target_count_verified",
+            result.get("target_count") == len(requested_names),
+        ),
+        _check(
+            "length_mesh_type_readback",
+            str(readback.get("type") or "").casefold().replace(" ", "")
+            == "lengthbased",
+        ),
+        _check(
+            "mesh_constraints_readback",
+            constraints_match,
+        ),
+        _check(
+            "automatic_rollback_on_failure",
+            result.get("automatic_rollback_on_failure") is True,
+        ),
+        _check("project_not_saved", result.get("project_saved") is False),
+        _check("live_session_reused", payload.get("live_session_reused") is True),
+    ]
+    passed = all(item["passed"] for item in checks)
+    return _success(
+        {
+            **payload,
+            "status": "passed" if passed else "failed",
+            "checks": checks,
+            "summary": {
+                "mesh_name": result.get("created_mesh_operation_name"),
+                "object_names": readback.get("object_names"),
+                "maximum_length": readback.get("maximum_length"),
+                "maximum_elements": readback.get("maximum_elements"),
+                "inside_selection": readback.get("inside_selection"),
                 "project_saved": result.get("project_saved"),
             },
             "live_session_reused": True,

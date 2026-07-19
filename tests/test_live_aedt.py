@@ -731,6 +731,81 @@ class FakeMaterialHfss(FakeHfss):
         return True
 
 
+class FakeMeshOperation:
+    def __init__(self, mesh, name, props):
+        self._mesh = mesh
+        self.name = name
+        self.type = "Length Based"
+        self.props = props
+
+    def delete(self):
+        self._mesh._records.pop(self.name, None)
+        self._mesh._meshoperations = None
+        return True
+
+
+class FakeMeshModule:
+    def __init__(self, mesh):
+        self.mesh = mesh
+
+    def DeleteOp(self, names):
+        for name in names:
+            self.mesh._records.pop(name, None)
+        self.mesh._meshoperations = None
+
+
+class FakeMesh:
+    def __init__(self, *, fail_readback=False):
+        self._records = {}
+        self._meshoperations = None
+        self.fail_readback = fail_readback
+        self.omeshmodule = FakeMeshModule(self)
+
+    @property
+    def meshoperations(self):
+        if self._meshoperations is None:
+            self._meshoperations = list(self._records.values())
+        return self._meshoperations
+
+    @property
+    def meshoperation_names(self):
+        return list(self._records)
+
+    def assign_length_mesh(
+        self,
+        assignment,
+        inside_selection=True,
+        maximum_length="1mm",
+        maximum_elements=1000,
+        name=None,
+    ):
+        props = {
+            "Name": name,
+            "Type": "Length Based",
+            "Assignment": ",".join(assignment),
+            "Objects": list(assignment),
+            "Region": "Inside Selection" if inside_selection else "On Selection",
+            "Enabled": True,
+            "Restrict Length": maximum_length is not None,
+            "Max Length": maximum_length or "1mm",
+            "Restrict Max Elems": maximum_elements is not None,
+            "Max Elems": str(maximum_elements or 1000),
+        }
+        if self.fail_readback:
+            self.fail_readback = False
+            props["Max Length"] = "999mm"
+        operation = FakeMeshOperation(self, name, props)
+        self._records[name] = operation
+        self._meshoperations = None
+        return operation
+
+
+class FakeMeshHfss(FakeMaterialHfss):
+    def __init__(self, *, fail_mesh_readback=False, **kwargs):
+        super().__init__(**kwargs)
+        self.mesh = FakeMesh(fail_readback=fail_mesh_readback)
+
+
 class FakeSubmittedSolveHfss(FakeControlledSolveHfss):
     def analyze_setup(self, setup, **kwargs):
         self.analysis_calls.append((setup, kwargs))
@@ -771,6 +846,11 @@ class FakeRegistry:
             return {
                 "preview_id": "material-preview-1",
                 "snapshot_digest": "material-digest-1",
+            }
+        if command == "hfss_length_mesh_create_preview":
+            return {
+                "preview_id": "length-mesh-preview-1",
+                "snapshot_digest": "length-mesh-digest-1",
             }
         if command == "hfss_report_preview":
             return {"preview_id": "report-preview-1", "snapshot_digest": "report-digest-1"}
@@ -1640,6 +1720,159 @@ def test_backend_hfss_material_assignment_preview_rejects_unsafe_targets(
                 "design_name": "HFSS1",
                 **request_payload,
             },
+        )
+
+
+def test_backend_lists_and_creates_hfss_length_mesh_with_verified_readback():
+    apps = []
+
+    def factory(**kwargs):
+        app = FakeMeshHfss(**kwargs)
+        apps.append(app)
+        return app
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, hfss_factory=factory)
+    target = AedtTarget("pid", 42)
+    inventory = backend.execute(
+        target,
+        "hfss_mesh_inventory",
+        {"project_name": "Board", "design_name": "HFSS1", "max_items": 10},
+    )
+    assert inventory["mesh_operation_count"] == 0
+    assert inventory["design_unchanged"] is True
+
+    preview = backend.execute(
+        target,
+        "hfss_length_mesh_create_preview",
+        {
+            "project_name": "Board",
+            "design_name": "HFSS1",
+            "mesh_name": "HarnessLength",
+            "object_names": ["box1", "box2"],
+            "inside_selection": True,
+            "maximum_length": "0.4mm",
+            "maximum_elements": 500,
+            "max_objects": 4,
+        },
+    )
+    assert preview["target_count"] == 2
+    assert preview["project_dirty"] is False
+    assert preview["project_saved"] is False
+
+    result = backend.execute(
+        target,
+        "hfss_length_mesh_create_apply",
+        {"preview_id": preview["preview_id"]},
+    )
+    assert result["status"] == "verified"
+    assert result["created_mesh_operation_name"] == "HarnessLength"
+    assert result["mesh_operation"]["type"] == "Length Based"
+    assert result["mesh_operation"]["object_names"] == ["box1", "box2"]
+    assert result["mesh_operation"]["inside_selection"] is True
+    assert result["mesh_operation"]["maximum_length"] == "0.4mm"
+    assert result["mesh_operation"]["maximum_elements"] == 500
+    assert result["automatic_rollback_on_failure"] is True
+    assert result["project_saved"] is False
+    assert list(apps[0].mesh._records) == ["HarnessLength"]
+
+
+def test_backend_hfss_length_mesh_rolls_back_readback_failure_and_rejects_stale():
+    apps = []
+
+    def factory(**kwargs):
+        app = FakeMeshHfss(fail_mesh_readback=True, **kwargs)
+        apps.append(app)
+        return app
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, hfss_factory=factory)
+    target = AedtTarget("pid", 42)
+    request = {
+        "project_name": "Board",
+        "design_name": "HFSS1",
+        "mesh_name": "MustRollback",
+        "object_names": ["box1"],
+        "inside_selection": False,
+        "maximum_length": "0.2mm",
+        "maximum_elements": 100,
+    }
+    preview = backend.execute(target, "hfss_length_mesh_create_preview", request)
+    with pytest.raises(LiveBackendError, match="maximum length readback failed"):
+        backend.execute(
+            target,
+            "hfss_length_mesh_create_apply",
+            {"preview_id": preview["preview_id"]},
+        )
+    assert apps[0].mesh.meshoperation_names == []
+
+    stale = backend.execute(target, "hfss_length_mesh_create_preview", request)
+    apps[0].mesh.assign_length_mesh(
+        ["box2"],
+        maximum_length="1mm",
+        maximum_elements=1000,
+        name="ExternalLength",
+    )
+    with pytest.raises(LiveBackendError, match="stale HFSS length mesh create preview"):
+        backend.execute(
+            target,
+            "hfss_length_mesh_create_apply",
+            {"preview_id": stale["preview_id"]},
+        )
+    assert "MustRollback" not in apps[0].mesh.meshoperation_names
+    assert "ExternalLength" in apps[0].mesh.meshoperation_names
+
+
+@pytest.mark.parametrize(
+    "payload,error",
+    [
+        (
+            {"mesh_name": "M", "object_names": ["sheet1"]},
+            "only supports solid objects",
+        ),
+        (
+            {
+                "mesh_name": "M",
+                "object_names": ["box1"],
+                "maximum_length": "0.5",
+            },
+            "must include explicit units",
+        ),
+        (
+            {
+                "mesh_name": "M",
+                "object_names": ["box1"],
+                "maximum_length": None,
+                "maximum_elements": None,
+            },
+            "must not both be null",
+        ),
+        (
+            {
+                "mesh_name": "M",
+                "object_names": ["box1"],
+                "inside_selection": "yes",
+            },
+            "inside_selection must be boolean",
+        ),
+        (
+            {
+                "mesh_name": "M",
+                "object_names": ["box1"],
+                "maximum_elements": 10_000_001,
+            },
+            "maximum_elements must be an integer between 1 and 10000000",
+        ),
+    ],
+)
+def test_backend_hfss_length_mesh_preview_rejects_unsafe_requests(payload, error):
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=FakeMeshHfss,
+    )
+    with pytest.raises(LiveBackendError, match=error):
+        backend.execute(
+            AedtTarget("pid", 42),
+            "hfss_length_mesh_create_preview",
+            {"project_name": "Board", "design_name": "HFSS1", **payload},
         )
 
 
@@ -3544,6 +3777,39 @@ def test_manager_requires_action_bound_one_use_approval_for_hfss_material_assign
     assert getattr(replay.value, "code", None) == "approval_required"
 
 
+def test_manager_requires_action_bound_one_use_approval_for_hfss_length_mesh_create():
+    registry = FakeRegistry()
+    authority = HmacApprovalAuthority("h" * 32)
+    manager = LiveAedtSessionManager(registry=registry, approval_verifier=authority)
+    session_id = manager.attach(pid=42)["live_session_id"]
+    preview = manager.preview_hfss_length_mesh_create(
+        session_id,
+        project_name="Board",
+        design_name="HFSS1",
+        mesh_name="HarnessLength",
+        object_names=["box1", "box2"],
+        inside_selection=True,
+        maximum_length="0.4mm",
+        maximum_elements=500,
+        max_objects=4,
+    )
+    assert preview["approval_request"]["action"] == "hfss.mesh.length.create"
+    token = authority.issue(**preview["approval_request"])
+    result = manager.apply_hfss_length_mesh_create(
+        session_id,
+        preview_id=preview["preview_id"],
+        approval_token=token,
+    )
+    assert result["command"] == "hfss_length_mesh_create_apply"
+    with pytest.raises(Exception) as replay:
+        manager.apply_hfss_length_mesh_create(
+            session_id,
+            preview_id=preview["preview_id"],
+            approval_token=token,
+        )
+    assert getattr(replay.value, "code", None) == "approval_required"
+
+
 def test_manager_requires_action_bound_approval_for_layout_edge_ports():
     registry = FakeRegistry()
     authority = HmacApprovalAuthority("e" * 32)
@@ -3802,6 +4068,9 @@ def test_mcp_registers_live_tools_without_changing_artifact_tools(monkeypatch):
     assert "preview_live_hfss_material_assign" in server.tools
     assert "apply_live_hfss_material_assign" in server.tools
     assert "get_live_hfss_material_inventory" in server.tools
+    assert "get_live_hfss_mesh_inventory" in server.tools
+    assert "preview_live_hfss_length_mesh_create" in server.tools
+    assert "apply_live_hfss_length_mesh_create" in server.tools
     assert "preview_live_hfss_report_create" in server.tools
     assert "apply_live_hfss_report_create" in server.tools
     assert "preview_live_hfss_boundary_create" in server.tools
@@ -3919,6 +4188,13 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
     ]
     assert by_name["hfss.material.inventory"]["tools"] == [
         "get_live_hfss_material_inventory"
+    ]
+    assert by_name["hfss.mesh.inventory"]["tools"] == [
+        "get_live_hfss_mesh_inventory"
+    ]
+    assert by_name["hfss.mesh.length.create"]["tools"] == [
+        "preview_live_hfss_length_mesh_create",
+        "apply_live_hfss_length_mesh_create",
     ]
     assert "existing_project_material_only" in by_name["hfss.material.assign"][
         "postconditions"

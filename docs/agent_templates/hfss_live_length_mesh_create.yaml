@@ -1,0 +1,43 @@
+id: hfss_live_length_mesh_create
+version: 1
+description: Preview, approve, create, and verify one bounded Length Based HFSS mesh operation on explicit solids without saving the live project.
+nodes:
+  - id: preview_length_mesh
+    role: preview
+    kind: program
+    handler: assistant.live.hfss.preview_length_mesh_create
+    input_schema: live_hfss_length_mesh_request
+    output_schema: live_hfss_length_mesh_preview
+    max_runs: 1
+  - id: apply_length_mesh
+    role: apply
+    kind: program
+    handler: assistant.live.hfss.apply_length_mesh_create
+    input_schema: live_hfss_length_mesh_preview
+    output_schema: live_hfss_length_mesh_result
+    max_runs: 1
+  - id: verify_scorecard
+    role: scorecard
+    kind: program
+    handler: assistant.live.hfss.length_mesh_create_scorecard
+    input_schema: live_hfss_length_mesh_result
+    output_schema: live_hfss_length_mesh_scorecard
+    max_runs: 1
+edges:
+  - id: preview-to-apply
+    from: preview_length_mesh
+    to: apply_length_mesh
+    on: succeeded
+  - id: apply-to-scorecard
+    from: apply_length_mesh
+    to: verify_scorecard
+    on: succeeded
+handoffs:
+  live_hfss_length_mesh_request:
+    required_fields: [mesh_name, object_names]
+  live_hfss_length_mesh_preview:
+    required_fields: [mesh_name, object_names, operation_preview_id, operation_approval, operation_preview, live_session_reused]
+  live_hfss_length_mesh_result:
+    required_fields: [mesh_name, object_names, operation_result, live_session_reused]
+  live_hfss_length_mesh_scorecard:
+    required_fields: [status, checks, summary, live_session_reused]

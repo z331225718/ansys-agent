@@ -408,6 +408,59 @@ def create_server(
         )
 
     @server.tool()
+    async def get_live_hfss_mesh_inventory(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        max_items: int = 100,
+    ) -> dict:
+        """List a bounded read-only snapshot of existing HFSS mesh operations."""
+        return live.hfss_mesh_inventory(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            max_items=max_items,
+        )
+
+    @server.tool()
+    async def preview_live_hfss_length_mesh_create(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        mesh_name: str,
+        object_names: list[str],
+        inside_selection: bool = True,
+        maximum_length: str | None = "1mm",
+        maximum_elements: int | None = 1000,
+        max_objects: int = 16,
+    ) -> dict:
+        """Preview one bounded Length Based HFSS mesh operation on explicit solids."""
+        return live.preview_hfss_length_mesh_create(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            mesh_name=mesh_name,
+            object_names=object_names,
+            inside_selection=inside_selection,
+            maximum_length=maximum_length,
+            maximum_elements=maximum_elements,
+            max_objects=max_objects,
+        )
+
+    @server.tool()
+    async def apply_live_hfss_length_mesh_create(
+        live_session_id: str,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        """Create and verify one Length Based HFSS mesh operation; rollback on failure."""
+        return live.apply_hfss_length_mesh_create(
+            live_session_id,
+            preview_id=preview_id,
+            approval_token=approval_token,
+        )
+
+    @server.tool()
     async def preview_live_hfss_geometry_create(
         live_session_id: str,
         project_name: str,
