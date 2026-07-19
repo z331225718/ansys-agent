@@ -20,7 +20,7 @@
 | 首次部署管理员 | 第 1～6、12～16 节 |
 | 每天操作 AEDT 的工程师 | 第 1、4～11 节 |
 | 只需要把 4.3mil 线宽参数化 | 第 4～8 节 |
-| 需要更新 HFSS 材料，或创建 Layout 材料、创建/更新/删除 Via | 第 4～7、8A～8E 节 |
+| 需要更新/删除 HFSS 材料，或创建 Layout 材料、创建/更新/删除 Via | 第 4～7、8A～8F 节 |
 | Harness 没有现成能力 | 第 10 节 |
 | 升级、移交或故障恢复 | 第 12～16 节 |
 
@@ -518,7 +518,36 @@ readback 正确、未请求字段和非目标材料不变、`references_before =
 引用保持、stale、分类边界拒绝、磁盘工程 SHA-256 不变，以及真实写入故障后的原生 definition digest 精确恢复。
 AEDT 2024 R2 上线前仍要执行中文使用手册第 18.1 节的真实测试。
 
-## 8B. 示例：创建 3D Layout 材料并分配 stackup 层
+## 8B. 示例：严格批量删除未引用的 HFSS 工程材料
+
+推荐请求：
+
+```text
+使用 hfss_live_material_delete 删除当前 HFSS 工程中精确名称为
+HarnessUnusedA、HarnessUnusedB 的两个工程材料。先冻结完整工程材料目录、两个材料的原生定义、
+所有 solid 引用和全部 boundary 属性；只允许删除零实体引用、零边界引用的材料。Windows 原生审批后
+按请求顺序批量删除，并从 Definition Manager 回读确认名称不存在。任一删除或最终验证失败时，
+使用冻结的原生定义重建本批已删除材料，并要求完整材料目录和边界快照恢复。不要保存工程。
+```
+
+`names` 必须包含 1～32 个精确、大小写匹配且批内不重复的已有工程材料名。preview 会扫描最多 5000 个
+HFSS 对象，并检查所有 boundary 的原生属性；任何实体材料引用或例如 Finite Conductivity 边界中的材料引用
+都会在调用 AEDT 删除 API 前被拒绝。不要先把引用材料强行删除再观察 AEDT 报错，这在真实 AEDT 中会让
+当前 gRPC wrapper 进入不可靠状态。
+
+成功结果必须包含 `status=verified`、与请求顺序一致的 `deleted_material_names`、精确删除数量、零引用计数、
+非空 `absence_digest`、`automatic_rollback_on_failure=true` 和 `project_saved=false`。成功只表示材料已从
+当前 AEDT 内存工程删除；是否写入 `.aedt` 文件仍需使用独立的保存 preview 和审批。
+
+失败回滚使用 preview 冻结的 Definition Manager `GetData` 调用原生 `AddMaterial`，再刷新 PyAEDT cache，
+并比较完整 catalog digest、全部 boundary 快照和零引用状态。若外部操作已经用同名材料占位，Harness 不会
+覆盖它，而会明确报告 rollback incomplete。
+
+该能力已通过隔离 AEDT 2026.1 + PyAEDT 1.3.0 实测，包括双材料删除、实体引用拒绝、Finite Conductivity
+边界引用拒绝、外部目录变化后的 stale、磁盘工程 SHA-256 不变，以及真实删除后的故障注入和原生定义整批
+重建。AEDT 2024 R2 上线前仍需执行中文使用手册第 18.1 节的同名真实测试。
+
+## 8C. 示例：创建 3D Layout 材料并分配 stackup 层
 
 推荐请求：
 
@@ -551,7 +580,7 @@ PyAEDT 的 `ChangeLayer` 会把 `Thickness0` 从例如 `0.035mm` 重排为物理
 SHA-256 不变、真实写入后的故障注入回滚，以及回滚后同名重新 preview。AEDT 2024 R2 服务器上线前仍需在
 测试工程副本上复验。
 
-## 8C. 示例：批量创建 3D Layout Via
+## 8D. 示例：批量创建 3D Layout Via
 
 推荐请求：
 
@@ -577,7 +606,7 @@ Location、Angle、LockPosition 和 HoleDiameter。删除后不信任 PyAEDT 的
 锁定状态、外部同名对象导致 stale、磁盘工程 SHA-256 不变，以及真实创建后的故障注入全批回滚。目标
 AEDT 2024 R2 仍需按第 12 节在测试工程副本复验。
 
-## 8D. 示例：批量移动、旋转、改网或锁定已有 Via
+## 8E. 示例：批量移动、旋转、改网或锁定已有 Via
 
 推荐请求：
 
@@ -605,7 +634,7 @@ preview 阶段拒绝，不会为了制造“成功”而把相同值再写一遍
 空旧源网络清理、外部修改导致 stale、磁盘工程 SHA-256 不变，以及真实写入后的故障注入完整快照回滚。测试专属 AEDT 和
 live session 均已清理。目标 AEDT 2024 R2 仍需在测试工程副本上复验。
 
-## 8E. 示例：严格批量删除已有 Via
+## 8F. 示例：严格批量删除已有 Via
 
 推荐请求：
 

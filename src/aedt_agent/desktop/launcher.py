@@ -57,6 +57,8 @@ _DESKTOP_ASSISTANT_MCP_TOOLS = (
     "apply_live_hfss_material_create",
     "preview_live_hfss_material_update",
     "apply_live_hfss_material_update",
+    "preview_live_hfss_material_delete",
+    "apply_live_hfss_material_delete",
     "preview_live_hfss_material_assign",
     "apply_live_hfss_material_assign",
     "get_live_hfss_mesh_inventory",

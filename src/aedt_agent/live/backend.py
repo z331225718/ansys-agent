@@ -97,6 +97,10 @@ class LiveAedtBackend:
                 return self._hfss_material_update_preview(target, arguments)
             if command == "hfss_material_update_apply":
                 return self._hfss_material_update_apply(target, arguments)
+            if command == "hfss_material_delete_preview":
+                return self._hfss_material_delete_preview(target, arguments)
+            if command == "hfss_material_delete_apply":
+                return self._hfss_material_delete_apply(target, arguments)
             if command == "hfss_material_assign_preview":
                 return self._hfss_material_assign_preview(target, arguments)
             if command == "hfss_material_assign_apply":
@@ -758,7 +762,6 @@ class LiveAedtBackend:
         catalog_by_name = {
             item["canonical_name"].casefold(): item for item in catalog["materials"]
         }
-        targets = []
         canonical_updates = []
         for update in spec["updates"]:
             before = catalog_by_name.get(update["material_name"].casefold())
@@ -770,11 +773,19 @@ class LiveAedtBackend:
                 raise LiveBackendError(
                     "material_name must preserve the exact case of the current HFSS project material"
                 )
-            _validate_hfss_material_update_target(before, update)
-            targets.append(before)
             canonical_updates.append({**update, "material_name": before["canonical_name"]})
         spec = {**spec, "updates": canonical_updates}
         target_names = [item["material_name"] for item in canonical_updates]
+        _refresh_hfss_material_objects(app, target_names)
+        catalog = _hfss_material_catalog_snapshot(app)
+        refreshed_by_name = {
+            item["canonical_name"]: item for item in catalog["materials"]
+        }
+        targets = []
+        for update in canonical_updates:
+            before = refreshed_by_name[update["material_name"]]
+            _validate_hfss_material_update_target(before, update)
+            targets.append(before)
         references = _hfss_material_reference_snapshot(app, target_names)
         material_object_ids = _hfss_material_object_ids(app, target_names)
         raw_definitions = {
@@ -923,6 +934,194 @@ class LiveAedtBackend:
             "references_before": before_references,
             "references_after": references_after,
             "material_count": len(after_catalog["materials"]),
+            "automatic_rollback_on_failure": True,
+            "project_dirty": True,
+            "project_saved": False,
+        }
+
+    def _hfss_material_delete_preview(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        app = self._app(
+            target,
+            "hfss",
+            _required(args, "project_name"),
+            _required(args, "design_name"),
+        )
+        if str(_safe_attribute(app, "design_type") or "").strip().casefold() != "hfss":
+            raise LiveBackendError("HFSS material deletion requires an HFSS 3D design")
+        if _simulation_running(app):
+            raise LiveBackendError("cannot delete HFSS materials while a simulation is running")
+        spec = _normalize_hfss_material_delete_spec(args)
+        catalog = _hfss_material_catalog_snapshot(app)
+        catalog_by_name = {
+            item["canonical_name"].casefold(): item for item in catalog["materials"]
+        }
+        canonical_names = []
+        for requested_name in spec["names"]:
+            material = catalog_by_name.get(requested_name.casefold())
+            if material is None:
+                raise LiveBackendError(
+                    "material names must already exist in the current HFSS project material catalog"
+                )
+            if material["canonical_name"] != requested_name:
+                raise LiveBackendError(
+                    "material names must preserve the exact case of current HFSS project materials"
+                )
+            canonical_names.append(material["canonical_name"])
+        spec = {**spec, "names": canonical_names}
+        _refresh_hfss_material_objects(app, canonical_names)
+        catalog = _hfss_material_catalog_snapshot(app)
+        refreshed_by_name = {
+            item["canonical_name"]: item for item in catalog["materials"]
+        }
+        targets = [refreshed_by_name[name] for name in canonical_names]
+        references = _hfss_material_reference_snapshot(app, canonical_names)
+        if references:
+            raise LiveBackendError(
+                "HFSS materials must have zero solid-object references before deletion: "
+                f"{references[0]['material_name']} -> {references[0]['name']}"
+            )
+        boundaries = _hfss_material_boundary_reference_snapshot(app, canonical_names)
+        referenced_boundaries = [item for item in boundaries if item["material_names"]]
+        if referenced_boundaries:
+            first = referenced_boundaries[0]
+            raise LiveBackendError(
+                "HFSS materials must have zero boundary references before deletion: "
+                f"{first['material_names'][0]} -> {first['name']}"
+            )
+        material_object_ids = _hfss_material_object_ids(app, canonical_names)
+        raw_definitions = {
+            name: _hfss_material_raw_definition(app, name) for name in canonical_names
+        }
+        state = {
+            "design_type": str(_safe_attribute(app, "design_type") or "").strip(),
+            "solution_type": str(_safe_attribute(app, "solution_type") or "").strip(),
+            "material_catalog": catalog,
+            "targets": targets,
+            "references": references,
+            "boundaries": boundaries,
+            "material_object_ids": material_object_ids,
+            "raw_definitions": raw_definitions,
+        }
+        state_digest = _digest(state)
+        preview_id = "material-delete-preview-" + _digest(
+            spec | {"state": state_digest}
+        )[:24]
+        self._previews[preview_id] = {
+            "kind": "hfss_material_delete",
+            "target": target,
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "spec": spec,
+            "state": state,
+            "digest": state_digest,
+        }
+        return {
+            "preview_id": preview_id,
+            **spec,
+            "target_count": len(targets),
+            "targets_before": targets,
+            "solid_reference_count": 0,
+            "boundary_reference_count": 0,
+            "snapshot_digest": state_digest,
+            "approval_required": True,
+            "project_dirty": False,
+            "project_saved": False,
+        }
+
+    def _hfss_material_delete_apply(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        preview_id = _required(args, "preview_id")
+        preview = self._preview(preview_id, "hfss_material_delete", target)
+        app = self._app(target, "hfss", preview["project_name"], preview["design_name"])
+        if _simulation_running(app):
+            raise LiveBackendError("cannot delete HFSS materials while a simulation is running")
+        names = list(preview["spec"]["names"])
+        try:
+            current = {
+                "design_type": str(_safe_attribute(app, "design_type") or "").strip(),
+                "solution_type": str(_safe_attribute(app, "solution_type") or "").strip(),
+                "material_catalog": _hfss_material_catalog_snapshot(app),
+                "targets": [_hfss_material_snapshot(app, name) for name in names],
+                "references": _hfss_material_reference_snapshot(app, names),
+                "boundaries": _hfss_material_boundary_reference_snapshot(app, names),
+                "material_object_ids": _hfss_material_object_ids(app, names),
+                "raw_definitions": {
+                    name: _hfss_material_raw_definition(app, name) for name in names
+                },
+            }
+        except LiveBackendError as exc:
+            raise LiveBackendError("stale HFSS material delete preview") from exc
+        if _digest(current) != preview["digest"]:
+            raise LiveBackendError("stale HFSS material delete preview")
+
+        before_catalog = preview["state"]["material_catalog"]
+        before_boundaries = preview["state"]["boundaries"]
+        expected_object_ids = preview["state"]["material_object_ids"]
+        deleted_names = []
+        try:
+            materials = _safe_attribute(app, "materials")
+            remover = getattr(materials, "remove_material", None)
+            if not callable(remover):
+                raise LiveBackendError("HFSS material removal API is unavailable")
+            for name in names:
+                material = _hfss_material_object(app, name)
+                if id(material) != expected_object_ids[name]:
+                    raise LiveBackendError(
+                        f"HFSS material object changed during delete apply: {name}"
+                    )
+                if remover(name) is not True:
+                    raise LiveBackendError(f"HFSS material removal returned false: {name}")
+                deleted_names.append(name)
+                if name in _hfss_project_material_names(app):
+                    raise LiveBackendError(f"HFSS material still exists after deletion: {name}")
+
+            after_catalog = _hfss_material_catalog_snapshot(app)
+            _verify_hfss_material_delete_catalog(before_catalog, after_catalog, names)
+            references_after = _hfss_material_reference_snapshot(app, names)
+            if references_after:
+                raise LiveBackendError("deleted HFSS material still has solid references")
+            boundaries_after = _hfss_material_boundary_reference_snapshot(app, names)
+            if boundaries_after != before_boundaries:
+                raise LiveBackendError("HFSS boundary state changed during material deletion")
+        except Exception as exc:
+            rollback = _rollback_hfss_material_deletes(
+                app,
+                deleted_names=deleted_names,
+                raw_definitions=preview["state"]["raw_definitions"],
+                before_catalog=before_catalog,
+                before_boundaries=before_boundaries,
+            )
+            if not rollback["complete"]:
+                raise LiveBackendError(
+                    f"HFSS material deletion failed and rollback is incomplete: {rollback}"
+                ) from exc
+            if isinstance(exc, LiveBackendError):
+                raise
+            raise LiveBackendError(
+                f"HFSS material deletion failed: {type(exc).__name__}: {exc}"
+            ) from exc
+
+        del self._previews[preview_id]
+        return {
+            "status": "verified",
+            "preview_id": preview_id,
+            **preview["spec"],
+            "deleted_material_names": deleted_names,
+            "deleted_material_count": len(deleted_names),
+            "targets_before": preview["state"]["targets"],
+            "solid_reference_count": 0,
+            "boundary_reference_count": 0,
+            "remaining_material_count": len(after_catalog["materials"]),
+            "absence_digest": _digest(
+                {"deleted_material_names": deleted_names, "material_catalog": after_catalog}
+            ),
             "automatic_rollback_on_failure": True,
             "project_dirty": True,
             "project_saved": False,
@@ -6032,6 +6231,34 @@ def _normalize_hfss_material_update_spec(args: dict[str, Any]) -> dict[str, Any]
     return {"updates": normalized, "max_materials": max_materials}
 
 
+def _normalize_hfss_material_delete_spec(args: dict[str, Any]) -> dict[str, Any]:
+    max_materials = _bounded_integer(
+        args.get("max_materials", 16),
+        "max_materials",
+        minimum=1,
+        maximum=32,
+    )
+    raw_names = args.get("names")
+    if not isinstance(raw_names, list) or not raw_names:
+        raise LiveBackendError("names must contain at least one exact HFSS material name")
+    if len(raw_names) > max_materials:
+        raise LiveBackendError(f"names exceeds the approved maximum of {max_materials}")
+    names = []
+    seen = set()
+    for index, raw_name in enumerate(raw_names):
+        if not isinstance(raw_name, str):
+            raise LiveBackendError("names must contain only string HFSS material names")
+        name = raw_name.strip()
+        if not _SAFE_AEDT_MATERIAL_NAME.fullmatch(name):
+            raise LiveBackendError(f"names[{index}] must be a safe exact AEDT material name")
+        folded = name.casefold()
+        if folded in seen:
+            raise LiveBackendError("material delete names must be unique case-insensitively")
+        seen.add(folded)
+        names.append(name)
+    return {"names": names, "max_materials": max_materials}
+
+
 def _normalize_hfss_material_appearance(value: Any, field: str) -> list[int | float]:
     if not isinstance(value, list) or len(value) != 4:
         raise LiveBackendError(f"{field} must contain [red, green, blue, transparency]")
@@ -7379,6 +7606,25 @@ def _hfss_material_object_ids(app: Any, material_names: list[str]) -> dict[str, 
     return {name: id(_hfss_material_object(app, name)) for name in material_names}
 
 
+def _refresh_hfss_material_objects(app: Any, material_names: list[str]) -> None:
+    materials = _safe_attribute(app, "materials")
+    loader = getattr(materials, "_aedmattolibrary", None)
+    if not callable(loader):
+        raise LiveBackendError("PyAEDT material refresh API is unavailable")
+    for name in material_names:
+        try:
+            material = loader(name)
+        except Exception as exc:
+            raise LiveBackendError(
+                f"PyAEDT material refresh failed for {name}: {type(exc).__name__}: {exc}"
+            ) from exc
+        canonical_name = str(_safe_attribute(material, "name") or "").strip()
+        if canonical_name != name:
+            raise LiveBackendError(
+                f"PyAEDT material refresh returned an unexpected name: {canonical_name}"
+            )
+
+
 def _hfss_material_raw_definition(app: Any, material_name: str) -> Any:
     materials = _safe_attribute(app, "materials")
     if materials is None:
@@ -7395,6 +7641,27 @@ def _hfss_material_raw_definition(app: Any, material_name: str) -> Any:
         if raw_definition is not None:
             return raw_definition
     raise LiveBackendError(f"HFSS raw material definition is unavailable: {material_name}")
+
+
+def _hfss_project_material_names(app: Any) -> list[str]:
+    materials = _safe_attribute(app, "materials")
+    definition_manager = _safe_attribute(materials, "odefinition_manager")
+    getter = getattr(definition_manager, "GetProjectMaterialNames", None)
+    if not callable(getter):
+        raise LiveBackendError("HFSS project material name readback is unavailable")
+    try:
+        names = [str(item).strip() for item in list(getter() or [])]
+    except Exception as exc:
+        raise LiveBackendError(
+            f"HFSS project material name readback failed: {type(exc).__name__}: {exc}"
+        ) from exc
+    if len(names) > 500:
+        raise LiveBackendError("HFSS project material catalog exceeds the 500 material safety limit")
+    if len({name.casefold() for name in names}) != len(names):
+        raise LiveBackendError(
+            "HFSS project material catalog contains duplicate case-insensitive names"
+        )
+    return names
 
 
 def _hfss_material_reference_snapshot(
@@ -7417,6 +7684,69 @@ def _hfss_material_reference_snapshot(
         for item in records
         if item["is_solid"] and item["material_name"].casefold() in target_names
     ]
+
+
+def _hfss_material_boundary_reference_snapshot(
+    app: Any,
+    material_names: list[str],
+) -> list[dict[str, Any]]:
+    try:
+        boundaries = list(getattr(app, "boundaries", []) or [])
+    except Exception as exc:
+        raise LiveBackendError("HFSS boundary inventory is unavailable") from exc
+    target_by_name = {name.casefold(): name for name in material_names}
+    records = []
+    for boundary in boundaries:
+        name = str(_safe_attribute(boundary, "name") or "").strip()
+        boundary_type = str(_safe_attribute(boundary, "type") or "").strip()
+        if not name or not boundary_type:
+            raise LiveBackendError("HFSS boundary name or type readback is unavailable")
+        try:
+            props = _json_value(dict(getattr(boundary, "props", {}) or {}))
+            properties = _json_value(dict(getattr(boundary, "properties", {}) or {}))
+        except Exception as exc:
+            raise LiveBackendError(
+                f"HFSS boundary properties are unavailable: {name}"
+            ) from exc
+        referenced = _matching_hfss_material_values(
+            {"props": props, "properties": properties},
+            target_by_name,
+        )
+        records.append(
+            {
+                "name": name,
+                "type": boundary_type,
+                "material_names": [
+                    target_by_name[item]
+                    for item in target_by_name
+                    if item in referenced
+                ],
+                "property_digest": _digest(
+                    {"props": props, "properties": properties}
+                ),
+            }
+        )
+    return sorted(records, key=lambda item: item["name"].casefold())
+
+
+def _matching_hfss_material_values(
+    value: Any,
+    target_by_name: dict[str, str],
+) -> set[str]:
+    matches = set()
+    if isinstance(value, dict):
+        for item in value.values():
+            matches.update(_matching_hfss_material_values(item, target_by_name))
+        return matches
+    if isinstance(value, list):
+        for item in value:
+            matches.update(_matching_hfss_material_values(item, target_by_name))
+        return matches
+    if isinstance(value, str):
+        normalized = value.strip().strip('"').casefold()
+        if normalized in target_by_name:
+            matches.add(normalized)
+    return matches
 
 
 def _validate_hfss_material_update_target(
@@ -7638,6 +7968,105 @@ def _mask_hfss_material_definition_fields(value: Any, allowed_fields: set[str]) 
             for key, item in value.items()
         }
     return value
+
+
+def _verify_hfss_material_delete_catalog(
+    before_catalog: dict[str, Any],
+    after_catalog: dict[str, Any],
+    deleted_names: list[str],
+) -> None:
+    before_by_name = {
+        item["canonical_name"]: item
+        for item in list(before_catalog.get("materials") or [])
+    }
+    after_by_name = {
+        item["canonical_name"]: item
+        for item in list(after_catalog.get("materials") or [])
+    }
+    expected_names = set(before_by_name).difference(deleted_names)
+    if set(after_by_name) != expected_names:
+        raise LiveBackendError("unexpected HFSS material catalog name change during deletion")
+    for name in expected_names:
+        if after_by_name[name] != before_by_name[name]:
+            raise LiveBackendError(
+                f"unrequested HFSS material changed during deletion: {name}"
+            )
+
+
+def _rollback_hfss_material_deletes(
+    app: Any,
+    *,
+    deleted_names: list[str],
+    raw_definitions: dict[str, Any],
+    before_catalog: dict[str, Any],
+    before_boundaries: list[dict[str, Any]],
+) -> dict[str, Any]:
+    errors = []
+    restored_names = []
+    materials = _safe_attribute(app, "materials")
+    definition_manager = _safe_attribute(materials, "odefinition_manager")
+    add_material = getattr(definition_manager, "AddMaterial", None)
+    loader = getattr(materials, "_aedmattolibrary", None)
+    for name in deleted_names:
+        try:
+            current_by_name = {
+                item.casefold(): item for item in _hfss_project_material_names(app)
+            }
+            if name.casefold() in current_by_name:
+                raise LiveBackendError(
+                    "same-name material appeared during rollback; refusing to overwrite it"
+                )
+            if not callable(add_material):
+                raise LiveBackendError("native HFSS material reconstruction API is unavailable")
+            if name not in raw_definitions:
+                raise LiveBackendError("frozen raw HFSS material definition is unavailable")
+            add_material(raw_definitions[name])
+            if not callable(loader) or not loader(name):
+                raise LiveBackendError(
+                    "PyAEDT material cache refresh failed after reconstruction"
+                )
+            if _hfss_material_raw_definition(app, name) != raw_definitions[name]:
+                raise LiveBackendError("native HFSS material reconstruction readback mismatch")
+            restored_names.append(name)
+        except Exception as exc:
+            errors.append(f"{name}: {type(exc).__name__}: {exc}")
+    readback_error = ""
+    try:
+        after_catalog = _hfss_material_catalog_snapshot(app)
+        after_boundaries = _hfss_material_boundary_reference_snapshot(
+            app,
+            list(raw_definitions),
+        )
+        after_references = _hfss_material_reference_snapshot(
+            app,
+            list(raw_definitions),
+        )
+    except Exception as exc:
+        after_catalog = {"materials": []}
+        after_boundaries = []
+        after_references = []
+        readback_error = f"{type(exc).__name__}: {exc}"
+    catalog_match = _digest(after_catalog) == _digest(before_catalog)
+    boundaries_match = after_boundaries == before_boundaries
+    references_clear = not after_references
+    complete = (
+        not errors
+        and not readback_error
+        and catalog_match
+        and boundaries_match
+        and references_clear
+    )
+    return {
+        "complete": complete,
+        "restored_material_names": restored_names,
+        "catalog_match": catalog_match,
+        "boundaries_match": boundaries_match,
+        "references_clear": references_clear,
+        "before_catalog_digest": _digest(before_catalog),
+        "after_catalog_digest": _digest(after_catalog) if not readback_error else "",
+        "errors": errors,
+        "readback_error": readback_error,
+    }
 
 
 def _rollback_hfss_material_updates(

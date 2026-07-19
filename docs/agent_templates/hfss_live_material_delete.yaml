@@ -1,0 +1,43 @@
+id: hfss_live_material_delete
+version: 1
+description: Preview, approve, delete, and verify an exact bounded batch of existing HFSS project materials that have no solid or boundary references, without saving the project.
+nodes:
+  - id: preview_material_deletions
+    role: preview
+    kind: program
+    handler: assistant.live.hfss.preview_material_delete
+    input_schema: live_hfss_material_delete_request
+    output_schema: live_hfss_material_delete_preview
+    max_runs: 1
+  - id: apply_material_deletions
+    role: apply
+    kind: program
+    handler: assistant.live.hfss.apply_material_delete
+    input_schema: live_hfss_material_delete_preview
+    output_schema: live_hfss_material_delete_result
+    max_runs: 1
+  - id: verify_scorecard
+    role: scorecard
+    kind: program
+    handler: assistant.live.hfss.material_delete_scorecard
+    input_schema: live_hfss_material_delete_result
+    output_schema: live_hfss_material_delete_scorecard
+    max_runs: 1
+edges:
+  - id: preview-to-apply
+    from: preview_material_deletions
+    to: apply_material_deletions
+    on: succeeded
+  - id: apply-to-scorecard
+    from: apply_material_deletions
+    to: verify_scorecard
+    on: succeeded
+handoffs:
+  live_hfss_material_delete_request:
+    required_fields: [names]
+  live_hfss_material_delete_preview:
+    required_fields: [names, operation_preview_id, operation_approval, operation_preview, live_session_reused]
+  live_hfss_material_delete_result:
+    required_fields: [names, operation_result, live_session_reused]
+  live_hfss_material_delete_scorecard:
+    required_fields: [status, checks, summary, live_session_reused]

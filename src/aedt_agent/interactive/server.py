@@ -446,6 +446,36 @@ def create_server(
         )
 
     @server.tool()
+    async def preview_live_hfss_material_delete(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        names: list[str],
+        max_materials: int = 16,
+    ) -> dict:
+        """Preview deleting an exact batch of existing, fully unreferenced HFSS project materials."""
+        return live.preview_hfss_material_delete(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            names=names,
+            max_materials=max_materials,
+        )
+
+    @server.tool()
+    async def apply_live_hfss_material_delete(
+        live_session_id: str,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        """Delete and verify an unreferenced HFSS material batch with native reconstruction on failure."""
+        return live.apply_hfss_material_delete(
+            live_session_id,
+            preview_id=preview_id,
+            approval_token=approval_token,
+        )
+
+    @server.tool()
     async def preview_live_layout_material_create_assign(
         live_session_id: str,
         project_name: str,

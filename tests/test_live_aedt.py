@@ -1213,6 +1213,20 @@ class FakeDefinitionManager:
             material.material_appearance = list(values["appearance"])
         return True
 
+    def AddMaterial(self, definition):
+        name = str(definition[0]).removeprefix("NAME:")
+        if name.casefold() in self.materials:
+            raise RuntimeError("material already exists")
+        material = FakeMaterial(
+            name,
+            dielectric=True,
+            color=[128, 128, 128, 0.0],
+            conductivity=0.0,
+        )
+        self.materials[name.casefold()] = material
+        self.EditMaterial(name, definition)
+        return True
+
 
 class FakeMaterials:
     def __init__(self, *, mismatch_create_readback=False):
@@ -1619,6 +1633,11 @@ class FakeRegistry:
             return {
                 "preview_id": "material-update-preview-1",
                 "snapshot_digest": "material-update-digest-1",
+            }
+        if command == "hfss_material_delete_preview":
+            return {
+                "preview_id": "material-delete-preview-1",
+                "snapshot_digest": "material-delete-digest-1",
             }
         if command == "layout_material_create_assign_preview":
             return {
@@ -3003,6 +3022,262 @@ def test_hfss_material_update_raw_definition_mask_allows_only_requested_fields()
     after["HarnessRaw"][4] = 0.7
     with pytest.raises(LiveBackendError, match="unrequested native"):
         _verify_hfss_material_raw_definition_updates(before, after, updates)
+
+
+def test_backend_deletes_exact_unreferenced_hfss_material_batch():
+    apps = []
+
+    def factory(**kwargs):
+        app = FakeMaterialHfss(**kwargs)
+        first = app.materials.add_material(
+            "HarnessDeleteA",
+            properties={"permittivity": 3.2, "conductivity": 0.01},
+        )
+        first.material_appearance = [10, 20, 30, 0.4]
+        second = app.materials.add_material(
+            "HarnessDeleteB",
+            properties={"permittivity": 4.1, "conductivity": 0.02},
+        )
+        second.material_appearance = [40, 50, 60, 0.5]
+        apps.append(app)
+        return app
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, hfss_factory=factory)
+    target = AedtTarget("pid", 42)
+    preview = backend.execute(
+        target,
+        "hfss_material_delete_preview",
+        {
+            "project_name": "Board",
+            "design_name": "HFSS1",
+            "names": ["HarnessDeleteA", "HarnessDeleteB"],
+            "max_materials": 2,
+        },
+    )
+    assert preview["target_count"] == 2
+    assert preview["solid_reference_count"] == 0
+    assert preview["boundary_reference_count"] == 0
+    assert preview["project_dirty"] is False
+    assert "harnessdeletea" in apps[0].materials.material_keys
+
+    result = backend.execute(
+        target,
+        "hfss_material_delete_apply",
+        {"preview_id": preview["preview_id"]},
+    )
+    assert result["status"] == "verified"
+    assert result["deleted_material_names"] == ["HarnessDeleteA", "HarnessDeleteB"]
+    assert result["deleted_material_count"] == 2
+    assert result["remaining_material_count"] == 2
+    assert result["absence_digest"]
+    assert "harnessdeletea" not in apps[0].materials.material_keys
+    assert "harnessdeleteb" not in apps[0].materials.material_keys
+    assert result["automatic_rollback_on_failure"] is True
+    assert result["project_saved"] is False
+
+
+def test_backend_hfss_material_delete_rejects_solid_and_boundary_references():
+    def solid_factory(**kwargs):
+        app = FakeMaterialHfss(**kwargs)
+        app.materials.add_material(
+            "HarnessUsed",
+            properties={"permittivity": 3.0, "conductivity": 0.01},
+        )
+        assert app.assign_material("box1", "HarnessUsed") is True
+        return app
+
+    request = {
+        "project_name": "Board",
+        "design_name": "HFSS1",
+        "names": ["HarnessUsed"],
+    }
+    solid_backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=solid_factory,
+    )
+    with pytest.raises(LiveBackendError, match="zero solid-object references"):
+        solid_backend.execute(
+            AedtTarget("pid", 42),
+            "hfss_material_delete_preview",
+            request,
+        )
+
+    def boundary_factory(**kwargs):
+        app = FakeMaterialHfss(**kwargs)
+        app.materials.add_material(
+            "HarnessUsed",
+            properties={"permittivity": 3.0, "conductivity": 0.01},
+        )
+        app.boundaries.append(
+            FakeBoundary(
+                app,
+                "MaterialBoundary",
+                "Finite Conductivity",
+                props={"Faces": [101], "Material": "HarnessUsed"},
+            )
+        )
+        return app
+
+    boundary_backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=boundary_factory,
+    )
+    with pytest.raises(LiveBackendError, match="zero boundary references"):
+        boundary_backend.execute(
+            AedtTarget("pid", 42),
+            "hfss_material_delete_preview",
+            request,
+        )
+
+
+def test_backend_hfss_material_delete_rejects_stale_and_reconstructs_batch(
+    monkeypatch,
+):
+    apps = []
+
+    def factory(**kwargs):
+        app = FakeMaterialHfss(**kwargs)
+        app.materials.add_material(
+            "HarnessDeleteA",
+            properties={"permittivity": 3.0, "conductivity": 0.01},
+        )
+        app.materials.add_material(
+            "HarnessDeleteB",
+            properties={"permittivity": 4.0, "conductivity": 0.02},
+        )
+        apps.append(app)
+        return app
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, hfss_factory=factory)
+    target = AedtTarget("pid", 42)
+    request = {
+        "project_name": "Board",
+        "design_name": "HFSS1",
+        "names": ["HarnessDeleteA", "HarnessDeleteB"],
+    }
+    stale = backend.execute(target, "hfss_material_delete_preview", request)
+    apps[0].materials.add_material("ExternalMaterial", properties={"permittivity": 2.2})
+    with pytest.raises(LiveBackendError, match="stale HFSS material delete preview"):
+        backend.execute(
+            target,
+            "hfss_material_delete_apply",
+            {"preview_id": stale["preview_id"]},
+        )
+    assert "harnessdeletea" in apps[0].materials.material_keys
+    assert apps[0].materials.remove_material("ExternalMaterial") is True
+
+    rollback_preview = backend.execute(target, "hfss_material_delete_preview", request)
+    before = backend.execute(
+        target,
+        "hfss_material_inventory",
+        {"project_name": "Board", "design_name": "HFSS1", "max_items": 500},
+    )
+    from aedt_agent.live import backend as backend_module
+
+    monkeypatch.setattr(
+        backend_module,
+        "_verify_hfss_material_delete_catalog",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            LiveBackendError("injected material delete readback failure")
+        ),
+    )
+    with pytest.raises(LiveBackendError, match="injected material delete readback failure"):
+        backend.execute(
+            target,
+            "hfss_material_delete_apply",
+            {"preview_id": rollback_preview["preview_id"]},
+        )
+    after = backend.execute(
+        target,
+        "hfss_material_inventory",
+        {"project_name": "Board", "design_name": "HFSS1", "max_items": 500},
+    )
+    assert after["snapshot_digest"] == before["snapshot_digest"]
+    assert "harnessdeletea" in apps[0].materials.material_keys
+    assert "harnessdeleteb" in apps[0].materials.material_keys
+
+
+@pytest.mark.parametrize(
+    "names,error",
+    [
+        ([], "at least one exact"),
+        (["Missing"], "already exist"),
+        (["HarnessDelete", "harnessdelete"], "unique case-insensitively"),
+        (["harnessdelete"], "exact case"),
+        (["bad/name"], "safe exact"),
+    ],
+)
+def test_backend_hfss_material_delete_rejects_unsafe_names(names, error):
+    def factory(**kwargs):
+        app = FakeMaterialHfss(**kwargs)
+        app.materials.add_material(
+            "HarnessDelete",
+            properties={"permittivity": 3.0, "conductivity": 0.01},
+        )
+        return app
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, hfss_factory=factory)
+    with pytest.raises(LiveBackendError, match=error):
+        backend.execute(
+            AedtTarget("pid", 42),
+            "hfss_material_delete_preview",
+            {
+                "project_name": "Board",
+                "design_name": "HFSS1",
+                "names": names,
+            },
+        )
+
+
+def test_backend_hfss_material_delete_never_overwrites_racing_replacement(monkeypatch):
+    apps = []
+
+    def factory(**kwargs):
+        app = FakeMaterialHfss(**kwargs)
+        app.materials.add_material(
+            "HarnessDeleteRace",
+            properties={"permittivity": 3.0, "conductivity": 0.01},
+        )
+        apps.append(app)
+        return app
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, hfss_factory=factory)
+    target = AedtTarget("pid", 42)
+    preview = backend.execute(
+        target,
+        "hfss_material_delete_preview",
+        {
+            "project_name": "Board",
+            "design_name": "HFSS1",
+            "names": ["HarnessDeleteRace"],
+        },
+    )
+    replacement = FakeMaterial(
+        "HarnessDeleteRace",
+        dielectric=True,
+        color=[99, 98, 97, 0.2],
+        conductivity=0.01,
+    )
+    replacement.permittivity.value = 8.8
+    from aedt_agent.live import backend as backend_module
+
+    def replace_then_fail(*args, **kwargs):
+        apps[0].materials.material_keys["harnessdeleterace"] = replacement
+        raise LiveBackendError("injected racing replacement")
+
+    monkeypatch.setattr(
+        backend_module,
+        "_verify_hfss_material_delete_catalog",
+        replace_then_fail,
+    )
+    with pytest.raises(LiveBackendError, match="rollback is incomplete"):
+        backend.execute(
+            target,
+            "hfss_material_delete_apply",
+            {"preview_id": preview["preview_id"]},
+        )
+    assert apps[0].materials.material_keys["harnessdeleterace"] is replacement
+    assert replacement.permittivity.value == 8.8
 
 
 def test_backend_layout_material_create_assign_supports_all_stackup_roles():
@@ -7256,6 +7531,35 @@ def test_manager_requires_action_bound_one_use_approval_for_hfss_material_update
     assert getattr(replay.value, "code", None) == "approval_required"
 
 
+def test_manager_requires_action_bound_one_use_approval_for_hfss_material_delete():
+    registry = FakeRegistry()
+    authority = HmacApprovalAuthority("d" * 32)
+    manager = LiveAedtSessionManager(registry=registry, approval_verifier=authority)
+    session_id = manager.attach(pid=42)["live_session_id"]
+    preview = manager.preview_hfss_material_delete(
+        session_id,
+        project_name="Board",
+        design_name="HFSS1",
+        names=["HarnessUnusedA", "HarnessUnusedB"],
+        max_materials=4,
+    )
+    assert preview["approval_request"]["action"] == "hfss.material.delete"
+    token = authority.issue(**preview["approval_request"])
+    result = manager.apply_hfss_material_delete(
+        session_id,
+        preview_id=preview["preview_id"],
+        approval_token=token,
+    )
+    assert result["command"] == "hfss_material_delete_apply"
+    with pytest.raises(Exception) as replay:
+        manager.apply_hfss_material_delete(
+            session_id,
+            preview_id=preview["preview_id"],
+            approval_token=token,
+        )
+    assert getattr(replay.value, "code", None) == "approval_required"
+
+
 def test_manager_requires_action_bound_one_use_approval_for_layout_material_create_assign():
     registry = FakeRegistry()
     authority = HmacApprovalAuthority("l" * 32)
@@ -7787,6 +8091,8 @@ def test_mcp_registers_live_tools_without_changing_artifact_tools(monkeypatch):
     assert "apply_live_hfss_material_create" in server.tools
     assert "preview_live_hfss_material_update" in server.tools
     assert "apply_live_hfss_material_update" in server.tools
+    assert "preview_live_hfss_material_delete" in server.tools
+    assert "apply_live_hfss_material_delete" in server.tools
     assert "preview_live_layout_material_create_assign" in server.tools
     assert "apply_live_layout_material_create_assign" in server.tools
     assert "preview_live_layout_via_create" in server.tools
@@ -7895,6 +8201,8 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
         "apply_live_hfss_material_create",
         "preview_live_hfss_material_update",
         "apply_live_hfss_material_update",
+        "preview_live_hfss_material_delete",
+        "apply_live_hfss_material_delete",
         "preview_live_layout_material_create_assign",
         "apply_live_layout_material_create_assign",
         "preview_live_layout_via_create",
@@ -7948,6 +8256,10 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
         "preview_live_hfss_material_update",
         "apply_live_hfss_material_update",
     ]
+    assert by_name["hfss.material.delete"]["tools"] == [
+        "preview_live_hfss_material_delete",
+        "apply_live_hfss_material_delete",
+    ]
     assert by_name["layout.material.create_and_assign"]["tools"] == [
         "preview_live_layout_material_create_assign",
         "apply_live_layout_material_create_assign",
@@ -7981,6 +8293,9 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
     ]["postconditions"]
     assert "material_references_and_solve_inside_preserved" in by_name[
         "hfss.material.update"
+    ]["postconditions"]
+    assert "native_material_definitions_reconstructed_on_failure" in by_name[
+        "hfss.material.delete"
     ]["postconditions"]
     assert by_name["hfss.material.inventory"]["tools"] == [
         "get_live_hfss_material_inventory"

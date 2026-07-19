@@ -156,6 +156,30 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             products=["hfss"],
         ),
         _cap(
+            "hfss.material.delete",
+            "reversible_edit",
+            ["live"],
+            [
+                "preview_live_hfss_material_delete",
+                "apply_live_hfss_material_delete",
+            ],
+            approval="external_host_token",
+            side_effects=[
+                "project_becomes_dirty",
+                "existing_unreferenced_project_material_definitions_deleted",
+            ],
+            postconditions=[
+                "one_to_32_exact_existing_project_materials",
+                "zero_solid_and_boundary_references_required",
+                "full_project_material_catalog_and_boundary_state_frozen",
+                "deleted_names_absent_and_non_target_materials_unchanged",
+                "native_material_definitions_reconstructed_on_failure",
+                "same_name_racing_material_never_overwritten",
+                "project_not_saved",
+            ],
+            products=["hfss"],
+        ),
+        _cap(
             "hfss.material.assign",
             "reversible_edit",
             ["live"],

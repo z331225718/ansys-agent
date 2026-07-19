@@ -331,6 +331,40 @@ class _Live:
             "project_saved": False,
         }
 
+    def preview_hfss_material_delete(self, session_id: str, **kwargs) -> dict:
+        return {
+            "preview_id": "material-delete-preview-1",
+            "names": list(kwargs["names"]),
+            "approval_request": {"action": "hfss.material.delete"},
+            "project_saved": False,
+        }
+
+    def apply_hfss_material_delete(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        assert preview_id == "material-delete-preview-1"
+        assert approval_token == "material-delete-approved"
+        names = ["HarnessUnusedA", "HarnessUnusedB"]
+        return {
+            "status": "verified",
+            "deleted_material_names": names,
+            "deleted_material_count": 2,
+            "targets_before": [
+                {"canonical_name": name, "definition_digest": f"before-{index}"}
+                for index, name in enumerate(names)
+            ],
+            "solid_reference_count": 0,
+            "boundary_reference_count": 0,
+            "remaining_material_count": 3,
+            "absence_digest": "material-delete-absence-1",
+            "automatic_rollback_on_failure": True,
+            "project_saved": False,
+        }
+
     def preview_layout_material_create_assign(self, session_id: str, **kwargs) -> dict:
         return {
             "preview_id": "layout-material-create-assign-preview-1",
@@ -1144,6 +1178,11 @@ def test_default_workflow_catalog_includes_live_monitor_and_export(tmp_path: Pat
     assert descriptors["hfss_live_material_update"]["recommended_initial_fields"] == [
         "updates",
     ]
+    assert descriptors["hfss_live_material_delete"]["risk"] == "reversible_edit"
+    assert descriptors["hfss_live_material_delete"]["attached_live_session_reuse"] is True
+    assert descriptors["hfss_live_material_delete"]["recommended_initial_fields"] == [
+        "names",
+    ]
     assert descriptors["layout_live_material_create_assign"]["risk"] == (
         "reversible_edit"
     )
@@ -1517,6 +1556,52 @@ def test_live_hfss_material_update_workflow_updates_and_scores_batch(tmp_path: P
     assert scorecard["summary"]["updated_material_count"] == 1
     assert scorecard["summary"]["updated_material_names"] == ["HarnessLaminate"]
     assert scorecard["summary"]["reference_count"] == 1
+    assert scorecard["summary"]["project_saved"] is False
+
+
+def test_live_hfss_material_delete_workflow_deletes_and_scores_batch(tmp_path: Path):
+    manager = AssistantWorkflowManager(
+        live_manager=_Live(),
+        db_path=tmp_path / "material-delete-missions.db",
+        template_ids=("hfss_live_material_delete",),
+        runtime_factory=lambda path: AgentRuntime(SQLiteMissionStore(path)),
+    )
+    names = ["HarnessUnusedA", "HarnessUnusedB"]
+    start = manager.preview_start(
+        "live-1",
+        workflow_id="hfss_live_material_delete",
+        goal="Delete two reviewed and fully unreferenced HFSS materials",
+        initial_payload={"names": names, "max_materials": 4},
+    )
+    started = manager.apply_start(
+        "live-1",
+        preview_id=start["preview_id"],
+        approval_token="approved",
+    )
+    report = None
+    for index in range(3):
+        advance = manager.preview_advance("live-1", graph_run_id=started["graph_run_id"])
+        if index == 1:
+            assert advance["operation_approval_required"]["preview_id"] == (
+                "material-delete-preview-1"
+            )
+        report = manager.apply_advance(
+            "live-1",
+            preview_id=advance["preview_id"],
+            approval_token="approved",
+            operation_approval_token=(
+                "material-delete-approved" if index == 1 else ""
+            ),
+        )
+
+    assert report is not None and report["status"] == "succeeded"
+    assert "material-delete-approved" not in str(report)
+    scorecard = report["node_runs"][-1]["output_payload"]
+    assert scorecard["status"] == "passed"
+    assert scorecard["summary"]["deleted_material_count"] == 2
+    assert scorecard["summary"]["deleted_material_names"] == names
+    assert scorecard["summary"]["remaining_material_count"] == 3
+    assert scorecard["summary"]["absence_digest"] == "material-delete-absence-1"
     assert scorecard["summary"]["project_saved"] is False
 
 

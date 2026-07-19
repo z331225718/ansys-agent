@@ -90,6 +90,26 @@ def register_live_workflow_handlers(
         _hfss_material_update_scorecard,
     )
     registry.register(
+        "assistant.live.hfss.preview_material_delete",
+        lambda context: _preview_hfss_material_delete(
+            context,
+            live_manager,
+            binding_resolver,
+        ),
+    )
+    registry.register(
+        "assistant.live.hfss.apply_material_delete",
+        lambda context: _apply_hfss_material_delete(
+            context,
+            live_manager,
+            binding_resolver,
+        ),
+    )
+    registry.register(
+        "assistant.live.hfss.material_delete_scorecard",
+        _hfss_material_delete_scorecard,
+    )
+    registry.register(
         "assistant.live.layout.preview_material_create_assign",
         lambda context: _preview_layout_material_create_assign(
             context,
@@ -962,6 +982,109 @@ def _hfss_material_update_scorecard(
                 "updated_material_count": result.get("updated_material_count"),
                 "updated_material_names": result.get("updated_material_names"),
                 "reference_count": result.get("reference_count"),
+                "project_saved": result.get("project_saved"),
+            },
+            "live_session_reused": True,
+        },
+        outcome="passed" if passed else "failed",
+    )
+
+
+def _preview_hfss_material_delete(
+    context,
+    live_manager,
+    binding_resolver,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, project_name, design_name, _ = _live_target(context, binding_resolver)
+    preview = live_manager.preview_hfss_material_delete(
+        session_id,
+        project_name=project_name,
+        design_name=design_name,
+        names=list(payload.get("names") or []),
+        max_materials=payload.get("max_materials", 16),
+    )
+    return _success(
+        {
+            **payload,
+            "operation_preview_id": preview["preview_id"],
+            "operation_approval": preview.get("approval_request") or {},
+            "operation_preview": preview,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _apply_hfss_material_delete(
+    context,
+    live_manager,
+    binding_resolver,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, _, _, binding = _live_target(context, binding_resolver)
+    token = str(binding.get("operation_approval_token") or "")
+    if not token:
+        raise ValueError(
+            "operation_approval_token is required after wait_for_live_approval approves "
+            "the material delete preview"
+        )
+    result = live_manager.apply_hfss_material_delete(
+        session_id,
+        preview_id=str(payload["operation_preview_id"]),
+        approval_token=token,
+    )
+    return _success(
+        {
+            **payload,
+            "operation_result": result,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _hfss_material_delete_scorecard(
+    context: GraphNodeExecutionContext,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    result = dict(payload.get("operation_result") or {})
+    requested_names = [str(item) for item in list(payload.get("names") or [])]
+    targets_before = [
+        str(item.get("canonical_name") or "")
+        for item in list(result.get("targets_before") or [])
+    ]
+    checks = [
+        _check("verified", result.get("status") == "verified"),
+        _check(
+            "exact_deleted_material_batch",
+            bool(requested_names)
+            and result.get("deleted_material_names") == requested_names
+            and targets_before == requested_names
+            and result.get("deleted_material_count") == len(requested_names),
+        ),
+        _check(
+            "zero_references_verified",
+            result.get("solid_reference_count") == 0
+            and result.get("boundary_reference_count") == 0,
+        ),
+        _check("absence_digest_returned", bool(result.get("absence_digest"))),
+        _check(
+            "automatic_rollback_on_failure",
+            result.get("automatic_rollback_on_failure") is True,
+        ),
+        _check("project_not_saved", result.get("project_saved") is False),
+        _check("live_session_reused", payload.get("live_session_reused") is True),
+    ]
+    passed = all(item["passed"] for item in checks)
+    return _success(
+        {
+            **payload,
+            "status": "passed" if passed else "failed",
+            "checks": checks,
+            "summary": {
+                "deleted_material_count": result.get("deleted_material_count"),
+                "deleted_material_names": result.get("deleted_material_names"),
+                "remaining_material_count": result.get("remaining_material_count"),
+                "absence_digest": result.get("absence_digest"),
                 "project_saved": result.get("project_saved"),
             },
             "live_session_reused": True,

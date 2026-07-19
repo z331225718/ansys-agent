@@ -141,6 +141,8 @@ preview_live_hfss_material_create
 apply_live_hfss_material_create
 preview_live_hfss_material_update
 apply_live_hfss_material_update
+preview_live_hfss_material_delete
+apply_live_hfss_material_delete
 preview_live_hfss_material_assign
 apply_live_hfss_material_assign
 preview_live_layout_material_create_assign
@@ -320,6 +322,20 @@ get_live_hfss_material_inventory
 一次限 1～32 个精确工程材料，只开放五个 simple numeric 电磁属性和可选外观；no-op、复杂材料模型和
 跨越 100000S/m 介质/导体阈值的更新会拒绝。失败时用 preview 冻结的原生 `GetData` 整批恢复，刷新
 PyAEDT cache，并要求完整材料目录和引用快照精确恢复。
+
+严格批量删除零引用的 HFSS 工程材料时：
+
+```text
+get_live_hfss_material_inventory
+  -> preview_live_hfss_material_delete（冻结完整目录、目标原生定义、solid 引用和全部 boundary）
+  -> Host approval
+  -> apply_live_hfss_material_delete
+  -> 从 Definition Manager 确认名称消失，核对非目标目录、boundary 和 project_saved=false
+```
+
+一次限 1～32 个精确、大小写匹配的 project material。任何 solid 或 boundary 引用都会在调用 AEDT 删除
+接口前拒绝。失败时用冻结的原生 `GetData` 调用 `AddMaterial` 重建已删除项并刷新 PyAEDT cache；同名外部
+对象不会被覆盖。成功删除只改变 AEDT 内存工程，保存仍需要独立 preview 和审批。
 
 在 3D Layout 中创建一个数值型各向同性工程材料，并立即分配给一个明确 stackup layer 字段时：
 
