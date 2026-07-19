@@ -1,5 +1,10 @@
 # ansys-agent
 
+远端 Windows Server 已安装 AEDT 2024 R2、Claude Code 可用且 `pip` 可以联网时，建议直接按
+[`docs/remote-windows-server-usage.zh.md`](docs/remote-windows-server-usage.zh.md) 操作。该手册按实际使用顺序
+覆盖项目安装、PyAEDT/PyEDB API Memory、复用现有 AEDT 会话、Automation Tab 入口、标准对话、
+原生审批、回读、保存、smoke、升级、回滚和完全离线发布包。
+
 面向 AEDT 2024 R2 远端服务器的安装、连接、Desktop 入口、标准对话范例、审批、故障处理和验收步骤见
 [`docs/ansys-assistant-operations-guide.zh.md`](docs/ansys-assistant-operations-guide.zh.md)。完整能力、Workflow、
 故障排查和维护者说明见

@@ -6,6 +6,10 @@
 
 本文假定目标机器上的 Claude Code 和对应模型已经可用，不包含它们的安装或模型配置过程。
 
+远端服务器已经安装 AEDT 2024 R2、Claude Code 可用且 `pip` 可以联网时，可以先按
+[远端 Windows Server 使用说明](remote-windows-server-usage.zh.md) 完成一条从安装到验收的完整路径，再回到
+本文查询具体 Harness、Workflow 和维护者细节。
+
 文中的 `D:\ansys-agent`、`50051`、`Board`、`Layout1` 都是示例值，执行前必须替换为目标机器的
 实际安装目录、实际发现端口、活动工程和活动设计。除非命令明确写出“保存”，本文所有 live 修改示例
 都以“只修改 AEDT 内存、完成回读、默认不保存工程”为前提。
@@ -3335,6 +3339,7 @@ D:\ansys-agent-0.1.0-preview1
 
 ## 23. 相关文档
 
+- [远端 Windows Server 使用说明](remote-windows-server-usage.zh.md)
 - [Ansys Assistant 部署与操作说明](ansys-assistant-operations-guide.zh.md)
 - [Windows Server 离线部署](offline-windows-server-deployment.md)
 - [AEDT Desktop Claude Code 入口](aedt-desktop-claude-entry.md)
