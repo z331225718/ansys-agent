@@ -610,6 +610,36 @@ def create_server(
         )
 
     @server.tool()
+    async def preview_live_layout_antipad_circle_create(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        voids: list[dict],
+        max_voids: int = 16,
+    ) -> dict:
+        """Preview bounded circle voids; owner layers are derived and never agent-supplied."""
+        return live.preview_layout_antipad_circle_create(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            voids=voids,
+            max_voids=max_voids,
+        )
+
+    @server.tool()
+    async def apply_live_layout_antipad_circle_create(
+        live_session_id: str,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        """Create owner-bound circle voids with native readback and delete rollback; never save."""
+        return live.apply_layout_antipad_circle_create(
+            live_session_id,
+            preview_id=preview_id,
+            approval_token=approval_token,
+        )
+
+    @server.tool()
     async def preview_live_hfss_material_assign(
         live_session_id: str,
         project_name: str,
@@ -948,6 +978,40 @@ def create_server(
     ) -> dict:
         """Rotate and read back one HFSS geometry batch, preserving attachments and rolling back failure."""
         return live.apply_hfss_geometry_rotate(
+            live_session_id,
+            preview_id=preview_id,
+            approval_token=approval_token,
+        )
+
+    @server.tool()
+    async def preview_live_hfss_antipad_subtract(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        blank_object_name: str,
+        center: list[float],
+        radius: float,
+        tool_name: str = "",
+    ) -> dict:
+        """Preview one Z-through circular cut in an exact thin HFSS metal solid."""
+        return live.preview_hfss_antipad_subtract(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            blank_object_name=blank_object_name,
+            tool_name=tool_name,
+            center=center,
+            radius=radius,
+        )
+
+    @server.tool()
+    async def apply_live_hfss_antipad_subtract(
+        live_session_id: str,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        """Subtract and verify one circular anti-pad with AEDT Undo rollback; never save."""
+        return live.apply_hfss_antipad_subtract(
             live_session_id,
             preview_id=preview_id,
             approval_token=approval_token,

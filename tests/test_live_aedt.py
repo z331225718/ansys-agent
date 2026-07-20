@@ -1276,6 +1276,198 @@ class FakeRotateHfss(FakeHfss):
         ]
 
 
+class FakeAntipadPoint:
+    def __init__(self, x, y):
+        self.position = [x, y]
+
+    def IsArc(self):
+        return 0
+
+    def GetX(self):
+        return self.position[0]
+
+    def GetY(self):
+        return self.position[1]
+
+
+class FakeLayoutAntipadEditor:
+    def __init__(self, app):
+        self.app = app
+
+    def FindObjects(self, field, value):
+        if field == "Name":
+            names = {"GND_PLANE", *self.app._voids}
+            return [value] if value in names else []
+        if field == "Type" and value == "circle void":
+            return list(self.app._voids)
+        return []
+
+    def GetProperties(self, tab, name):
+        assert tab == "BaseElementTab"
+        if name == "GND_PLANE":
+            return ["Type", "Name", "PlacementLayer", "Net"]
+        return ["Type", "Name", "PlacementLayer", "Center", "Radius", "LockPosition"]
+
+    def GetPropertyValue(self, tab, name, prop):
+        if name == "GND_PLANE":
+            return {
+                "Type": "rect",
+                "Name": name,
+                "PlacementLayer": "TOP",
+                "Net": "GND",
+            }[prop]
+        record = self.app._voids[name]
+        return {
+            "Type": "circle void",
+            "Name": name,
+            "PlacementLayer": "TOP",
+            "Center": f"{record['center'][0]} ,{record['center'][1]}",
+            "Radius": f"{record['radius']}mm",
+            "LockPosition": "false",
+        }[prop]
+
+    def GetPolygonVoids(self, owner):
+        return [name for name, record in self.app._voids.items() if record["owner"] == owner]
+
+    def GetPolygon(self, name):
+        return SimpleNamespace(GetPoints=lambda: self.app.modeler.geometries[name].points)
+
+    def CreateCircleVoid(self, arguments):
+        owner = arguments[arguments.index("owner:=") + 1]
+        geometry = arguments[arguments.index("circle voidGeometry:=") + 1]
+        name = geometry[geometry.index("Name:=") + 1]
+        x = float(str(geometry[geometry.index("x:=") + 1]).removesuffix("mm"))
+        y = float(str(geometry[geometry.index("y:=") + 1]).removesuffix("mm"))
+        radius = float(str(geometry[geometry.index("r:=") + 1]).removesuffix("mm"))
+        self.app._voids[name] = {"owner": owner, "center": [x, y], "radius": radius}
+        self.app.modeler.circle_voids_names = list(self.app._voids)
+        return name
+
+    def Delete(self, name):
+        names = [name] if isinstance(name, str) else list(name)
+        for item in names:
+            self.app._voids.pop(item, None)
+        self.app.modeler.circle_voids_names = list(self.app._voids)
+
+
+class FakeLayoutAntipad(FakeLayout):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._voids = {}
+        self.modeler.geometries = {
+            "GND_PLANE": SimpleNamespace(
+                points=[
+                    FakeAntipadPoint(-0.005, -0.005),
+                    FakeAntipadPoint(0.005, -0.005),
+                    FakeAntipadPoint(0.005, 0.005),
+                    FakeAntipadPoint(-0.005, 0.005),
+                ]
+            )
+        }
+        self.modeler.oeditor = FakeLayoutAntipadEditor(self)
+
+
+class FakeHfssAntipadModeler(FakeHfssModeler):
+    def __init__(self, app):
+        super().__init__()
+        self.app = app
+        self.object_names = ["L2_GND"]
+        self._objects = {"L2_GND": self._plate(3.5, cut=False)}
+        self.active_coordinate_system = "Global"
+        self.oeditor = FakeMoveEditor(self)
+
+    @staticmethod
+    def _plate(volume, *, cut):
+        centers = [
+            [0, 0, 0.035],
+            [0, 0, 0],
+            [0, -5, 0.0175],
+            [-5, 0, 0.0175],
+            [0, 5, 0.0175],
+            [5, 0, 0.0175],
+        ]
+        if cut:
+            centers.append([1, -0.5, 0.0175])
+        obj = FakeObject(
+            object_id=6,
+            material_name="copper",
+            solve_inside=False,
+            face_id=7,
+            face_centers=centers,
+            volume=volume,
+            bounding_box=[-5, -5, 0, 5, 5, 0.035],
+        )
+        obj.name = "L2_GND"
+        return obj
+
+    def create_cylinder(self, orientation, origin, radius, height, num_sides=0, name=None, material=None):
+        obj = FakeObject(
+            object_id=34,
+            material_name=material,
+            solve_inside=True,
+            face_id=35,
+            face_centers=[[origin[0], origin[1], origin[2]]],
+            volume=math.pi * float(radius) ** 2 * float(height),
+            bounding_box=[
+                origin[0] - radius,
+                origin[1] - radius,
+                origin[2],
+                origin[0] + radius,
+                origin[1] + radius,
+                origin[2] + height,
+            ],
+        )
+        obj.name = name
+        self._objects[name] = obj
+        self.object_names.append(name)
+        return obj
+
+    def subtract(self, blank, tool, keep_originals=False):
+        radius = (self._objects[tool].bounding_box[3] - self._objects[tool].bounding_box[0]) / 2
+        removed = math.pi * radius * radius * 0.035
+        self.app._undo_plate = self._objects[blank]
+        self._objects[blank] = self._plate(3.5 - removed, cut=True)
+        self._objects.pop(tool)
+        self.object_names.remove(tool)
+        return True
+
+    def delete(self, assignment=None):
+        for name in list(assignment or []):
+            self._objects.pop(name, None)
+            if name in self.object_names:
+                self.object_names.remove(name)
+        return True
+
+    def cleanup_objects(self):
+        return True
+
+
+class FakeHfssAntipadDesign:
+    def __init__(self, app):
+        self.app = app
+
+    def Undo(self):
+        self.app.modeler._objects["L2_GND"] = self.app._undo_plate
+        if "__AP_TOOL" not in self.app.modeler.object_names:
+            tool = self.app.modeler.create_cylinder(
+                "Z", [1, -0.5, -0.0035], 0.8, 0.042, name="__AP_TOOL", material="vacuum"
+            )
+            tool.solve_inside = True
+
+
+class FakeHfssAntipad(FakeHfss):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.materials = FakeMaterials()
+        self._undo_plate = None
+        self.modeler = FakeHfssAntipadModeler(self)
+        self.odesign = FakeHfssAntipadDesign(self)
+        self.mesh = SimpleNamespace(meshoperation_names=[])
+        self.boundaries = [
+            FakeBoundary(self, "PlatePEC", "Perfect E", props={"Objects": ["L2_GND"]})
+        ]
+
+
 class FakeAtomicSetupSweepHfss(FakeHfss):
     def __init__(self, *, sweep_fail_on="", **kwargs):
         super().__init__(**kwargs)
@@ -1864,6 +2056,11 @@ class FakeRegistry:
                 "preview_id": "layout-via-delete-preview-1",
                 "snapshot_digest": "layout-via-delete-digest-1",
             }
+        if command == "layout_antipad_circle_create_preview":
+            return {
+                "preview_id": "layout-antipad-preview-1",
+                "snapshot_digest": "layout-antipad-digest-1",
+            }
         if command == "hfss_material_assign_preview":
             return {
                 "preview_id": "material-preview-1",
@@ -1910,6 +2107,11 @@ class FakeRegistry:
             return {
                 "preview_id": "geometry-rotate-preview-1",
                 "snapshot_digest": "geometry-rotate-digest-1",
+            }
+        if command == "hfss_antipad_subtract_preview":
+            return {
+                "preview_id": "hfss-antipad-preview-1",
+                "snapshot_digest": "hfss-antipad-digest-1",
             }
         if command == "hfss_geometry_boundary_create_preview":
             return {
@@ -4375,6 +4577,92 @@ def test_backend_layout_via_delete_rejects_custom_backdrill():
         )
 
 
+def test_backend_layout_antipad_circle_create_has_owner_readback_and_rollback(monkeypatch):
+    target = AedtTarget("port", 50061)
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        layout_factory=FakeLayoutAntipad,
+    )
+    request = {
+        "project_name": "Board",
+        "design_name": "Layout1",
+        "voids": [
+            {
+                "name": "AP_GND_1",
+                "owner_name": "GND_PLANE",
+                "center": [1.0, -0.5],
+                "radius": 0.8,
+            }
+        ],
+    }
+    preview = backend.execute(target, "layout_antipad_circle_create_preview", request)
+    assert preview["voids"][0]["layer_name"] == "TOP"
+    assert preview["owners"][0]["points"] == [
+        [-5.0, -5.0],
+        [5.0, -5.0],
+        [5.0, 5.0],
+        [-5.0, 5.0],
+    ]
+    applied = backend.execute(
+        target,
+        "layout_antipad_circle_create_apply",
+        {"preview_id": preview["preview_id"]},
+    )
+    assert applied["status"] == "verified"
+    assert applied["voids"][0]["owner_membership_verified"] is True
+    assert applied["voids"][0]["layer_name"] == "TOP"
+
+    rollback_preview = backend.execute(
+        target,
+        "layout_antipad_circle_create_preview",
+        {
+            **request,
+            "voids": [{**request["voids"][0], "name": "AP_ROLLBACK"}],
+        },
+    )
+    from aedt_agent.live import backend as backend_module
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            backend_module,
+            "_verify_layout_antipad_circle_create_state",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                LiveBackendError("injected anti-pad readback failure")
+            ),
+        )
+        with pytest.raises(LiveBackendError, match="injected anti-pad readback failure"):
+            backend.execute(
+                target,
+                "layout_antipad_circle_create_apply",
+                {"preview_id": rollback_preview["preview_id"]},
+            )
+    app = next(iter(backend._apps.values()))
+    assert "AP_ROLLBACK" not in app._voids
+    assert "AP_GND_1" in app._voids
+
+
+def test_backend_layout_antipad_rejects_outside_or_crossing_owner():
+    target = AedtTarget("port", 50061)
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, layout_factory=FakeLayoutAntipad)
+    with pytest.raises(LiveBackendError, match="crosses the owner boundary"):
+        backend.execute(
+            target,
+            "layout_antipad_circle_create_preview",
+            {
+                "project_name": "Board",
+                "design_name": "Layout1",
+                "voids": [
+                    {
+                        "name": "AP_EDGE",
+                        "owner_name": "GND_PLANE",
+                        "center": [4.8, 0.0],
+                        "radius": 0.5,
+                    }
+                ],
+            },
+        )
+
+
 def test_backend_assigns_existing_hfss_material_batch_with_solve_inside_readback():
     apps = []
 
@@ -5895,6 +6183,98 @@ def test_backend_hfss_geometry_rotate_rolls_back_partial_and_readback_failures(
             {"preview_id": preview["preview_id"]},
         )
     assert _fake_rotation_snapshot(app) == before
+
+
+def test_backend_hfss_antipad_subtract_verifies_volume_and_undo_rollback(monkeypatch):
+    app = FakeHfssAntipad(project="Board", design="HFSS1")
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=lambda **kwargs: app,
+    )
+    target = AedtTarget("pid", 42)
+    request = {
+        "project_name": "Board",
+        "design_name": "HFSS1",
+        "blank_object_name": "L2_GND",
+        "tool_name": "__AP_TOOL",
+        "center": [1.0, -0.5],
+        "radius": 0.8,
+    }
+    preview = backend.execute(target, "hfss_antipad_subtract_preview", request)
+    assert preview["blank_z_range"] == [0.0, 0.035]
+    assert preview["tool_origin"] == pytest.approx([1.0, -0.5, -0.0035])
+    assert preview["tool_height"] == pytest.approx(0.042)
+    applied = backend.execute(
+        target,
+        "hfss_antipad_subtract_apply",
+        {"preview_id": preview["preview_id"]},
+    )
+    assert applied["status"] == "verified"
+    assert applied["removed_volume"] == pytest.approx(math.pi * 0.8 * 0.8 * 0.035)
+    assert applied["blank_after"]["object_id"] == 6
+    assert applied["blank_after"]["material_name"] == "copper"
+    assert applied["tool_deleted"] is True
+    assert applied["boundaries_preserved"] is True
+
+    rollback_app = FakeHfssAntipad(project="Board", design="HFSS1")
+    rollback_backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        hfss_factory=lambda **kwargs: rollback_app,
+    )
+    rollback_preview = rollback_backend.execute(
+        target,
+        "hfss_antipad_subtract_preview",
+        request,
+    )
+    before = rollback_preview["snapshot_digest"]
+    from aedt_agent.live import backend as backend_module
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            backend_module,
+            "_verify_hfss_antipad_subtract_state",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                LiveBackendError("injected HFSS anti-pad readback failure")
+            ),
+        )
+        with pytest.raises(LiveBackendError, match="injected HFSS anti-pad readback failure"):
+            rollback_backend.execute(
+                target,
+                "hfss_antipad_subtract_apply",
+                {"preview_id": rollback_preview["preview_id"]},
+            )
+    retry = rollback_backend.execute(target, "hfss_antipad_subtract_preview", request)
+    assert retry["snapshot_digest"] == before
+    assert rollback_app.modeler.object_names == ["L2_GND"]
+
+
+def test_backend_hfss_antipad_rejects_non_fitting_circle_and_non_global_wcs():
+    app = FakeHfssAntipad(project="Board", design="HFSS1")
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, hfss_factory=lambda **kwargs: app)
+    target = AedtTarget("pid", 42)
+    base = {
+        "project_name": "Board",
+        "design_name": "HFSS1",
+        "blank_object_name": "L2_GND",
+        "tool_name": "__AP_TOOL",
+        "center": [4.8, 0.0],
+        "radius": 0.5,
+    }
+    with pytest.raises(LiveBackendError, match="fit inside"):
+        backend.execute(target, "hfss_antipad_subtract_preview", base)
+    derived = backend.execute(
+        target,
+        "hfss_antipad_subtract_preview",
+        {key: value for key, value in {**base, "center": [0.0, 0.0]}.items() if key != "tool_name"},
+    )
+    assert derived["tool_name"].startswith("__AEDT_AGENT_AP_")
+    app.modeler.active_coordinate_system = "RelativeCS"
+    with pytest.raises(LiveBackendError, match="requires Global"):
+        backend.execute(
+            target,
+            "hfss_antipad_subtract_preview",
+            {**base, "center": [0.0, 0.0]},
+        )
 
 
 def test_backend_creates_and_reads_typed_hfss_wave_and_lumped_ports():
@@ -8291,6 +8671,65 @@ def test_manager_requires_action_bound_one_use_approval_for_layout_via_delete():
             approval_token=token,
         )
     assert getattr(replay.value, "code", None) == "approval_required"
+
+
+def test_manager_requires_one_use_approvals_for_both_antipad_harnesses():
+    registry = FakeRegistry()
+    authority = HmacApprovalAuthority("a" * 32)
+    manager = LiveAedtSessionManager(registry=registry, approval_verifier=authority)
+    session_id = manager.attach(pid=42)["live_session_id"]
+
+    layout = manager.preview_layout_antipad_circle_create(
+        session_id,
+        project_name="Board",
+        design_name="Layout1",
+        voids=[
+            {
+                "name": "AP1",
+                "owner_name": "GND_PLANE",
+                "center": [0.0, 0.0],
+                "radius": 0.8,
+            }
+        ],
+    )
+    assert layout["approval_request"]["action"] == "layout.antipad.circle.create"
+    layout_token = authority.issue(**layout["approval_request"])
+    result = manager.apply_layout_antipad_circle_create(
+        session_id,
+        preview_id=layout["preview_id"],
+        approval_token=layout_token,
+    )
+    assert result["command"] == "layout_antipad_circle_create_apply"
+    with pytest.raises(Exception):
+        manager.apply_layout_antipad_circle_create(
+            session_id,
+            preview_id=layout["preview_id"],
+            approval_token=layout_token,
+        )
+
+    hfss = manager.preview_hfss_antipad_subtract(
+        session_id,
+        project_name="Board",
+        design_name="HFSS1",
+        blank_object_name="L2_GND",
+        tool_name="__AP_TOOL",
+        center=[0.0, 0.0],
+        radius=0.8,
+    )
+    assert hfss["approval_request"]["action"] == "hfss.antipad.subtract"
+    hfss_token = authority.issue(**hfss["approval_request"])
+    result = manager.apply_hfss_antipad_subtract(
+        session_id,
+        preview_id=hfss["preview_id"],
+        approval_token=hfss_token,
+    )
+    assert result["command"] == "hfss_antipad_subtract_apply"
+    with pytest.raises(Exception):
+        manager.apply_hfss_antipad_subtract(
+            session_id,
+            preview_id=hfss["preview_id"],
+            approval_token=hfss_token,
+        )
 
 
 def test_manager_requires_action_bound_one_use_approval_for_hfss_length_mesh_create():

@@ -74,6 +74,18 @@ def register_live_workflow_handlers(
         _hfss_geometry_rotate_scorecard,
     )
     registry.register(
+        "assistant.live.hfss.preview_antipad_subtract",
+        lambda context: _preview_hfss_antipad_subtract(context, live_manager, binding_resolver),
+    )
+    registry.register(
+        "assistant.live.hfss.apply_antipad_subtract",
+        lambda context: _apply_hfss_antipad_subtract(context, live_manager, binding_resolver),
+    )
+    registry.register(
+        "assistant.live.hfss.antipad_subtract_scorecard",
+        _hfss_antipad_subtract_scorecard,
+    )
+    registry.register(
         "assistant.live.hfss.preview_material_create",
         lambda context: _preview_hfss_material_create(
             context,
@@ -212,6 +224,22 @@ def register_live_workflow_handlers(
     registry.register(
         "assistant.live.layout.via_delete_scorecard",
         _layout_via_delete_scorecard,
+    )
+    registry.register(
+        "assistant.live.layout.preview_antipad_circle_create",
+        lambda context: _preview_layout_antipad_circle_create(
+            context, live_manager, binding_resolver
+        ),
+    )
+    registry.register(
+        "assistant.live.layout.apply_antipad_circle_create",
+        lambda context: _apply_layout_antipad_circle_create(
+            context, live_manager, binding_resolver
+        ),
+    )
+    registry.register(
+        "assistant.live.layout.antipad_circle_create_scorecard",
+        _layout_antipad_circle_create_scorecard,
     )
     registry.register(
         "assistant.live.hfss.preview_material_assign",
@@ -911,6 +939,86 @@ def _hfss_geometry_rotate_scorecard(context: GraphNodeExecutionContext) -> dict[
                 "coordinate_system": result.get("coordinate_system"),
                 "rotation_origin": result.get("rotation_origin"),
                 "geometry_snapshot_digest": result.get("geometry_snapshot_digest"),
+                "project_saved": result.get("project_saved"),
+            },
+            "live_session_reused": True,
+        },
+        outcome="passed" if passed else "failed",
+    )
+
+
+def _preview_hfss_antipad_subtract(context, live_manager, binding_resolver) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, project_name, design_name, _ = _live_target(context, binding_resolver)
+    preview = live_manager.preview_hfss_antipad_subtract(
+        session_id,
+        project_name=project_name,
+        design_name=design_name,
+        blank_object_name=str(payload.get("blank_object_name") or ""),
+        tool_name=str(payload.get("tool_name") or ""),
+        center=list(payload.get("center") or []),
+        radius=payload.get("radius"),
+    )
+    return _success(
+        {
+            **payload,
+            "tool_name": preview["tool_name"],
+            "operation_preview_id": preview["preview_id"],
+            "operation_approval": preview.get("approval_request") or {},
+            "operation_preview": preview,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _apply_hfss_antipad_subtract(context, live_manager, binding_resolver) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, _, _, binding = _live_target(context, binding_resolver)
+    token = str(binding.get("operation_approval_token") or "")
+    if not token:
+        raise ValueError("operation_approval_token is required for the HFSS anti-pad preview")
+    result = live_manager.apply_hfss_antipad_subtract(
+        session_id,
+        preview_id=str(payload["operation_preview_id"]),
+        approval_token=token,
+    )
+    return _success({**payload, "operation_result": result, "live_session_reused": True})
+
+
+def _hfss_antipad_subtract_scorecard(context: GraphNodeExecutionContext) -> dict[str, Any]:
+    payload = _payload(context)
+    result = dict(payload.get("operation_result") or {})
+    expected = result.get("expected_removed_volume")
+    removed = result.get("removed_volume")
+    volume_matches = False
+    try:
+        volume_matches = math.isclose(
+            float(removed), float(expected), rel_tol=1e-6, abs_tol=max(1e-9, abs(float(expected)) * 1e-8)
+        )
+    except (TypeError, ValueError):
+        pass
+    checks = [
+        _check("verified", result.get("status") == "verified"),
+        _check("exact_blank_preserved", result.get("blank_object_name") == payload.get("blank_object_name")),
+        _check("full_through_cut_volume", volume_matches),
+        _check("temporary_tool_deleted", result.get("tool_deleted") is True),
+        _check("boundaries_preserved", result.get("boundaries_preserved") is True),
+        _check("mesh_operations_preserved", result.get("mesh_operations_preserved") is True),
+        _check("automatic_rollback_on_failure", result.get("automatic_rollback_on_failure") is True),
+        _check("project_not_saved", result.get("project_saved") is False),
+        _check("live_session_reused", payload.get("live_session_reused") is True),
+    ]
+    passed = all(item["passed"] for item in checks)
+    return _success(
+        {
+            **payload,
+            "status": "passed" if passed else "failed",
+            "checks": checks,
+            "summary": {
+                "blank_object_name": result.get("blank_object_name"),
+                "center": result.get("center"),
+                "radius": result.get("radius"),
+                "removed_volume": removed,
                 "project_saved": result.get("project_saved"),
             },
             "live_session_reused": True,
@@ -1803,6 +1911,77 @@ def _layout_via_delete_scorecard(
                 "model_units": result.get("model_units"),
                 "snapshot_digest": result.get("snapshot_digest"),
                 "absence_digest": result.get("absence_digest"),
+                "project_saved": result.get("project_saved"),
+            },
+            "live_session_reused": True,
+        },
+        outcome="passed" if passed else "failed",
+    )
+
+
+def _preview_layout_antipad_circle_create(context, live_manager, binding_resolver) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, project_name, design_name, _ = _live_target(context, binding_resolver)
+    preview = live_manager.preview_layout_antipad_circle_create(
+        session_id,
+        project_name=project_name,
+        design_name=design_name,
+        voids=list(payload.get("voids") or []),
+        max_voids=payload.get("max_voids", 16),
+    )
+    return _success(
+        {
+            **payload,
+            "operation_preview_id": preview["preview_id"],
+            "operation_approval": preview.get("approval_request") or {},
+            "operation_preview": preview,
+            "live_session_reused": True,
+        }
+    )
+
+
+def _apply_layout_antipad_circle_create(context, live_manager, binding_resolver) -> dict[str, Any]:
+    payload = _payload(context)
+    session_id, _, _, binding = _live_target(context, binding_resolver)
+    token = str(binding.get("operation_approval_token") or "")
+    if not token:
+        raise ValueError("operation_approval_token is required for the 3D Layout anti-pad preview")
+    result = live_manager.apply_layout_antipad_circle_create(
+        session_id,
+        preview_id=str(payload["operation_preview_id"]),
+        approval_token=token,
+    )
+    return _success({**payload, "operation_result": result, "live_session_reused": True})
+
+
+def _layout_antipad_circle_create_scorecard(
+    context: GraphNodeExecutionContext,
+) -> dict[str, Any]:
+    payload = _payload(context)
+    result = dict(payload.get("operation_result") or {})
+    requested = [item for item in list(payload.get("voids") or []) if isinstance(item, dict)]
+    readback = [item for item in list(result.get("voids") or []) if isinstance(item, dict)]
+    requested_names = [str(item.get("name") or "") for item in requested]
+    readback_names = [str(item.get("name") or "") for item in readback]
+    checks = [
+        _check("verified", result.get("status") == "verified"),
+        _check("exact_void_names_preserved", bool(requested_names) and readback_names == requested_names),
+        _check("void_count_verified", result.get("void_count") == len(requested_names) == len(readback)),
+        _check("owner_membership_verified", bool(readback) and all(item.get("owner_membership_verified") is True for item in readback)),
+        _check("native_property_readback", bool(readback) and all(item.get("native_property_digest") for item in readback)),
+        _check("automatic_rollback_on_failure", result.get("automatic_rollback_on_failure") is True),
+        _check("project_not_saved", result.get("project_saved") is False),
+        _check("live_session_reused", payload.get("live_session_reused") is True),
+    ]
+    passed = all(item["passed"] for item in checks)
+    return _success(
+        {
+            **payload,
+            "status": "passed" if passed else "failed",
+            "checks": checks,
+            "summary": {
+                "void_count": result.get("void_count"),
+                "void_names": readback_names,
                 "project_saved": result.get("project_saved"),
             },
             "live_session_reused": True,

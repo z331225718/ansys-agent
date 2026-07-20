@@ -1,0 +1,43 @@
+id: layout_live_antipad_circle_create
+version: 1
+description: Preview, approve, create, and verify a bounded batch of owner-bound circular anti-pad voids in HFSS 3D Layout without saving the project.
+nodes:
+  - id: preview_antipads
+    role: preview
+    kind: program
+    handler: assistant.live.layout.preview_antipad_circle_create
+    input_schema: live_layout_antipad_circle_create_request
+    output_schema: live_layout_antipad_circle_create_preview
+    max_runs: 1
+  - id: apply_antipads
+    role: apply
+    kind: program
+    handler: assistant.live.layout.apply_antipad_circle_create
+    input_schema: live_layout_antipad_circle_create_preview
+    output_schema: live_layout_antipad_circle_create_result
+    max_runs: 1
+  - id: verify_scorecard
+    role: scorecard
+    kind: program
+    handler: assistant.live.layout.antipad_circle_create_scorecard
+    input_schema: live_layout_antipad_circle_create_result
+    output_schema: live_layout_antipad_circle_create_scorecard
+    max_runs: 1
+edges:
+  - id: preview-to-apply
+    from: preview_antipads
+    to: apply_antipads
+    on: succeeded
+  - id: apply-to-scorecard
+    from: apply_antipads
+    to: verify_scorecard
+    on: succeeded
+handoffs:
+  live_layout_antipad_circle_create_request:
+    required_fields: [voids]
+  live_layout_antipad_circle_create_preview:
+    required_fields: [voids, operation_preview_id, operation_approval, operation_preview, live_session_reused]
+  live_layout_antipad_circle_create_result:
+    required_fields: [voids, operation_result, live_session_reused]
+  live_layout_antipad_circle_create_scorecard:
+    required_fields: [status, checks, summary, live_session_reused]

@@ -141,6 +141,10 @@ class LiveAedtBackend:
                 return self._hfss_geometry_rotate_preview(target, arguments)
             if command == "hfss_geometry_rotate_apply":
                 return self._hfss_geometry_rotate_apply(target, arguments)
+            if command == "hfss_antipad_subtract_preview":
+                return self._hfss_antipad_subtract_preview(target, arguments)
+            if command == "hfss_antipad_subtract_apply":
+                return self._hfss_antipad_subtract_apply(target, arguments)
             if command == "hfss_geometry_boundary_create_preview":
                 return self._hfss_geometry_boundary_create_preview(target, arguments)
             if command == "hfss_geometry_boundary_create_apply":
@@ -209,6 +213,10 @@ class LiveAedtBackend:
                 return self._layout_via_delete_preview(target, arguments)
             if command == "layout_via_delete_apply":
                 return self._layout_via_delete_apply(target, arguments)
+            if command == "layout_antipad_circle_create_preview":
+                return self._layout_antipad_circle_create_preview(target, arguments)
+            if command == "layout_antipad_circle_create_apply":
+                return self._layout_antipad_circle_create_apply(target, arguments)
             if command == "layout_connectivity_inventory":
                 return self._layout_connectivity_inventory(target, arguments)
             if command == "layout_port_candidate_inventory":
@@ -2608,6 +2616,162 @@ class LiveAedtBackend:
             "project_saved": False,
         }
 
+    def _hfss_antipad_subtract_preview(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        app = self._app(
+            target,
+            "hfss",
+            _required(args, "project_name"),
+            _required(args, "design_name"),
+        )
+        if str(_safe_attribute(app, "design_type") or "").strip().casefold() != "hfss":
+            raise LiveBackendError("HFSS anti-pad subtraction requires an HFSS 3D design")
+        if _simulation_running(app):
+            raise LiveBackendError("cannot subtract an HFSS anti-pad while a simulation is running")
+        if _hfss_active_coordinate_system(app).casefold() != "global":
+            raise LiveBackendError("HFSS anti-pad subtraction requires Global to be active")
+        spec = _normalize_hfss_antipad_subtract(args)
+        state = _hfss_antipad_subtract_state(app, spec["blank_object_name"])
+        blank = _exact_hfss_geometry_target(state, spec["blank_object_name"])
+        spec = _complete_hfss_antipad_spec(
+            spec,
+            blank,
+            state["model_units"],
+            state["blank_material"],
+        )
+        existing_names = {item["name"].casefold(): item["name"] for item in state["geometry"]}
+        conflict = existing_names.get(spec["tool_name"].casefold())
+        if conflict is not None:
+            raise LiveBackendError(f"HFSS anti-pad tool object already exists: {conflict}")
+        state = _hfss_antipad_subtract_state(app, spec["blank_object_name"])
+        state_digest = _digest(state)
+        preview_id = "hfss-antipad-preview-" + _digest(
+            {"spec": spec, "state": state_digest}
+        )[:24]
+        self._previews[preview_id] = {
+            "kind": "hfss_antipad_subtract",
+            "target": target,
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "spec": spec,
+            "state": state,
+            "digest": state_digest,
+        }
+        return {
+            "preview_id": preview_id,
+            **spec,
+            "blank_before": blank,
+            "boundary_count": len(state["boundaries"]),
+            "mesh_operation_count": len(state["mesh_operations"]),
+            "snapshot_digest": state_digest,
+            "approval_required": True,
+            "automatic_rollback_on_failure": True,
+            "project_dirty": False,
+            "project_saved": False,
+        }
+
+    def _hfss_antipad_subtract_apply(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        preview_id = _required(args, "preview_id")
+        preview = self._preview(preview_id, "hfss_antipad_subtract", target)
+        app = self._app(target, "hfss", preview["project_name"], preview["design_name"])
+        if _simulation_running(app):
+            raise LiveBackendError("cannot subtract an HFSS anti-pad while a simulation is running")
+        spec = preview["spec"]
+        current = _hfss_antipad_subtract_state(app, spec["blank_object_name"])
+        if _digest(current) != preview["digest"]:
+            raise LiveBackendError("stale HFSS anti-pad subtraction preview")
+
+        created_tool_name = ""
+        subtract_attempted = False
+        try:
+            modeler = _safe_attribute(app, "modeler")
+            create_cylinder = getattr(modeler, "create_cylinder", None)
+            subtract = getattr(modeler, "subtract", None)
+            if not callable(create_cylinder) or not callable(subtract):
+                raise LiveBackendError("HFSS cylinder or subtract API is unavailable")
+            tool = create_cylinder(
+                "Z",
+                spec["tool_origin"],
+                spec["radius"],
+                spec["tool_height"],
+                num_sides=0,
+                name=spec["tool_name"],
+                material="vacuum",
+            )
+            created_name = str(_safe_attribute(tool, "name") or "").strip()
+            if not created_name:
+                names = [str(item) for item in list(getattr(modeler, "object_names", []) or [])]
+                created_name = spec["tool_name"] if spec["tool_name"] in names else ""
+            created_tool_name = created_name
+            if created_name != spec["tool_name"]:
+                raise LiveBackendError("HFSS anti-pad cylinder returned an unexpected name")
+            try:
+                tool.solve_inside = True
+            except Exception as exc:
+                raise LiveBackendError("HFSS anti-pad tool solve-inside assignment failed") from exc
+            subtract_attempted = True
+            if subtract(
+                spec["blank_object_name"],
+                spec["tool_name"],
+                keep_originals=False,
+            ) is not True:
+                raise LiveBackendError("HFSS anti-pad subtract returned false")
+            after = _hfss_antipad_subtract_state(app, spec["blank_object_name"])
+            _verify_hfss_antipad_subtract_state(
+                preview["state"],
+                after,
+                spec=spec,
+            )
+        except Exception as exc:
+            rollback = _rollback_hfss_antipad_subtract(
+                app,
+                spec,
+                before_state=preview["state"],
+                created_tool_name=created_tool_name,
+                subtract_attempted=subtract_attempted,
+            )
+            if not rollback["complete"]:
+                raise LiveBackendError(
+                    f"HFSS anti-pad subtraction failed and rollback is incomplete: {rollback}"
+                ) from exc
+            if isinstance(exc, LiveBackendError):
+                raise
+            raise LiveBackendError(
+                f"HFSS anti-pad subtraction failed: {type(exc).__name__}: {exc}"
+            ) from exc
+
+        del self._previews[preview_id]
+        blank_after = _exact_hfss_geometry_target(after, spec["blank_object_name"])
+        return {
+            "status": "verified",
+            "preview_id": preview_id,
+            **spec,
+            "blank_before": _exact_hfss_geometry_target(
+                preview["state"], spec["blank_object_name"]
+            ),
+            "blank_after": blank_after,
+            "removed_volume": _canonical_hfss_geometry_value(
+                float(_exact_hfss_geometry_target(
+                    preview["state"], spec["blank_object_name"]
+                )["volume"]) - float(blank_after["volume"])
+            ),
+            "tool_deleted": True,
+            "boundaries_preserved": after["boundaries"] == preview["state"]["boundaries"],
+            "mesh_operations_preserved": (
+                after["mesh_operations"] == preview["state"]["mesh_operations"]
+            ),
+            "automatic_rollback_on_failure": True,
+            "project_dirty": True,
+            "project_saved": False,
+        }
+
     def _hfss_geometry_boundary_create_preview(
         self,
         target: AedtTarget,
@@ -4571,6 +4735,157 @@ class LiveAedtBackend:
             "absence_digest": _digest(
                 {name: _layout_native_name_matches(app, name) for name in spec["names"]}
             ),
+            "automatic_rollback_on_failure": True,
+            "project_dirty": True,
+            "project_saved": False,
+        }
+
+    def _layout_antipad_circle_create_preview(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        app = self._app(
+            target,
+            "layout",
+            _required(args, "project_name"),
+            _required(args, "design_name"),
+        )
+        if _simulation_running(app):
+            raise LiveBackendError("cannot create 3D Layout anti-pads while a simulation is running")
+        spec = _normalize_layout_antipad_circle_create(args)
+        state = _layout_antipad_circle_create_state(app, spec)
+        canonical = []
+        owners = {item["name"].casefold(): item for item in state["owners"]}
+        for item in spec["voids"]:
+            owner = owners.get(item["owner_name"].casefold())
+            if owner is None:
+                raise LiveBackendError(f"3D Layout anti-pad owner does not exist: {item['owner_name']}")
+            if owner["name"] != item["owner_name"]:
+                raise LiveBackendError(
+                    f"owner_name must match AEDT case exactly: {owner['name']}"
+                )
+            _validate_layout_antipad_inside_owner(item, owner)
+            canonical.append({**item, "owner_name": owner["name"], "layer_name": owner["layer_name"]})
+        spec = {**spec, "voids": canonical, "names": [item["name"] for item in canonical]}
+        state = _layout_antipad_circle_create_state(app, spec)
+        state_digest = _digest(state)
+        preview_id = "layout-antipad-preview-" + _digest(
+            {"spec": spec, "state": state_digest}
+        )[:24]
+        self._previews[preview_id] = {
+            "kind": "layout_antipad_circle_create",
+            "target": target,
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "spec": spec,
+            "state": state,
+            "digest": state_digest,
+        }
+        return {
+            "preview_id": preview_id,
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            **spec,
+            "void_count": len(spec["voids"]),
+            "owners": state["owners"],
+            "model_units": state["model_units"],
+            "snapshot_digest": state_digest,
+            "approval_required": True,
+            "automatic_rollback_on_failure": True,
+            "project_dirty": False,
+            "project_saved": False,
+        }
+
+    def _layout_antipad_circle_create_apply(
+        self,
+        target: AedtTarget,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        preview_id = _required(args, "preview_id")
+        preview = self._preview(preview_id, "layout_antipad_circle_create", target)
+        app = self._app(target, "layout", preview["project_name"], preview["design_name"])
+        if _simulation_running(app):
+            raise LiveBackendError("cannot create 3D Layout anti-pads while a simulation is running")
+        spec = preview["spec"]
+        try:
+            current = _layout_antipad_circle_create_state(app, spec)
+        except LiveBackendError as exc:
+            raise LiveBackendError("stale 3D Layout anti-pad create preview") from exc
+        if _digest(current) != preview["digest"]:
+            raise LiveBackendError("stale 3D Layout anti-pad create preview")
+
+        created_names: list[str] = []
+        try:
+            editor = _layout_modeler_editor(app)
+            create = getattr(editor, "CreateCircleVoid", None)
+            if not callable(create):
+                raise LiveBackendError("3D Layout native circle-void API is unavailable")
+            units = preview["state"]["model_units"]
+            for item in spec["voids"]:
+                result = create(
+                    [
+                        "NAME:Contents",
+                        "owner:=",
+                        item["owner_name"],
+                        "circle voidGeometry:=",
+                        [
+                            "Name:=",
+                            item["name"],
+                            "LayerName:=",
+                            item["layer_name"],
+                            "lw:=",
+                            "0",
+                            "x:=",
+                            f"{item['center'][0]:.15g}{units}",
+                            "y:=",
+                            f"{item['center'][1]:.15g}{units}",
+                            "r:=",
+                            f"{item['radius']:.15g}{units}",
+                        ],
+                    ]
+                )
+                created_name = str(result or "").strip()
+                if created_name:
+                    created_names.append(created_name)
+                if created_name != item["name"]:
+                    raise LiveBackendError(
+                        f"3D Layout anti-pad creation returned an unexpected name: {created_name}"
+                    )
+            readback = [_layout_native_circle_void_record(app, item) for item in spec["voids"]]
+            _verify_layout_antipad_circle_create_state(
+                app,
+                spec,
+                readback,
+                before_state=preview["state"],
+            )
+        except Exception as exc:
+            rollback = _rollback_layout_antipad_circle_create(
+                app,
+                spec,
+                created_names,
+                before_state=preview["state"],
+            )
+            if not rollback["complete"]:
+                raise LiveBackendError(
+                    f"3D Layout anti-pad creation failed and rollback is incomplete: {rollback}"
+                ) from exc
+            if isinstance(exc, LiveBackendError):
+                raise
+            raise LiveBackendError(
+                f"3D Layout anti-pad creation failed: {type(exc).__name__}: {exc}"
+            ) from exc
+
+        del self._previews[preview_id]
+        return {
+            "status": "verified",
+            "preview_id": preview_id,
+            "project_name": preview["project_name"],
+            "design_name": preview["design_name"],
+            "voids": readback,
+            "void_count": len(readback),
+            "model_units": preview["state"]["model_units"],
+            "readback_digest": _digest(readback),
             "automatic_rollback_on_failure": True,
             "project_dirty": True,
             "project_saved": False,
@@ -10694,6 +11009,230 @@ def _verify_hfss_primitive_readback(
             raise LiveBackendError(f"HFSS solve_inside readback failed: {primitive['name']}")
 
 
+def _normalize_hfss_antipad_subtract(args: dict[str, Any]) -> dict[str, Any]:
+    blank_name = str(args.get("blank_object_name") or "").strip()
+    if not _SAFE_AEDT_OBJECT_NAME.fullmatch(blank_name):
+        raise LiveBackendError("blank_object_name must be a safe AEDT object name")
+    center = args.get("center")
+    if not isinstance(center, list) or len(center) != 2:
+        raise LiveBackendError("center must contain exactly two numeric model-unit values")
+    center_values = [
+        _bounded_float(value, f"center[{index}]", minimum=-1e9, maximum=1e9)
+        for index, value in enumerate(center)
+    ]
+    radius = _bounded_float(args.get("radius"), "radius", minimum=0.0, maximum=1e9)
+    if math.isclose(radius, 0.0, rel_tol=0.0, abs_tol=1e-15):
+        raise LiveBackendError("radius must be greater than zero")
+    tool_name = str(args.get("tool_name") or "").strip()
+    if not tool_name:
+        tool_name = "__AEDT_AGENT_AP_" + _digest(
+            {"blank": blank_name, "center": center_values, "radius": radius}
+        )[:12]
+    if not _SAFE_AEDT_OBJECT_NAME.fullmatch(tool_name):
+        raise LiveBackendError("tool_name must be a safe AEDT object name")
+    if blank_name.casefold() == tool_name.casefold():
+        raise LiveBackendError("tool_name must differ from blank_object_name")
+    return {
+        "blank_object_name": blank_name,
+        "tool_name": tool_name,
+        "center": center_values,
+        "radius": radius,
+    }
+
+
+def _hfss_antipad_subtract_state(app: Any, blank_name: str) -> dict[str, Any]:
+    state = _hfss_geometry_rotation_state(app, [blank_name])
+    if len(state["geometry"]) > 5000:
+        raise LiveBackendError("HFSS geometry catalog exceeds the 5000 object safety limit")
+    blank = _exact_hfss_geometry_target(state, blank_name)
+    return {
+        **state,
+        "blank_material": _hfss_material_snapshot(app, blank["material_name"]),
+    }
+
+
+def _exact_hfss_geometry_target(state: dict[str, Any], requested: str) -> dict[str, Any]:
+    exact = [item for item in state["geometry"] if item["name"] == requested]
+    if len(exact) == 1:
+        return exact[0]
+    folded = [item for item in state["geometry"] if item["name"].casefold() == requested.casefold()]
+    if folded:
+        raise LiveBackendError(
+            f"blank_object_name must match AEDT case exactly: {folded[0]['name']}"
+        )
+    raise LiveBackendError(f"HFSS anti-pad blank object does not exist: {requested}")
+
+
+def _complete_hfss_antipad_spec(
+    spec: dict[str, Any],
+    blank: dict[str, Any],
+    model_units: str,
+    material: dict[str, Any],
+) -> dict[str, Any]:
+    _validate_hfss_geometry_move_target(blank)
+    volume = _optional_float(blank.get("volume"))
+    if volume is None or volume <= 0:
+        raise LiveBackendError("HFSS anti-pad blank must be a solid object")
+    material_name = str(blank.get("material_name") or "").strip()
+    if not material_name or material.get("canonical_name", "").casefold() != material_name.casefold():
+        raise LiveBackendError("HFSS anti-pad blank material readback is inconsistent")
+    if material.get("is_dielectric") is not False:
+        raise LiveBackendError("HFSS anti-pad blank must use a conductor-classified material")
+    bbox = [float(value) for value in blank["bounding_box"]]
+    x_span, y_span, thickness = (
+        bbox[3] - bbox[0],
+        bbox[4] - bbox[1],
+        bbox[5] - bbox[2],
+    )
+    if min(x_span, y_span, thickness) <= 0:
+        raise LiveBackendError("HFSS anti-pad blank must have a finite 3D bounding box")
+    if thickness >= min(x_span, y_span):
+        raise LiveBackendError("HFSS anti-pad blank must be a Z-normal thin layer solid")
+    x, y = spec["center"]
+    radius = spec["radius"]
+    tolerance = max(radius * 1e-9, 1e-12)
+    if (
+        x - radius < bbox[0] - tolerance
+        or x + radius > bbox[3] + tolerance
+        or y - radius < bbox[1] - tolerance
+        or y + radius > bbox[4] + tolerance
+    ):
+        raise LiveBackendError("HFSS anti-pad circle must fit inside the blank XY bounding box")
+    overshoot = max(thickness * 0.1, radius * 1e-6, 1e-9)
+    expected_removed_volume = math.pi * radius * radius * thickness
+    if expected_removed_volume >= volume:
+        raise LiveBackendError("HFSS anti-pad would remove the entire blank object")
+    return {
+        **spec,
+        "model_units": model_units,
+        "tool_axis": "Z",
+        "tool_origin": [x, y, bbox[2] - overshoot],
+        "tool_height": thickness + 2.0 * overshoot,
+        "blank_z_range": [bbox[2], bbox[5]],
+        "expected_removed_volume": expected_removed_volume,
+        "tool_overshoot": overshoot,
+        "blank_material_digest": material["definition_digest"],
+    }
+
+
+def _verify_hfss_antipad_subtract_state(
+    before: dict[str, Any],
+    after: dict[str, Any],
+    *,
+    spec: dict[str, Any],
+) -> None:
+    for field in (
+        "design_type",
+        "solution_type",
+        "model_units",
+        "active_coordinate_system",
+        "boundaries",
+        "mesh_operations",
+        "blank_material",
+    ):
+        if after[field] != before[field]:
+            raise LiveBackendError(f"HFSS anti-pad subtraction changed protected state: {field}")
+    before_by_name = {item["name"]: item for item in before["geometry"]}
+    after_by_name = {item["name"]: item for item in after["geometry"]}
+    if set(after_by_name) != set(before_by_name):
+        raise LiveBackendError("HFSS anti-pad subtraction changed the object catalog")
+    blank_name = spec["blank_object_name"]
+    for name, original in before_by_name.items():
+        current = after_by_name[name]
+        if name != blank_name:
+            if current != original:
+                raise LiveBackendError(f"HFSS anti-pad subtraction changed non-target geometry: {name}")
+            continue
+        for field in ("name", "object_id", "material_name", "solve_inside", "bounding_box"):
+            if current.get(field) != original.get(field):
+                raise LiveBackendError(
+                    f"HFSS anti-pad subtraction changed protected blank state: {field}"
+                )
+        before_volume = float(original["volume"])
+        after_volume = float(current["volume"])
+        removed = before_volume - after_volume
+        expected = float(spec["expected_removed_volume"])
+        if after_volume <= 0 or not math.isclose(
+            removed,
+            expected,
+            rel_tol=1e-6,
+            abs_tol=max(1e-9, expected * 1e-8),
+        ):
+            raise LiveBackendError(
+                "HFSS anti-pad removed volume does not prove a full through-layer circular cut"
+            )
+        if len(current.get("faces") or []) <= len(original.get("faces") or []):
+            raise LiveBackendError("HFSS anti-pad cylindrical cut face was not observed")
+
+
+def _rollback_hfss_antipad_subtract(
+    app: Any,
+    spec: dict[str, Any],
+    *,
+    before_state: dict[str, Any],
+    created_tool_name: str,
+    subtract_attempted: bool,
+) -> dict[str, Any]:
+    errors: list[str] = []
+    modeler = _safe_attribute(app, "modeler")
+    cleanup = getattr(modeler, "cleanup_objects", None)
+    if callable(cleanup):
+        try:
+            cleanup()
+        except Exception:
+            pass
+    current_names = [str(item) for item in list(getattr(modeler, "object_names", []) or [])]
+    tool_present = spec["tool_name"] in current_names
+    blank_changed = True
+    try:
+        current = _hfss_antipad_subtract_state(app, spec["blank_object_name"])
+        blank_changed = _exact_hfss_geometry_target(
+            current, spec["blank_object_name"]
+        ) != _exact_hfss_geometry_target(before_state, spec["blank_object_name"])
+    except Exception:
+        pass
+    if subtract_attempted and (blank_changed or not tool_present):
+        undo = getattr(_safe_attribute(app, "odesign"), "Undo", None)
+        if not callable(undo):
+            errors.append("HFSS design Undo API is unavailable")
+        else:
+            try:
+                undo()
+                if callable(cleanup):
+                    cleanup()
+            except Exception as exc:
+                errors.append(f"undo: {type(exc).__name__}: {exc}")
+    current_names = [str(item) for item in list(getattr(modeler, "object_names", []) or [])]
+    before_names = {item["name"] for item in before_state["geometry"]}
+    candidates = [
+        name
+        for name in dict.fromkeys((created_tool_name, spec["tool_name"]))
+        if name and name in current_names and name not in before_names
+    ]
+    if candidates:
+        try:
+            deleted = modeler.delete(candidates)
+            if deleted is False:
+                raise LiveBackendError("tool delete returned false")
+            if callable(cleanup):
+                cleanup()
+        except Exception as exc:
+            errors.append(f"tool_delete: {type(exc).__name__}: {exc}")
+    readback_error = ""
+    try:
+        restored = _hfss_antipad_subtract_state(app, spec["blank_object_name"])
+    except Exception as exc:
+        restored = {}
+        readback_error = f"{type(exc).__name__}: {exc}"
+    state_restored = bool(restored) and restored == before_state
+    return {
+        "complete": not errors and not readback_error and state_restored,
+        "state_restored": state_restored,
+        "errors": errors,
+        "readback_error": readback_error,
+    }
+
+
 def _normalize_hfss_geometry_moves(args: dict[str, Any]) -> dict[str, Any]:
     max_objects = _bounded_integer(
         args.get("max_objects", 16),
@@ -11917,6 +12456,394 @@ def _layout_exact_name(values: list[str], requested: str, label: str) -> str:
     if folded:
         raise LiveBackendError(f"{label} must match AEDT case exactly: {folded[0]}")
     raise LiveBackendError(f"{label} does not exist: {requested}")
+
+
+def _normalize_layout_antipad_circle_create(args: dict[str, Any]) -> dict[str, Any]:
+    max_voids = _bounded_integer(
+        args.get("max_voids", 16),
+        "max_voids",
+        minimum=1,
+        maximum=32,
+    )
+    raw_voids = args.get("voids")
+    if not isinstance(raw_voids, list) or not raw_voids:
+        raise LiveBackendError("voids must be a non-empty list")
+    if len(raw_voids) > max_voids:
+        raise LiveBackendError(
+            f"anti-pad count {len(raw_voids)} exceeds max_voids {max_voids}"
+        )
+    normalized = []
+    names = set()
+    for index, raw in enumerate(raw_voids):
+        if not isinstance(raw, dict):
+            raise LiveBackendError(f"voids[{index}] must be an object")
+        unsupported = sorted(set(raw).difference({"name", "owner_name", "center", "radius"}))
+        if unsupported:
+            raise LiveBackendError(f"unsupported voids[{index}] field: {unsupported[0]}")
+        name = str(raw.get("name") or "").strip()
+        owner_name = str(raw.get("owner_name") or "").strip()
+        for field, value in (("name", name), ("owner_name", owner_name)):
+            if not _SAFE_AEDT_OBJECT_NAME.fullmatch(value):
+                raise LiveBackendError(
+                    f"voids[{index}].{field} must be a safe AEDT object name"
+                )
+        if name.casefold() in names:
+            raise LiveBackendError(f"voids must not contain duplicate names: {name}")
+        names.add(name.casefold())
+        center = raw.get("center")
+        if not isinstance(center, list) or len(center) != 2:
+            raise LiveBackendError(
+                f"voids[{index}].center must contain two numeric model-unit values"
+            )
+        center_values = [
+            _bounded_float(
+                value,
+                f"voids[{index}].center[{axis}]",
+                minimum=-1e9,
+                maximum=1e9,
+            )
+            for axis, value in enumerate(center)
+        ]
+        radius = _bounded_float(
+            raw.get("radius"),
+            f"voids[{index}].radius",
+            minimum=0.0,
+            maximum=1e9,
+        )
+        if math.isclose(radius, 0.0, rel_tol=0.0, abs_tol=1e-15):
+            raise LiveBackendError(f"voids[{index}].radius must be greater than zero")
+        normalized.append(
+            {
+                "name": name,
+                "owner_name": owner_name,
+                "center": center_values,
+                "radius": radius,
+            }
+        )
+    return {
+        "voids": normalized,
+        "names": [item["name"] for item in normalized],
+        "max_voids": max_voids,
+    }
+
+
+def _layout_antipad_circle_create_state(app: Any, spec: dict[str, Any]) -> dict[str, Any]:
+    design_type = str(_safe_attribute(app, "design_type") or "").strip()
+    if design_type != "HFSS 3D Layout Design":
+        raise LiveBackendError("circle-void anti-pad creation requires HFSS 3D Layout Design")
+    modeler = _safe_attribute(app, "modeler")
+    model_units = str(_safe_attribute(modeler, "model_units") or "").strip()
+    if not model_units:
+        raise LiveBackendError("3D Layout model units are unavailable")
+    editor = _layout_modeler_editor(app)
+    find_objects = getattr(editor, "FindObjects", None)
+    if not callable(find_objects):
+        raise LiveBackendError("3D Layout native object lookup API is unavailable")
+    try:
+        circle_void_names = sorted(
+            str(item) for item in list(find_objects("Type", "circle void") or [])
+        )
+    except Exception as exc:
+        raise LiveBackendError("3D Layout circle-void inventory is unavailable") from exc
+    if len(circle_void_names) > 100_000:
+        raise LiveBackendError("3D Layout circle-void inventory exceeds the safety limit")
+    owner_names = sorted(
+        {item["owner_name"] for item in spec["voids"]},
+        key=str.casefold,
+    )
+    owners = [_layout_native_antipad_owner_record(app, name) for name in owner_names]
+    target_presence = {
+        name: _layout_native_name_matches(app, name) for name in spec["names"]
+    }
+    for name, matches in target_presence.items():
+        if matches:
+            raise LiveBackendError(f"3D Layout anti-pad object already exists: {name}")
+    return {
+        "design_type": design_type,
+        "solution_type": str(_safe_attribute(app, "solution_type") or "").strip(),
+        "model_units": model_units,
+        "owners": owners,
+        "circle_void_names": circle_void_names,
+        "target_presence": target_presence,
+    }
+
+
+def _layout_native_antipad_owner_record(app: Any, name: str) -> dict[str, Any]:
+    if _layout_native_name_matches(app, name) != [name]:
+        raise LiveBackendError(f"3D Layout anti-pad owner is missing or ambiguous: {name}")
+    editor = _layout_modeler_editor(app)
+    try:
+        property_names = [
+            str(item) for item in list(editor.GetProperties("BaseElementTab", name) or [])
+        ]
+        if not property_names or len(property_names) > 256:
+            raise LiveBackendError(
+                f"3D Layout anti-pad owner property count is unsupported: {name}"
+            )
+        native = {
+            prop: _json_value(editor.GetPropertyValue("BaseElementTab", name, prop))
+            for prop in property_names
+        }
+    except Exception as exc:
+        raise LiveBackendError(f"3D Layout anti-pad owner readback failed: {name}") from exc
+    for required in ("Type", "Name", "PlacementLayer"):
+        if required not in native:
+            raise LiveBackendError(f"3D Layout anti-pad owner is missing property: {required}")
+    if sum(len(str(key)) + len(str(value)) for key, value in native.items()) > 64 * 1024:
+        raise LiveBackendError(f"3D Layout anti-pad owner readback exceeds 64 KiB: {name}")
+    owner_type = str(native["Type"]).strip().casefold()
+    if owner_type not in {"rect", "poly"}:
+        raise LiveBackendError("3D Layout anti-pad owner must be a rectangle or polygon")
+    layer_name = str(native["PlacementLayer"]).strip()
+    stackup = _layout_full_stackup_snapshot(app)
+    layer = next((item for item in stackup if item["name"] == layer_name), None)
+    if layer is None or str(layer.get("type") or "").casefold() != "signal":
+        raise LiveBackendError("3D Layout anti-pad owner must be on a signal layer")
+    if layer.get("is_negative") is True:
+        raise LiveBackendError(
+            "3D Layout anti-pad circle voids on negative signal layers are unsupported"
+        )
+    try:
+        polygon = editor.GetPolygon(name)
+        points = []
+        for point in list(polygon.GetPoints() or []):
+            if int(point.IsArc()) != 0:
+                raise LiveBackendError("3D Layout anti-pad owner polygons with arcs are unsupported")
+            position = [point.GetX(), point.GetY()]
+            points.append(
+                [
+                    _layout_si_length_in_model_units(
+                        value,
+                        _safe_attribute(app.modeler, "model_units"),
+                        "owner point",
+                    )
+                    for value in position
+                ]
+            )
+        owner_voids = sorted(str(item) for item in list(editor.GetPolygonVoids(name) or []))
+    except LiveBackendError:
+        raise
+    except Exception as exc:
+        raise LiveBackendError(f"3D Layout anti-pad owner geometry readback failed: {name}") from exc
+    if len(points) < 3 or len(points) > 100_000:
+        raise LiveBackendError("3D Layout anti-pad owner polygon point count is unsupported")
+    return {
+        "name": str(native["Name"]),
+        "type": owner_type,
+        "layer_name": layer_name,
+        "points": points,
+        "void_names": owner_voids,
+        "native_property_digest": _digest(native),
+    }
+
+
+def _layout_si_length_in_model_units(value: Any, model_units: str, field: str) -> float:
+    try:
+        from ansys.aedt.core.generic.constants import unit_converter
+
+        return float(
+            unit_converter(
+                float(value),
+                input_units="meter",
+                output_units=model_units,
+            )
+        )
+    except Exception as exc:
+        raise LiveBackendError(
+            f"3D Layout {field} SI readback cannot be converted to {model_units}: {value}"
+        ) from exc
+
+
+def _validate_layout_antipad_inside_owner(
+    item: dict[str, Any],
+    owner: dict[str, Any],
+) -> None:
+    point = [float(value) for value in item["center"]]
+    polygon = [[float(value) for value in pair] for pair in owner["points"]]
+    if not _point_inside_polygon(point, polygon):
+        raise LiveBackendError(
+            f"3D Layout anti-pad center is outside owner: {item['name']}"
+        )
+    minimum_distance = min(
+        _point_segment_distance(point, polygon[index], polygon[(index + 1) % len(polygon)])
+        for index in range(len(polygon))
+    )
+    if minimum_distance + 1e-12 < float(item["radius"]):
+        raise LiveBackendError(
+            f"3D Layout anti-pad circle crosses the owner boundary: {item['name']}"
+        )
+
+
+def _point_inside_polygon(point: list[float], polygon: list[list[float]]) -> bool:
+    x, y = point
+    inside = False
+    for index, first in enumerate(polygon):
+        second = polygon[(index + 1) % len(polygon)]
+        x1, y1 = first
+        x2, y2 = second
+        if _point_segment_distance(point, first, second) <= 1e-12:
+            return True
+        if (y1 > y) != (y2 > y):
+            crossing_x = (x2 - x1) * (y - y1) / (y2 - y1) + x1
+            if x < crossing_x:
+                inside = not inside
+    return inside
+
+
+def _point_segment_distance(
+    point: list[float],
+    first: list[float],
+    second: list[float],
+) -> float:
+    px, py = point
+    x1, y1 = first
+    x2, y2 = second
+    dx, dy = x2 - x1, y2 - y1
+    length_squared = dx * dx + dy * dy
+    if length_squared <= 1e-30:
+        return math.hypot(px - x1, py - y1)
+    ratio = max(0.0, min(1.0, ((px - x1) * dx + (py - y1) * dy) / length_squared))
+    return math.hypot(px - (x1 + ratio * dx), py - (y1 + ratio * dy))
+
+
+def _layout_native_circle_void_record(
+    app: Any,
+    spec: dict[str, Any],
+) -> dict[str, Any]:
+    name = spec["name"]
+    if _layout_native_name_matches(app, name) != [name]:
+        raise LiveBackendError(f"3D Layout anti-pad is missing or ambiguous: {name}")
+    editor = _layout_modeler_editor(app)
+    try:
+        props = [str(item) for item in list(editor.GetProperties("BaseElementTab", name) or [])]
+        if not props or len(props) > 128:
+            raise LiveBackendError(
+                f"3D Layout anti-pad property count is unsupported: {name}"
+            )
+        native = {
+            prop: _json_value(editor.GetPropertyValue("BaseElementTab", name, prop))
+            for prop in props
+        }
+        owner_voids = [str(item) for item in list(editor.GetPolygonVoids(spec["owner_name"]) or [])]
+    except Exception as exc:
+        raise LiveBackendError(f"3D Layout anti-pad readback failed: {name}") from exc
+    for required in ("Type", "Name", "PlacementLayer", "Center", "Radius", "LockPosition"):
+        if required not in native:
+            raise LiveBackendError(f"3D Layout anti-pad is missing property: {required}")
+    if sum(len(str(key)) + len(str(value)) for key, value in native.items()) > 32 * 1024:
+        raise LiveBackendError(f"3D Layout anti-pad readback exceeds 32 KiB: {name}")
+    center_parts = [item.strip() for item in str(native["Center"]).split(",")]
+    if len(center_parts) != 2:
+        raise LiveBackendError(f"3D Layout anti-pad center readback is invalid: {name}")
+    try:
+        center = [float(item) for item in center_parts]
+    except ValueError as exc:
+        raise LiveBackendError(f"3D Layout anti-pad center is non-numeric: {name}") from exc
+    radius = _layout_length_in_model_units(native["Radius"], app.modeler.model_units, "Radius")
+    return {
+        "name": str(native["Name"]),
+        "type": str(native["Type"]),
+        "owner_name": spec["owner_name"],
+        "layer_name": str(native["PlacementLayer"]),
+        "center": center,
+        "radius": radius,
+        "lock_position": _layout_native_bool(native["LockPosition"], "LockPosition"),
+        "owner_membership_verified": owner_voids.count(name) == 1,
+        "native_property_digest": _digest(native),
+    }
+
+
+def _verify_layout_antipad_circle_create_state(
+    app: Any,
+    spec: dict[str, Any],
+    readback: list[dict[str, Any]],
+    *,
+    before_state: dict[str, Any],
+) -> None:
+    if len(readback) != len(spec["voids"]):
+        raise LiveBackendError("3D Layout anti-pad readback count mismatch")
+    by_name = {item["name"]: item for item in readback}
+    for expected in spec["voids"]:
+        actual = by_name.get(expected["name"])
+        if actual is None:
+            raise LiveBackendError(f"3D Layout anti-pad readback is missing: {expected['name']}")
+        if actual["type"].casefold() != "circle void":
+            raise LiveBackendError("3D Layout anti-pad type readback failed")
+        if actual["layer_name"] != expected["layer_name"]:
+            raise LiveBackendError("3D Layout anti-pad layer readback failed")
+        if not actual["owner_membership_verified"]:
+            raise LiveBackendError("3D Layout anti-pad owner membership readback failed")
+        if not _layout_locations_equal(actual["center"], expected["center"]):
+            raise LiveBackendError("3D Layout anti-pad center readback failed")
+        if not math.isclose(
+            float(actual["radius"]),
+            float(expected["radius"]),
+            rel_tol=1e-9,
+            abs_tol=1e-12,
+        ):
+            raise LiveBackendError("3D Layout anti-pad radius readback failed")
+    after = _layout_antipad_circle_create_state_allow_existing(app, spec)
+    expected_names = sorted(before_state["circle_void_names"] + spec["names"])
+    if after["circle_void_names"] != expected_names:
+        raise LiveBackendError("3D Layout anti-pad changed an unexpected circle-void object")
+    before_owners = {item["name"]: item for item in before_state["owners"]}
+    after_owners = {item["name"]: item for item in after["owners"]}
+    for owner_name, original in before_owners.items():
+        current = after_owners[owner_name]
+        for field in ("name", "type", "layer_name", "points", "native_property_digest"):
+            if current[field] != original[field]:
+                raise LiveBackendError(f"3D Layout anti-pad changed protected owner state: {field}")
+        additions = sorted(
+            item["name"] for item in spec["voids"] if item["owner_name"] == owner_name
+        )
+        if current["void_names"] != sorted(original["void_names"] + additions):
+            raise LiveBackendError("3D Layout anti-pad owner void catalog verification failed")
+
+
+def _layout_antipad_circle_create_state_allow_existing(
+    app: Any,
+    spec: dict[str, Any],
+) -> dict[str, Any]:
+    relaxed = {**spec, "names": []}
+    return _layout_antipad_circle_create_state(app, relaxed)
+
+
+def _rollback_layout_antipad_circle_create(
+    app: Any,
+    spec: dict[str, Any],
+    created_names: list[str],
+    *,
+    before_state: dict[str, Any],
+) -> dict[str, Any]:
+    errors = []
+    editor = _layout_modeler_editor(app)
+    try:
+        current = _layout_antipad_circle_create_state_allow_existing(app, spec)
+        candidates = sorted(
+            set(current["circle_void_names"]).difference(before_state["circle_void_names"])
+        )
+    except Exception as exc:
+        candidates = list(created_names)
+        errors.append(f"candidate_readback: {type(exc).__name__}: {exc}")
+    for name in reversed(candidates):
+        try:
+            editor.Delete(name)
+        except Exception as exc:
+            errors.append(f"{name}: {type(exc).__name__}: {exc}")
+    readback_error = ""
+    try:
+        restored = _layout_antipad_circle_create_state(app, spec)
+    except Exception as exc:
+        restored = {}
+        readback_error = f"{type(exc).__name__}: {exc}"
+    state_restored = bool(restored) and restored == before_state
+    return {
+        "complete": not errors and not readback_error and state_restored,
+        "state_restored": state_restored,
+        "deleted_names": candidates,
+        "errors": errors,
+        "readback_error": readback_error,
+    }
 
 
 def _layout_via_dependency_state(

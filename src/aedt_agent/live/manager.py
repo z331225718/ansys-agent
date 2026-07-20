@@ -702,6 +702,48 @@ class LiveAedtSessionManager:
         self._approval_contexts.pop((session_id, preview_id), None)
         return result
 
+    def preview_layout_antipad_circle_create(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+        voids: list[dict[str, Any]],
+        max_voids: int = 16,
+    ) -> dict[str, Any]:
+        result = self._execute(
+            session_id,
+            "layout_antipad_circle_create_preview",
+            {
+                "project_name": project_name,
+                "design_name": design_name,
+                "voids": voids,
+                "max_voids": max_voids,
+            },
+        )
+        return self._register_approval(session_id, "layout.antipad.circle.create", result)
+
+    def apply_layout_antipad_circle_create(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict[str, Any]:
+        self._require_approval(
+            session_id,
+            "layout.antipad.circle.create",
+            preview_id,
+            approval_token,
+        )
+        result = self._execute(
+            session_id,
+            "layout_antipad_circle_create_apply",
+            {"preview_id": preview_id},
+        )
+        self._approval_contexts.pop((session_id, preview_id), None)
+        return result
+
     def preview_hfss_material_assign(
         self,
         session_id: str,
@@ -1138,6 +1180,52 @@ class LiveAedtSessionManager:
         result = self._execute(
             session_id,
             "hfss_geometry_rotate_apply",
+            {"preview_id": preview_id},
+        )
+        self._approval_contexts.pop((session_id, preview_id), None)
+        return result
+
+    def preview_hfss_antipad_subtract(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+        blank_object_name: str,
+        center: list[float],
+        radius: float,
+        tool_name: str = "",
+    ) -> dict[str, Any]:
+        result = self._execute(
+            session_id,
+            "hfss_antipad_subtract_preview",
+            {
+                "project_name": project_name,
+                "design_name": design_name,
+                "blank_object_name": blank_object_name,
+                "tool_name": tool_name,
+                "center": center,
+                "radius": radius,
+            },
+        )
+        return self._register_approval(session_id, "hfss.antipad.subtract", result)
+
+    def apply_hfss_antipad_subtract(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict[str, Any]:
+        self._require_approval(
+            session_id,
+            "hfss.antipad.subtract",
+            preview_id,
+            approval_token,
+        )
+        result = self._execute(
+            session_id,
+            "hfss_antipad_subtract_apply",
             {"preview_id": preview_id},
         )
         self._approval_contexts.pop((session_id, preview_id), None)

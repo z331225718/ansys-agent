@@ -19,6 +19,9 @@ AEDT Automation Tab 的 Claude Code 入口见
 未知能力的 API Memory、受控探索与 Harness 晋升设计见
 [`docs/ansys-capability-evolution.md`](docs/ansys-capability-evolution.md)。
 
+3D Layout circle void 与 HFSS 3D 圆柱减金属的严格反焊盘能力见
+[`docs/antipad-harness.zh.md`](docs/antipad-harness.zh.md)。
+
 ansys-agent 是面向高速 BRD / AEDT 仿真的工程 agent 系统。当前重点不是旧的
 Stage C demo，而是把“脚本式仿真工具”升级为可编排、可审计、可接管的工程
 闭环：
