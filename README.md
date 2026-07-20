@@ -22,6 +22,10 @@ AEDT Automation Tab 的 Claude Code 入口见
 3D Layout circle void 与 HFSS 3D 圆柱减金属的严格反焊盘能力见
 [`docs/antipad-harness.zh.md`](docs/antipad-harness.zh.md)。
 
+Linux x86_64 AEDT 本机 gRPC harness、独立审批与离线发布包见
+[`docs/linux-aedt-assistant.zh.md`](docs/linux-aedt-assistant.zh.md)。Windows 的 AEDT
+Automation Tab 入口仍保持 Windows-only。
+
 ansys-agent 是面向高速 BRD / AEDT 仿真的工程 agent 系统。当前重点不是旧的
 Stage C demo，而是把“脚本式仿真工具”升级为可编排、可审计、可接管的工程
 闭环：

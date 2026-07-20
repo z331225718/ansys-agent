@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import re
 from typing import Any, Callable, Iterable
@@ -18,7 +19,7 @@ def list_aedt_sessions(
     for process in iterator(["pid", "name", "exe", "create_time", "cmdline"]):
         try:
             info = process.info
-            if str(info.get("name") or "").lower() != "ansysedt.exe":
+            if str(info.get("name") or "").lower() not in _aedt_process_names():
                 continue
             ports = []
             for connection in process.net_connections(kind="tcp"):
@@ -50,11 +51,16 @@ def _command_port(command: list[str]) -> int | None:
     for index, item in enumerate(command[:-1]):
         if item.lower() == "-grpcsrv":
             try:
-                port = int(command[index + 1])
+                value = command[index + 1]
+                port = int(value.rsplit(":", 1)[-1])
             except ValueError:
                 return None
             return port if 0 < port <= 65535 else None
     return None
+
+
+def _aedt_process_names() -> set[str]:
+    return {"ansysedt.exe"} if os.name == "nt" else {"ansysedt", "ansysedt.exe"}
 
 
 def _version_from_path(executable: Any) -> str | None:

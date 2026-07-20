@@ -37,6 +37,12 @@ knowledge = [
     { name = "codebase-memory-mcp" },
     { name = "fastmcp" },
 ]
+linux = [
+    { name = "codebase-memory-mcp" },
+    { name = "fastmcp" },
+    { name = "pyaedt" },
+    { name = "pyedb" },
+]
 mcp = [
     { name = "fastmcp" },
 ]
@@ -45,18 +51,22 @@ mcp = [
 requires-dist = [
     { name = "codebase-memory-mcp", marker = "extra == 'desktop'", specifier = "==0.9.0" },
     { name = "codebase-memory-mcp", marker = "extra == 'knowledge'", specifier = "==0.9.0" },
+    { name = "codebase-memory-mcp", marker = "extra == 'linux'", specifier = "==0.9.0" },
     { name = "fastmcp", marker = "extra == 'desktop'", specifier = "==3.4.4" },
     { name = "fastmcp", marker = "extra == 'knowledge'", specifier = "==3.4.4" },
+    { name = "fastmcp", marker = "extra == 'linux'", specifier = "==3.4.4" },
     { name = "fastmcp", marker = "extra == 'mcp'", specifier = "==3.4.4" },
     { name = "pyaedt", marker = "extra == 'aedt'", specifier = "==1.3.0" },
     { name = "pyaedt", marker = "extra == 'desktop'", specifier = "==1.3.0" },
+    { name = "pyaedt", marker = "extra == 'linux'", specifier = "==1.3.0" },
+    { name = "pyedb", marker = "extra == 'linux'", specifier = "==0.80.2" },
     { name = "pyedb", extras = ["dotnet"], marker = "extra == 'aedt'", specifier = "==0.80.2" },
     { name = "pyedb", extras = ["dotnet"], marker = "extra == 'desktop'", specifier = "==0.80.2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "pyyaml", specifier = ">=6.0.1" },
     { name = "scikit-rf", specifier = ">=2.0.0" },
 ]
-provides-extras = ["dev", "mcp", "aedt", "desktop", "knowledge"]
+provides-extras = ["dev", "mcp", "aedt", "desktop", "linux", "knowledge"]
 
 [[package]]
 name = "aiofile"

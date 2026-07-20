@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import re
+import signal
 import socket
 import subprocess
 import time
@@ -32,12 +33,17 @@ def resolve_aedt_executable(
     if program_files:
         candidates.append(Path(program_files) / "ANSYS Inc" / f"v{code}" / "AnsysEM")
 
+    executable_names = ("ansysedt.exe",) if os.name == "nt" else ("ansysedt", "ansysedt.exe")
     for candidate in candidates:
-        executable = candidate if candidate.name.lower() == "ansysedt.exe" else candidate / "ansysedt.exe"
-        if executable.is_file():
-            return executable.resolve()
+        for executable_name in executable_names:
+            locations = [candidate] if candidate.name.lower() == executable_name else [candidate / executable_name]
+            if os.name != "nt":
+                locations.append(candidate / "Linux64" / executable_name)
+            for executable in locations:
+                if executable.is_file():
+                    return executable.resolve()
     raise AedtLaunchError(
-        f"cannot locate ansysedt.exe for AEDT {version}; set AEDT_INSTALL_DIR or ANSYSEM_ROOT{code}"
+        f"cannot locate ansysedt for AEDT {version}; set AEDT_INSTALL_DIR or ANSYSEM_ROOT{code}"
     )
 
 
@@ -95,11 +101,12 @@ class AedtLauncher:
         command = [str(executable), "-grpcsrv", server_argument]
         if non_graphical:
             command.append("-ng")
-        process = self._process_factory(
-            command,
-            cwd=str(executable.parent),
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
+        process_kwargs: dict[str, Any] = {"cwd": str(executable.parent)}
+        if os.name == "nt":
+            process_kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        else:
+            process_kwargs["start_new_session"] = True
+        process = self._process_factory(command, **process_kwargs)
         deadline = self._monotonic() + float(timeout)
         target = AedtTarget("port", selected_port)
         try:
@@ -222,9 +229,21 @@ def _port_is_open(port: int) -> bool:
 def _terminate_process(process: Any) -> None:
     if process.poll() is not None:
         return
-    process.terminate()
+    if os.name != "nt":
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except (AttributeError, OSError):
+            process.terminate()
+    else:
+        process.terminate()
     try:
         process.wait(timeout=5)
     except subprocess.TimeoutExpired:
-        process.kill()
+        if os.name != "nt":
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except (AttributeError, OSError):
+                process.kill()
+        else:
+            process.kill()
         process.wait(timeout=5)

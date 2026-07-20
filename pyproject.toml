@@ -29,6 +29,12 @@ desktop = [
     "fastmcp==3.4.4",
     "codebase-memory-mcp==0.9.0",
 ]
+linux = [
+    "pyaedt==1.3.0",
+    "pyedb==0.80.2",
+    "fastmcp==3.4.4",
+    "codebase-memory-mcp==0.9.0",
+]
 knowledge = [
     "codebase-memory-mcp==0.9.0",
     "fastmcp==3.4.4",
@@ -40,6 +46,7 @@ ansys-agent = "aedt_agent.ansys_agent.__main__:main"
 ansys-assistant = "aedt_agent.interactive.cli:main"
 ansys-assistant-mcp = "aedt_agent.interactive.server:main"
 ansys-agent-desktop = "aedt_agent.desktop.cli:main"
+ansys-agent-linux = "aedt_agent.linux.cli:main"
 ansys-api-memory = "aedt_agent.knowledge.api_memory_cli:main"
 ansys-api-memory-mcp = "aedt_agent.knowledge.server:main"
 ansys-capability-promoter = "aedt_agent.capability_learning.cli:main"

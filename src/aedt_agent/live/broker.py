@@ -4,6 +4,7 @@ import atexit
 from dataclasses import dataclass, field
 import os
 import queue
+import signal
 import subprocess
 import sys
 import threading
@@ -133,17 +134,23 @@ class AedtBrokerRegistry:
                     return current
                 if current.process.poll() is None:
                     return current
+            process_kwargs: dict[str, Any] = {
+                "stdin": subprocess.PIPE,
+                "stdout": subprocess.PIPE,
+                "stderr": sys.stderr,
+                "text": True,
+                "encoding": "utf-8",
+                "errors": "strict",
+                "bufsize": 1,
+                "env": self._environment(),
+            }
+            if os.name == "nt":
+                process_kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            else:
+                process_kwargs["start_new_session"] = True
             process = self._process_factory(
                 [sys.executable, "-m", self.worker_module, "--version", normalized_version],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=sys.stderr,
-                text=True,
-                encoding="utf-8",
-                errors="strict",
-                bufsize=1,
-                env=self._environment(),
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                **process_kwargs,
             )
             responses: queue.Queue[str | None] = queue.Queue()
             broker = _Broker(process, responses, normalized_version)
@@ -213,11 +220,11 @@ class AedtBrokerRegistry:
                 try:
                     process.wait(timeout=3)
                 except subprocess.TimeoutExpired:
-                    process.terminate()
+                    _terminate_process_tree(process, signal.SIGTERM)
                     try:
                         process.wait(timeout=3)
                     except subprocess.TimeoutExpired:
-                        process.kill()
+                        _terminate_process_tree(process, signal.SIGKILL)
                         process.wait(timeout=3)
             self._discard(broker)
 
@@ -243,3 +250,16 @@ def _read_lines(stream, responses: queue.Queue[str | None]) -> None:
             responses.put(line.rstrip("\r\n"))
     finally:
         responses.put(None)
+
+
+def _terminate_process_tree(process: Any, sig: int) -> None:
+    if os.name != "nt":
+        try:
+            os.killpg(process.pid, sig)
+            return
+        except (AttributeError, OSError):
+            pass
+    if sig == signal.SIGKILL:
+        process.kill()
+    else:
+        process.terminate()
