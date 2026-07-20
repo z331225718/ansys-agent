@@ -8,7 +8,7 @@ param(
     [string]$PythonExe,
 
     [ValidatePattern("^3\.[0-9]+$")]
-    [string]$TargetPython = "3.11",
+    [string]$TargetPython = "3.12",
 
     [string]$BundleName,
 

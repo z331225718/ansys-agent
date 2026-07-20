@@ -54,7 +54,7 @@ def _write_test_bundle(root: Path) -> None:
         "target": {
             "os": "windows",
             "architecture": "amd64",
-            "python": "3.11",
+            "python": "3.12",
             "aedt": "2024.2",
         },
         "payload_file_count": len(files) + 1,
@@ -126,6 +126,7 @@ def test_offline_installer_verify_only_accepts_intact_bundle(tmp_path: Path) -> 
     payload = json.loads(result.stdout)
     assert payload["status"] == "verified"
     assert payload["target_aedt"] == "2024.2"
+    assert payload["target_python"] == "3.12"
 
 
 def test_offline_installer_verifies_utf8_payload_filename(tmp_path: Path) -> None:
@@ -208,6 +209,7 @@ def test_offline_installer_restores_existing_empty_root_after_failure(tmp_path: 
 def test_bundle_builder_is_locked_binary_only_and_excludes_local_config() -> None:
     script = (OFFLINE_SCRIPTS / "New-AnsysAgentOfflineBundle.ps1").read_text(encoding="utf-8")
 
+    assert '[string]$TargetPython = "3.12"' in script
     for expected in (
         '"--frozen"',
         '"--require-hashes"',

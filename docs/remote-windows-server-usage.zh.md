@@ -67,7 +67,7 @@ D:\aedt-project-backups     人工维护的工程备份或副本
 |---|---|
 | Windows | x64，使用交互式桌面或 RDP session |
 | AEDT | 目标部署 2024 R2 |
-| 外部 Python | CPython 3.11 x64 |
+| 外部 Python | CPython 3.12 x64 |
 | PyAEDT | 1.3.0 |
 | PyEDB | 0.80.2，包含 DotNet 后端 |
 | FastMCP | 3.4.4 |
@@ -83,7 +83,7 @@ D:\aedt-project-backups     人工维护的工程备份或副本
 在 PowerShell 中执行：
 
 ```powershell
-py -3.11 -c "import struct,sys; print(sys.executable); print(sys.version); print(struct.calcsize('P')*8)"
+py -3.12 -c "import struct,sys; print(sys.executable); print(sys.version); print(struct.calcsize('P')*8)"
 Test-Path "C:\Program Files\ANSYS Inc\v242\AnsysEM\ansysedt.exe"
 ```
 
@@ -102,7 +102,7 @@ git clone --branch $Ref --single-branch `
   https://github.com/z331225718/ansys-agent.git $Root
 
 Set-Location $Root
-py -3.11 -m venv .venv
+py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install --editable ".[desktop]"
 .\.venv\Scripts\python.exe -m pip check
@@ -617,7 +617,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
   "$Bundle\scripts\Install-AnsysAgentOffline.ps1" `
   -BundleRoot $Bundle `
   -InstallRoot D:\ansys-agent `
-  -PythonExe C:\Python311\python.exe
+  -PythonExe C:\Python312\python.exe
 ```
 
 离线包的交付位置是 GitHub Release assets。Git 分支保存源码、脚本和文档，不保存约 100 MB 的
