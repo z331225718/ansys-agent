@@ -14,7 +14,7 @@ from aedt_agent.agent.graph_runner import (
     run_graph,
 )
 from aedt_agent.agent.graph_template import graph_template_from_mapping, load_graph_template
-from aedt_agent.agent.mission import GraphRunStatus, MissionState, NodeRunRecord, NodeRunStatus
+from aedt_agent.agent.mission import MissionState, NodeRunRecord, NodeRunStatus
 from aedt_agent.agent.orchestrator import AgentRuntime
 from aedt_agent.agent.workers import InMemoryWorkerRegistry
 from aedt_agent.agent.workers import WorkerExecutionResult
@@ -914,7 +914,7 @@ def test_expand_node_creates_dynamic_downstream(tmp_path):
         handoffs={},
     )
 
-    graph_run = create_graph_run(
+    create_graph_run(
         runtime, mission.mission_id, template,
         initial_payload={
             "expand_nodes": [

@@ -2,10 +2,21 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from aedt_agent.agent.mission import EngineeringConstraint, JobStatus, MissionState
+import pytest
+
+from aedt_agent.agent.mission import (
+    EngineeringConstraint,
+    EventType,
+    JobAttemptStatus,
+    JobStatus,
+    MissionState,
+)
 from aedt_agent.agent.orchestrator.runtime import AgentRuntime
 from aedt_agent.agent.workers import InMemoryWorkerRegistry
-from aedt_agent.infrastructure.sqlite_mission_store import SQLiteMissionStore
+from aedt_agent.infrastructure.sqlite_mission_store import (
+    JobExecutionConflictError,
+    SQLiteMissionStore,
+)
 
 
 def test_runtime_creates_restartable_mission(tmp_path):
@@ -95,3 +106,64 @@ def test_expired_worker_lease_can_be_recovered(tmp_path):
     assert lease.released_at is None
     assert recovered == [job.job_id]
     assert runtime.get_job(job.job_id).status == JobStatus.QUEUED
+
+
+def test_execute_job_audits_stale_fenced_attempt_and_preserves_new_lease(tmp_path):
+    store = SQLiteMissionStore(tmp_path / "mission.db")
+    registry = InMemoryWorkerRegistry()
+    new_lease_holder = {}
+
+    def redispatch_before_return(job, context):
+        recovered = store.recover_expired_leases(
+            datetime.now(UTC) + timedelta(seconds=5)
+        )
+        assert recovered == [job.job_id]
+        new_lease_holder["lease"] = store.acquire_job_lease(
+            job.job_id,
+            "worker-new",
+            lease_seconds=60,
+        )
+        return {"writer": "old"}
+
+    registry.register("fake.stale", redispatch_before_return)
+    runtime = AgentRuntime(
+        store,
+        registry=registry,
+        default_lease_seconds=1,
+    )
+    mission = runtime.create_mission("goal", [], [])
+    job = runtime.create_job(mission.mission_id, "fake.stale", "step-1", {})
+
+    with pytest.raises(JobExecutionConflictError):
+        runtime.execute_job(job.job_id, worker_id="worker-old")
+
+    attempt = store.list_job_attempts(job.job_id)[0]
+    new_lease = new_lease_holder["lease"]
+    assert attempt.status == JobAttemptStatus.CANCELED
+    assert attempt.retry_decision == "stale_fenced"
+    assert attempt.error["code"] == "stale_fenced"
+    assert attempt.error["details"]["operation"] == "complete"
+    assert attempt.error["details"]["lease_id"] == attempt.lease_id
+    assert attempt.metadata["stale_fence"]["active_lease_ids"] == [
+        new_lease.lease_id
+    ]
+    current = store.get_job(job.job_id)
+    assert current.status == JobStatus.LEASED
+    assert current.output_payload == {}
+    assert [lease.lease_id for lease in store.list_active_job_leases(job.job_id)] == [
+        new_lease.lease_id
+    ]
+    assert not any(
+        event.event_type == EventType.JOB_SUCCEEDED
+        for event in store.list_events(mission.mission_id)
+    )
+
+    committed = store.complete_job(
+        job.job_id,
+        {"writer": "new"},
+        [],
+        lease_id=new_lease.lease_id,
+    )
+
+    assert committed.status == JobStatus.SUCCEEDED
+    assert committed.output_payload == {"writer": "new"}

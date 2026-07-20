@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 
 from aedt_agent.agent.mission import JobRecord
 from aedt_agent.agent.workers.brd_candidate_inventory import (

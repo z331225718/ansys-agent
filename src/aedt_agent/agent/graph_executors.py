@@ -151,11 +151,9 @@ def execute_agent_node(
         "output_schema": context.node.output_schema,
         "constraints": constraints,
     }
-    # Inject knowledge for code_writer agents
-    if context.node.capability == "code_writer":
-        knowledge = _get_agent_knowledge(context)
-        if knowledge:
-            user_parts["knowledge"] = knowledge
+    knowledge = _get_agent_knowledge(context)
+    if knowledge:
+        user_parts["knowledge"] = knowledge
     user_msg = _json.dumps(user_parts, ensure_ascii=False, indent=2)
 
     # 4. Call LLM
@@ -366,27 +364,28 @@ def set_agent_knowledge_provider(provider: Any) -> None:
 
 def _get_agent_knowledge(context: GraphNodeExecutionContext) -> dict[str, Any] | None:
     """Get relevant API docs, examples, and common traps for an agent node."""
+    knowledge: dict[str, Any] = {}
+    reviewed_loop = _reviewed_brd_loop_knowledge(context)
+    if reviewed_loop:
+        knowledge["reviewed_brd_playbook"] = reviewed_loop
     if _knowledge_provider is None:
-        return None
-
+        return knowledge or None
     try:
-        capability = context.node.capability
         handoff = context.input_payload
 
         # Extract search terms from handoff
         search_terms = []
-        for key in ("signal_nets", "target_metrics", "plan_summary", "goal", "_goal"):
+        for key in ("signal_nets", "target_metrics", "plan_summary", "goal", "_goal", "return_loss_trace", "tdr_observation_port"):
             val = handoff.get(key, "")
             if isinstance(val, str) and val:
                 search_terms.append(val)
             elif isinstance(val, list):
                 search_terms.extend(str(v) for v in val[:3])
 
-        query = " ".join(search_terms[:3]) if search_terms else "hfss 3d layout build"
+        if reviewed_loop:
+            search_terms.extend(["hfss 3d layout", "touchstone", "differential pair"])
+        query = " ".join(search_terms[:4]) if search_terms else "hfss 3d layout build"
         apis = _knowledge_provider.search_api(query, limit=8)
-
-        if not apis:
-            return None
 
         # Build knowledge context
         api_docs = []
@@ -414,31 +413,63 @@ def _get_agent_knowledge(context: GraphNodeExecutionContext) -> dict[str, Any] |
                 f"- **{c.case_id}**: {c.description[:200]}" for c in cases[:3]
             )
 
-        return {
-            "api_reference": "\n\n".join(api_docs),
-            "common_traps": trap_text,
-            "workflow_examples": case_text,
-        }
+        if api_docs:
+            knowledge["api_reference"] = "\n\n".join(api_docs)
+        if trap_text:
+            knowledge["common_traps"] = trap_text
+        if case_text:
+            knowledge["workflow_examples"] = case_text
+        return knowledge or None
     except Exception:
+        return knowledge or None
+
+
+def _reviewed_brd_loop_knowledge(context: GraphNodeExecutionContext) -> dict[str, Any] | None:
+    template_id = str(context.template.template_id or context.graph_run.template_id or "")
+    node_id = str(context.node.node_id or "")
+    handler = str(context.node.handler or "")
+    is_reviewed_loop = template_id == "brd_reviewed_model_optimize_loop"
+    is_brd_decider = handler == "brd.optimization.decide_next_action" or node_id == "optimization_decider"
+    if not (is_reviewed_loop or is_brd_decider):
         return None
-    """Extract JSON from markdown code fences."""
-    import json as _json
-    import re as _re
-    # Try ```json ... ``` first
-    match = _re.search(r'```(?:json)?\s*\n(.*?)\n```', text, _re.DOTALL)
-    if match:
-        try:
-            return _json.loads(match.group(1))
-        except _json.JSONDecodeError:
-            pass
-    # Try first { ... } block
-    match = _re.search(r'\{.*\}', text, _re.DOTALL)
-    if match:
-        try:
-            return _json.loads(match.group(0))
-        except _json.JSONDecodeError:
-            pass
-    return {}
+    return {
+        "source": "docs/agent_playbooks/brd-local-cut-optimization.md",
+        "applies_to": "reviewed BRD differential local-cut optimization loop",
+        "bounded_evidence_only": True,
+        "rules": [
+            "Treat the primary Touchstone artifact as four-port s4p.",
+            "Score return loss on SDD11, insertion loss on SDD21, and default TDR observation to Diff1.",
+            "Use TDR time together with tdr_observation_port and orientation evidence before mapping a feature to near/far physical geometry.",
+            "Do not invent layers, shape ids, padstack ids, ports, or geometry limits; select from candidate_action_inventory/candidate_actions.",
+            "Anti-pad changes are selected-shape void operations on layers with physical shape evidence near the intended parasitic center.",
+            "Non-functional pads are explicit signal-net circle shapes on reviewed mechanical-hole layers, not padstack edits.",
+            "Anti-pad radius must be <=22mil. Non-functional pad radius must be 7.875mil to 10mil.",
+        ],
+        "proposal_contract": {
+            "anti_pad.enlarge": [
+                "layers",
+                "plane_shape_ids or shape_evidence",
+                "center_padstack_instance_ids or via_centers",
+                "parasitic_target",
+                "target_radius or target_diameter",
+                "constraints_checked",
+                "bridge_center_padstack_instance_ids exactly two when bridge_between_vias is true and more than two circle centers exist",
+            ],
+            "non_functional_pad.add_or_enlarge": [
+                "layers",
+                "center_padstack_instance_ids or via_centers",
+                "signal nets or center ids",
+                "target_radius in [7.875mil,10mil]",
+                "parasitic_target",
+                "constraints_checked",
+            ],
+        },
+        "reporting": [
+            "Keep raw S-parameter and TDR arrays artifact-only.",
+            "The closed-loop report must include accepted/rejected geometry changes, final metrics, SDD11/SDD21/TDR plots, and optimization_history_csv.",
+            "Preserve the best-so-far AEDT project bundle after each scored round.",
+        ],
+    }
 
 
 def _execute_planner(context: GraphNodeExecutionContext) -> GraphNodeExecutionResult:

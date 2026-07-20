@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from aedt_agent.demo.service import DemoService
@@ -154,11 +155,19 @@ def test_dispatch_demo_request_starts_import_cutout_agent_run_with_fake_adapter(
     status, headers, body = dispatch_demo_request(
         "POST",
         "/api/agent-run",
-        (
-            '{"user_request":"导入 brd 文件，选择 56G tx net cutout，显示 s11 s21 和 tdr",'
-            '"adapter":"fake","stream_to_terminal":false,'
-            f'"parameters":{{"layout_file":"{layout_file}","signal_nets":"*tx0*","reference_nets":"gnd"}}}}'
-        ).encode(),
+        json.dumps(
+            {
+                "user_request": "导入 brd 文件，选择 56G tx net cutout，显示 s11 s21 和 tdr",
+                "adapter": "fake",
+                "stream_to_terminal": False,
+                "parameters": {
+                    "layout_file": str(layout_file),
+                    "signal_nets": "*tx0*",
+                    "reference_nets": "gnd",
+                },
+            },
+            ensure_ascii=False,
+        ).encode("utf-8"),
         service,
     )
 

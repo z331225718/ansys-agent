@@ -1,0 +1,43 @@
+id: hfss_live_infinite_sphere_create
+version: 1
+description: Preview, approve, create, and verify one bounded HFSS Infinite Sphere after checking radiated-field prerequisites without saving the live project.
+nodes:
+  - id: preview_infinite_sphere
+    role: preview
+    kind: program
+    handler: assistant.live.hfss.preview_infinite_sphere_create
+    input_schema: live_hfss_infinite_sphere_request
+    output_schema: live_hfss_infinite_sphere_preview
+    max_runs: 1
+  - id: apply_infinite_sphere
+    role: apply
+    kind: program
+    handler: assistant.live.hfss.apply_infinite_sphere_create
+    input_schema: live_hfss_infinite_sphere_preview
+    output_schema: live_hfss_infinite_sphere_result
+    max_runs: 1
+  - id: verify_scorecard
+    role: scorecard
+    kind: program
+    handler: assistant.live.hfss.infinite_sphere_create_scorecard
+    input_schema: live_hfss_infinite_sphere_result
+    output_schema: live_hfss_infinite_sphere_scorecard
+    max_runs: 1
+edges:
+  - id: preview-to-apply
+    from: preview_infinite_sphere
+    to: apply_infinite_sphere
+    on: succeeded
+  - id: apply-to-scorecard
+    from: apply_infinite_sphere
+    to: verify_scorecard
+    on: succeeded
+handoffs:
+  live_hfss_infinite_sphere_request:
+    required_fields: [sphere_name]
+  live_hfss_infinite_sphere_preview:
+    required_fields: [sphere_name, operation_preview_id, operation_approval, operation_preview, live_session_reused]
+  live_hfss_infinite_sphere_result:
+    required_fields: [sphere_name, operation_result, live_session_reused]
+  live_hfss_infinite_sphere_scorecard:
+    required_fields: [status, checks, summary, live_session_reused]

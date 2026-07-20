@@ -1,0 +1,43 @@
+id: hfss_live_setup_sweep_create
+version: 1
+description: Preview, approve, atomically create, and verify one typed HFSS setup and its bounded frequency sweep without saving the live project.
+nodes:
+  - id: preview_setup_sweep
+    role: preview
+    kind: program
+    handler: assistant.live.hfss.preview_setup_sweep_create
+    input_schema: live_hfss_setup_sweep_request
+    output_schema: live_hfss_setup_sweep_preview
+    max_runs: 1
+  - id: apply_setup_sweep
+    role: apply
+    kind: program
+    handler: assistant.live.hfss.apply_setup_sweep_create
+    input_schema: live_hfss_setup_sweep_preview
+    output_schema: live_hfss_setup_sweep_apply_result
+    max_runs: 1
+  - id: verify_scorecard
+    role: scorecard
+    kind: program
+    handler: assistant.live.hfss.setup_sweep_create_scorecard
+    input_schema: live_hfss_setup_sweep_apply_result
+    output_schema: live_hfss_setup_sweep_scorecard
+    max_runs: 1
+edges:
+  - id: preview-to-apply
+    from: preview_setup_sweep
+    to: apply_setup_sweep
+    on: succeeded
+  - id: apply-to-scorecard
+    from: apply_setup_sweep
+    to: verify_scorecard
+    on: succeeded
+handoffs:
+  live_hfss_setup_sweep_request:
+    required_fields: [setup, sweep]
+  live_hfss_setup_sweep_preview:
+    required_fields: [setup, sweep, operation_preview_id, operation_approval, operation_preview, live_session_reused]
+  live_hfss_setup_sweep_apply_result:
+    required_fields: [setup, sweep, operation_result, live_session_reused]
+  live_hfss_setup_sweep_scorecard:
+    required_fields: [status, checks, summary, live_session_reused]

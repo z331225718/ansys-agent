@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading as _threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
-from aedt_agent.agent.graph_runner import advance_graph, graph_status, resume_graph, run_graph
+from aedt_agent.agent.graph_runner import advance_graph, graph_status
 from aedt_agent.agent.graph_template import load_graph_template, resolve_template_path
 from aedt_agent.agent.graph_visualizer import render_graph_mermaid
 from aedt_agent.agent.orchestrator import AgentRuntime
@@ -991,8 +992,6 @@ def dispatch_agent_request(
 
 # ── Built-in Orchestrator ──
 
-import threading as _threading
-
 _orchestrator_sessions: dict[str, dict[str, Any]] = {}
 
 
@@ -1004,9 +1003,8 @@ def _orchestrator_loop(
     initial_payload: dict[str, Any],
 ) -> None:
     """Background orchestrator loop: create → monitor → decide → repeat."""
-    from aedt_agent.agent.graph_runner import advance_graph, create_graph_run, graph_status
+    from aedt_agent.agent.graph_runner import advance_graph, create_graph_run
     from aedt_agent.agent.graph_template import load_graph_template, resolve_template_path
-    from aedt_agent.agent.llm import LlmConfig, llm_complete, llm_complete_json
 
     session = _orchestrator_sessions[session_id]
     try:
@@ -1080,11 +1078,12 @@ def run_agent_window(
 
     # Load knowledge provider for agent context injection
     try:
-        from aedt_agent.knowledge.sqlite_provider import SqliteKnowledgeProvider
+        from aedt_agent.knowledge.sqlite_provider import SQLiteKnowledgeProvider
         from aedt_agent.agent.graph_executors import set_agent_knowledge_provider
-        kp = SqliteKnowledgeProvider()
+        root = Path(__file__).resolve().parents[3]
+        kp = SQLiteKnowledgeProvider(root / "knowledge" / "api_semantics" / "api_semantics.sqlite")
         set_agent_knowledge_provider(kp)
-        print(f"Knowledge base loaded for agent context injection")
+        print("Knowledge base loaded for agent context injection")
     except Exception as e:
         print(f"Knowledge base not available: {e}")
 

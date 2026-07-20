@@ -1,0 +1,43 @@
+id: hfss_live_coordinate_system_create
+version: 1
+description: Preview, approve, create, and verify one relative Axis/Position HFSS coordinate system while restoring the prior active working coordinate system and without saving the live project.
+nodes:
+  - id: preview_coordinate_system
+    role: preview
+    kind: program
+    handler: assistant.live.hfss.preview_coordinate_system_create
+    input_schema: live_hfss_coordinate_system_request
+    output_schema: live_hfss_coordinate_system_preview
+    max_runs: 1
+  - id: apply_coordinate_system
+    role: apply
+    kind: program
+    handler: assistant.live.hfss.apply_coordinate_system_create
+    input_schema: live_hfss_coordinate_system_preview
+    output_schema: live_hfss_coordinate_system_result
+    max_runs: 1
+  - id: verify_scorecard
+    role: scorecard
+    kind: program
+    handler: assistant.live.hfss.coordinate_system_create_scorecard
+    input_schema: live_hfss_coordinate_system_result
+    output_schema: live_hfss_coordinate_system_scorecard
+    max_runs: 1
+edges:
+  - id: preview-to-apply
+    from: preview_coordinate_system
+    to: apply_coordinate_system
+    on: succeeded
+  - id: apply-to-scorecard
+    from: apply_coordinate_system
+    to: verify_scorecard
+    on: succeeded
+handoffs:
+  live_hfss_coordinate_system_request:
+    required_fields: [coordinate_system_name, origin, x_axis, y_axis]
+  live_hfss_coordinate_system_preview:
+    required_fields: [coordinate_system_name, origin, x_axis, y_axis, operation_preview_id, operation_approval, operation_preview, live_session_reused]
+  live_hfss_coordinate_system_result:
+    required_fields: [coordinate_system_name, origin, x_axis, y_axis, operation_result, live_session_reused]
+  live_hfss_coordinate_system_scorecard:
+    required_fields: [status, checks, summary, live_session_reused]

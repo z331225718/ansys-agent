@@ -7,8 +7,13 @@ from aedt_agent.evolution.policy import can_transition
 from aedt_agent.evolution.proposer import build_evolution_report, propose_node_evolution
 
 
+FIXTURES = Path(__file__).parent / "fixtures"
+STAGE_B_REPORT = FIXTURES / "evolution_stage_b_report.json"
+NODE_AUDIT = FIXTURES / "evolution_node_audit.jsonl"
+
+
 def test_miner_extracts_failures_and_subgraphs_from_stage_b_report():
-    evidence = mine_stage_b_report(Path("benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json"))
+    evidence = mine_stage_b_report(STAGE_B_REPORT)
 
     kinds = {item.kind for item in evidence}
     assert "node_subgraph" in kinds
@@ -16,7 +21,7 @@ def test_miner_extracts_failures_and_subgraphs_from_stage_b_report():
 
 
 def test_miner_extracts_node_usage_from_audit_jsonl():
-    evidence = mine_audit_jsonl(Path("benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_node_audit.jsonl"))
+    evidence = mine_audit_jsonl(NODE_AUDIT)
 
     assert any(item.kind == "node_usage" and item.summary == "create_substrate" for item in evidence)
     assert any(item.kind == "node_subgraph" for item in evidence)
@@ -45,7 +50,7 @@ def test_proposer_generates_composite_node_proposal_from_repeated_subgraph():
 
 
 def test_build_evolution_report_keeps_evidence_and_proposals():
-    evidence = mine_evolution_evidence([Path("benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json")])
+    evidence = mine_evolution_evidence([STAGE_B_REPORT])
 
     report = build_evolution_report(evidence, source_count=1)
 

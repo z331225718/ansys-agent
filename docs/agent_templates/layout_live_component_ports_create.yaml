@@ -1,0 +1,69 @@
+id: layout_live_component_ports_create
+version: 1
+description: Discover live Layout endpoint candidates, validate an explicit component and signal nets, create component-net ports after native approval, and verify readback without saving.
+nodes:
+  - id: discover_candidates
+    role: live_inventory
+    kind: program
+    handler: assistant.live.layout.discover_port_candidates
+    input_schema: live_component_port_request
+    output_schema: live_component_port_candidates
+    max_runs: 1
+  - id: validate_selection
+    role: validation
+    kind: program
+    handler: assistant.live.layout.validate_component_port_selection
+    input_schema: live_component_port_candidates
+    output_schema: live_component_port_selection
+    max_runs: 1
+  - id: preview_port_creation
+    role: preview
+    kind: program
+    handler: assistant.live.layout.preview_component_ports_create
+    input_schema: live_component_port_selection
+    output_schema: live_component_port_preview
+    max_runs: 1
+  - id: apply_port_creation
+    role: apply
+    kind: program
+    handler: assistant.live.layout.apply_component_ports_create
+    input_schema: live_component_port_preview
+    output_schema: live_component_port_apply_result
+    max_runs: 1
+  - id: verify_scorecard
+    role: scorecard
+    kind: program
+    handler: assistant.live.layout.component_ports_scorecard
+    input_schema: live_component_port_apply_result
+    output_schema: live_component_port_scorecard
+    max_runs: 1
+edges:
+  - id: discover-to-validate
+    from: discover_candidates
+    to: validate_selection
+    on: succeeded
+  - id: validate-to-preview
+    from: validate_selection
+    to: preview_port_creation
+    on: succeeded
+  - id: preview-to-apply
+    from: preview_port_creation
+    to: apply_port_creation
+    on: succeeded
+  - id: apply-to-scorecard
+    from: apply_port_creation
+    to: verify_scorecard
+    on: succeeded
+handoffs:
+  live_component_port_request:
+    required_fields: [component_name, signal_nets]
+  live_component_port_candidates:
+    required_fields: [component_name, signal_nets, candidate_inventory, live_session_reused]
+  live_component_port_selection:
+    required_fields: [component_name, signal_nets, candidate_inventory, selection_validation, live_session_reused]
+  live_component_port_preview:
+    required_fields: [component_name, signal_nets, operation_preview_id, operation_approval, operation_preview, live_session_reused]
+  live_component_port_apply_result:
+    required_fields: [component_name, signal_nets, operation_result, live_session_reused]
+  live_component_port_scorecard:
+    required_fields: [status, checks, summary, live_session_reused]

@@ -1,0 +1,43 @@
+id: hfss_live_surface_boundary_create
+version: 1
+description: Preview, approve, create, and verify one typed HFSS Perfect E, Perfect H, finite-conductivity, sheet-impedance, or sheet Lumped RLC boundary without saving the live project.
+nodes:
+  - id: preview_surface_boundary
+    role: preview
+    kind: program
+    handler: assistant.live.hfss.preview_surface_boundary_create
+    input_schema: live_hfss_surface_boundary_request
+    output_schema: live_hfss_surface_boundary_preview
+    max_runs: 1
+  - id: apply_surface_boundary
+    role: apply
+    kind: program
+    handler: assistant.live.hfss.apply_surface_boundary_create
+    input_schema: live_hfss_surface_boundary_preview
+    output_schema: live_hfss_surface_boundary_result
+    max_runs: 1
+  - id: verify_scorecard
+    role: scorecard
+    kind: program
+    handler: assistant.live.hfss.surface_boundary_create_scorecard
+    input_schema: live_hfss_surface_boundary_result
+    output_schema: live_hfss_surface_boundary_scorecard
+    max_runs: 1
+edges:
+  - id: preview-to-apply
+    from: preview_surface_boundary
+    to: apply_surface_boundary
+    on: succeeded
+  - id: apply-to-scorecard
+    from: apply_surface_boundary
+    to: verify_scorecard
+    on: succeeded
+handoffs:
+  live_hfss_surface_boundary_request:
+    required_fields: [boundary_kind, boundary_name]
+  live_hfss_surface_boundary_preview:
+    required_fields: [boundary_kind, boundary_name, operation_preview_id, operation_approval, operation_preview, live_session_reused]
+  live_hfss_surface_boundary_result:
+    required_fields: [boundary_kind, boundary_name, operation_result, live_session_reused]
+  live_hfss_surface_boundary_scorecard:
+    required_fields: [status, checks, summary, live_session_reused]

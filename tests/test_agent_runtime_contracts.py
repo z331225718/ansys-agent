@@ -10,9 +10,7 @@ from aedt_agent.agent.mission import (
     EventRecord,
     EventType,
     JobRecord,
-    JobStatus,
     MissionRecord,
-    MissionState,
     WorkerLease,
     utc_now_iso,
 )

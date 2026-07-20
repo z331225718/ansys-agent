@@ -1,5 +1,6 @@
 import json
 import sys
+from pathlib import Path
 
 
 def test_list_workflow_templates_outputs_template_ids(capsys, monkeypatch):
@@ -76,13 +77,14 @@ def test_generate_node_evolution_report_writes_json(tmp_path, monkeypatch):
     import scripts.generate_node_evolution_report as script
 
     output_path = tmp_path / "evolution.json"
+    source_path = Path(__file__).parent / "fixtures" / "evolution_stage_b_report.json"
     monkeypatch.setattr(
         sys,
         "argv",
         [
             "generate_node_evolution_report.py",
             "--source",
-            "benchmarks/runs/stage_b_c_10task_after_node_fixes/stage_b_report.json",
+            str(source_path),
             "--output",
             str(output_path),
         ],

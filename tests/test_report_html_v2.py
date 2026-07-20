@@ -1,4 +1,3 @@
-from pathlib import Path
 
 from aedt_agent.benchmark.report_html_v2 import render_html_report_v2, write_html_report_v2
 

@@ -1,7 +1,6 @@
 import json
 import subprocess
 import sys
-from pathlib import Path
 
 from aedt_agent.demo.config import AedtConfig, DemoConfig, ExecutionConfig, PlannerConfig, ServerConfig
 from aedt_agent.demo.preflight import run_stage_c_preflight

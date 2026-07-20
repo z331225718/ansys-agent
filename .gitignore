@@ -6,9 +6,23 @@ __pycache__/
 config/*.local.json
 
 .antigravity/
+.aedt-agent/
 .superpowers/
 benchmarks/harness_work/
 benchmarks/runs/
 batch.log
 benchmarks/generated/**/*.py
 tmp/
+dist/
+*.egg-info/
+.codegraph/
+.reasonix/
+.temp_whiteboard/
+.claude/skills/
+.agents/skills/lark-*/
+runs-agent-consult/
+tmp-art/
+user_input/
+geometry_validation_manifest.json
+nul
+skills-lock.json

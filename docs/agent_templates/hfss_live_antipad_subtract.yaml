@@ -1,0 +1,43 @@
+id: hfss_live_antipad_subtract
+version: 1
+description: Preview, approve, subtract, and verify one circular through-layer anti-pad from an exact Z-normal thin HFSS metal solid without saving the project.
+nodes:
+  - id: preview_antipad
+    role: preview
+    kind: program
+    handler: assistant.live.hfss.preview_antipad_subtract
+    input_schema: live_hfss_antipad_subtract_request
+    output_schema: live_hfss_antipad_subtract_preview
+    max_runs: 1
+  - id: apply_antipad
+    role: apply
+    kind: program
+    handler: assistant.live.hfss.apply_antipad_subtract
+    input_schema: live_hfss_antipad_subtract_preview
+    output_schema: live_hfss_antipad_subtract_result
+    max_runs: 1
+  - id: verify_scorecard
+    role: scorecard
+    kind: program
+    handler: assistant.live.hfss.antipad_subtract_scorecard
+    input_schema: live_hfss_antipad_subtract_result
+    output_schema: live_hfss_antipad_subtract_scorecard
+    max_runs: 1
+edges:
+  - id: preview-to-apply
+    from: preview_antipad
+    to: apply_antipad
+    on: succeeded
+  - id: apply-to-scorecard
+    from: apply_antipad
+    to: verify_scorecard
+    on: succeeded
+handoffs:
+  live_hfss_antipad_subtract_request:
+    required_fields: [blank_object_name, center, radius]
+  live_hfss_antipad_subtract_preview:
+    required_fields: [blank_object_name, tool_name, center, radius, operation_preview_id, operation_approval, operation_preview, live_session_reused]
+  live_hfss_antipad_subtract_result:
+    required_fields: [blank_object_name, tool_name, center, radius, operation_result, live_session_reused]
+  live_hfss_antipad_subtract_scorecard:
+    required_fields: [status, checks, summary, live_session_reused]

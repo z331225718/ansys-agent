@@ -1,0 +1,45 @@
+id: layout_live_audit
+version: 3
+description: Audit routing, objects, variables, setups, technology, and bounded net/component/pin/via connectivity in the attached HFSS 3D Layout design.
+nodes:
+  - id: collect_live_inventory
+    role: live_inventory
+    kind: program
+    handler: assistant.live.layout.collect_inventory
+    input_schema: live_layout_audit_request
+    output_schema: live_layout_inventory
+    max_runs: 1
+  - id: audit_scorecard
+    role: scorecard
+    kind: program
+    handler: assistant.live.layout.audit_scorecard
+    input_schema: live_layout_inventory
+    output_schema: live_layout_audit_report
+    max_runs: 1
+edges:
+  - id: inventory-to-scorecard
+    from: collect_live_inventory
+    to: audit_scorecard
+    on: succeeded
+    max_traversals: 1
+handoffs:
+  live_layout_audit_request:
+    required_fields: []
+  live_layout_inventory:
+    required_fields:
+      - status
+      - project_name
+      - design_name
+      - routing
+      - objects
+      - variables
+      - setups
+      - technology
+      - connectivity
+      - live_session_reused
+  live_layout_audit_report:
+    required_fields:
+      - status
+      - checks
+      - summary
+      - live_session_reused

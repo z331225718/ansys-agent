@@ -1,5 +1,27 @@
 # ansys-agent
 
+远端 Windows Server 已安装 AEDT 2024 R2、Claude Code 可用且 `pip` 可以联网时，建议直接按
+[`docs/remote-windows-server-usage.zh.md`](docs/remote-windows-server-usage.zh.md) 操作。该手册按实际使用顺序
+覆盖项目安装、PyAEDT/PyEDB API Memory、复用现有 AEDT 会话、Automation Tab 入口、标准对话、
+原生审批、回读、保存、smoke、升级、回滚和完全离线发布包。
+
+面向 AEDT 2024 R2 远端服务器的安装、连接、Desktop 入口、标准对话范例、审批、故障处理和验收步骤见
+[`docs/ansys-assistant-operations-guide.zh.md`](docs/ansys-assistant-operations-guide.zh.md)。完整能力、Workflow、
+故障排查和维护者说明见
+[`docs/ansys-assistant-user-guide.zh.md`](docs/ansys-assistant-user-guide.zh.md)。
+远端服务器可联网时按手册第 4.1 节从源码安装；完全离线时按第 4.2～5 节使用 GitHub Release
+发布包；上线交接时按第 4.3 节记录 commit、依赖版本、入口来源和 smoke evidence，避免 AEDT 按钮
+继续加载旧安装目录。首次使用建议从手册的“十分钟上手”开始；维护者新增写入 Harness 时，还必须执行其中
+“新 Harness 的真实 AEDT 准入”，不能只依赖 mock/unit test。
+
+AEDT Automation Tab 的 Claude Code 入口见
+[`docs/aedt-desktop-claude-entry.md`](docs/aedt-desktop-claude-entry.md)。
+未知能力的 API Memory、受控探索与 Harness 晋升设计见
+[`docs/ansys-capability-evolution.md`](docs/ansys-capability-evolution.md)。
+
+3D Layout circle void 与 HFSS 3D 圆柱减金属的严格反焊盘能力见
+[`docs/antipad-harness.zh.md`](docs/antipad-harness.zh.md)。
+
 ansys-agent 是面向高速 BRD / AEDT 仿真的工程 agent 系统。当前重点不是旧的
 Stage C demo，而是把“脚本式仿真工具”升级为可编排、可审计、可接管的工程
 闭环：
@@ -11,6 +33,12 @@ User goal
   -> agent / program / worker / human_gate / scorecard nodes
   -> AEDT artifacts + bounded evidence + optimization report
 ```
+
+对于没有预定义 Workflow 的临时 Ansys 查询和受控修改，仓库另提供加法式
+[`ansys-assistant`](docs/interactive-ansys-assistant.md) 入口。它可以复用正在运行的 AEDT，
+查询 HFSS/3D Layout inventory，以 preview、原生审批、apply 和 readback 契约执行受控修改，
+并把有序 AEDT design/project variable 原子批量事务、HFSS 相对 Axis/Position 坐标系、typed geometry batch、既有 solid/sheet 的 Global 坐标严格批量平移和绕 Global 原点的 X/Y/Z 轴严格批量旋转、原子 geometry-boundary/port 创建、已有几何上的 typed Wave/Lumped Port、Perfect E/Perfect H/Finite Conductivity/Impedance/Lumped RLC 表面边界、数值型各向同性电磁材料创建、已有工程材料的严格批量更新、未引用 HFSS 工程材料的可回滚批量删除、受控材料批量分配、3D Layout 工程材料原子创建并分配给明确 stackup layer、基于既有 padstack/layer/net 的精确 Via 批量创建、已有 Via 的移动/旋转/改网/锁定批量更新和可重建批量删除、Length Based Mesh、有界 Infinite Sphere 远场设置、原子 setup-sweep 创建、Layout 审计、线宽参数化、组件/trace-edge 端口创建、非阻塞求解、Graph loop 监控、组合式 solve-to-export 闭环和带 SHA256 evidence 的结果导出
+提升为严格 live Workflow；现有 YAML Graph 和 BRD Worker 行为保持不变。
 
 ## 当前核心原则
 

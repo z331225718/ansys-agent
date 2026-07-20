@@ -4,6 +4,8 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
+
 from aedt_agent.agent.approvals import ApprovalService
 from aedt_agent.agent.graph_runner import (
     advance_graph,
@@ -16,6 +18,7 @@ from aedt_agent.agent.graph_template import (
     load_graph_template,
 )
 from aedt_agent.agent.mission import (
+    EventType,
     JobAttemptRecord,
     JobAttemptStatus,
     JobStatus,
@@ -134,6 +137,172 @@ def test_recovery_classifies_completed_attempt(tmp_path):
     record = scanner.inspect(attempt)
 
     assert record.classification == HarnessRecoveryClassification.COMPLETED
+
+
+@pytest.mark.parametrize(
+    ("completed_result", "expected_operation", "forbidden_event"),
+    [
+        (True, "complete", EventType.JOB_SUCCEEDED),
+        (False, "fail", EventType.JOB_FAILED),
+    ],
+)
+def test_harness_recovery_audits_stale_fenced_attempt_once(
+    tmp_path,
+    completed_result,
+    expected_operation,
+    forbidden_event,
+):
+    store = SQLiteMissionStore(tmp_path / "mission.db")
+    harness = LocalProcessHarness(HarnessWorkspacePolicy(tmp_path / "harness"))
+    runtime = AgentRuntime(store, registry=InMemoryWorkerRegistry(harness=harness))
+    mission = runtime.create_mission("goal", [], [])
+    job = runtime.create_job(mission.mission_id, "fake.echo", "echo:stale", {})
+    expired_at = datetime.now(UTC) - timedelta(seconds=5)
+    old_lease = store.acquire_job_lease(
+        job.job_id,
+        "worker-1",
+        lease_seconds=1,
+        now=expired_at,
+    )
+    attempt = store.create_job_attempt(
+        JobAttemptRecord.create(
+            "attempt-stale-fenced",
+            mission.mission_id,
+            job.job_id,
+            1,
+            "worker-1",
+            lease_id=old_lease.lease_id,
+        )
+    )
+    result = None
+    if completed_result:
+        result = HarnessResult.create(
+            harness_run_id="run-1",
+            job_id=job.job_id,
+            status=HarnessStatus.SUCCEEDED,
+            output_payload={"writer": "old"},
+            exit_code=0,
+        )
+    _write_attempt(
+        tmp_path / "harness",
+        mission_id=mission.mission_id,
+        job_id=job.job_id,
+        attempt_id=attempt.attempt_id,
+        result=result,
+    )
+    assert store.recover_expired_leases(datetime.now(UTC)) == [job.job_id]
+    new_lease = store.acquire_job_lease(
+        job.job_id,
+        "worker-new",
+        lease_seconds=60,
+    )
+
+    first_report = runtime.recover_harness_attempts(
+        mission.mission_id,
+        process_controller=FakeProcessController(set()),
+    )
+
+    audited = store.get_job_attempt(attempt.attempt_id)
+    assert first_report["stale_fenced_attempt_ids"] == [attempt.attempt_id]
+    assert first_report["adopted_completed_attempt_ids"] == []
+    assert audited.status == JobAttemptStatus.CANCELED
+    assert audited.retry_decision == "stale_fenced"
+    assert audited.error["code"] == "stale_fenced"
+    assert audited.error["details"]["operation"] == expected_operation
+    assert audited.error["details"]["lease_id"] == old_lease.lease_id
+    assert store.get_job(job.job_id).status == JobStatus.LEASED
+    assert [lease.lease_id for lease in store.list_active_job_leases(job.job_id)] == [
+        new_lease.lease_id
+    ]
+    assert not any(
+        event.event_type == forbidden_event
+        for event in store.list_events(mission.mission_id)
+    )
+    attempt_updates_before = sum(
+        event.event_type == EventType.JOB_ATTEMPT_UPDATED
+        for event in store.list_events(mission.mission_id)
+    )
+
+    second_report = runtime.recover_harness_attempts(
+        mission.mission_id,
+        process_controller=FakeProcessController(set()),
+    )
+
+    attempt_updates_after = sum(
+        event.event_type == EventType.JOB_ATTEMPT_UPDATED
+        for event in store.list_events(mission.mission_id)
+    )
+    assert second_report["stale_fenced_attempt_ids"] == []
+    assert attempt_updates_after == attempt_updates_before
+
+    committed = store.complete_job(
+        job.job_id,
+        {"writer": "new"},
+        [],
+        lease_id=new_lease.lease_id,
+    )
+    assert committed.status == JobStatus.SUCCEEDED
+
+
+def test_recovered_success_does_not_commit_job_for_failed_mission(tmp_path):
+    store = SQLiteMissionStore(tmp_path / "mission.db")
+    harness = LocalProcessHarness(HarnessWorkspacePolicy(tmp_path / "harness"))
+    runtime = AgentRuntime(store, registry=InMemoryWorkerRegistry(harness=harness))
+    mission = runtime.create_mission("goal", [], [])
+    job = runtime.create_job(mission.mission_id, "fake.echo", "echo:failed", {})
+    lease = store.acquire_job_lease(
+        job.job_id,
+        "worker-1",
+        lease_seconds=60,
+    )
+    attempt = store.create_job_attempt(
+        JobAttemptRecord.create(
+            "attempt-failed-mission",
+            mission.mission_id,
+            job.job_id,
+            1,
+            "worker-1",
+            lease_id=lease.lease_id,
+        )
+    )
+    result = HarnessResult.create(
+        harness_run_id="run-1",
+        job_id=job.job_id,
+        status=HarnessStatus.SUCCEEDED,
+        output_payload={"writer": "worker-1"},
+        exit_code=0,
+    )
+    _write_attempt(
+        tmp_path / "harness",
+        mission_id=mission.mission_id,
+        job_id=job.job_id,
+        attempt_id=attempt.attempt_id,
+        result=result,
+    )
+    store.update_mission_state(mission.mission_id, MissionState.WAITING_WORKER)
+    store.update_mission_state(mission.mission_id, MissionState.FAILED)
+
+    with pytest.raises(ValueError, match="mission is not ready for worker execution"):
+        runtime.recover_harness_attempts(
+            mission.mission_id,
+            process_controller=FakeProcessController(set()),
+        )
+
+    current_job = store.get_job(job.job_id)
+    current_attempt = store.get_job_attempt(attempt.attempt_id)
+    assert current_job.status == JobStatus.LEASED
+    assert current_job.output_payload == {}
+    assert current_attempt.status == JobAttemptStatus.RUNNING
+    assert [item.lease_id for item in store.list_active_job_leases(job.job_id)] == [
+        lease.lease_id
+    ]
+    assert not any(
+        event.event_type in {
+            EventType.JOB_SUCCEEDED,
+            EventType.JOB_ATTEMPT_UPDATED,
+        }
+        for event in store.list_events(mission.mission_id)
+    )
 
 
 def test_recovery_classifies_fresh_live_heartbeat_as_active(tmp_path):

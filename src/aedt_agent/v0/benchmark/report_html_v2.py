@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
-from typing import Any
 
 
 GROUP_ORDER = ("A", "B")

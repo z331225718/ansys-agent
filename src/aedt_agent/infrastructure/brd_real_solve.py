@@ -186,9 +186,18 @@ class BrdRealSolveAdapter:
                 "source AEDT project changed during solve"
             )
 
+        execution_attestation = {
+            "kind": "real_aedt",
+            "adapter": "BrdRealSolveAdapter",
+            "backend": "ansys.aedt.core.Hfss3dLayout",
+            "aedt_version": request.environment.version,
+            "non_graphical": request.environment.non_graphical,
+            "analyze_executed": request.run_analyze,
+        }
         summary = {
             "status": "succeeded",
             "adapter": "real_hfss3dlayout_solve",
+            "execution_attestation": execution_attestation,
             "setup_name": request.setup_name,
             "sweep_name": request.sweep_name,
             "solution_name": resolved_solution_name,

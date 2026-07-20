@@ -1,0 +1,43 @@
+id: hfss_live_geometry_create
+version: 1
+description: Preview, approve, create, and verify a bounded typed batch of HFSS boxes, rectangles, cylinders, or regions without saving the live project.
+nodes:
+  - id: preview_geometry
+    role: preview
+    kind: program
+    handler: assistant.live.hfss.preview_geometry_create
+    input_schema: live_hfss_geometry_request
+    output_schema: live_hfss_geometry_preview
+    max_runs: 1
+  - id: apply_geometry
+    role: apply
+    kind: program
+    handler: assistant.live.hfss.apply_geometry_create
+    input_schema: live_hfss_geometry_preview
+    output_schema: live_hfss_geometry_apply_result
+    max_runs: 1
+  - id: verify_scorecard
+    role: scorecard
+    kind: program
+    handler: assistant.live.hfss.geometry_create_scorecard
+    input_schema: live_hfss_geometry_apply_result
+    output_schema: live_hfss_geometry_scorecard
+    max_runs: 1
+edges:
+  - id: preview-to-apply
+    from: preview_geometry
+    to: apply_geometry
+    on: succeeded
+  - id: apply-to-scorecard
+    from: apply_geometry
+    to: verify_scorecard
+    on: succeeded
+handoffs:
+  live_hfss_geometry_request:
+    required_fields: [primitives]
+  live_hfss_geometry_preview:
+    required_fields: [primitives, operation_preview_id, operation_approval, operation_preview, live_session_reused]
+  live_hfss_geometry_apply_result:
+    required_fields: [primitives, operation_result, live_session_reused]
+  live_hfss_geometry_scorecard:
+    required_fields: [status, checks, summary, live_session_reused]

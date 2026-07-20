@@ -1,0 +1,39 @@
+id: layout_live_solve_monitor
+version: 1
+description: Poll one live HFSS 3D Layout solve through a bounded graph loop until AEDT is no longer running.
+nodes:
+  - id: validate_setup
+    role: validator
+    kind: program
+    handler: assistant.live.layout.validate_monitor_setup
+    input_schema: live_monitor_request
+    output_schema: live_monitor_validated
+    max_runs: 1
+  - id: poll_analysis
+    role: monitor
+    kind: program
+    handler: assistant.live.layout.poll_analysis_status
+    input_schema: live_monitor_validated
+    output_schema: live_monitor_observation
+    join: any
+    max_runs: 64
+  - id: verify_stopped
+    role: scorecard
+    kind: program
+    handler: assistant.live.layout.analysis_stopped_scorecard
+    input_schema: live_monitor_observation
+    output_schema: live_monitor_scorecard
+    max_runs: 1
+edges:
+  - {id: validate-to-poll, from: validate_setup, to: poll_analysis, on: succeeded, max_traversals: 1}
+  - {id: poll-again, from: poll_analysis, to: poll_analysis, on: running, max_traversals: 63}
+  - {id: poll-to-scorecard, from: poll_analysis, to: verify_stopped, on: stopped, max_traversals: 1}
+handoffs:
+  live_monitor_request:
+    required_fields: [setup_name]
+  live_monitor_validated:
+    required_fields: [setup_name, setup_inventory, poll_count, live_session_reused]
+  live_monitor_observation:
+    required_fields: [setup_name, analysis_status, poll_count, observed_running, live_session_reused]
+  live_monitor_scorecard:
+    required_fields: [status, checks, summary, live_session_reused]

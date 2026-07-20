@@ -12,7 +12,7 @@ from aedt_agent.agent.graph_executors import (
     execute_graph_node,
 )
 from aedt_agent.agent.graph_scheduler import ReadyNode, ready_nodes
-from aedt_agent.agent.graph_template import GraphTemplate, graph_template_from_mapping
+from aedt_agent.agent.graph_template import GraphNode, GraphTemplate, graph_template_from_mapping
 from aedt_agent.agent.mission import (
     GraphHandoffRecord,
     GraphHandoffStatus,
@@ -446,7 +446,7 @@ def _create_matching_edges(
     runtime,
     graph_run: GraphRunRecord,
     template: GraphTemplate,
-    node: "GraphNode",
+    node: GraphNode,
     node_run: NodeRunRecord,
     output_payload: dict[str, Any],
     outcome: str,
@@ -709,9 +709,15 @@ def resume_graph(
 
 
 def graph_status(runtime, graph_run_id: str) -> dict[str, Any]:
+    from aedt_agent.agent.event_replay import (
+        diagnose_graph_supervision,
+        replay_graph_run,
+    )
+
     graph_run = _require_graph_run(runtime, graph_run_id)
     node_runs = runtime.store.list_node_runs(graph_run_id)
     handoffs = runtime.store.list_graph_handoffs(graph_run_id)
+    replay = replay_graph_run(runtime, graph_run_id)
     return {
         "status": graph_run.status.value,
         "template_id": graph_run.template_id,
@@ -720,6 +726,7 @@ def graph_status(runtime, graph_run_id: str) -> dict[str, Any]:
         "node_runs": [run.to_json_dict() for run in node_runs],
         "handoffs": [handoff.to_json_dict() for handoff in handoffs],
         "jobs": [job.to_json_dict() for job in runtime.list_jobs(graph_run.mission_id)],
+        "supervision": diagnose_graph_supervision(graph_run, node_runs, replay),
     }
 
 

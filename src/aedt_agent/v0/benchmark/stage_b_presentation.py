@@ -108,8 +108,14 @@ def _scrub(value: Any, *, repo_root: Path | None = None) -> Any:
 def _scrub_text(text: str, *, repo_root: Path | None = None) -> str:
     scrubbed = text
     if repo_root is not None:
-        root = str(repo_root)
-        scrubbed = scrubbed.replace(root + "/", "<repo>/").replace(root, "<repo>")
+        roots = {
+            str(repo_root).rstrip("/\\"),
+            repo_root.as_posix().rstrip("/\\"),
+        }
+        for root in sorted((item for item in roots if item), key=len, reverse=True):
+            scrubbed = scrubbed.replace(root + "/", "<repo>/")
+            scrubbed = scrubbed.replace(root + "\\", "<repo>/")
+            scrubbed = scrubbed.replace(root, "<repo>")
     scrubbed = scrubbed.replace("/home/zzmjay/Ansoft", "<aedt-user-project>")
     return scrubbed
 
@@ -120,7 +126,7 @@ def _source_label(path_text: str, *, repo_root: Path | None = None) -> str:
     path = Path(path_text)
     if repo_root is not None:
         try:
-            return str(path.relative_to(repo_root))
+            return path.relative_to(repo_root).as_posix()
         except ValueError:
             pass
     return _scrub_text(path_text, repo_root=repo_root)

@@ -220,6 +220,24 @@ def test_compare_channel_scores_classifies_mixed_result():
     assert comparison["status"] == "mixed"
 
 
+def test_compare_channel_scores_does_not_hide_peak_tdr_regression_in_total_objective():
+    before = {
+        "rl_worst_db": -14.0,
+        "tdr_peak_deviation_ohm": 4.0,
+        "optimization_objective": {"total_cost": 100.0},
+    }
+    after = {
+        "rl_worst_db": -21.0,
+        "tdr_peak_deviation_ohm": 9.0,
+        "optimization_objective": {"total_cost": 10.0},
+    }
+
+    comparison = compare_channel_scores(before, after)
+
+    assert comparison["objective_total_cost_delta"] == -90.0
+    assert comparison["status"] == "mixed"
+
+
 def test_render_channel_score_html_contains_chinese_sections():
     score = {
         "status": "fail",

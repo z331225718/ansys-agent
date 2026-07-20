@@ -18,7 +18,6 @@ from aedt_agent.infrastructure.brd_model_edit import (
     _primitive_is_void,
     _primitive_is_path_like,
     _primitive_layer,
-    _primitive_net,
     _sidecar_edb,
 )
 from aedt_agent.infrastructure.brd_real_build import RealAedtEnvironment

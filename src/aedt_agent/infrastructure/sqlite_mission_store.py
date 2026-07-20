@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -44,6 +45,39 @@ from aedt_agent.agent.mission import (
 
 if TYPE_CHECKING:
     from aedt_agent.agent.orchestrator.loop_contracts import MissionLoopRecord
+
+
+class JobExecutionConflictError(RuntimeError):
+    def __init__(
+        self,
+        job_id: str,
+        operation: str,
+        lease_id: str | None,
+        current_status: str,
+        active_lease_ids: list[str],
+    ):
+        requested_fence = lease_id or "unleased"
+        active_fences = ", ".join(active_lease_ids) or "none"
+        super().__init__(
+            f"job execution conflict during {operation}: job={job_id}, "
+            f"requested_lease={requested_fence}, status={current_status}, "
+            f"active_leases={active_fences}"
+        )
+        self.job_id = job_id
+        self.operation = operation
+        self.lease_id = lease_id
+        self.current_status = current_status
+        self.active_lease_ids = active_lease_ids
+
+
+class _GraphInterventionRejected(RuntimeError):
+    def __init__(self, code: str, message: str, **details: object):
+        super().__init__(message)
+        self.error = {
+            "code": code,
+            "message": message,
+            "details": details,
+        }
 
 
 class SQLiteMissionStore:
@@ -204,6 +238,7 @@ class SQLiteMissionStore:
                     error_json TEXT,
                     retry_decision TEXT,
                     metadata_json TEXT NOT NULL DEFAULT '{}',
+                    lease_id TEXT REFERENCES worker_leases(lease_id),
                     UNIQUE(job_id, attempt_number)
                 );
                 CREATE TABLE IF NOT EXISTS action_records (
@@ -283,6 +318,22 @@ class SQLiteMissionStore:
                     PRIMARY KEY(graph_run_id, node_id, run_index),
                     UNIQUE(graph_run_id, job_id)
                 );
+                CREATE TABLE IF NOT EXISTS graph_interventions (
+                    intervention_id TEXT PRIMARY KEY,
+                    graph_run_id TEXT NOT NULL REFERENCES graph_runs(graph_run_id),
+                    mission_id TEXT NOT NULL REFERENCES missions(mission_id),
+                    action TEXT NOT NULL,
+                    node_id TEXT NOT NULL,
+                    expected_cursor INTEGER NOT NULL,
+                    idempotency_key TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    result_json TEXT,
+                    error_json TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(graph_run_id, idempotency_key)
+                );
                 """
             )
             self._ensure_column(db, "graph_runs", "template_snapshot_json", "TEXT NOT NULL DEFAULT '{}'")
@@ -290,6 +341,30 @@ class SQLiteMissionStore:
             self._ensure_column(db, "graph_runs", "step_count", "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(db, "graph_runs", "max_steps", "INTEGER NOT NULL DEFAULT 32")
             self._ensure_column(db, "job_attempts", "metadata_json", "TEXT NOT NULL DEFAULT '{}'")
+            self._ensure_column(db, "job_attempts", "lease_id", "TEXT REFERENCES worker_leases(lease_id)")
+            db.execute(
+                """
+                UPDATE job_attempts
+                SET lease_id = (
+                    SELECT worker_leases.lease_id
+                    FROM worker_leases
+                    WHERE worker_leases.job_id = job_attempts.job_id
+                      AND worker_leases.worker_id = job_attempts.worker_id
+                      AND worker_leases.released_at IS NULL
+                    ORDER BY worker_leases.acquired_at, worker_leases.lease_id
+                    LIMIT 1
+                )
+                WHERE lease_id IS NULL AND status = ?
+                  AND 1 = (
+                      SELECT COUNT(*)
+                      FROM worker_leases
+                      WHERE worker_leases.job_id = job_attempts.job_id
+                        AND worker_leases.worker_id = job_attempts.worker_id
+                        AND worker_leases.released_at IS NULL
+                  )
+                """,
+                (JobAttemptStatus.RUNNING.value,),
+            )
 
     @staticmethod
     def _ensure_column(db: sqlite3.Connection, table: str, column: str, declaration: str) -> None:
@@ -360,6 +435,12 @@ class SQLiteMissionStore:
                 (state.value, now, mission_id, current.value),
             )
             if cursor.rowcount != 1:
+                latest_row = db.execute(
+                    "SELECT * FROM missions WHERE mission_id = ?",
+                    (mission_id,),
+                ).fetchone()
+                if latest_row is not None and MissionState(latest_row["state"]) == state:
+                    return _mission_from_row(latest_row)
                 raise RuntimeError(f"concurrent modification detected for mission {mission_id}: expected state {current.value}")
             self._append_event_in_tx(db, mission_id, EventType.MISSION_STATE_CHANGED, {"state": state.value})
             cursor = db.execute("SELECT * FROM missions WHERE mission_id = ?", (mission_id,))
@@ -556,45 +637,182 @@ class SQLiteMissionStore:
             ).fetchone()
         return None if row is None else _job_from_row(row)
 
-    def complete_job(self, job_id: str, output_payload: dict, artifact_refs: list[str]) -> JobRecord:
-        job = self.get_job(job_id)
-        now = utc_now_iso()
-        with self._connect() as db:
-            db.execute(
+    @staticmethod
+    def _job_execution_fence_sql(lease_id: str | None) -> tuple[str, tuple[str, ...]]:
+        if lease_id is None:
+            return (
                 """
+                jobs.status = ?
+                AND NOT EXISTS (
+                    SELECT 1 FROM worker_leases
+                    WHERE worker_leases.job_id = jobs.job_id
+                )
+                """,
+                (JobStatus.QUEUED.value,),
+            )
+        return (
+            """
+            jobs.status = ?
+            AND EXISTS (
+                SELECT 1 FROM worker_leases AS requested_lease
+                WHERE requested_lease.lease_id = ?
+                  AND requested_lease.job_id = jobs.job_id
+                  AND requested_lease.released_at IS NULL
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM worker_leases AS other_lease
+                WHERE other_lease.job_id = jobs.job_id
+                  AND other_lease.released_at IS NULL
+                  AND other_lease.lease_id <> ?
+            )
+            """,
+            (JobStatus.LEASED.value, lease_id, lease_id),
+        )
+
+    @staticmethod
+    def _raise_job_execution_conflict_in_tx(
+        db: sqlite3.Connection,
+        job_id: str,
+        operation: str,
+        lease_id: str | None,
+    ) -> None:
+        job_row = db.execute(
+            "SELECT status FROM jobs WHERE job_id = ?",
+            (job_id,),
+        ).fetchone()
+        if job_row is None:
+            raise KeyError(f"job not found: {job_id}")
+        lease_rows = db.execute(
+            """
+            SELECT lease_id FROM worker_leases
+            WHERE job_id = ? AND released_at IS NULL
+            ORDER BY acquired_at, lease_id
+            """,
+            (job_id,),
+        ).fetchall()
+        raise JobExecutionConflictError(
+            job_id=job_id,
+            operation=operation,
+            lease_id=lease_id,
+            current_status=job_row["status"],
+            active_lease_ids=[row["lease_id"] for row in lease_rows],
+        )
+
+    def complete_job(
+        self,
+        job_id: str,
+        output_payload: dict,
+        artifact_refs: list[str],
+        *,
+        lease_id: str | None = None,
+    ) -> JobRecord:
+        now = utc_now_iso()
+        fence_sql, fence_params = self._job_execution_fence_sql(lease_id)
+        with self._connect() as db:
+            cursor = db.execute(
+                f"""
                 UPDATE jobs
                 SET status = ?, output_payload_json = ?, artifact_refs_json = ?, updated_at = ?, error_json = NULL
-                WHERE job_id = ?
+                WHERE job_id = ? AND {fence_sql}
                 """,
-                (JobStatus.SUCCEEDED.value, _dump(output_payload), _dump(artifact_refs), now, job_id),
+                (
+                    JobStatus.SUCCEEDED.value,
+                    _dump(output_payload),
+                    _dump(artifact_refs),
+                    now,
+                    job_id,
+                    *fence_params,
+                ),
             )
-            self._append_event_in_tx(db, job.mission_id, EventType.JOB_SUCCEEDED, {"job_id": job_id})
-        return self.get_job(job_id)
-
-    def fail_job(self, job_id: str, error: JobError) -> JobRecord:
-        job = self.get_job(job_id)
-        now = utc_now_iso()
-        with self._connect() as db:
-            db.execute(
-                "UPDATE jobs SET status = ?, updated_at = ?, error_json = ? WHERE job_id = ?",
-                (JobStatus.FAILED.value, now, _dump(error.to_json_dict()), job_id),
-            )
-            self._append_event_in_tx(db, job.mission_id, EventType.JOB_FAILED, {"job_id": job_id, "error": error.to_json_dict()})
-        return self.get_job(job_id)
-
-    def cancel_job(self, job_id: str, error: JobError) -> JobRecord:
-        job = self.get_job(job_id)
-        now = utc_now_iso()
-        with self._connect() as db:
-            db.execute(
-                "UPDATE jobs SET status = ?, updated_at = ?, error_json = ? WHERE job_id = ?",
-                (JobStatus.CANCELED.value, now, _dump(error.to_json_dict()), job_id),
-            )
+            if cursor.rowcount != 1:
+                self._raise_job_execution_conflict_in_tx(
+                    db, job_id, "complete", lease_id
+                )
+            job_row = db.execute(
+                "SELECT mission_id FROM jobs WHERE job_id = ?",
+                (job_id,),
+            ).fetchone()
             self._append_event_in_tx(
                 db,
-                job.mission_id,
+                job_row["mission_id"],
+                EventType.JOB_SUCCEEDED,
+                {"job_id": job_id, "lease_id": lease_id},
+            )
+        return self.get_job(job_id)
+
+    def fail_job(
+        self,
+        job_id: str,
+        error: JobError,
+        *,
+        lease_id: str | None = None,
+    ) -> JobRecord:
+        now = utc_now_iso()
+        fence_sql, fence_params = self._job_execution_fence_sql(lease_id)
+        with self._connect() as db:
+            cursor = db.execute(
+                f"""
+                UPDATE jobs SET status = ?, updated_at = ?, error_json = ?
+                WHERE job_id = ? AND {fence_sql}
+                """,
+                (
+                    JobStatus.FAILED.value,
+                    now,
+                    _dump(error.to_json_dict()),
+                    job_id,
+                    *fence_params,
+                ),
+            )
+            if cursor.rowcount != 1:
+                self._raise_job_execution_conflict_in_tx(db, job_id, "fail", lease_id)
+            job_row = db.execute(
+                "SELECT mission_id FROM jobs WHERE job_id = ?",
+                (job_id,),
+            ).fetchone()
+            self._append_event_in_tx(
+                db,
+                job_row["mission_id"],
+                EventType.JOB_FAILED,
+                {"job_id": job_id, "lease_id": lease_id, "error": error.to_json_dict()},
+            )
+        return self.get_job(job_id)
+
+    def cancel_job(
+        self,
+        job_id: str,
+        error: JobError,
+        *,
+        lease_id: str | None = None,
+    ) -> JobRecord:
+        now = utc_now_iso()
+        fence_sql, fence_params = self._job_execution_fence_sql(lease_id)
+        with self._connect() as db:
+            cursor = db.execute(
+                f"""
+                UPDATE jobs SET status = ?, updated_at = ?, error_json = ?
+                WHERE job_id = ? AND {fence_sql}
+                """,
+                (
+                    JobStatus.CANCELED.value,
+                    now,
+                    _dump(error.to_json_dict()),
+                    job_id,
+                    *fence_params,
+                ),
+            )
+            if cursor.rowcount != 1:
+                self._raise_job_execution_conflict_in_tx(
+                    db, job_id, "cancel", lease_id
+                )
+            job_row = db.execute(
+                "SELECT mission_id FROM jobs WHERE job_id = ?",
+                (job_id,),
+            ).fetchone()
+            self._append_event_in_tx(
+                db,
+                job_row["mission_id"],
                 EventType.JOB_CANCELED,
-                {"job_id": job_id, "error": error.to_json_dict()},
+                {"job_id": job_id, "lease_id": lease_id, "error": error.to_json_dict()},
             )
         return self.get_job(job_id)
 
@@ -646,13 +864,28 @@ class SQLiteMissionStore:
                 "INSERT INTO worker_leases VALUES (?, ?, ?, ?, ?, ?)",
                 (lease.lease_id, lease.job_id, lease.worker_id, lease.acquired_at, lease.expires_at, lease.released_at),
             )
-            self._append_event_in_tx(db, job_row["mission_id"], EventType.JOB_LEASED, {"job_id": job_id, "worker_id": worker_id})
+            self._append_event_in_tx(
+                db,
+                job_row["mission_id"],
+                EventType.JOB_LEASED,
+                {
+                    "job_id": job_id,
+                    "worker_id": worker_id,
+                    "lease_id": lease.lease_id,
+                },
+            )
         return lease
 
     def release_job_lease(self, lease_id: str) -> WorkerLease:
         now = utc_now_iso()
         with self._connect() as db:
-            db.execute("UPDATE worker_leases SET released_at = ? WHERE lease_id = ?", (now, lease_id))
+            db.execute(
+                """
+                UPDATE worker_leases SET released_at = ?
+                WHERE lease_id = ? AND released_at IS NULL
+                """,
+                (now, lease_id),
+            )
             row = db.execute("SELECT * FROM worker_leases WHERE lease_id = ?", (lease_id,)).fetchone()
         if row is None:
             raise KeyError(f"lease not found: {lease_id}")
@@ -687,16 +920,39 @@ class SQLiteMissionStore:
                 """,
                 (now.isoformat(), JobStatus.LEASED.value),
             ).fetchall()
-            job_ids = [row["job_id"] for row in rows]
-            for job_id in job_ids:
-                db.execute(
-                    "UPDATE jobs SET status = ?, updated_at = ? WHERE job_id = ?",
-                    (JobStatus.QUEUED.value, utc_now_iso(), job_id),
+            job_ids: list[str] = []
+            for row in rows:
+                cursor = db.execute(
+                    """
+                    UPDATE jobs SET status = ?, updated_at = ?
+                    WHERE job_id = ? AND status = ?
+                      AND EXISTS (
+                          SELECT 1 FROM worker_leases
+                          WHERE worker_leases.lease_id = ?
+                            AND worker_leases.job_id = jobs.job_id
+                            AND worker_leases.released_at IS NULL
+                            AND worker_leases.expires_at < ?
+                      )
+                    """,
+                    (
+                        JobStatus.QUEUED.value,
+                        utc_now_iso(),
+                        row["job_id"],
+                        JobStatus.LEASED.value,
+                        row["lease_id"],
+                        now.isoformat(),
+                    ),
                 )
-            db.executemany(
-                "UPDATE worker_leases SET released_at = ? WHERE lease_id = ?",
-                [(now.isoformat(), row["lease_id"]) for row in rows],
-            )
+                if cursor.rowcount != 1:
+                    continue
+                db.execute(
+                    """
+                    UPDATE worker_leases SET released_at = ?
+                    WHERE lease_id = ? AND released_at IS NULL
+                    """,
+                    (now.isoformat(), row["lease_id"]),
+                )
+                job_ids.append(row["job_id"])
         return job_ids
 
     def create_checkpoint(self, mission_id: str, job_id: str, artifact_refs: list[str], payload: dict) -> CheckpointRecord:
@@ -1057,6 +1313,929 @@ class SQLiteMissionStore:
             ).fetchall()
         return [str(row["job_id"]) for row in rows]
 
+    def get_graph_intervention(self, intervention_id: str) -> dict | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM graph_interventions WHERE intervention_id = ?",
+                (intervention_id,),
+            ).fetchone()
+        return None if row is None else _graph_intervention_from_row(row)
+
+    def list_graph_interventions(self, graph_run_id: str) -> list[dict]:
+        with self._connect() as db:
+            rows = db.execute(
+                """
+                SELECT * FROM graph_interventions
+                WHERE graph_run_id = ?
+                ORDER BY created_at, intervention_id
+                """,
+                (graph_run_id,),
+            ).fetchall()
+        return [_graph_intervention_from_row(row) for row in rows]
+
+    def intervene_graph(
+        self,
+        *,
+        graph_run_id: str,
+        action: str,
+        node_id: str,
+        expected_event_cursor: int,
+        idempotency_key: str,
+        reason: str,
+    ) -> dict:
+        request = {
+            "graph_run_id": graph_run_id,
+            "action": action,
+            "node_id": node_id,
+            "expected_cursor": expected_event_cursor,
+            "idempotency_key": idempotency_key,
+            "reason": reason,
+        }
+        if action not in {"retry-node", "cancel-branch"}:
+            return _intervention_error_response(
+                "invalid_action",
+                f"unsupported graph intervention action: {action}",
+                action=action,
+            )
+        if expected_event_cursor < 0:
+            return _intervention_error_response(
+                "invalid_event_cursor",
+                "expected event cursor must be non-negative",
+                expected=expected_event_cursor,
+            )
+        if not idempotency_key.strip():
+            return _intervention_error_response(
+                "invalid_idempotency_key",
+                "idempotency key must not be empty",
+            )
+        if not reason.strip():
+            return _intervention_error_response(
+                "invalid_reason",
+                "intervention reason must not be empty",
+            )
+
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            existing = db.execute(
+                """
+                SELECT * FROM graph_interventions
+                WHERE graph_run_id = ? AND idempotency_key = ?
+                """,
+                (graph_run_id, idempotency_key),
+            ).fetchone()
+            if existing is not None:
+                existing_record = _graph_intervention_from_row(existing)
+                if _same_intervention_request(existing_record, request):
+                    return _intervention_record_response(
+                        existing_record,
+                        idempotent_replay=True,
+                    )
+                return _intervention_error_response(
+                    "idempotency_key_conflict",
+                    "idempotency key is already bound to a different request",
+                    existing_intervention_id=existing_record["intervention_id"],
+                    existing_request={
+                        key: existing_record[key]
+                        for key in (
+                            "graph_run_id",
+                            "action",
+                            "node_id",
+                            "expected_cursor",
+                            "idempotency_key",
+                            "reason",
+                        )
+                    },
+                    requested=request,
+                )
+
+            graph_row = db.execute(
+                "SELECT * FROM graph_runs WHERE graph_run_id = ?",
+                (graph_run_id,),
+            ).fetchone()
+            if graph_row is None:
+                return _intervention_error_response(
+                    "graph_run_not_found",
+                    f"graph run not found: {graph_run_id}",
+                    graph_run_id=graph_run_id,
+                )
+            mission_row = db.execute(
+                "SELECT * FROM missions WHERE mission_id = ?",
+                (graph_row["mission_id"],),
+            ).fetchone()
+            if mission_row is None:
+                return _intervention_error_response(
+                    "mission_not_found",
+                    f"mission not found: {graph_row['mission_id']}",
+                    mission_id=graph_row["mission_id"],
+                )
+
+            mission_cursor = int(
+                db.execute(
+                    """
+                    SELECT COALESCE(MAX(sequence), 0) AS cursor
+                    FROM events WHERE mission_id = ?
+                    """,
+                    (graph_row["mission_id"],),
+                ).fetchone()["cursor"]
+            )
+            control_cursor = _graph_control_event_cursor_in_tx(
+                db,
+                graph_run_id=graph_run_id,
+                mission_id=graph_row["mission_id"],
+            )
+            intervention_id = str(uuid4())
+            now = utc_now_iso()
+            if (
+                expected_event_cursor < control_cursor
+                or expected_event_cursor > mission_cursor
+            ):
+                conflict_reason = (
+                    "behind_graph_control_state"
+                    if expected_event_cursor < control_cursor
+                    else "ahead_of_mission"
+                )
+                error = {
+                    "code": "stale_event_cursor",
+                    "message": "event cursor does not cover the current graph control state",
+                    "details": {
+                        "expected": expected_event_cursor,
+                        "actual": control_cursor,
+                        "control_cursor": control_cursor,
+                        "mission_cursor": mission_cursor,
+                        "cursor_scope": "graph_control",
+                        "conflict_reason": conflict_reason,
+                    },
+                }
+                self._insert_graph_intervention_in_tx(
+                    db,
+                    intervention_id=intervention_id,
+                    mission_id=graph_row["mission_id"],
+                    request=request,
+                    status="rejected",
+                    error=error,
+                    now=now,
+                )
+                row = db.execute(
+                    "SELECT * FROM graph_interventions WHERE intervention_id = ?",
+                    (intervention_id,),
+                ).fetchone()
+                return _intervention_record_response(
+                    _graph_intervention_from_row(row),
+                    idempotent_replay=False,
+                )
+
+            self._insert_graph_intervention_in_tx(
+                db,
+                intervention_id=intervention_id,
+                mission_id=graph_row["mission_id"],
+                request=request,
+                status="created",
+                now=now,
+            )
+            self._append_event_in_tx(
+                db,
+                graph_row["mission_id"],
+                EventType.GRAPH_INTERVENTION_CREATED,
+                {
+                    "graph_run_id": graph_run_id,
+                    "intervention_id": intervention_id,
+                    "action": action,
+                    "node_id": node_id,
+                    "idempotency_key": idempotency_key,
+                    "expected_cursor": expected_event_cursor,
+                },
+            )
+
+            db.execute("SAVEPOINT graph_intervention_apply")
+            try:
+                snapshot, node = self._validate_intervention_target_in_tx(
+                    db,
+                    graph_row=graph_row,
+                    mission_row=mission_row,
+                    node_id=node_id,
+                )
+                if action == "retry-node":
+                    result = self._retry_node_intervention_in_tx(
+                        db,
+                        graph_row=graph_row,
+                        snapshot=snapshot,
+                        node=node,
+                        intervention_id=intervention_id,
+                        reason=reason,
+                    )
+                else:
+                    result = self._cancel_branch_intervention_in_tx(
+                        db,
+                        graph_row=graph_row,
+                        snapshot=snapshot,
+                        node=node,
+                        intervention_id=intervention_id,
+                        reason=reason,
+                    )
+            except _GraphInterventionRejected as exc:
+                db.execute("ROLLBACK TO graph_intervention_apply")
+                db.execute("RELEASE graph_intervention_apply")
+                rejected_event = self._append_event_in_tx(
+                    db,
+                    graph_row["mission_id"],
+                    EventType.GRAPH_INTERVENTION_REJECTED,
+                    {
+                        "graph_run_id": graph_run_id,
+                        "intervention_id": intervention_id,
+                        "action": action,
+                        "node_id": node_id,
+                        "error": exc.error,
+                    },
+                )
+                error = {
+                    **exc.error,
+                    "details": {
+                        **exc.error.get("details", {}),
+                        "event_cursor": rejected_event.sequence,
+                    },
+                }
+                self._finish_graph_intervention_in_tx(
+                    db,
+                    intervention_id,
+                    status="rejected",
+                    error=error,
+                )
+            else:
+                db.execute("RELEASE graph_intervention_apply")
+                applied_event = self._append_event_in_tx(
+                    db,
+                    graph_row["mission_id"],
+                    EventType.GRAPH_INTERVENTION_APPLIED,
+                    {
+                        "graph_run_id": graph_run_id,
+                        "intervention_id": intervention_id,
+                        "action": action,
+                        "node_id": node_id,
+                        "result": result,
+                    },
+                )
+                result = {**result, "event_cursor": applied_event.sequence}
+                self._finish_graph_intervention_in_tx(
+                    db,
+                    intervention_id,
+                    status="applied",
+                    result=result,
+                )
+
+            row = db.execute(
+                "SELECT * FROM graph_interventions WHERE intervention_id = ?",
+                (intervention_id,),
+            ).fetchone()
+            return _intervention_record_response(
+                _graph_intervention_from_row(row),
+                idempotent_replay=False,
+            )
+
+    @staticmethod
+    def _insert_graph_intervention_in_tx(
+        db: sqlite3.Connection,
+        *,
+        intervention_id: str,
+        mission_id: str,
+        request: dict,
+        status: str,
+        now: str,
+        result: dict | None = None,
+        error: dict | None = None,
+    ) -> None:
+        db.execute(
+            """
+            INSERT INTO graph_interventions (
+                intervention_id, graph_run_id, mission_id, action, node_id,
+                expected_cursor, idempotency_key, reason, status, result_json,
+                error_json, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                intervention_id,
+                request["graph_run_id"],
+                mission_id,
+                request["action"],
+                request["node_id"],
+                request["expected_cursor"],
+                request["idempotency_key"],
+                request["reason"],
+                status,
+                _dump(result) if result is not None else None,
+                _dump(error) if error is not None else None,
+                now,
+                now,
+            ),
+        )
+
+    @staticmethod
+    def _finish_graph_intervention_in_tx(
+        db: sqlite3.Connection,
+        intervention_id: str,
+        *,
+        status: str,
+        result: dict | None = None,
+        error: dict | None = None,
+    ) -> None:
+        db.execute(
+            """
+            UPDATE graph_interventions
+            SET status = ?, result_json = ?, error_json = ?, updated_at = ?
+            WHERE intervention_id = ?
+            """,
+            (
+                status,
+                _dump(result) if result is not None else None,
+                _dump(error) if error is not None else None,
+                utc_now_iso(),
+                intervention_id,
+            ),
+        )
+
+    def _validate_intervention_target_in_tx(
+        self,
+        db: sqlite3.Connection,
+        *,
+        graph_row: sqlite3.Row,
+        mission_row: sqlite3.Row,
+        node_id: str,
+    ) -> tuple[dict, dict]:
+        if graph_row["status"] != GraphRunStatus.RUNNING.value:
+            raise _GraphInterventionRejected(
+                "graph_not_running",
+                "graph intervention requires a running graph",
+                status=graph_row["status"],
+            )
+        if mission_row["state"] in {
+            MissionState.COMPLETED.value,
+            MissionState.FAILED.value,
+            MissionState.CANCELED.value,
+        }:
+            raise _GraphInterventionRejected(
+                "mission_terminal",
+                "graph intervention requires a non-terminal mission",
+                state=mission_row["state"],
+            )
+        snapshot = dict(_load(graph_row["template_snapshot_json"], {}))
+        nodes = [item for item in snapshot.get("nodes", []) if isinstance(item, dict)]
+        node = next((item for item in nodes if item.get("id") == node_id), None)
+        if node is None:
+            raise _GraphInterventionRejected(
+                "node_not_found",
+                f"node is not present in graph snapshot: {node_id}",
+                node_id=node_id,
+            )
+        return snapshot, node
+
+    def _retry_node_intervention_in_tx(
+        self,
+        db: sqlite3.Connection,
+        *,
+        graph_row: sqlite3.Row,
+        snapshot: dict,
+        node: dict,
+        intervention_id: str,
+        reason: str,
+    ) -> dict:
+        graph_run_id = graph_row["graph_run_id"]
+        node_id = str(node["id"])
+        node_rows = db.execute(
+            """
+            SELECT * FROM node_runs
+            WHERE graph_run_id = ? AND node_id = ?
+            ORDER BY sequence, created_at, node_run_id
+            """,
+            (graph_run_id, node_id),
+        ).fetchall()
+        if not node_rows:
+            raise _GraphInterventionRejected(
+                "retry_target_not_failed",
+                "retry target has no failed node run",
+                node_id=node_id,
+            )
+        active_rows = [
+            row
+            for row in node_rows
+            if row["status"]
+            in {
+                NodeRunStatus.CREATED.value,
+                NodeRunStatus.RUNNING.value,
+                NodeRunStatus.WAITING_APPROVAL.value,
+            }
+        ]
+        if active_rows:
+            raise _GraphInterventionRejected(
+                "target_node_active",
+                "retry target has an active node run",
+                node_run_ids=[row["node_run_id"] for row in active_rows],
+            )
+        latest = node_rows[-1]
+        if latest["status"] != NodeRunStatus.FAILED.value:
+            raise _GraphInterventionRejected(
+                "retry_target_not_failed",
+                "latest target node run is not failed",
+                node_run_id=latest["node_run_id"],
+                status=latest["status"],
+            )
+        active_jobs = self._active_graph_node_jobs_in_tx(db, graph_run_id, node_id)
+        if active_jobs:
+            raise _GraphInterventionRejected(
+                "target_job_active",
+                "retry target has an active bound job or lease",
+                jobs=active_jobs,
+            )
+
+        edges = [item for item in snapshot.get("edges", []) if isinstance(item, dict)]
+        failure_edge_ids = {
+            str(edge.get("id"))
+            for edge in edges
+            if edge.get("from") == node_id
+            and edge.get("on") in {"failed", "canceled", "rejected"}
+        }
+        handoff_rows = db.execute(
+            """
+            SELECT * FROM graph_handoffs
+            WHERE graph_run_id = ? AND source_node_run_id = ?
+            ORDER BY created_at, handoff_id
+            """,
+            (graph_run_id, latest["node_run_id"]),
+        ).fetchall()
+        failure_handoffs = [
+            row
+            for row in handoff_rows
+            if row["edge_id"] in failure_edge_ids
+            or row["outcome"] in {"failed", "canceled", "rejected"}
+            or row["outcome"] == latest["edge_decision"]
+        ]
+        consumed_failure = [
+            row for row in failure_handoffs if row["status"] != GraphHandoffStatus.PENDING.value
+        ]
+        if consumed_failure:
+            raise _GraphInterventionRejected(
+                "failure_branch_consumed",
+                "failed node branch has already been consumed downstream",
+                handoff_ids=[row["handoff_id"] for row in consumed_failure],
+            )
+
+        consumed_handoff_ids: list[str] = []
+        for row in failure_handoffs:
+            self._consume_graph_handoff_in_tx(
+                db,
+                row,
+                consumed_by_node_run_id=f"intervention:{intervention_id}",
+                graph_run_id=graph_run_id,
+            )
+            consumed_handoff_ids.append(row["handoff_id"])
+
+        run_count = len(node_rows)
+        max_runs = max(int(node.get("max_runs", 1)), run_count + 1)
+        node["max_runs"] = max_runs
+        incoming_edges = [edge for edge in edges if edge.get("to") == node_id]
+        original_inputs = db.execute(
+            """
+            SELECT * FROM graph_handoffs
+            WHERE graph_run_id = ? AND consumed_by_node_run_id = ? AND to_node = ?
+            ORDER BY created_at, handoff_id
+            """,
+            (graph_run_id, latest["node_run_id"], node_id),
+        ).fetchall()
+        selected_edges = incoming_edges
+        if node.get("join", "any") != "all" and incoming_edges:
+            original_edge_ids = {row["edge_id"] for row in original_inputs}
+            selected_edges = [
+                next(
+                    (
+                        edge
+                        for edge in incoming_edges
+                        if str(edge.get("id")) in original_edge_ids
+                    ),
+                    incoming_edges[0],
+                )
+            ]
+
+        input_payload = dict(_load(latest["input_payload_json"], {}))
+        input_payload.pop("_handoffs", None)
+        synthetic_handoff_ids: list[str] = []
+        for edge in selected_edges:
+            edge_id = str(edge.get("id"))
+            original = next(
+                (row for row in original_inputs if row["edge_id"] == edge_id),
+                None,
+            )
+            handoff_id = str(uuid4())
+            self._create_graph_handoff_in_tx(
+                db,
+                handoff_id=handoff_id,
+                graph_run_id=graph_run_id,
+                mission_id=graph_row["mission_id"],
+                edge_id=edge_id,
+                source_node_run_id=(
+                    original["source_node_run_id"]
+                    if original is not None
+                    else latest["node_run_id"]
+                ),
+                from_node=str(edge.get("from")),
+                to_node=node_id,
+                outcome=str(edge.get("on", "")),
+                payload=input_payload,
+            )
+            synthetic_handoff_ids.append(handoff_id)
+
+        now = utc_now_iso()
+        db.execute(
+            """
+            UPDATE graph_runs
+            SET status = ?, current_node_id = ?, template_snapshot_json = ?,
+                updated_at = ?, completed_at = NULL
+            WHERE graph_run_id = ?
+            """,
+            (
+                GraphRunStatus.RUNNING.value,
+                node_id,
+                _dump(snapshot),
+                now,
+                graph_run_id,
+            ),
+        )
+        return {
+            "action": "retry-node",
+            "node_id": node_id,
+            "failed_node_run_id": latest["node_run_id"],
+            "consumed_failure_handoff_ids": consumed_handoff_ids,
+            "synthetic_handoff_ids": synthetic_handoff_ids,
+            "max_runs": max_runs,
+            "reason": reason,
+        }
+
+    def _cancel_branch_intervention_in_tx(
+        self,
+        db: sqlite3.Connection,
+        *,
+        graph_row: sqlite3.Row,
+        snapshot: dict,
+        node: dict,
+        intervention_id: str,
+        reason: str,
+    ) -> dict:
+        graph_run_id = graph_row["graph_run_id"]
+        node_id = str(node["id"])
+        edges = [item for item in snapshot.get("edges", []) if isinstance(item, dict)]
+        incoming_edges = [edge for edge in edges if edge.get("to") == node_id]
+        if not incoming_edges:
+            raise _GraphInterventionRejected(
+                "root_cancel_forbidden",
+                "root nodes cannot be canceled as a pending branch",
+                node_id=node_id,
+            )
+        existing_runs = db.execute(
+            "SELECT node_run_id, status FROM node_runs WHERE graph_run_id = ? AND node_id = ?",
+            (graph_run_id, node_id),
+        ).fetchall()
+        if existing_runs:
+            raise _GraphInterventionRejected(
+                "cancel_target_already_run",
+                "cancel target already has a node run",
+                node_runs=[
+                    {"node_run_id": row["node_run_id"], "status": row["status"]}
+                    for row in existing_runs
+                ],
+            )
+        active_jobs = self._active_graph_node_jobs_in_tx(db, graph_run_id, node_id)
+        if active_jobs:
+            raise _GraphInterventionRejected(
+                "target_job_active",
+                "cancel target has an active bound job or lease",
+                jobs=active_jobs,
+            )
+        pending = db.execute(
+            """
+            SELECT * FROM graph_handoffs
+            WHERE graph_run_id = ? AND to_node = ? AND status = ?
+            ORDER BY created_at, handoff_id
+            """,
+            (graph_run_id, node_id, GraphHandoffStatus.PENDING.value),
+        ).fetchall()
+        if not pending:
+            raise _GraphInterventionRejected(
+                "cancel_target_not_pending",
+                "cancel target has no pending inbound handoff",
+                node_id=node_id,
+            )
+        unsafe = _unsafe_join_cancel_details(snapshot, node_id)
+        if unsafe is not None:
+            raise _GraphInterventionRejected(
+                "unsafe_join_cancel",
+                "cancel could permanently remove a source required by join=all",
+                **unsafe,
+            )
+
+        input_payload = _merge_handoff_rows(pending)
+        canceled_payload = {
+            key: value for key, value in input_payload.items() if key != "_handoffs"
+        }
+        canceled_payload["_intervention"] = {
+            "intervention_id": intervention_id,
+            "action": "cancel-branch",
+            "reason": reason,
+        }
+        node_run_id = str(uuid4())
+        next_sequence = int(
+            db.execute(
+                """
+                SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence
+                FROM node_runs WHERE graph_run_id = ?
+                """,
+                (graph_run_id,),
+            ).fetchone()["next_sequence"]
+        )
+        self._create_skipped_node_run_in_tx(
+            db,
+            node_run_id=node_run_id,
+            graph_run_id=graph_run_id,
+            mission_id=graph_row["mission_id"],
+            node=node,
+            sequence=next_sequence,
+            input_payload=input_payload,
+            output_payload=canceled_payload,
+            intervention_id=intervention_id,
+            reason=reason,
+        )
+        consumed_handoff_ids: list[str] = []
+        for row in pending:
+            self._consume_graph_handoff_in_tx(
+                db,
+                row,
+                consumed_by_node_run_id=node_run_id,
+                graph_run_id=graph_run_id,
+            )
+            consumed_handoff_ids.append(row["handoff_id"])
+
+        downstream_handoff_ids: list[str] = []
+        for edge in edges:
+            if edge.get("from") != node_id or edge.get("on") != "canceled":
+                continue
+            handoff_id = str(uuid4())
+            to_node = str(edge.get("to"))
+            self._create_graph_handoff_in_tx(
+                db,
+                handoff_id=handoff_id,
+                graph_run_id=graph_run_id,
+                mission_id=graph_row["mission_id"],
+                edge_id=str(edge.get("id")),
+                source_node_run_id=node_run_id,
+                from_node=node_id,
+                to_node=to_node,
+                outcome="canceled",
+                payload=canceled_payload,
+            )
+            downstream_handoff_ids.append(handoff_id)
+
+        pending_nodes = [
+            row["to_node"]
+            for row in db.execute(
+                """
+                SELECT DISTINCT to_node FROM graph_handoffs
+                WHERE graph_run_id = ? AND status = ?
+                ORDER BY to_node
+                """,
+                (graph_run_id, GraphHandoffStatus.PENDING.value),
+            ).fetchall()
+        ]
+
+        db.execute(
+            """
+            UPDATE graph_runs
+            SET status = ?, current_node_id = ?, updated_at = ?
+            WHERE graph_run_id = ?
+            """,
+            (
+                GraphRunStatus.RUNNING.value,
+                ",".join(pending_nodes) or None,
+                utc_now_iso(),
+                graph_run_id,
+            ),
+        )
+        return {
+            "action": "cancel-branch",
+            "node_id": node_id,
+            "skipped_node_run_id": node_run_id,
+            "consumed_handoff_ids": consumed_handoff_ids,
+            "downstream_handoff_ids": downstream_handoff_ids,
+            "reason": reason,
+        }
+
+    @staticmethod
+    def _active_graph_node_jobs_in_tx(
+        db: sqlite3.Connection,
+        graph_run_id: str,
+        node_id: str,
+    ) -> list[dict]:
+        rows = db.execute(
+            """
+            SELECT jobs.job_id, jobs.status
+            FROM graph_node_jobs
+            JOIN jobs ON jobs.job_id = graph_node_jobs.job_id
+            WHERE graph_node_jobs.graph_run_id = ?
+              AND graph_node_jobs.node_id = ?
+              AND (
+                  jobs.status IN (?, ?)
+                  OR EXISTS (
+                      SELECT 1 FROM worker_leases
+                      WHERE worker_leases.job_id = jobs.job_id
+                        AND worker_leases.released_at IS NULL
+                  )
+              )
+            ORDER BY jobs.job_id
+            """,
+            (
+                graph_run_id,
+                node_id,
+                JobStatus.QUEUED.value,
+                JobStatus.LEASED.value,
+            ),
+        ).fetchall()
+        active: list[dict] = []
+        for row in rows:
+            leases = db.execute(
+                """
+                SELECT lease_id FROM worker_leases
+                WHERE job_id = ? AND released_at IS NULL
+                ORDER BY acquired_at, lease_id
+                """,
+                (row["job_id"],),
+            ).fetchall()
+            active.append(
+                {
+                    "job_id": row["job_id"],
+                    "status": row["status"],
+                    "lease_ids": [lease["lease_id"] for lease in leases],
+                }
+            )
+        return active
+
+    def _consume_graph_handoff_in_tx(
+        self,
+        db: sqlite3.Connection,
+        row: sqlite3.Row,
+        *,
+        consumed_by_node_run_id: str,
+        graph_run_id: str,
+    ) -> None:
+        now = utc_now_iso()
+        cursor = db.execute(
+            """
+            UPDATE graph_handoffs
+            SET status = ?, consumed_at = ?, consumed_by_node_run_id = ?
+            WHERE handoff_id = ? AND status = ?
+            """,
+            (
+                GraphHandoffStatus.CONSUMED.value,
+                now,
+                consumed_by_node_run_id,
+                row["handoff_id"],
+                GraphHandoffStatus.PENDING.value,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise _GraphInterventionRejected(
+                "handoff_state_conflict",
+                "pending handoff changed while applying intervention",
+                handoff_id=row["handoff_id"],
+            )
+        self._append_event_in_tx(
+            db,
+            row["mission_id"],
+            EventType.GRAPH_HANDOFF_CONSUMED,
+            {
+                "graph_run_id": graph_run_id,
+                "handoff_id": row["handoff_id"],
+                "node_run_id": consumed_by_node_run_id,
+            },
+        )
+
+    def _create_graph_handoff_in_tx(
+        self,
+        db: sqlite3.Connection,
+        *,
+        handoff_id: str,
+        graph_run_id: str,
+        mission_id: str,
+        edge_id: str,
+        source_node_run_id: str,
+        from_node: str,
+        to_node: str,
+        outcome: str,
+        payload: dict,
+    ) -> None:
+        created_at = utc_now_iso()
+        db.execute(
+            """
+            INSERT INTO graph_handoffs (
+                handoff_id, graph_run_id, mission_id, edge_id, source_node_run_id,
+                from_node, to_node, outcome, payload_json, status, created_at,
+                consumed_at, consumed_by_node_run_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+            """,
+            (
+                handoff_id,
+                graph_run_id,
+                mission_id,
+                edge_id,
+                source_node_run_id,
+                from_node,
+                to_node,
+                outcome,
+                _dump(payload),
+                GraphHandoffStatus.PENDING.value,
+                created_at,
+            ),
+        )
+        self._append_event_in_tx(
+            db,
+            mission_id,
+            EventType.GRAPH_HANDOFF_CREATED,
+            {
+                "graph_run_id": graph_run_id,
+                "handoff_id": handoff_id,
+                "edge_id": edge_id,
+                "synthetic": True,
+            },
+        )
+
+    def _create_skipped_node_run_in_tx(
+        self,
+        db: sqlite3.Connection,
+        *,
+        node_run_id: str,
+        graph_run_id: str,
+        mission_id: str,
+        node: dict,
+        sequence: int,
+        input_payload: dict,
+        output_payload: dict,
+        intervention_id: str,
+        reason: str,
+    ) -> None:
+        now = utc_now_iso()
+        error = {
+            "error_class": "intervention_canceled",
+            "message": reason,
+            "intervention_id": intervention_id,
+            "action": "cancel-branch",
+        }
+        db.execute(
+            """
+            INSERT INTO node_runs (
+                node_run_id, graph_run_id, mission_id, node_id, node_role, node_kind,
+                sequence, status, input_payload_json, output_payload_json, artifact_refs_json,
+                created_at, updated_at, started_at, completed_at, evidence_package_id,
+                edge_decision, error_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?)
+            """,
+            (
+                node_run_id,
+                graph_run_id,
+                mission_id,
+                str(node["id"]),
+                str(node.get("role", "")),
+                str(node.get("kind", "")),
+                sequence,
+                NodeRunStatus.SKIPPED.value,
+                _dump(input_payload),
+                _dump(output_payload),
+                _dump([]),
+                now,
+                now,
+                now,
+                "canceled",
+                _dump(error),
+            ),
+        )
+        self._append_event_in_tx(
+            db,
+            mission_id,
+            EventType.NODE_RUN_CREATED,
+            {
+                "graph_run_id": graph_run_id,
+                "node_run_id": node_run_id,
+                "node_id": node["id"],
+                "status": NodeRunStatus.SKIPPED.value,
+                "intervention_id": intervention_id,
+            },
+        )
+        self._append_event_in_tx(
+            db,
+            mission_id,
+            EventType.NODE_RUN_UPDATED,
+            {
+                "graph_run_id": graph_run_id,
+                "node_run_id": node_run_id,
+                "status": NodeRunStatus.SKIPPED.value,
+                "edge_decision": "canceled",
+                "intervention_id": intervention_id,
+            },
+        )
+
     def create_node_run(self, record: NodeRunRecord) -> NodeRunRecord:
         with self._connect() as db:
             db.execute(
@@ -1288,13 +2467,44 @@ class SQLiteMissionStore:
 
     def create_job_attempt(self, record: JobAttemptRecord) -> JobAttemptRecord:
         with self._connect() as db:
+            if record.lease_id is None:
+                lease_rows = db.execute(
+                    """
+                    SELECT lease_id FROM worker_leases
+                    WHERE job_id = ? AND worker_id = ? AND released_at IS NULL
+                    ORDER BY acquired_at, lease_id
+                    """,
+                    (record.job_id, record.worker_id),
+                ).fetchall()
+                if len(lease_rows) == 1:
+                    record = replace(record, lease_id=lease_rows[0]["lease_id"])
+                elif len(lease_rows) > 1:
+                    raise RuntimeError(
+                        f"multiple active leases for job attempt: {record.job_id}"
+                    )
+            else:
+                lease_row = db.execute(
+                    """
+                    SELECT lease_id FROM worker_leases
+                    WHERE lease_id = ? AND job_id = ? AND worker_id = ?
+                      AND released_at IS NULL
+                    """,
+                    (record.lease_id, record.job_id, record.worker_id),
+                ).fetchone()
+                if lease_row is None:
+                    self._raise_job_execution_conflict_in_tx(
+                        db,
+                        record.job_id,
+                        "create_attempt",
+                        record.lease_id,
+                    )
             db.execute(
                 """
                 INSERT INTO job_attempts (
                     attempt_id, mission_id, job_id, attempt_number, worker_id, status,
                     started_at, updated_at, completed_at, error_json, retry_decision,
-                    metadata_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    metadata_json, lease_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.attempt_id,
@@ -1309,13 +2519,18 @@ class SQLiteMissionStore:
                     _dump(record.error) if record.error is not None else None,
                     record.retry_decision,
                     _dump(record.metadata),
+                    record.lease_id,
                 ),
             )
             self._append_event_in_tx(
                 db,
                 record.mission_id,
                 EventType.JOB_ATTEMPT_CREATED,
-                {"attempt_id": record.attempt_id, "job_id": record.job_id},
+                {
+                    "attempt_id": record.attempt_id,
+                    "job_id": record.job_id,
+                    "lease_id": record.lease_id,
+                },
             )
         return record
 
@@ -1586,6 +2801,281 @@ class SQLiteMissionStore:
         return event
 
 
+_GRAPH_CONTROL_EVENT_TYPES = {
+    EventType.GRAPH_RUN_CREATED.value,
+    EventType.GRAPH_RUN_UPDATED.value,
+    EventType.GRAPH_STEP_ADVANCED.value,
+    EventType.NODE_RUN_CREATED.value,
+    EventType.NODE_RUN_UPDATED.value,
+    EventType.GRAPH_HANDOFF_CREATED.value,
+    EventType.GRAPH_HANDOFF_CONSUMED.value,
+    EventType.GRAPH_NODE_JOB_BOUND.value,
+    EventType.JOB_CREATED.value,
+    EventType.JOB_LEASED.value,
+    EventType.JOB_SUCCEEDED.value,
+    EventType.JOB_FAILED.value,
+    EventType.JOB_REQUEUED.value,
+    EventType.JOB_CANCELED.value,
+    EventType.JOB_ATTEMPT_CREATED.value,
+    EventType.JOB_ATTEMPT_UPDATED.value,
+    EventType.GRAPH_INTERVENTION_CREATED.value,
+    EventType.GRAPH_INTERVENTION_APPLIED.value,
+    EventType.GRAPH_INTERVENTION_REJECTED.value,
+}
+
+_GRAPH_CONTROL_ID_FIELDS = {
+    "graph_run_id": "graph",
+    "node_run_id": "node",
+    "handoff_id": "handoff",
+    "job_id": "job",
+    "attempt_id": "attempt",
+    "intervention_id": "intervention",
+}
+
+_GRAPH_CONTROL_IDS_FIELDS = {
+    "graph_run_ids": "graph",
+    "node_run_ids": "node",
+    "handoff_ids": "handoff",
+    "job_ids": "job",
+    "attempt_ids": "attempt",
+    "intervention_ids": "intervention",
+}
+
+
+def _graph_control_event_cursor_in_tx(
+    db: sqlite3.Connection,
+    *,
+    graph_run_id: str,
+    mission_id: str,
+) -> int:
+    references: dict[str, set[str]] = {
+        "graph": {graph_run_id},
+        "node": {
+            str(row["node_run_id"])
+            for row in db.execute(
+                "SELECT node_run_id FROM node_runs WHERE graph_run_id = ?",
+                (graph_run_id,),
+            ).fetchall()
+        },
+        "handoff": {
+            str(row["handoff_id"])
+            for row in db.execute(
+                "SELECT handoff_id FROM graph_handoffs WHERE graph_run_id = ?",
+                (graph_run_id,),
+            ).fetchall()
+        },
+        "job": {
+            str(row["job_id"])
+            for row in db.execute(
+                "SELECT job_id FROM graph_node_jobs WHERE graph_run_id = ?",
+                (graph_run_id,),
+            ).fetchall()
+        },
+        "attempt": set(),
+        "intervention": {
+            str(row["intervention_id"])
+            for row in db.execute(
+                """
+                SELECT intervention_id FROM graph_interventions
+                WHERE graph_run_id = ?
+                """,
+                (graph_run_id,),
+            ).fetchall()
+        },
+    }
+    if references["job"]:
+        placeholders = ",".join("?" for _ in references["job"])
+        references["attempt"] = {
+            str(row["attempt_id"])
+            for row in db.execute(
+                f"SELECT attempt_id FROM job_attempts WHERE job_id IN ({placeholders})",
+                tuple(sorted(references["job"])),
+            ).fetchall()
+        }
+
+    cursor = 0
+    rows = db.execute(
+        """
+        SELECT event_type, sequence, payload_json FROM events
+        WHERE mission_id = ? ORDER BY sequence
+        """,
+        (mission_id,),
+    ).fetchall()
+    for row in rows:
+        if row["event_type"] not in _GRAPH_CONTROL_EVENT_TYPES:
+            continue
+        payload = _load(row["payload_json"], {})
+        if _payload_references_graph_control(payload, references):
+            cursor = int(row["sequence"])
+    return cursor
+
+
+def _payload_references_graph_control(
+    value: object,
+    references: dict[str, set[str]],
+) -> bool:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            scope = _GRAPH_CONTROL_ID_FIELDS.get(key)
+            if scope is not None and str(child) in references[scope]:
+                return True
+            scope = _GRAPH_CONTROL_IDS_FIELDS.get(key)
+            if scope is not None:
+                members = child if isinstance(child, list) else [child]
+                if any(str(member) in references[scope] for member in members):
+                    return True
+            if _payload_references_graph_control(child, references):
+                return True
+    elif isinstance(value, list):
+        return any(
+            _payload_references_graph_control(child, references) for child in value
+        )
+    return False
+
+
+def _graph_intervention_from_row(row: sqlite3.Row) -> dict:
+    return {
+        "intervention_id": row["intervention_id"],
+        "graph_run_id": row["graph_run_id"],
+        "mission_id": row["mission_id"],
+        "action": row["action"],
+        "node_id": row["node_id"],
+        "expected_cursor": row["expected_cursor"],
+        "idempotency_key": row["idempotency_key"],
+        "reason": row["reason"],
+        "status": row["status"],
+        "result": _load(row["result_json"], None),
+        "error": _load(row["error_json"], None),
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def _same_intervention_request(record: dict, request: dict) -> bool:
+    return all(
+        record[key] == request[key]
+        for key in (
+            "graph_run_id",
+            "action",
+            "node_id",
+            "expected_cursor",
+            "idempotency_key",
+            "reason",
+        )
+    )
+
+
+def _intervention_record_response(
+    record: dict,
+    *,
+    idempotent_replay: bool,
+) -> dict:
+    response = {
+        "ok": record["status"] == "applied",
+        "idempotent_replay": idempotent_replay,
+        "intervention": record,
+    }
+    if record.get("result") is not None:
+        response["result"] = record["result"]
+    if record.get("error") is not None:
+        response["error"] = record["error"]
+    return response
+
+
+def _intervention_error_response(code: str, message: str, **details: object) -> dict:
+    return {
+        "ok": False,
+        "idempotent_replay": False,
+        "error": {
+            "code": code,
+            "message": message,
+            "details": details,
+        },
+    }
+
+
+def _merge_handoff_rows(rows: list[sqlite3.Row]) -> dict:
+    provenance: dict[str, dict] = {}
+    values_by_key: dict[str, list[object]] = {}
+    presence_by_key: dict[str, int] = {}
+    for row in rows:
+        payload = dict(_load(row["payload_json"], {}))
+        provenance_key = str(row["from_node"])
+        suffix = 2
+        while provenance_key in provenance:
+            provenance_key = f"{row['from_node']}#{suffix}"
+            suffix += 1
+        provenance[provenance_key] = payload
+        for key, value in payload.items():
+            if key == "_handoffs":
+                continue
+            values_by_key.setdefault(key, []).append(value)
+            presence_by_key[key] = presence_by_key.get(key, 0) + 1
+
+    merged: dict = {"_handoffs": provenance}
+    for key, values in values_by_key.items():
+        if presence_by_key[key] == 1 or all(value == values[0] for value in values[1:]):
+            merged[key] = values[0]
+    return merged
+
+
+def _unsafe_join_cancel_details(snapshot: dict, node_id: str) -> dict | None:
+    nodes = [item for item in snapshot.get("nodes", []) if isinstance(item, dict)]
+    join_all = {
+        str(node.get("id")) for node in nodes if node.get("join", "any") == "all"
+    }
+    if not join_all:
+        return None
+    edges = [item for item in snapshot.get("edges", []) if isinstance(item, dict)]
+    adjacency: dict[str, set[str]] = {}
+    for edge in edges:
+        adjacency.setdefault(str(edge.get("from")), set()).add(str(edge.get("to")))
+
+    canceled_destinations = {
+        str(edge.get("to"))
+        for edge in edges
+        if edge.get("from") == node_id and edge.get("on") == "canceled"
+    }
+    normal_destinations = {
+        str(edge.get("to"))
+        for edge in edges
+        if edge.get("from") == node_id and edge.get("on") != "canceled"
+    }
+    missing_routes: dict[str, list[str]] = {}
+    for destination in sorted(normal_destinations):
+        reachable_joins = _reachable_targets(adjacency, destination, join_all)
+        if reachable_joins and destination not in canceled_destinations:
+            missing_routes[destination] = sorted(reachable_joins)
+    if not missing_routes:
+        return None
+    return {
+        "node_id": node_id,
+        "missing_canceled_routes": missing_routes,
+        "join_node_ids": sorted(
+            {join_id for join_ids in missing_routes.values() for join_id in join_ids}
+        ),
+    }
+
+
+def _reachable_targets(
+    adjacency: dict[str, set[str]],
+    start: str,
+    targets: set[str],
+) -> set[str]:
+    found: set[str] = set()
+    pending = [start]
+    visited: set[str] = set()
+    while pending:
+        current = pending.pop()
+        if current in visited:
+            continue
+        visited.add(current)
+        if current in targets:
+            found.add(current)
+        pending.extend(adjacency.get(current, set()) - visited)
+    return found
+
+
 def _dump(value: object) -> str:
     return json.dumps(value, ensure_ascii=True, sort_keys=True)
 
@@ -1780,6 +3270,7 @@ def _job_attempt_from_row(row: sqlite3.Row) -> JobAttemptRecord:
         error=_load(row["error_json"], None),
         retry_decision=row["retry_decision"],
         metadata=dict(_load(row["metadata_json"], {})),
+        lease_id=row["lease_id"],
     )
 
 
