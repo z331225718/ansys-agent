@@ -171,6 +171,11 @@ Harness 是按项目锁定版本验收的。依赖升级必须与代码更新、
 
 `status` 应返回 ready。构图失败不会禁用已有 Harness，但会关闭 Harness 未覆盖能力的源码查询与受控探索。
 
+API Memory MCP 会在单个 Claude 会话内复用受限的 `codebase-memory-mcp` stdio 子进程，不会把该原生
+MCP 直接暴露给 Agent。它只允许项目 facade 已登记的源码查询工具，并且子进程环境不继承审批密钥或 LLM
+密钥。已验证状态会短暂缓存以避免每个查询重复扫描两份源码；最终 operation evidence 校验始终强制重新计算
+源码 digest 和索引状态，因此缓存不能放宽写工程的审批或证据要求。
+
 ### 3.6 检查能力目录
 
 ```powershell

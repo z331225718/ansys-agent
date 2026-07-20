@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import queue
 import re
 import subprocess
 import sys
@@ -13,6 +14,86 @@ import aedt_agent.knowledge.api_memory as api_memory
 from aedt_agent.knowledge.api_memory import AnsysApiMemory, SourcePackage, source_inventory_digest
 from aedt_agent.knowledge.evidence import ApiMemoryEvidenceVerifier
 from aedt_agent.exploration.contracts import ExplorationError
+
+
+class _FakeMcpStream:
+    def __init__(self):
+        self.lines: queue.Queue[str] = queue.Queue()
+
+    def readline(self):
+        return self.lines.get()
+
+    def close(self):
+        self.lines.put("")
+
+
+class _FakeMcpInput:
+    def __init__(self, handler):
+        self.handler = handler
+        self.messages = []
+
+    def write(self, value):
+        self.messages.append(json.loads(value))
+        self.handler(self.messages[-1])
+        return len(value)
+
+    def flush(self):
+        return None
+
+
+class _FakeMcpProcess:
+    def __init__(self):
+        self.stdout = _FakeMcpStream()
+        self.stderr = _FakeMcpStream()
+        self.stdin = _FakeMcpInput(self._handle)
+        self.returncode = None
+        self.pid = 12345
+
+    def _handle(self, message):
+        method = message.get("method")
+        request_id = message.get("id")
+        if request_id is None:
+            return
+        if method == "initialize":
+            result = {
+                "protocolVersion": "2025-03-26",
+                "serverInfo": {"name": "codebase-memory-mcp", "version": "0.9.0"},
+                "capabilities": {"tools": {"listChanged": False}},
+            }
+        elif method == "tools/list":
+            result = {
+                "tools": [
+                    {"name": name}
+                    for name in (
+                        "index_repository",
+                        "search_graph",
+                        "get_code_snippet",
+                        "trace_path",
+                        "search_code",
+                    )
+                ]
+            }
+        elif method == "tools/call":
+            tool = message["params"]["name"]
+            if tool == "index_status":
+                payload = {"project": "pyaedt-project", "status": "ready", "root_path": "C:/pyaedt"}
+            else:
+                payload = {"results": [{"name": tool}]}
+            result = {"content": [{"type": "text", "text": json.dumps(payload)}], "isError": False}
+        else:
+            result = {}
+        self.stdout.lines.put(json.dumps({"jsonrpc": "2.0", "id": request_id, "result": result}))
+
+    def poll(self):
+        return self.returncode
+
+    def terminate(self):
+        self.returncode = 1
+        self.stdout.close()
+        self.stderr.close()
+
+    def wait(self, timeout=None):
+        return self.returncode
 
 
 class FakeClient:
@@ -83,6 +164,42 @@ def test_codebase_memory_cli_does_not_inherit_mcp_stdio(tmp_path: Path):
     assert captured["stdin"] is subprocess.DEVNULL
 
 
+def test_persistent_codebase_memory_mcp_client_reuses_one_verified_stdio_session(tmp_path: Path, monkeypatch):
+    executable = tmp_path / "codebase-memory-mcp.exe"
+    executable.touch()
+    process = _FakeMcpProcess()
+    launched = []
+    monkeypatch.setenv("AEDT_AGENT_APPROVAL_SECRET", "must-not-reach-native-backend")
+    client = api_memory.CodebaseMemoryMcpClient(
+        executable=executable,
+        cache_dir=tmp_path / "cbm",
+        allowed_root=tmp_path,
+        popen_factory=lambda *args, **kwargs: launched.append((args, kwargs)) or process,
+    )
+
+    assert client.tool("index_status", {"project": "pyaedt-project"}) == {
+        "project": "pyaedt-project",
+        "status": "ready",
+        "root_path": "C:/pyaedt",
+    }
+    assert client.tool("search_graph", {"project": "pyaedt-project", "query": "void"}) == {
+        "results": [{"name": "search_graph"}]
+    }
+    assert len(launched) == 1
+    assert [message["method"] for message in process.stdin.messages] == [
+        "initialize",
+        "notifications/initialized",
+        "tools/list",
+        "tools/call",
+        "tools/call",
+    ]
+    environment = launched[0][1]["env"]
+    assert environment["CBM_CACHE_DIR"] == str((tmp_path / "cbm").resolve())
+    assert environment["CBM_ALLOWED_ROOT"] == str(tmp_path.resolve())
+    assert "AEDT_AGENT_APPROVAL_SECRET" not in environment
+    client.close()
+
+
 def _packages(tmp_path: Path):
     common = tmp_path / "site-packages"
     pyaedt = common / "ansys" / "aedt" / "core"
@@ -121,7 +238,7 @@ def test_api_memory_prepares_versioned_indexes_and_detects_stale_source(tmp_path
     changed = list(packages)
     changed[0] = SourcePackage(**(packages[0].to_dict() | {"source_digest": "f" * 64}))
     memory.source_locator = lambda: changed
-    assert memory.status()["status"] == "stale"
+    assert memory.status(force_refresh=True)["status"] == "stale"
 
 
 def test_api_memory_reindexes_same_digest_project_after_source_root_moves(tmp_path: Path):
@@ -147,6 +264,32 @@ def test_api_memory_reindexes_same_digest_project_after_source_root_moves(tmp_pa
     reindexed = [arguments["name"] for name, arguments in client.calls if name == "index_repository"]
     assert reindexed == ["pyaedt-project"]
     assert memory.status()["ready"] is True
+
+
+def test_api_memory_status_lease_skips_global_enumeration_but_force_refresh_rechecks(tmp_path: Path):
+    packages = _packages(tmp_path)
+    client = FakeClient(tmp_path / "cbm")
+    memory = AnsysApiMemory(
+        knowledge_root=tmp_path / "knowledge",
+        client=client,
+        source_locator=lambda: packages,
+        status_lease_seconds=60,
+    )
+    memory.prepare()
+    client.calls.clear()
+
+    assert memory.status()["ready"] is True
+    first_calls = list(client.calls)
+    assert [name for name, _ in first_calls] == ["index_status", "index_status"]
+    assert memory.status()["ready"] is True
+    assert client.calls == first_calls
+    assert memory.status(force_refresh=True)["ready"] is True
+    assert [name for name, _ in client.calls] == [
+        "index_status",
+        "index_status",
+        "index_status",
+        "index_status",
+    ]
 
 
 def test_side_by_side_source_roots_have_isolated_projects_and_manifests(

@@ -19,7 +19,13 @@ class ApiMemoryEvidenceVerifier:
     def verify(self, evidence: list[dict[str, Any]]) -> dict[str, Any]:
         try:
             memory = self.memory_factory()
-            status = memory.status()
+            status_method = memory.status
+            status_parameters = inspect.signature(status_method).parameters
+            status = (
+                status_method(force_refresh=True)
+                if "force_refresh" in status_parameters
+                else status_method()
+            )
         except Exception as exc:
             raise ExplorationError(
                 "evidence_unavailable",

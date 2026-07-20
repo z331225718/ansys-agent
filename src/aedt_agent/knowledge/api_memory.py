@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import atexit
+from collections import deque
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import hashlib
@@ -11,6 +13,8 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from typing import Any, Callable
 
 
@@ -150,17 +154,296 @@ class CodebaseMemoryCli:
             raise ApiMemoryError(f"codebase-memory command failed: {detail.strip()[:1000]}") from exc
 
 
+class CodebaseMemoryMcpClient:
+    """Serialized, private stdio client for the pinned native codebase-memory server."""
+
+    _ALLOWED_TOOLS = frozenset(
+        {
+            "index_repository",
+            "index_status",
+            "search_graph",
+            "get_code_snippet",
+            "trace_path",
+            "search_code",
+            "get_architecture",
+            "get_graph_schema",
+        }
+    )
+    _READ_ONLY_TOOLS = _ALLOWED_TOOLS - {"index_repository"}
+    _ENVIRONMENT_KEYS = (
+        "APPDATA",
+        "COMSPEC",
+        "LOCALAPPDATA",
+        "PATH",
+        "PATHEXT",
+        "SYSTEMROOT",
+        "TEMP",
+        "TMP",
+        "USERPROFILE",
+        "WINDIR",
+    )
+
+    def __init__(
+        self,
+        *,
+        executable: str | Path | None = None,
+        cache_dir: str | Path | None = None,
+        allowed_root: str | Path | None = None,
+        timeout_seconds: float = 30,
+        popen_factory: Callable[..., Any] = subprocess.Popen,
+    ) -> None:
+        self.executable = _find_executable(executable)
+        root = default_knowledge_root()
+        self.cache_dir = Path(cache_dir or root / "cbm" / _backend_version()).resolve()
+        self._allowed_root = Path(allowed_root).resolve() if allowed_root else None
+        self.timeout_seconds = timeout_seconds
+        self.popen_factory = popen_factory
+        self._lock = threading.RLock()
+        self._process: Any | None = None
+        self._responses: Any = None
+        self._stderr: deque[str] = deque(maxlen=32)
+        self._next_request_id = 1
+        atexit.register(self.close)
+
+    @property
+    def allowed_root(self) -> Path | None:
+        return self._allowed_root
+
+    @allowed_root.setter
+    def allowed_root(self, value: str | Path | None) -> None:
+        resolved = Path(value).resolve() if value else None
+        with self._lock:
+            if resolved == self._allowed_root:
+                return
+            self._close_locked()
+            self._allowed_root = resolved
+
+    def configure(self) -> None:
+        # Configuration is not exposed by the native MCP server. Keep this short-lived
+        # compatibility call outside the read-only query transport.
+        with self._lock:
+            self._close_locked()
+            CodebaseMemoryCli(
+                executable=self.executable,
+                cache_dir=self.cache_dir,
+                allowed_root=self.allowed_root,
+            ).configure()
+
+    def tool(self, name: str, arguments: dict[str, Any], *, timeout: float | None = None) -> dict[str, Any]:
+        if name not in self._ALLOWED_TOOLS:
+            raise ApiMemoryError(f"codebase-memory tool is not allowed: {name}")
+        timeout_seconds = timeout or self.timeout_seconds
+        attempts = 2 if name in self._READ_ONLY_TOOLS else 1
+        last_error: ApiMemoryError | None = None
+        for _ in range(attempts):
+            try:
+                with self._lock:
+                    return self._tool_locked(name, arguments, timeout_seconds)
+            except ApiMemoryError as exc:
+                last_error = exc
+                with self._lock:
+                    self._close_locked()
+        assert last_error is not None
+        raise last_error
+
+    def close(self) -> None:
+        with self._lock:
+            self._close_locked()
+
+    def _tool_locked(self, name: str, arguments: dict[str, Any], timeout_seconds: float) -> dict[str, Any]:
+        self._ensure_started_locked(timeout_seconds)
+        response = self._request_locked(
+            "tools/call",
+            {"name": name, "arguments": arguments},
+            timeout_seconds,
+        )
+        result = response.get("result")
+        if not isinstance(result, dict):
+            raise ApiMemoryError(f"codebase-memory returned no result for {name}")
+        if result.get("isError") is True:
+            raise ApiMemoryError(f"codebase-memory tool failed: {self._result_error(result)}")
+        payload = result.get("structuredContent")
+        if payload is None:
+            payload = _mcp_text_payload(result)
+        if not isinstance(payload, dict):
+            raise ApiMemoryError(f"invalid codebase-memory response for {name}")
+        return payload
+
+    def _ensure_started_locked(self, timeout_seconds: float) -> None:
+        if self._process is not None and self._process.poll() is None:
+            return
+        self._close_locked()
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        environment = {
+            key: value
+            for key, value in os.environ.items()
+            if key.upper() in self._ENVIRONMENT_KEYS and value
+        }
+        environment["CBM_CACHE_DIR"] = str(self.cache_dir)
+        if self.allowed_root is not None:
+            environment["CBM_ALLOWED_ROOT"] = str(self.allowed_root)
+        try:
+            process = self.popen_factory(
+                [str(self.executable)],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
+                cwd=str(self.allowed_root or self.cache_dir),
+                env=environment,
+            )
+        except OSError as exc:
+            raise ApiMemoryError(f"unable to start codebase-memory MCP: {exc}") from exc
+        if process.stdin is None or process.stdout is None or process.stderr is None:
+            self._terminate_process(process)
+            raise ApiMemoryError("codebase-memory MCP did not expose stdio pipes")
+        import queue
+
+        self._process = process
+        responses = queue.Queue()
+        self._responses = responses
+        self._stderr.clear()
+        threading.Thread(target=self._read_stdout, args=(process.stdout, responses), daemon=True).start()
+        threading.Thread(target=self._read_stderr, args=(process.stderr,), daemon=True).start()
+        try:
+            initialize = self._request_locked(
+                "initialize",
+                {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "clientInfo": {"name": "ansys-api-memory", "version": "1"},
+                },
+                timeout_seconds,
+            )
+            server_info = initialize.get("result", {}).get("serverInfo", {})
+            if (
+                not isinstance(server_info, dict)
+                or server_info.get("name") != "codebase-memory-mcp"
+                or str(server_info.get("version")) != _backend_version()
+            ):
+                raise ApiMemoryError("codebase-memory MCP handshake returned an unexpected server version")
+            self._notify_locked("notifications/initialized", {})
+            tools = self._request_locked("tools/list", {}, timeout_seconds)
+            advertised = {
+                str(item.get("name"))
+                for item in tools.get("result", {}).get("tools", [])
+                if isinstance(item, dict)
+            }
+            required = {"index_repository", "search_graph", "get_code_snippet", "trace_path", "search_code"}
+            if not required.issubset(advertised):
+                raise ApiMemoryError("codebase-memory MCP did not advertise the required read-only tools")
+        except Exception:
+            self._close_locked()
+            raise
+
+    def _request_locked(self, method: str, params: dict[str, Any], timeout_seconds: float) -> dict[str, Any]:
+        if self._process is None or self._process.stdin is None or self._responses is None:
+            raise ApiMemoryError("codebase-memory MCP is not running")
+        request_id = self._next_request_id
+        self._next_request_id += 1
+        self._write_locked({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params})
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ApiMemoryError(f"codebase-memory MCP timed out during {method}: {self._stderr_tail()}")
+            try:
+                response = self._responses.get(timeout=remaining)
+            except Exception as exc:
+                raise ApiMemoryError(f"codebase-memory MCP timed out during {method}: {self._stderr_tail()}") from exc
+            if response.get("id") != request_id:
+                continue
+            if "error" in response:
+                raise ApiMemoryError(f"codebase-memory MCP error during {method}: {response['error']}")
+            return response
+
+    def _notify_locked(self, method: str, params: dict[str, Any]) -> None:
+        self._write_locked({"jsonrpc": "2.0", "method": method, "params": params})
+
+    def _write_locked(self, message: dict[str, Any]) -> None:
+        if self._process is None or self._process.stdin is None:
+            raise ApiMemoryError("codebase-memory MCP is not running")
+        try:
+            self._process.stdin.write(json.dumps(message, ensure_ascii=True, separators=(",", ":")) + "\n")
+            self._process.stdin.flush()
+        except (OSError, ValueError) as exc:
+            raise ApiMemoryError(f"unable to write to codebase-memory MCP: {exc}") from exc
+
+    def _read_stdout(self, stream: Any, responses: Any) -> None:
+        for line in iter(stream.readline, ""):
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                self._stderr.append(f"invalid stdout: {line[:200]}")
+                continue
+            if isinstance(payload, dict):
+                responses.put(payload)
+
+    def _read_stderr(self, stream: Any) -> None:
+        for line in iter(stream.readline, ""):
+            self._stderr.append(line.strip()[:1000])
+
+    def _close_locked(self) -> None:
+        process = self._process
+        self._process = None
+        self._responses = None
+        if process is not None:
+            self._terminate_process(process)
+
+    @staticmethod
+    def _terminate_process(process: Any) -> None:
+        if process.poll() is not None:
+            return
+        if os.name == "nt" and isinstance(process, subprocess.Popen):
+            try:
+                subprocess.run(
+                    ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                    check=False,
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                process.wait(timeout=2)
+                return
+            except (OSError, subprocess.SubprocessError):
+                pass
+        try:
+            process.terminate()
+            process.wait(timeout=2)
+            return
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+    def _stderr_tail(self) -> str:
+        return " | ".join(item for item in self._stderr if item)[-1000:] or "no stderr"
+
+    @staticmethod
+    def _result_error(result: dict[str, Any]) -> str:
+        try:
+            return json.dumps(result.get("content"), ensure_ascii=True)[:1000]
+        except (TypeError, ValueError):
+            return "unknown tool error"
+
+
 class AnsysApiMemory:
     def __init__(
         self,
         *,
         knowledge_root: str | Path | None = None,
-        client: CodebaseMemoryCli | None = None,
+        client: Any | None = None,
         source_locator: Callable[[], list[SourcePackage]] = locate_ansys_sources,
+        status_lease_seconds: float = 10,
     ) -> None:
         self.knowledge_root = Path(knowledge_root or default_knowledge_root()).resolve()
         self.source_locator = source_locator
-        self.client = client or CodebaseMemoryCli(cache_dir=self.knowledge_root / "cbm" / _backend_version())
+        self.client = client or CodebaseMemoryMcpClient(cache_dir=self.knowledge_root / "cbm" / _backend_version())
+        self.status_lease_seconds = status_lease_seconds
+        self._status_lease: tuple[float, dict[str, Any]] | None = None
+        self._status_lock = threading.RLock()
 
     @property
     def manifest_path(self) -> Path:
@@ -171,15 +454,13 @@ class AnsysApiMemory:
     def prepare(self, *, force: bool = False) -> dict[str, Any]:
         packages = self.source_locator()
         manifest_path = self._manifest_path_for(packages)
-        common_root = Path(os.path.commonpath([item.source_root for item in packages])).resolve()
-        self.client.allowed_root = common_root
+        self._configure_client_for(packages)
+        self._status_lease = None
         self.client.configure()
-        projects = self.client.tool("list_projects", {}).get("projects", [])
-        known = {str(item.get("name")) for item in projects if isinstance(item, dict)}
         indexed = []
         for package in packages:
             current_status = None
-            if not force and package.project in known:
+            if not force:
                 try:
                     current_status = self.client.tool(
                         "index_status",
@@ -217,10 +498,17 @@ class AnsysApiMemory:
         }
         manifest["manifest_digest"] = _digest({key: value for key, value in manifest.items() if key != "created_at"})
         _atomic_json_write(manifest_path, manifest)
+        self._status_lease = None
         return {"status": "ready", "manifest": manifest, "indexes": indexed}
 
-    def status(self) -> dict[str, Any]:
+    def status(self, *, force_refresh: bool = False) -> dict[str, Any]:
+        with self._status_lock:
+            if not force_refresh and self._status_lease is not None:
+                expires_at, cached = self._status_lease
+                if time.monotonic() < expires_at:
+                    return cached
         current = self.source_locator()
+        self._configure_client_for(current)
         manifest_path = self._manifest_path_for(current)
         if not manifest_path.is_file():
             return {"status": "missing", "ready": False, "packages": [item.to_dict() for item in current]}
@@ -237,24 +525,20 @@ class AnsysApiMemory:
             or recorded[item.key].get("source_digest") != item.source_digest
             or recorded[item.key].get("source_root") != item.source_root
         ]
-        try:
-            projects = self.client.tool("list_projects", {}).get("projects", [])
-            known = {str(item.get("name")) for item in projects if isinstance(item, dict)}
-        except ApiMemoryError as exc:
-            return {"status": "unavailable", "ready": False, "error": str(exc), "manifest": manifest}
-        missing_projects = [item.project for item in current if item.project not in known]
+        missing_projects = []
         stale_projects = []
         for item in current:
-            if item.project in missing_projects:
-                continue
             try:
                 project_status = self.client.tool("index_status", {"project": item.project})
             except ApiMemoryError as exc:
                 return {"status": "unavailable", "ready": False, "error": str(exc), "manifest": manifest}
             if not _index_matches_package(project_status, item):
-                stale_projects.append(item.project)
+                if str(project_status.get("status", "")).casefold() == "missing":
+                    missing_projects.append(item.project)
+                else:
+                    stale_projects.append(item.project)
         ready = not stale and not missing_projects and not stale_projects
-        return {
+        response = {
             "status": "ready" if ready else "stale",
             "ready": ready,
             "stale_packages": stale,
@@ -262,6 +546,18 @@ class AnsysApiMemory:
             "stale_projects": stale_projects,
             "manifest": manifest,
         }
+        if ready and self.status_lease_seconds > 0:
+            with self._status_lock:
+                self._status_lease = (time.monotonic() + self.status_lease_seconds, response)
+        return response
+
+    def close(self) -> None:
+        close = getattr(self.client, "close", None)
+        if callable(close):
+            close()
+
+    def _configure_client_for(self, packages: list[SourcePackage]) -> None:
+        self.client.allowed_root = Path(os.path.commonpath([item.source_root for item in packages])).resolve()
 
     def _manifest_path_for(self, packages: list[SourcePackage]) -> Path:
         identity = [
@@ -431,6 +727,23 @@ def _find_executable(value: str | Path | None) -> Path:
         if candidate.is_file():
             return candidate.resolve()
     raise ApiMemoryError("codebase-memory-mcp executable was not found; install the knowledge extra")
+
+
+def _mcp_text_payload(result: dict[str, Any]) -> Any:
+    content = result.get("content")
+    if not isinstance(content, list):
+        return None
+    for item in content:
+        if not isinstance(item, dict) or item.get("type") != "text":
+            continue
+        text = item.get("text")
+        if not isinstance(text, str):
+            continue
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return None
+    return None
 
 
 def _index_matches_package(status: Any, package: SourcePackage) -> bool:
