@@ -137,6 +137,7 @@ class CodebaseMemoryCli:
             return self.runner(
                 [str(self.executable), *arguments],
                 check=True,
+                stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
                 encoding="utf-8",

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import re
+import subprocess
 import sys
 from types import SimpleNamespace
 
@@ -61,6 +62,25 @@ class FakeClient:
         if name == "search_code":
             return {"results": [{"file_path": "tests/test_line.py"}]}
         raise AssertionError(name)
+
+
+def test_codebase_memory_cli_does_not_inherit_mcp_stdio(tmp_path: Path):
+    executable = tmp_path / "codebase-memory-mcp.exe"
+    executable.touch()
+    captured = {}
+
+    def runner(command, **kwargs):
+        captured.update(kwargs)
+        return subprocess.CompletedProcess(command, 0, stdout='{"projects": []}', stderr="")
+
+    client = api_memory.CodebaseMemoryCli(
+        executable=executable,
+        cache_dir=tmp_path / "cbm",
+        runner=runner,
+    )
+
+    assert client.tool("list_projects", {}) == {"projects": []}
+    assert captured["stdin"] is subprocess.DEVNULL
 
 
 def _packages(tmp_path: Path):
