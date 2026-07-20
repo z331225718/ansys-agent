@@ -19,6 +19,7 @@
 - 当前项目的运行时源码、Harness 配置、Ansys Skills 和静态 benchmark fixtures；
 - `uv.lock` 导出的 desktop 依赖；
 - CPython 3.12 Windows x64 wheelhouse；
+- 固定版本和 SHA256 的 `codebase-memory-mcp` Windows amd64 原生可执行文件；
 - 构建、验签、安装、环境检查和 AEDT 只读 smoke 脚本；
 - `bundle.json`、文件级 `SHA256SUMS` 和 ZIP SHA256。
 
@@ -86,6 +87,11 @@ pyedb[dotnet]==0.80.2
 fastmcp==3.4.4
 codebase-memory-mcp==0.9.0
 ```
+
+PyPI 上的 `codebase-memory-mcp` wheel 只是首次运行时从 GitHub Releases 下载原生程序的启动器，
+单独把 wheel 放进 wheelhouse 并不能满足无 GitHub 环境。项目离线包额外内置经过固定 SHA256 校验的
+Windows amd64 原生可执行文件；安装器会用它替换 `.venv\Scripts` 中的下载启动器。因此安装、建图和
+后续 API Memory 查询都不需要访问 GitHub 或 PyPI。
 
 若服务器没有 CPython 3.12，需提前传入组织批准的 Python Windows x64 离线安装器。安装后验证：
 

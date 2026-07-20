@@ -58,16 +58,18 @@ function Resolve-AedtRoot {
 
 $root = [System.IO.Path]::GetFullPath($InstallRoot)
 $python = Join-Path $root ".venv\Scripts\python.exe"
+$installRecordPath = Join-Path $root ".aedt-agent\install.json"
 foreach ($required in @(
     $python,
     (Join-Path $root "pyproject.toml"),
     (Join-Path $root "src\aedt_agent"),
-    (Join-Path $root ".aedt-agent\install.json")
+    $installRecordPath
 )) {
     if (-not (Test-Path -LiteralPath $required)) {
         throw "Installed runtime is missing: $required"
     }
 }
+$installRecord = Read-StrictUtf8Text -Path $installRecordPath | ConvertFrom-Json
 
 if (-not [string]::IsNullOrWhiteSpace($BundleRoot)) {
     $installer = Join-Path $BundleRoot "scripts\Install-AnsysAgentOffline.ps1"
@@ -87,6 +89,52 @@ $versionJson = Invoke-Captured -FilePath $python -Arguments @(
 $versions = $versionJson | ConvertFrom-Json
 if ($versions.bits -ne 64) {
     throw "Installed virtual environment is not 64-bit"
+}
+
+$nativeToolStatus = "not-required"
+$nativeToolVersion = $null
+$nativeToolPath = Join-Path $root ".venv\Scripts\codebase-memory-mcp.exe"
+$nativeToolRecord = $null
+$nativeToolsProperty = $installRecord.PSObject.Properties["native_tools"]
+if ($null -ne $nativeToolsProperty -and $null -ne $nativeToolsProperty.Value) {
+    $nativeToolProperty = $nativeToolsProperty.Value.PSObject.Properties["codebase_memory_mcp"]
+    if ($null -ne $nativeToolProperty) {
+        $nativeToolRecord = $nativeToolProperty.Value
+    }
+}
+if (-not [string]::IsNullOrWhiteSpace($BundleRoot) -or $null -ne $nativeToolRecord) {
+    if ($null -eq $nativeToolRecord) {
+        throw "Offline installation record is missing the bundled codebase-memory-mcp native executable"
+    }
+    $recordedNativePath = [System.IO.Path]::GetFullPath([string]$nativeToolRecord.path)
+    if (-not $recordedNativePath.Equals(
+        [System.IO.Path]::GetFullPath($nativeToolPath),
+        [System.StringComparison]::OrdinalIgnoreCase
+    )) {
+        throw "Installed codebase-memory-mcp path does not point to the project virtual environment"
+    }
+    if (-not (Test-Path -LiteralPath $nativeToolPath -PathType Leaf)) {
+        throw "Bundled codebase-memory-mcp native executable is missing after installation"
+    }
+    $nativeToolItem = Get-Item -LiteralPath $nativeToolPath -Force
+    if ($nativeToolItem.Length -lt 1MB) {
+        throw "codebase-memory-mcp is still a network downloader shim instead of the bundled native executable"
+    }
+    $nativeToolHash = (
+        Get-FileHash -LiteralPath $nativeToolPath -Algorithm SHA256
+    ).Hash.ToLowerInvariant()
+    if ($nativeToolHash -ne ([string]$nativeToolRecord.sha256).ToLowerInvariant()) {
+        throw "Installed codebase-memory-mcp native executable SHA256 mismatch"
+    }
+    $nativeToolVersionText = Invoke-Captured `
+        -FilePath $nativeToolPath `
+        -Arguments @("--version") `
+        -Label "codebase-memory-mcp native version check"
+    $nativeToolVersion = [string]$nativeToolRecord.version
+    if ($nativeToolVersionText -notmatch [regex]::Escape($nativeToolVersion)) {
+        throw "Bundled codebase-memory-mcp native executable reported an unexpected version"
+    }
+    $nativeToolStatus = "bundled-native-verified"
 }
 
 $dependencyImportProbe = @'
@@ -251,6 +299,11 @@ if ($claudeStatus -ne "compatible") {
     packages = $versions.packages
     dependency_import_status = $dependencyImports.status
     dependency_imports = $dependencyImports.modules
+    codebase_memory_mcp_native = [ordered]@{
+        status = $nativeToolStatus
+        version = $nativeToolVersion
+        path = $(if ($nativeToolStatus -eq "bundled-native-verified") { $nativeToolPath } else { $null })
+    }
     api_memory = $apiMemoryStatus
     aedt_version = $AedtVersion
     aedt_executable = $aedtExecutable

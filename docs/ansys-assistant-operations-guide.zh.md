@@ -134,6 +134,10 @@ py -3.12 -m venv .venv
 `.[desktop]` 会安装项目锁定的 PyAEDT、PyEDB DotNet 后端、FastMCP 和 codebase-memory-mcp。AEDT
 2024 R2 需要 `pyedb[dotnet]`；不要只安装基础 `pyedb`。
 
+注意：PyPI 的 `codebase-memory-mcp` wheel 自身不包含约 260 MB 的 Windows 原生程序，首次运行会访问
+GitHub Releases。目标服务器不能访问 GitHub 时，必须使用项目离线 Release；安装器会从包内安装经过
+SHA256 校验的原生程序，不能仅依赖 `pip install codebase-memory-mcp`。
+
 不要在安装后执行无版本约束的：
 
 ```powershell

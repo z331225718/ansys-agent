@@ -132,7 +132,7 @@ function Test-BundleIntegrity {
     }
 
     $manifest = Read-StrictUtf8Text -Path $manifestPath | ConvertFrom-Json
-    if ($manifest.schema_version -ne 1 -or $manifest.project.name -ne "aedt-agent") {
+    if ($manifest.schema_version -notin @(1, 2) -or $manifest.project.name -ne "aedt-agent") {
         throw "Unsupported offline bundle manifest"
     }
     if ($manifest.target.os -ne "windows" -or $manifest.target.architecture -ne "amd64") {
@@ -140,6 +140,41 @@ function Test-BundleIntegrity {
     }
     if ($manifest.payload_file_count -ne $verified) {
         throw "Bundle manifest expected $($manifest.payload_file_count) files but SHA256SUMS verified $verified"
+    }
+    if ($manifest.schema_version -ge 2) {
+        $nativeTool = $null
+        $nativeToolsProperty = $manifest.PSObject.Properties["native_tools"]
+        if ($null -ne $nativeToolsProperty -and $null -ne $nativeToolsProperty.Value) {
+            $nativeToolProperty = $nativeToolsProperty.Value.PSObject.Properties["codebase_memory_mcp"]
+            if ($null -ne $nativeToolProperty) {
+                $nativeTool = $nativeToolProperty.Value
+            }
+        }
+        if ($null -eq $nativeTool -or
+            [string]::IsNullOrWhiteSpace([string]$nativeTool.version) -or
+            $nativeTool.platform -ne "windows-amd64" -or
+            [string]::IsNullOrWhiteSpace([string]$nativeTool.path) -or
+            [string]$nativeTool.sha256 -notmatch "^[0-9a-fA-F]{64}$") {
+            throw "Bundle manifest is missing the pinned codebase-memory-mcp native executable"
+        }
+        $nativeToolRelative = ([string]$nativeTool.path).Replace("/", "\")
+        if ([System.IO.Path]::IsPathRooted($nativeToolRelative) -or
+            $nativeToolRelative -match "(^|\\)\.\.?(\\|$)" -or
+            $nativeToolRelative.Contains(":")) {
+            throw "Unsafe native tool path: $nativeToolRelative"
+        }
+        $nativeToolPath = Assert-PathInsideRoot `
+            -Root $bundlePath `
+            -Candidate (Join-Path $bundlePath $nativeToolRelative)
+        if (-not (Test-Path -LiteralPath $nativeToolPath -PathType Leaf)) {
+            throw "Bundled codebase-memory-mcp executable is missing"
+        }
+        $nativeToolHash = (
+            Get-FileHash -LiteralPath $nativeToolPath -Algorithm SHA256
+        ).Hash.ToLowerInvariant()
+        if ($nativeToolHash -ne ([string]$nativeTool.sha256).ToLowerInvariant()) {
+            throw "Bundled codebase-memory-mcp executable does not match bundle.json"
+        }
     }
     return [ordered]@{
         root = $bundlePath
@@ -289,6 +324,33 @@ try {
         "-m", "pip", "install", "--no-index", "--disable-pip-version-check",
         "--no-deps", "--no-build-isolation", "-e", $installPath
     ) -Label "aedt-agent editable installation"
+
+    $nativeToolRecord = $null
+    if ($bundle.manifest.schema_version -ge 2) {
+        $nativeTool = $bundle.manifest.native_tools.codebase_memory_mcp
+        $nativeToolSource = Assert-PathInsideRoot `
+            -Root $bundle.root `
+            -Candidate (Join-Path $bundle.root ([string]$nativeTool.path).Replace("/", "\"))
+        $nativeToolDestination = Join-Path $venvPath "Scripts\codebase-memory-mcp.exe"
+        Copy-Item -LiteralPath $nativeToolSource -Destination $nativeToolDestination -Force
+        $installedNativeHash = (
+            Get-FileHash -LiteralPath $nativeToolDestination -Algorithm SHA256
+        ).Hash.ToLowerInvariant()
+        if ($installedNativeHash -ne ([string]$nativeTool.sha256).ToLowerInvariant()) {
+            throw "Installed codebase-memory-mcp native executable SHA256 mismatch"
+        }
+        $nativeVersionOutput = & $nativeToolDestination "--version"
+        if ($LASTEXITCODE -ne 0 -or
+            ($nativeVersionOutput -join "`n") -notmatch [regex]::Escape([string]$nativeTool.version)) {
+            throw "Installed codebase-memory-mcp native executable failed its version check"
+        }
+        $nativeToolRecord = [ordered]@{
+            version = [string]$nativeTool.version
+            path = $nativeToolDestination
+            sha256 = $installedNativeHash
+            source = "bundled-native-executable"
+        }
+    }
     Invoke-Checked -FilePath $venvPython -Arguments @("-m", "pip", "check") -Label "pip dependency check"
 
     $knowledgeReady = $false
@@ -319,6 +381,9 @@ try {
         install_root = $installPath
         python = $targetPython
         venv_python = $venvPython
+        native_tools = [ordered]@{
+            codebase_memory_mcp = $nativeToolRecord
+        }
         knowledge_ready = $knowledgeReady
         knowledge_error = $knowledgeError
     }
@@ -334,6 +399,7 @@ try {
         python = $venvPython
         project_version = $bundle.manifest.project.version
         target_aedt = $bundle.manifest.target.aedt
+        codebase_memory_mcp = $nativeToolRecord
         knowledge_ready = $knowledgeReady
         knowledge_error = $knowledgeError
         next = "Run scripts\offline\Test-AnsysAgentOffline.ps1, then Invoke-Aedt2024R2Smoke.ps1."

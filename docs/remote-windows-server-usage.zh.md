@@ -594,8 +594,9 @@ D:\ansys-agent-new
 ## 14. 完全离线部署
 
 完全离线的服务器使用 GitHub Release 中的 ZIP 和同名 `.sha256`，而不是把本地 `dist`、`.venv` 或
-wheel 缓存提交进 Git。发布包包含源码、安装脚本、固定 wheelhouse、`bundle.json` 和文件级
-`SHA256SUMS`。
+wheel 缓存提交进 Git。发布包包含源码、安装脚本、固定 wheelhouse、`codebase-memory-mcp` Windows
+amd64 原生程序、`bundle.json` 和文件级 `SHA256SUMS`。原生程序会在安装时替换 PyPI wheel 提供的
+联网下载启动器，所以远端运行 API Memory 不需要连接 GitHub。
 
 在联网机制作发布包：
 
@@ -620,8 +621,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
   -PythonExe C:\Python312\python.exe
 ```
 
-离线包的交付位置是 GitHub Release assets。Git 分支保存源码、脚本和文档，不保存约 100 MB 的
-wheelhouse，这样远端离线机仍能从 Release 下载或通过中转介质获得可验签安装包，同时避免仓库历史永久
+离线包的交付位置是 GitHub Release assets。Git 分支保存源码、脚本和文档，不保存大型 wheelhouse 和
+原生工具，这样远端离线机仍能通过中转介质获得可验签安装包，同时避免仓库历史永久
 膨胀。
 
 ## 15. 常见问题

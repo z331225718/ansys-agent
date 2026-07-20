@@ -169,6 +169,20 @@ if ($LASTEXITCODE -ne 0) {
     throw "Unable to read pyproject.toml"
 }
 $projectInfo = $projectInfoText | ConvertFrom-Json
+$codebaseMemoryNative = [ordered]@{
+    version = "0.9.0"
+    archive_name = "codebase-memory-mcp-windows-amd64.zip"
+    archive_sha256 = "92f96896f952e539f0d6cb34d7892a25064b677ccbf808b8f8310ad897e86f2c"
+    binary_sha256 = "9a205fa5ae759fbc866bfe1554f0c05a303be9ae6e0a00f94d875dc0c25e0680"
+}
+$codebaseMemoryRequirements = @(
+    $projectInfo.desktop |
+        Where-Object { $_ -like "codebase-memory-mcp==*" }
+)
+if ($codebaseMemoryRequirements.Count -ne 1 -or
+    $codebaseMemoryRequirements[0] -ne "codebase-memory-mcp==$($codebaseMemoryNative.version)") {
+    throw "The desktop dependency must pin codebase-memory-mcp==$($codebaseMemoryNative.version) to match the bundled native binary."
+}
 if ([string]::IsNullOrWhiteSpace($BundleName)) {
     $pythonTag = $TargetPython.Replace(".", "")
     $BundleName = "ansys-agent-offline-$($projectInfo.version)-win-amd64-py$pythonTag"
@@ -220,6 +234,48 @@ try {
 
     $bundleScripts = Join-Path $bundleRoot "scripts"
     Copy-FilteredTree -Source (Join-Path $repository "scripts\offline") -Destination $bundleScripts
+
+    $nativeArchivePath = Join-Path $staging $codebaseMemoryNative.archive_name
+    $nativeExtractPath = Join-Path $staging "codebase-memory-mcp-native"
+    $nativeArchiveUrl = (
+        "https://github.com/DeusData/codebase-memory-mcp/releases/download/" +
+        "v$($codebaseMemoryNative.version)/$($codebaseMemoryNative.archive_name)"
+    )
+    $webClient = New-Object System.Net.WebClient
+    try {
+        $webClient.DownloadFile($nativeArchiveUrl, $nativeArchivePath)
+    } finally {
+        $webClient.Dispose()
+    }
+    $nativeArchiveHash = (
+        Get-FileHash -LiteralPath $nativeArchivePath -Algorithm SHA256
+    ).Hash.ToLowerInvariant()
+    if ($nativeArchiveHash -ne $codebaseMemoryNative.archive_sha256) {
+        throw "codebase-memory-mcp native archive SHA256 mismatch"
+    }
+    Expand-Archive -LiteralPath $nativeArchivePath -DestinationPath $nativeExtractPath
+    $extractedNativeFiles = @(Get-ChildItem -LiteralPath $nativeExtractPath -Recurse -Force -File)
+    $extractedNativeBinary = Join-Path $nativeExtractPath "codebase-memory-mcp.exe"
+    if ($extractedNativeFiles.Count -ne 1 -or
+        -not (Test-Path -LiteralPath $extractedNativeBinary -PathType Leaf)) {
+        throw "codebase-memory-mcp native archive did not contain exactly the expected executable"
+    }
+    $nativeBinaryHash = (
+        Get-FileHash -LiteralPath $extractedNativeBinary -Algorithm SHA256
+    ).Hash.ToLowerInvariant()
+    if ($nativeBinaryHash -ne $codebaseMemoryNative.binary_sha256) {
+        throw "codebase-memory-mcp native executable SHA256 mismatch"
+    }
+    $bundledNativeRelative = (
+        "tools/codebase-memory-mcp/$($codebaseMemoryNative.version)/codebase-memory-mcp.exe"
+    )
+    $bundledNativePath = Join-Path $bundleRoot $bundledNativeRelative.Replace("/", "\")
+    New-Item -ItemType Directory -Path (Split-Path -Parent $bundledNativePath) -Force | Out-Null
+    Copy-Item -LiteralPath $extractedNativeBinary -Destination $bundledNativePath -Force
+    Copy-Item `
+        -LiteralPath (Join-Path $repository "third_party\codebase-memory-mcp\LICENSE") `
+        -Destination (Join-Path (Split-Path -Parent $bundledNativePath) "LICENSE") `
+        -Force
 
     $desktopRequirements = Join-Path $bundleRoot "requirements-desktop.txt"
     Invoke-Checked -FilePath $uv -Arguments @(
@@ -274,7 +330,7 @@ try {
 
     $preManifestFiles = @(Get-ChildItem -LiteralPath $bundleRoot -Recurse -Force -File)
     $manifest = [ordered]@{
-        schema_version = 1
+        schema_version = 2
         created_utc = [DateTime]::UtcNow.ToString("o")
         project = [ordered]@{
             name = "aedt-agent"
@@ -289,6 +345,16 @@ try {
             aedt = "2024.2"
         }
         desktop_dependencies = @($projectInfo.desktop)
+        native_tools = [ordered]@{
+            codebase_memory_mcp = [ordered]@{
+                version = $codebaseMemoryNative.version
+                platform = "windows-amd64"
+                path = $bundledNativeRelative
+                sha256 = $nativeBinaryHash
+                upstream_archive = $codebaseMemoryNative.archive_name
+                upstream_archive_sha256 = $nativeArchiveHash
+            }
+        }
         install_layout = [ordered]@{
             mode = "editable-runtime"
             required_venv = ".venv"

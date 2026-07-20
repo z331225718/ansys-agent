@@ -26,6 +26,14 @@ def _ps_quote(value: object) -> str:
     return str(value).replace("'", "''")
 
 
+def _refresh_bundle_checksums(root: Path) -> None:
+    payloads = sorted(
+        path for path in root.rglob("*") if path.is_file() and path.name != "SHA256SUMS"
+    )
+    lines = [f"{_sha256(path)} *{path.relative_to(root).as_posix()}" for path in payloads]
+    (root / "SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def _write_test_bundle(root: Path) -> None:
     files = {
         "requirements-desktop.txt": "PyYAML==6.0.3\n",
@@ -37,6 +45,7 @@ def _write_test_bundle(root: Path) -> None:
         "runtime/nodes/catalog/example.yaml": "id: example\n",
         "runtime/workflow_templates/example.json": "{}\n",
         "runtime/workflows/scripts/example.js": "// workflow\n",
+        "tools/codebase-memory-mcp/0.9.0/codebase-memory-mcp.exe": "native-test-binary",
         "wheelhouse/dummy-0-py3-none-any.whl": "not-a-real-wheel",
     }
     for relative, content in files.items():
@@ -44,7 +53,7 @@ def _write_test_bundle(root: Path) -> None:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
         "project": {
             "name": "aedt-agent",
             "version": "0.1.0",
@@ -57,12 +66,20 @@ def _write_test_bundle(root: Path) -> None:
             "python": "3.12",
             "aedt": "2024.2",
         },
+        "native_tools": {
+            "codebase_memory_mcp": {
+                "version": "0.9.0",
+                "platform": "windows-amd64",
+                "path": "tools/codebase-memory-mcp/0.9.0/codebase-memory-mcp.exe",
+                "sha256": _sha256(
+                    root / "tools/codebase-memory-mcp/0.9.0/codebase-memory-mcp.exe"
+                ),
+            }
+        },
         "payload_file_count": len(files) + 1,
     }
     (root / "bundle.json").write_text(json.dumps(manifest), encoding="utf-8")
-    payloads = sorted(path for path in root.rglob("*") if path.is_file())
-    lines = [f"{_sha256(path)} *{path.relative_to(root).as_posix()}" for path in payloads]
-    (root / "SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    _refresh_bundle_checksums(root)
 
 
 def _run_verify(bundle: Path) -> subprocess.CompletedProcess[str]:
@@ -176,6 +193,34 @@ def test_offline_installer_rejects_unlisted_payload(tmp_path: Path) -> None:
     assert "unlisted or missing payload files" in result.stderr
 
 
+def test_offline_installer_requires_native_tool_in_schema_v2(tmp_path: Path) -> None:
+    _write_test_bundle(tmp_path)
+    manifest_path = tmp_path / "bundle.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.pop("native_tools")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    _refresh_bundle_checksums(tmp_path)
+
+    result = _run_verify(tmp_path)
+
+    assert result.returncode != 0
+    assert "missing the pinned codebase-memory-mcp native executable" in result.stderr
+
+
+def test_offline_installer_rejects_unsafe_native_tool_path(tmp_path: Path) -> None:
+    _write_test_bundle(tmp_path)
+    manifest_path = tmp_path / "bundle.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["native_tools"]["codebase_memory_mcp"]["path"] = "../outside.exe"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    _refresh_bundle_checksums(tmp_path)
+
+    result = _run_verify(tmp_path)
+
+    assert result.returncode != 0
+    assert "Unsafe native tool path" in result.stderr
+
+
 def test_offline_installer_rolls_back_new_root_after_install_failure(tmp_path: Path) -> None:
     bundle = tmp_path / "bundle"
     bundle.mkdir()
@@ -210,6 +255,11 @@ def test_bundle_builder_is_locked_binary_only_and_excludes_local_config() -> Non
     script = (OFFLINE_SCRIPTS / "New-AnsysAgentOfflineBundle.ps1").read_text(encoding="utf-8")
 
     assert '[string]$TargetPython = "3.12"' in script
+    assert '"codebase-memory-mcp-windows-amd64.zip"' in script
+    assert "92f96896f952e539f0d6cb34d7892a25064b677ccbf808b8f8310ad897e86f2c" in script
+    assert "9a205fa5ae759fbc866bfe1554f0c05a303be9ae6e0a00f94d875dc0c25e0680" in script
+    assert "codebase_memory_mcp" in script
+    assert '"third_party\\codebase-memory-mcp\\LICENSE"' in script
     for expected in (
         '"--frozen"',
         '"--require-hashes"',
@@ -226,6 +276,18 @@ def test_bundle_builder_is_locked_binary_only_and_excludes_local_config() -> Non
         '"validation_scripts"',
     ):
         assert expected in script
+
+
+def test_offline_installer_replaces_network_shim_with_bundled_native_binary() -> None:
+    installer = INSTALLER.read_text(encoding="utf-8")
+    preflight = (OFFLINE_SCRIPTS / "Test-AnsysAgentOffline.ps1").read_text(encoding="utf-8")
+
+    assert 'Scripts\\codebase-memory-mcp.exe' in installer
+    assert 'source = "bundled-native-executable"' in installer
+    assert 'Copy-Item -LiteralPath $nativeToolSource' in installer
+    assert 'Arguments @("--version")' in preflight
+    assert "network downloader shim" in preflight
+    assert '"bundled-native-verified"' in preflight
 
 
 def test_bundle_builder_writes_release_metadata_as_utf8_without_bom() -> None:
