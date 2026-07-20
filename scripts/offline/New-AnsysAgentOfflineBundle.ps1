@@ -256,9 +256,21 @@ try {
     Expand-Archive -LiteralPath $nativeArchivePath -DestinationPath $nativeExtractPath
     $extractedNativeFiles = @(Get-ChildItem -LiteralPath $nativeExtractPath -Recurse -Force -File)
     $extractedNativeBinary = Join-Path $nativeExtractPath "codebase-memory-mcp.exe"
-    if ($extractedNativeFiles.Count -ne 1 -or
+    $expectedNativeArchiveFiles = @(
+        "codebase-memory-mcp.exe",
+        "install.ps1",
+        "LICENSE",
+        "THIRD_PARTY_NOTICES.md"
+    )
+    $actualNativeArchiveFiles = @(
+        $extractedNativeFiles |
+            ForEach-Object { $_.FullName.Substring($nativeExtractPath.Length).TrimStart("\") } |
+            Sort-Object
+    )
+    if (($actualNativeArchiveFiles -join "|") -ne
+        (($expectedNativeArchiveFiles | Sort-Object) -join "|") -or
         -not (Test-Path -LiteralPath $extractedNativeBinary -PathType Leaf)) {
-        throw "codebase-memory-mcp native archive did not contain exactly the expected executable"
+        throw "codebase-memory-mcp native archive contents did not match the pinned release layout"
     }
     $nativeBinaryHash = (
         Get-FileHash -LiteralPath $extractedNativeBinary -Algorithm SHA256
@@ -275,6 +287,10 @@ try {
     Copy-Item `
         -LiteralPath (Join-Path $repository "third_party\codebase-memory-mcp\LICENSE") `
         -Destination (Join-Path (Split-Path -Parent $bundledNativePath) "LICENSE") `
+        -Force
+    Copy-Item `
+        -LiteralPath (Join-Path $nativeExtractPath "THIRD_PARTY_NOTICES.md") `
+        -Destination (Join-Path (Split-Path -Parent $bundledNativePath) "THIRD_PARTY_NOTICES.md") `
         -Force
 
     $desktopRequirements = Join-Path $bundleRoot "requirements-desktop.txt"
