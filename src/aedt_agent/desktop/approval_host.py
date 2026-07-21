@@ -259,10 +259,48 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="aedt-agent-approval-host")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", required=True, type=int)
+    parser.add_argument("--parent-pid", type=int)
     args = parser.parse_args(argv)
     key = os.environ.get("AEDT_AGENT_APPROVAL_KEY", "")
-    ApprovalHost(args.host, args.port, key).serve_forever()
+    host = ApprovalHost(args.host, args.port, key)
+    if args.parent_pid:
+        _stop_when_parent_exits(host, args.parent_pid)
+    host.serve_forever()
     return 0
+
+
+def _stop_when_parent_exits(host: ApprovalHost, parent_pid: int) -> None:
+    """Avoid a loopback approval service surviving a forcibly closed terminal."""
+
+    def monitor() -> None:
+        while _process_is_alive(parent_pid):
+            time.sleep(1)
+        host.server.shutdown()
+
+    threading.Thread(target=monitor, name="aedt-approval-parent-watch", daemon=True).start()
+
+
+def _process_is_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+
+        handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
+        if not handle:
+            return False
+        try:
+            exit_code = ctypes.c_ulong()
+            return bool(ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))) and (
+                exit_code.value == 259
+            )
+        finally:
+            ctypes.windll.kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
 
 
 if __name__ == "__main__":

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import subprocess
 import threading
 from types import SimpleNamespace
 
@@ -16,7 +18,7 @@ from aedt_agent.desktop.launcher import AedtDesktopContext
 from aedt_agent.desktop.launcher import ClaudeDesktopLauncher
 
 
-def _project(tmp_path: Path) -> tuple[Path, Path, Path]:
+def _project(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     root = tmp_path / "ansys-agent"
     (root / "src" / "aedt_agent").mkdir(parents=True)
     (root / "pyproject.toml").write_text("[project]\nname='aedt-agent'\n", encoding="ascii")
@@ -25,7 +27,10 @@ def _project(tmp_path: Path) -> tuple[Path, Path, Path]:
     python.write_bytes(b"")
     claude = tmp_path / "claude.exe"
     claude.write_bytes(b"")
-    return root, python, claude
+    git_bash = tmp_path / "Git" / "bin" / "bash.exe"
+    git_bash.parent.mkdir(parents=True)
+    git_bash.write_bytes(b"")
+    return root, python, claude, git_bash
 
 
 class _PreparingApiMemory:
@@ -68,11 +73,11 @@ class _PreparingApiMemory:
         return {"status": "ready"}
 
 
-def test_launcher_generates_session_scoped_mcp_and_visible_powershell(
+def test_launcher_generates_session_scoped_mcp_and_visible_git_bash(
     tmp_path: Path,
     monkeypatch,
 ):
-    root, python, claude = _project(tmp_path)
+    root, python, claude, git_bash = _project(tmp_path)
     claude_config = tmp_path / "claude-config"
     claude_config.mkdir()
     (claude_config / "settings.json").write_text(
@@ -107,6 +112,7 @@ def test_launcher_generates_session_scoped_mcp_and_visible_powershell(
         project_root=root,
         python_executable=python,
         claude_executable=claude,
+        git_bash_executable=git_bash,
         context_loader=lambda port, version: context,
         process_factory=lambda command, **kwargs: processes.append((command, kwargs)) or SimpleNamespace(pid=99),
         api_memory_factory=lambda: api_memory,
@@ -153,35 +159,41 @@ def test_launcher_generates_session_scoped_mcp_and_visible_powershell(
     assert "ansys-operation-plan/v1" in system_context
     assert "raw COM" in system_context
     assert "Never auto-promote" in system_context
-    powershell = Path(result["powershell_script"]).read_text(encoding="utf-8-sig")
-    assert "--bare" in powershell
-    assert f"--settings '{Path(result['claude_settings'])}'" in powershell
-    assert "--setting-sources=" in powershell
-    assert "--setting-sources ''" not in powershell
-    assert "--strict-mcp-config" in powershell
-    assert "--tools 'AskUserQuestion'" in powershell
-    assert "--allowedTools 'AskUserQuestion,mcp__ansys-assistant__list_ansys_capabilities," in powershell
-    assert "mcp__ansys-assistant__attach_live_aedt_session" in powershell
-    assert "mcp__ansys-assistant__apply_live_parameterize_path_width" in powershell
-    assert "mcp__ansys-assistant__promote_ansys_capability,mcp__ansys-api-memory__get_ansys_api_memory_status" in powershell
-    assert "mcp__ansys-api-memory__find_ansys_example'" in powershell
-    assert "mcp__ansys-assistant__*" not in powershell
-    assert "mcp__ansys-api-memory__*" not in powershell
-    assert "mcp__ansys-assistant__open_layout_session" not in powershell
-    assert "--disallowedTools 'Bash,Edit,Write,Read,Glob,Grep,NotebookEdit" in powershell
-    assert "Task,TaskOutput,KillShell,LSP,Skill'" in powershell
-    assert "Computer" not in powershell
-    assert "Chrome" not in powershell
-    assert "--disable-slash-commands" in powershell
-    assert "--no-chrome" in powershell
-    assert "--dangerously-skip-permissions" not in powershell
-    assert "--permission-mode manual" in powershell
-    assert "$env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'" in powershell
-    assert "$env:DISABLE_AUTOUPDATER = '1'" in powershell
-    assert "aedt_agent.desktop.approval_host" in powershell
-    assert "/shutdown" in powershell
-    assert processes[0][0][0] == "powershell.exe"
-    assert "-NoExit" in processes[0][0]
+    launch_script = Path(result["launch_script"]).read_text(encoding="utf-8")
+    assert Path(result["launch_script"]).name == "launch-claude.sh"
+    assert result["powershell_script"] == result["launch_script"]
+    assert "#!/usr/bin/env bash" in launch_script
+    assert "set -euo pipefail" in launch_script
+    assert "--bare" not in launch_script
+    assert "--disable-slash-commands" not in launch_script
+    assert "--settings" in launch_script
+    assert "--setting-sources=" in launch_script
+    assert "--setting-sources ''" not in launch_script
+    assert "--strict-mcp-config" in launch_script
+    assert "'--tools' 'AskUserQuestion'" in launch_script
+    assert "'--allowedTools' 'AskUserQuestion,mcp__ansys-assistant__list_ansys_capabilities," in launch_script
+    assert "mcp__ansys-assistant__attach_live_aedt_session" in launch_script
+    assert "mcp__ansys-assistant__apply_live_parameterize_path_width" in launch_script
+    assert "mcp__ansys-assistant__promote_ansys_capability,mcp__ansys-api-memory__get_ansys_api_memory_status" in launch_script
+    assert "mcp__ansys-api-memory__find_ansys_example'" in launch_script
+    assert "mcp__ansys-assistant__*" not in launch_script
+    assert "mcp__ansys-api-memory__*" not in launch_script
+    assert "mcp__ansys-assistant__open_layout_session" not in launch_script
+    assert "'--disallowedTools' 'Bash,Edit,Write,Read,Glob,Grep,NotebookEdit" in launch_script
+    assert "Task,TaskOutput,KillShell,LSP,Skill'" in launch_script
+    assert "Computer" not in launch_script
+    assert "Chrome" not in launch_script
+    assert "--no-chrome" in launch_script
+    assert "--dangerously-skip-permissions" not in launch_script
+    assert "'--permission-mode'" in launch_script
+    assert "'manual'" in launch_script
+    assert "export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC='1'" in launch_script
+    assert "export DISABLE_AUTOUPDATER='1'" in launch_script
+    assert "aedt_agent.desktop.approval_host" in launch_script
+    assert "--parent-pid \"$BASHPID\"" in launch_script
+    assert "/shutdown" in launch_script
+    assert "MSYS2_ARG_CONV_EXCL='*'" in launch_script
+    assert processes[0][0][:3] == [str(git_bash.resolve()), "--noprofile", "--norc"]
     assert len(processes[0][1]["env"]["AEDT_AGENT_APPROVAL_KEY"]) >= 32
     assert processes[0][1]["env"]["ANTHROPIC_BASE_URL"] == "https://gateway.example.invalid"
     assert processes[0][1]["env"]["ANTHROPIC_MODEL"] == "deepseek-v4-flash"
@@ -190,11 +202,22 @@ def test_launcher_generates_session_scoped_mcp_and_visible_powershell(
     assert "UNRELATED_SETTING" not in processes[0][1]["env"]
     for path in Path(result["session_directory"]).iterdir():
         assert "settings-only-secret-token" not in path.read_text(encoding="utf-8-sig")
+    assert result["shell_pid"] == 99
     assert result["powershell_pid"] == 99
+    assert result["launcher"] == {
+        "kind": "git_bash",
+        "executable": str(git_bash.resolve()),
+        "script": result["launch_script"],
+        "pid": 99,
+    }
+    metadata = json.loads(Path(result["metadata"]).read_text(encoding="utf-8"))
+    assert metadata["schema_version"] == 2
+    assert metadata["launch_protocol_version"] == 2
+    assert metadata["launcher"] == result["launcher"]
 
 
 def test_api_memory_prepare_failure_keeps_runtime_harness_available(tmp_path: Path):
-    root, python, claude = _project(tmp_path)
+    root, python, claude, git_bash = _project(tmp_path)
     processes = []
     context = AedtDesktopContext(
         port=50061,
@@ -216,6 +239,7 @@ def test_api_memory_prepare_failure_keeps_runtime_harness_available(tmp_path: Pa
         project_root=root,
         python_executable=python,
         claude_executable=claude,
+        git_bash_executable=git_bash,
         context_loader=lambda port, version: context,
         process_factory=lambda command, **kwargs: processes.append((command, kwargs)) or SimpleNamespace(pid=101),
         api_memory_factory=FailingApiMemory,
@@ -240,11 +264,11 @@ def test_api_memory_prepare_failure_keeps_runtime_harness_available(tmp_path: Pa
     system_context = Path(result["system_context"]).read_text(encoding="utf-8")
     assert "unknown operations as unsupported" in system_context
     assert "Keep known Runtime Harness tools available" in system_context
-    powershell = Path(result["powershell_script"]).read_text(encoding="utf-8-sig")
-    assert "--allowedTools 'AskUserQuestion,mcp__ansys-assistant__list_ansys_capabilities," in powershell
-    assert "mcp__ansys-assistant__promote_ansys_capability'" in powershell
-    assert "mcp__ansys-assistant__*" not in powershell
-    assert "mcp__ansys-api-memory__" not in powershell
+    launch_script = Path(result["launch_script"]).read_text(encoding="utf-8")
+    assert "'--allowedTools' 'AskUserQuestion,mcp__ansys-assistant__list_ansys_capabilities," in launch_script
+    assert "mcp__ansys-assistant__promote_ansys_capability'" in launch_script
+    assert "mcp__ansys-assistant__*" not in launch_script
+    assert "mcp__ansys-api-memory__" not in launch_script
 
 
 def test_installer_uses_official_pyaedt_menu_api_and_preserves_aedt(tmp_path: Path):
@@ -299,15 +323,46 @@ def test_installer_uses_official_pyaedt_menu_api_and_preserves_aedt(tmp_path: Pa
 
 
 def test_launcher_rejects_invalid_target_port(tmp_path: Path):
-    root, python, claude = _project(tmp_path)
+    root, python, claude, git_bash = _project(tmp_path)
     launcher = ClaudeDesktopLauncher(
         project_root=root,
         python_executable=python,
         claude_executable=claude,
+        git_bash_executable=git_bash,
         context_loader=lambda port, version: pytest.fail("context loader must not run"),
     )
     with pytest.raises(Exception, match="port must be an integer"):
         launcher.launch(port=0)
+
+
+def test_generated_git_bash_script_has_valid_bash_syntax(tmp_path: Path):
+    installed_bash = Path(os.environ.get("ProgramFiles", "")) / "Git" / "bin" / "bash.exe"
+    if not installed_bash.is_file():
+        pytest.skip("Git for Windows is unavailable")
+    root, python, claude, _ = _project(tmp_path)
+    context = AedtDesktopContext(
+        port=50061,
+        version="2026.1",
+        pid=42,
+        project_name="Board Project",
+        design_name="Layout1",
+        design_type="HFSS 3D Layout Design",
+    )
+    launcher = ClaudeDesktopLauncher(
+        project_root=root,
+        python_executable=python,
+        claude_executable=claude,
+        git_bash_executable=installed_bash,
+        api_memory_factory=lambda: _PreparingApiMemory(),
+    )
+    prepared = launcher.prepare(context, approval_port=50062)
+    checked = subprocess.run(
+        [str(installed_bash), "--noprofile", "--norc", "-n", prepared["launch_script"]],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert checked.returncode == 0, checked.stderr
 
 
 def test_approval_host_requires_native_decision_and_token_is_one_use():

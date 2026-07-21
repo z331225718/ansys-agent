@@ -232,7 +232,6 @@ try {
     $claudeVersion = Invoke-Captured -FilePath $claudePath -Arguments @("--version") -Label "Claude Code version"
     $claudeHelp = Invoke-Captured -FilePath $claudePath -Arguments @("--help") -Label "Claude Code help"
     $requiredFlagPatterns = [ordered]@{
-        "--bare" = [regex]::Escape("--bare")
         "--settings" = [regex]::Escape("--settings")
         "--setting-sources" = [regex]::Escape("--setting-sources")
         "--mcp-config" = [regex]::Escape("--mcp-config")
@@ -240,7 +239,6 @@ try {
         "--tools" = [regex]::Escape("--tools")
         "--allowedTools" = [regex]::Escape("--allowedTools")
         "--disallowedTools" = [regex]::Escape("--disallowedTools")
-        "--disable-slash-commands" = [regex]::Escape("--disable-slash-commands")
         "--no-chrome" = [regex]::Escape("--no-chrome")
         "--append-system-prompt-file" = "--append-system-prompt(?:-file|\[-file\])"
         "--permission-mode" = [regex]::Escape("--permission-mode")
@@ -261,7 +259,6 @@ try {
             Set-Content -LiteralPath $probeMcp -Value '{"mcpServers":{}}' -Encoding UTF8
             Set-Content -LiteralPath $probePrompt -Value '# Ansys Agent offline preflight' -Encoding UTF8
             Invoke-Captured -FilePath $claudePath -Arguments @(
-                "--bare",
                 "--settings", $probeSettings,
                 "--setting-sources=",
                 "--mcp-config", $probeMcp,
@@ -269,7 +266,6 @@ try {
                 "--tools", "AskUserQuestion",
                 "--allowedTools", "AskUserQuestion",
                 "--disallowedTools", "Bash",
-                "--disable-slash-commands",
                 "--no-chrome",
                 "--append-system-prompt-file", $probePrompt,
                 "--permission-mode", "manual",

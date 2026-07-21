@@ -425,7 +425,6 @@ def test_offline_preflight_checks_claude_help_security_flags() -> None:
 
     assert '@("--help")' in script
     for flag in (
-        "--bare",
         "--settings",
         "--setting-sources",
         "--mcp-config",
@@ -433,7 +432,6 @@ def test_offline_preflight_checks_claude_help_security_flags() -> None:
         "--tools",
         "--allowedTools",
         "--disallowedTools",
-        "--disable-slash-commands",
         "--no-chrome",
         "--append-system-prompt-file",
         "--permission-mode",
@@ -443,6 +441,8 @@ def test_offline_preflight_checks_claude_help_security_flags() -> None:
     assert '"--version"' in script
     assert "Claude Code option parser preflight" in script
     assert '"--setting-sources="' in script
+    assert "--bare" not in script
+    assert "--disable-slash-commands" not in script
 
 
 def test_offline_preflight_imports_desktop_dependencies_in_target_python() -> None:

@@ -76,16 +76,16 @@ D:\aedt-project-backups        人工管理的工程副本或备份
 
 1. 在同一个交互式 RDP 会话中启动 AEDT。
 2. 打开目标工程，等待工程完整加载，然后在 Project Manager 中单击激活目标设计。
-3. 在 AEDT 中点击 `Automation -> Ansys Agent`，保留新打开的 PowerShell 窗口。
+3. 在 AEDT 中点击 `Automation -> Ansys Agent`，保留新打开的 Git Bash 窗口。
 4. 等待助手只 attach 一次，并报告端口、工程、设计、设计类型和 AEDT 版本。
-5. 人工把报告内容与 AEDT GUI 逐项比较；任一项不一致就关闭本次 PowerShell。
+5. 人工把报告内容与 AEDT GUI 逐项比较；任一项不一致就关闭本次 Git Bash。
 6. 先发只读任务，确认对象清单和筛选条件能命中合理数量。
 7. 写任务明确要求 `preview -> 审批 -> apply -> readback`，并明确是否保存。未说明时默认不保存。
 8. apply 后检查 `status=verified`、目标数量、失败数量、rollback 状态和 `project_saved=false`。
 9. 需要保存时另行明确提出保存，让保存走独立 preview 和审批。
 10. 任务结束后让助手 release session，或直接退出本次 Claude Code；确认 AEDT 和工程仍保持打开。
 
-PowerShell 是本次按钮来源会话的安全边界。不要把一个 PowerShell 长期复用于后来切换的工程或设计，也不要
+Git Bash 是本次按钮来源会话的安全边界。不要把一个 Git Bash 长期复用于后来切换的工程或设计，也不要
 把其中的 `live_session_id`、preview id 或 approval token 复制到另一窗口继续使用。
 
 ### 0.4 切换工程、设计或 AEDT 进程
@@ -93,7 +93,7 @@ PowerShell 是本次按钮来源会话的安全边界。不要把一个 PowerShe
 当前会话绑定按钮点击时的 gRPC 端口、project 和 design。需要切换时：
 
 1. 等待正在执行的只读调用结束；如果正在求解，先按任务约定处理，不要直接杀 AEDT。
-2. 退出旧 PowerShell 中的 Claude Code，使助手释放 wrapper。
+2. 退出旧 Git Bash 中的 Claude Code，使助手释放 wrapper。
 3. 回到 AEDT，激活新的工程和设计。
 4. 如果切换到了另一个 AEDT 进程，重新用 `live-sessions` 确认端口，并为该端口重新安装入口。
 5. 再次点击 `Automation -> Ansys Agent`，重新核对身份。
@@ -631,12 +631,12 @@ Get-Content (Join-Path $Session.FullName "session.json") -Raw -Encoding UTF8 |
 - 当前活动工程是要操作的工程；
 - 当前活动设计是要操作的设计；
 - 工程最好已有备份或版本控制副本；
-- 没有遗留的旧 Ansys Agent PowerShell；
+- 没有遗留的旧 Ansys Agent Git Bash；
 - 当前用户能看到 Windows 原生确认框。
 
 ### 9.2 从 AEDT 启动
 
-点击 `Automation -> Ansys Agent`。launcher 会打开 PowerShell，并给 Claude Code 一条初始任务：
+点击 `Automation -> Ansys Agent`。launcher 会打开 Git Bash，并给 Claude Code 一条初始任务：
 
 ```text
 请先连接来源端口，核对活动工程和设计，然后等待我的任务。
@@ -649,7 +649,7 @@ Get-Content (Join-Path $Session.FullName "session.json") -Raw -Encoding UTF8 |
 3. 报告工程、设计和设计类型；
 4. 等待用户任务。
 
-成功连接后不应反复 attach。如果 Agent 在成功后不断重连，应停止该 PowerShell，确认远端已更新到
+成功连接后不应反复 attach。如果 Agent 在成功后不断重连，应停止该 Git Bash，确认远端已更新到
 包含 session 复用修复的版本，再重新点击入口。
 
 ### 9.3 核对设计名

@@ -264,14 +264,14 @@ Automation -> Ansys Agent
 ### 6.1 点击前检查
 
 - AEDT 当前工程和当前设计正确；
-- 没有尚未结束的旧 Ansys Agent PowerShell；
+- 没有尚未结束的旧 Ansys Agent Git Bash；
 - 当前是可见的交互式 RDP 桌面，不是 Windows 服务或纯 SSH 会话；
 - 当前工程已有人工备份或使用的是副本；
 - 本次是否允许保存已经事先明确，未明确时视为不保存。
 
 ### 6.2 点击入口
 
-在 AEDT 中点击 `Automation -> Ansys Agent`。入口会打开可见 PowerShell，并启动隔离的 Claude Code
+在 AEDT 中点击 `Automation -> Ansys Agent`。入口会打开可见 Git Bash，并启动隔离的 Claude Code
 会话。正常首次行为是：
 
 1. 连接按钮来源的 AEDT 端口一次；
@@ -279,7 +279,7 @@ Automation -> Ansys Agent
 3. 报告端口、工程、设计、设计类型和 AEDT 版本；
 4. 等待用户任务。
 
-核对报告内容与 AEDT GUI。任一项不一致，关闭本次 PowerShell，不要让 Agent 通过反复 attach 自行修复。
+核对报告内容与 AEDT GUI。任一项不一致，关闭本次 Git Bash，不要让 Agent 通过反复 attach 自行修复。
 
 看到下面两类行为应立即停止：
 
@@ -295,7 +295,7 @@ Automation -> Ansys Agent
   mcp.json
   context.md
   claude-settings.json
-  launch-claude.ps1
+  launch-claude.sh
   session.json
 ```
 

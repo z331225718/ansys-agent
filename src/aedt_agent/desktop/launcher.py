@@ -184,6 +184,7 @@ class ClaudeDesktopLauncher:
         project_root: str | Path | None = None,
         python_executable: str | Path | None = None,
         claude_executable: str | Path | None = None,
+        git_bash_executable: str | Path | None = None,
         context_loader: Callable[[int, str], AedtDesktopContext] | None = None,
         process_factory: Callable[..., Any] = subprocess.Popen,
         api_memory_factory: Callable[[], Any] | None = None,
@@ -197,6 +198,7 @@ class ClaudeDesktopLauncher:
         if not claude:
             raise DesktopLaunchError("Claude Code executable was not found on PATH")
         self.claude_executable = _required_file(claude, "Claude Code executable")
+        self.git_bash_executable = _git_bash_executable(git_bash_executable)
         self.context_loader = context_loader or _load_live_context
         self.process_factory = process_factory
         self.api_memory_factory = api_memory_factory or AnsysApiMemory
@@ -210,23 +212,26 @@ class ClaudeDesktopLauncher:
         environment["AEDT_AGENT_APPROVAL_KEY"] = secrets.token_urlsafe(32)
         process = self.process_factory(
             [
-                "powershell.exe",
-                "-NoLogo",
-                "-NoExit",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                session["powershell_script"],
+                str(self.git_bash_executable),
+                "--noprofile",
+                "--norc",
+                session["launch_script"],
             ],
             cwd=str(self.project_root),
             creationflags=creationflags,
             env=environment,
         )
+        pid = getattr(process, "pid", None)
+        launcher = {**session["launcher"], "pid": pid}
+        _record_launch_pid(Path(session["metadata"]), launcher)
         return {
             "launched": True,
-            "powershell_pid": getattr(process, "pid", None),
-            "context": asdict(context),
             **session,
+            "shell_pid": pid,
+            # Deprecated aliases kept for existing extension consumers.
+            "powershell_pid": pid,
+            "launcher": launcher,
+            "context": asdict(context),
         }
 
     def prepare(
@@ -242,7 +247,7 @@ class ClaudeDesktopLauncher:
         mcp_path = session_dir / "mcp.json"
         context_path = session_dir / "context.md"
         settings_path = session_dir / "claude-settings.json"
-        powershell_path = session_dir / "launch-claude.ps1"
+        launch_path = session_dir / "launch-claude.sh"
         metadata_path = session_dir / "session.json"
         approval_port = approval_port or _available_loopback_port()
         approval_url = f"http://127.0.0.1:{approval_port}"
@@ -283,8 +288,8 @@ class ClaudeDesktopLauncher:
             json.dumps(_claude_settings(), ensure_ascii=True, indent=2),
             encoding="utf-8",
         )
-        powershell_path.write_text(
-            _powershell_script(
+        launch_path.write_text(
+            _git_bash_script(
                 project_root=self.project_root,
                 claude_executable=self.claude_executable,
                 mcp_path=mcp_path,
@@ -296,10 +301,18 @@ class ClaudeDesktopLauncher:
                 approval_url=approval_url,
                 mcp_server_names=tuple(mcp_servers),
             ),
-            encoding="utf-8-sig",
+            encoding="utf-8",
+            newline="\n",
         )
+        launcher = {
+            "kind": "git_bash",
+            "executable": str(self.git_bash_executable),
+            "script": str(launch_path),
+            "pid": None,
+        }
         metadata = {
-            "schema_version": 1,
+            "schema_version": 2,
+            "launch_protocol_version": 2,
             "session_id": session_id,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "context": asdict(context),
@@ -307,7 +320,10 @@ class ClaudeDesktopLauncher:
             "mcp_config": str(mcp_path),
             "system_context": str(context_path),
             "claude_settings": str(settings_path),
-            "powershell_script": str(powershell_path),
+            "launcher": launcher,
+            "launch_script": str(launch_path),
+            # Deprecated alias kept for existing read-only consumers.
+            "powershell_script": str(launch_path),
             "approval_url": approval_url,
             "api_memory": api_memory,
         }
@@ -318,7 +334,11 @@ class ClaudeDesktopLauncher:
             "mcp_config": str(mcp_path),
             "system_context": str(context_path),
             "claude_settings": str(settings_path),
-            "powershell_script": str(powershell_path),
+            "launcher": launcher,
+            "launch_script": str(launch_path),
+            "shell": "git_bash",
+            # Deprecated alias kept for existing read-only consumers.
+            "powershell_script": str(launch_path),
             "metadata": str(metadata_path),
             "approval_url": approval_url,
             "api_memory": api_memory,
@@ -456,7 +476,7 @@ Rules:
 """
 
 
-def _powershell_script(
+def _git_bash_script(
     *,
     project_root: Path,
     claude_executable: Path,
@@ -483,49 +503,81 @@ def _powershell_script(
         )
     allowed_tools = ",".join([*_DESKTOP_CLAUDE_BUILTIN_TOOLS, *allowed_mcp_tools])
     denied_tools = ",".join(_DESKTOP_CLAUDE_DENIED_TOOLS)
+    health_probe = (
+        "import sys,urllib.request;"
+        "request=urllib.request.Request(sys.argv[1]+'/health',headers={'X-Ansys-Agent-Key':sys.argv[2]});"
+        "response=urllib.request.urlopen(request,timeout=1);response.close()"
+    )
+    shutdown_request = (
+        "import sys,urllib.request;"
+        "request=urllib.request.Request(sys.argv[1]+'/shutdown',data=b'{}',method='POST',"
+        "headers={'X-Ansys-Agent-Key':sys.argv[2],'Content-Type':'application/json'});"
+        "response=urllib.request.urlopen(request,timeout=2);response.close()"
+    )
+    literal = _bash_literal
+    claude_arguments = (
+        "--settings",
+        _bash_path(settings_path),
+        "--setting-sources=",
+        "--mcp-config",
+        _bash_path(mcp_path),
+        "--strict-mcp-config",
+        "--tools",
+        builtin_tools,
+        "--allowedTools",
+        allowed_tools,
+        "--disallowedTools",
+        denied_tools,
+        "--no-chrome",
+        "--append-system-prompt-file",
+        _bash_path(context_path),
+        "--permission-mode",
+        "manual",
+        prompt,
+    )
+    claude_command = " ".join(literal(argument) for argument in claude_arguments)
     return "\n".join(
         [
-            "$ErrorActionPreference = 'Stop'",
-            f"Set-Location -LiteralPath {_ps_literal(str(project_root))}",
-            "$env:MCP_TIMEOUT = '30000'",
-            "$env:FASTMCP_CHECK_FOR_UPDATES = 'off'",
-            "$env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'",
-            "$env:DISABLE_AUTOUPDATER = '1'",
-            "$approvalHeaders = @{ 'X-Ansys-Agent-Key' = $env:AEDT_AGENT_APPROVAL_KEY }",
-            "$approvalArgs = @('-m', 'aedt_agent.desktop.approval_host', '--port', " + _ps_literal(str(approval_port)) + ")",
-            f"$approvalHost = Start-Process -FilePath {_ps_literal(str(python_executable))} -ArgumentList $approvalArgs -PassThru -WindowStyle Hidden",
-            "$approvalReady = $false",
-            "for ($attempt = 0; $attempt -lt 50; $attempt++) {",
-            "  try {",
-            f"    $null = Invoke-RestMethod -Uri {_ps_literal(approval_url + '/health')} -Headers $approvalHeaders -TimeoutSec 1",
-            "    $approvalReady = $true",
+            "#!/usr/bin/env bash",
+            "set -euo pipefail",
+            f"cd -- {literal(_bash_path(project_root))}",
+            "export MCP_TIMEOUT='30000'",
+            "export FASTMCP_CHECK_FOR_UPDATES='off'",
+            "export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC='1'",
+            "export DISABLE_AUTOUPDATER='1'",
+            'if [[ -z "${AEDT_AGENT_APPROVAL_KEY:-}" ]]; then',
+            "  echo 'AEDT_AGENT_APPROVAL_KEY is missing.' >&2",
+            "  exit 1",
+            "fi",
+            "approval_host_pid=''",
+            "cleanup() {",
+            "  local status=$?",
+            "  trap - EXIT INT TERM",
+            '  if [[ -n "${approval_host_pid:-}" ]]; then',
+            f"    {literal(_bash_path(python_executable))} -c {literal(shutdown_request)} {literal(approval_url)} \"$AEDT_AGENT_APPROVAL_KEY\" >/dev/null 2>&1 || true",
+            '    wait "$approval_host_pid" 2>/dev/null || true',
+            "  fi",
+            '  exit "$status"',
+            "}",
+            "trap cleanup EXIT",
+            "trap 'exit 130' INT",
+            "trap 'exit 143' TERM",
+            f"{literal(_bash_path(python_executable))} -m aedt_agent.desktop.approval_host --port {literal(str(approval_port))} --parent-pid \"$BASHPID\" >/dev/null 2>&1 &",
+            "approval_host_pid=$!",
+            "approval_ready=false",
+            "for _ in {1..50}; do",
+            f"  if {literal(_bash_path(python_executable))} -c {literal(health_probe)} {literal(approval_url)} \"$AEDT_AGENT_APPROVAL_KEY\" >/dev/null 2>&1; then",
+            "    approval_ready=true",
             "    break",
-            "  } catch { Start-Sleep -Milliseconds 100 }",
-            "}",
-            "if (-not $approvalReady) { Stop-Process -Id $approvalHost.Id -Force -ErrorAction SilentlyContinue; throw 'Ansys Agent approval host failed to start.' }",
-            "try {",
-            f"  & {_ps_literal(str(claude_executable))} `",
-            "    --bare `",
-            f"    --settings {_ps_literal(str(settings_path))} `",
-            "    --setting-sources= `",
-            f"    --mcp-config {_ps_literal(str(mcp_path))} `",
-            "    --strict-mcp-config `",
-            f"    --tools {_ps_literal(builtin_tools)} `",
-            f"    --allowedTools {_ps_literal(allowed_tools)} `",
-            f"    --disallowedTools {_ps_literal(denied_tools)} `",
-            "    --disable-slash-commands `",
-            "    --no-chrome `",
-            f"    --append-system-prompt-file {_ps_literal(str(context_path))} `",
-            "    --permission-mode manual `",
-            f"    {_ps_literal(prompt)}",
-            "  if ($LASTEXITCODE -ne 0) { Write-Host \"Claude Code exited with code $LASTEXITCODE\" -ForegroundColor Red }",
-            "} finally {",
-            "  try {",
-            f"    $null = Invoke-RestMethod -Method Post -Uri {_ps_literal(approval_url + '/shutdown')} -Headers $approvalHeaders -ContentType 'application/json' -Body '{{}}' -TimeoutSec 2",
-            "  } catch {}",
-            "  Wait-Process -Id $approvalHost.Id -Timeout 3 -ErrorAction SilentlyContinue",
-            "  Stop-Process -Id $approvalHost.Id -Force -ErrorAction SilentlyContinue",
-            "}",
+            "  fi",
+            "  sleep 0.1",
+            "done",
+            'if [[ "$approval_ready" != "true" ]]; then',
+            "  echo 'Ansys Agent approval host failed to start.' >&2",
+            "  exit 1",
+            "fi",
+            "# Keep Git Bash from rewriting Windows paths passed to Claude Code.",
+            f"MSYS2_ARG_CONV_EXCL='*' {literal(_bash_path(claude_executable))} {claude_command}",
             "",
         ]
     )
@@ -544,7 +596,7 @@ def _claude_settings() -> dict[str, Any]:
 
 
 def _claude_process_environment() -> dict[str, str]:
-    """Build a bare-mode environment without loading hooks, plugins, or project settings."""
+    """Build a restricted Desktop environment without loading user tool configuration."""
 
     environment = os.environ.copy()
     configured = os.environ.get("CLAUDE_CONFIG_DIR", "").strip()
@@ -584,6 +636,35 @@ def _required_file(value: str | Path, label: str) -> Path:
     if not path.is_file():
         raise DesktopLaunchError(f"{label} does not exist: {path}")
     return path
+
+
+def _git_bash_executable(value: str | Path | None) -> Path:
+    """Resolve Git for Windows Bash, never the unrelated Windows/WSL bash shim."""
+
+    configured = value or os.environ.get("AEDT_AGENT_GIT_BASH")
+    if configured:
+        return _required_file(configured, "Git Bash executable")
+
+    candidates: list[Path] = []
+    for variable in ("ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"):
+        root = os.environ.get(variable)
+        if root:
+            candidates.append(Path(root) / "Git" / "bin" / "bash.exe")
+    for name in ("bash.exe", "bash"):
+        discovered = shutil.which(name)
+        if discovered:
+            candidates.append(Path(discovered))
+    for candidate in candidates:
+        try:
+            resolved = candidate.expanduser().resolve()
+        except OSError:
+            continue
+        if resolved.is_file() and "git" in {part.casefold() for part in resolved.parts}:
+            return resolved
+    raise DesktopLaunchError(
+        "Git Bash executable was not found. Install Git for Windows or set AEDT_AGENT_GIT_BASH "
+        "to its bash.exe path."
+    )
 
 
 def _valid_port(value: int) -> int:
@@ -651,8 +732,31 @@ def _bounded_error(exc: Exception) -> str:
     return f"{type(exc).__name__}: {exc}"[:1000]
 
 
-def _ps_literal(value: str) -> str:
-    return "'" + value.replace("'", "''") + "'"
+def _bash_path(value: str | Path) -> str:
+    """Use a Git-Bash-compatible spelling for an absolute Windows path."""
+
+    return str(value).replace("\\", "/")
+
+
+def _bash_literal(value: str) -> str:
+    return "'" + value.replace("'", "'\"'\"'") + "'"
+
+
+def _record_launch_pid(metadata_path: Path, launcher: dict[str, Any]) -> None:
+    """Persist the spawned terminal PID without exposing the session secret."""
+
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        if not isinstance(metadata, dict):
+            return
+        metadata["launcher"] = launcher
+        metadata["powershell_pid"] = launcher.get("pid")
+        metadata_path.write_text(
+            json.dumps(metadata, ensure_ascii=True, indent=2),
+            encoding="utf-8",
+        )
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return
 
 
 def _available_loopback_port() -> int:
