@@ -28,6 +28,7 @@ desktop = [
     "pyedb[dotnet]==0.80.2",
     "fastmcp==3.4.4",
     "codebase-memory-mcp==0.9.0",
+    "pytest>=8.0.0",
 ]
 knowledge = [
     "codebase-memory-mcp==0.9.0",

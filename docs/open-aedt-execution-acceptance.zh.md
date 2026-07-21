@@ -12,7 +12,8 @@
 | 真实 AEDT | 在新建临时目录、全新 AEDT 进程中验证 PyAEDT/EDB 行为 | `RUN_REAL_LIVE_AEDT=1` 后运行 `tests/test_live_open_aedt_python_real.py` |
 | 恢复演练 | 用新的 AEDT 进程重新打开 backup，不复用原 app 内存 | 包含在真实 AEDT 用例中 |
 
-真实验收只能使用临时工程；不得将用户正在编辑的工程作为测试输入。
+真实验收只能使用临时工程；不得将用户正在编辑的工程作为测试输入。离线 Release 的 `desktop` 环境包含
+`pytest`，因此下面的命令可直接在已安装根目录运行。
 
 ## Case 矩阵
 
