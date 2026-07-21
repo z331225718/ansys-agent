@@ -4090,6 +4090,27 @@ def test_backend_layout_native_property_bridge_uses_canonical_schema_only():
     assert unsupported["records"] == []
 
 
+def test_backend_layout_native_property_bridge_does_not_require_find_objects():
+    app = FakeViaCreateLayout(project="Board", design="Layout1")
+    app.modeler.oeditor.FindObjects = lambda *args: (_ for _ in ()).throw(
+        RuntimeError("GrpcApiError: FindObjects")
+    )
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, layout_factory=lambda **kwargs: app)
+    result = backend.execute(
+        AedtTarget("pid", 42),
+        "layout_properties_read",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "object_kind": "via",
+            "names": ["V1"],
+            "profile": "via_target/v1",
+        },
+    )
+    assert result["status"] == "ok"
+    assert result["records"][0]["properties"]["net"]["value"] == "GND"
+
+
 def test_backend_layout_via_create_rejects_stale_and_rolls_back(monkeypatch):
     apps = []
 

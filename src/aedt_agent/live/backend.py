@@ -12278,10 +12278,14 @@ def _layout_native_property_records(
         ]
     records = []
     for name in names:
-        if (
-            (available_names is not None and name not in available_names)
-            or _layout_native_name_matches(app, name) != [name]
-        ):
+        # PyAEDT's already-open collection is the trusted exact-name inventory.
+        # Some AEDT releases reject the otherwise read-only oEditor.FindObjects call.
+        # Do not make that optional native lookup a prerequisite for property reads.
+        if available_names is not None:
+            exists = name in available_names
+        else:
+            exists = _layout_native_name_matches(app, name) == [name]
+        if not exists:
             records.append({"name": name, "status": "not_found", "properties": {}})
             continue
         values: dict[str, dict[str, Any]] = {}
