@@ -1667,6 +1667,34 @@ def create_server(
         )
 
     @server.tool()
+    async def get_controlled_live_layout_read_schema(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+    ) -> dict:
+        """Return the declarative generic read program schema; it cannot execute Python, COM, shell, or methods."""
+        return live.controlled_layout_read_schema(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+        )
+
+    @server.tool()
+    async def execute_controlled_live_layout_read(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        program: dict,
+    ) -> dict:
+        """Execute a bounded generic read-only AEDT program against trusted Layout object collections."""
+        return live.execute_controlled_layout_read(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            program=program,
+        )
+
+    @server.tool()
     async def preview_live_layout_object_property_update(
         live_session_id: str,
         project_name: str,

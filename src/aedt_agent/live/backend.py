@@ -239,6 +239,10 @@ class LiveAedtBackend:
                 return self._layout_property_schema(target, arguments)
             if command == "layout_properties_read":
                 return self._layout_properties_read(target, arguments)
+            if command == "controlled_read_schema":
+                return self._controlled_read_schema(target, arguments)
+            if command == "controlled_read_execute":
+                return self._controlled_read_execute(target, arguments)
             if command == "layout_object_property_update_preview":
                 return self._layout_object_property_update_preview(target, arguments)
             if command == "layout_object_property_update_apply":
@@ -5764,6 +5768,34 @@ class LiveAedtBackend:
             }
         )
         return response
+
+    def _controlled_read_schema(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
+        from aedt_agent.controlled import read_program_schema
+
+        app = self._app(target, "layout", _required(args, "project_name"), _required(args, "design_name"))
+        return {
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            **read_program_schema(),
+            "design_unchanged": True,
+        }
+
+    def _controlled_read_execute(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
+        from aedt_agent.controlled import ControlledProgramError, execute_read_program, validate_read_program
+
+        app = self._app(target, "layout", _required(args, "project_name"), _required(args, "design_name"))
+        try:
+            validation = validate_read_program(args.get("program"), product="layout")
+            result = execute_read_program(app, validation)
+        except ControlledProgramError as exc:
+            raise LiveBackendError(str(exc)) from exc
+        return {
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "schema_version": "controlled-aedt-read/v1",
+            "design_unchanged": True,
+            **result,
+        }
 
     def _layout_object_property_update_preview(
         self,

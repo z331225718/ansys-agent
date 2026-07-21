@@ -1926,6 +1926,37 @@ class LiveAedtSessionManager:
             },
         )
 
+    def controlled_layout_read_schema(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+    ) -> dict[str, Any]:
+        return self._execute(
+            session_id,
+            "controlled_read_schema",
+            {"project_name": project_name, "design_name": design_name},
+        )
+
+    def execute_controlled_layout_read(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+        program: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self._execute(
+            session_id,
+            "controlled_read_execute",
+            {
+                "project_name": project_name,
+                "design_name": design_name,
+                "program": program,
+            },
+        )
+
     def preview_layout_object_property_update(
         self,
         session_id: str,

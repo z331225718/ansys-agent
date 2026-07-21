@@ -9422,6 +9422,10 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
     assert by_name["layout.object.properties.read"]["tools"] == [
         "read_live_layout_properties"
     ]
+    assert by_name["layout.controlled_read"]["tools"] == [
+        "get_controlled_live_layout_read_schema",
+        "execute_controlled_live_layout_read",
+    ]
     assert by_name["layout.path_width.parameterize"]["tools"] == [
         "preview_live_parameterize_path_width",
         "apply_live_parameterize_path_width",

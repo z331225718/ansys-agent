@@ -852,6 +852,14 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             products=["layout"],
         ),
         _cap(
+            "layout.controlled_read",
+            "read_only",
+            ["live"],
+            ["get_controlled_live_layout_read_schema", "execute_controlled_live_layout_read"],
+            postconditions=["bounded_generic_read_result_returned", "design_unchanged"],
+            products=["layout"],
+        ),
+        _cap(
             "layout.via.target_inventory",
             "read_only",
             ["live"],
