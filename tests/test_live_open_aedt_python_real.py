@@ -91,6 +91,87 @@ def test_real_live_open_aedt_python_saves_backs_up_and_executes_exact_code(tmp_p
         _close(port, pid, version)
 
 
+def test_real_live_open_aedt_python_uses_aedb_backup_when_aedt_file_is_missing(tmp_path: Path):
+    from ansys.aedt.core import Edb, Hfss3dLayout
+    from ansys.aedt.core.desktop import launch_aedt
+
+    from aedt_agent.live.approval import HmacApprovalAuthority
+    from aedt_agent.live.manager import LiveAedtSessionManager
+
+    version = os.getenv("REAL_AEDT_VERSION", "2026.1")
+    executable = Path(
+        os.getenv("REAL_AEDT_EXECUTABLE")
+        or Path(os.environ["ANSYSEM_ROOT" + version.replace("20", "", 1).replace(".", "")])
+        / "ansysedt.exe"
+    )
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        requested_port = probe.getsockname()[1]
+
+    authority = HmacApprovalAuthority("real-open-aedb-fallback-secret-32-bytes")
+    manager = LiveAedtSessionManager(approval_verifier=authority)
+    edb = None
+    app = None
+    session_id = ""
+    pid = None
+    port = requested_port
+    edb_path = tmp_path / "Board.aedb"
+    try:
+        edb = Edb(str(edb_path), version=version)
+        edb.save()
+        edb.close()
+        edb = None
+        _, port = launch_aedt(executable, non_graphical=True, port=port, student_version=False)
+        app = Hfss3dLayout(
+            project=str(edb_path),
+            design="Layout1",
+            version=version,
+            machine="localhost",
+            port=port,
+            new_desktop=False,
+            close_on_exit=False,
+        )
+        Path(app.project_file).unlink()
+
+        opened = manager.attach(port=port, version=version)
+        pid = opened["probe"]["pid"]
+        session_id = opened["live_session_id"]
+        preview = manager.preview_open_aedt_python(
+            session_id,
+            project_name="Board",
+            design_name="Layout1",
+            product="layout",
+            code="emit({'aedb_backup': True})",
+        )
+        assert preview["backup_plan"]["source_project"] == str(edb_path)
+        result = manager.apply_open_aedt_python(
+            session_id,
+            preview_id=preview["preview_id"],
+            approval_token=authority.issue(**preview["approval_request"]),
+        )
+        assert result["status"] == "completed"
+        assert result["backup"]["source_kind"] == "aedb_directory"
+        assert Path(result["backup"]["directory"], "Board.aedb", "edb.def").is_file()
+    finally:
+        if edb is not None:
+            try:
+                edb.close()
+            except Exception:
+                pass
+        if session_id:
+            try:
+                manager.release(session_id)
+            except Exception:
+                pass
+        manager.close()
+        if app is not None:
+            try:
+                app.release_desktop(close_projects=False, close_desktop=False)
+            except Exception:
+                pass
+        _close(port, pid, version)
+
+
 def _close(port: int, pid: int | None, version: str) -> None:
     try:
         from ansys.aedt.core import Desktop

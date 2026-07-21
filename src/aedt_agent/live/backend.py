@@ -423,9 +423,9 @@ class LiveAedtBackend:
         app = self._app(target, product, project_name, design_name)
         desktop = self._desktop_for(target)
         project_path = self._open_aedt_project_path(app, desktop, project_name)
-        if not project_path.is_file():
+        if not project_path.exists():
             raise LiveBackendError(
-                "the active AEDT project has no accessible .aedt file; save it in AEDT before open execution"
+                "unable to locate an accessible on-disk AEDT project (.aedt) or EDB database (.aedb) for backup"
             )
         identity = self._open_aedt_identity(app, desktop, target, product, project_path)
         code_sha256 = hashlib.sha256(code.encode("utf-8")).hexdigest()
@@ -462,7 +462,7 @@ class LiveAedtBackend:
             "code_preview": code[:4096],
             "backup_plan": {
                 "required": True,
-                "action": "save_active_project_then_copy_project_and_aedb",
+                "action": "save_active_project_then_copy_project_or_aedb",
                 "destination": str(backup_dir),
                 "source_project": str(project_path),
             },
@@ -541,20 +541,56 @@ class LiveAedtBackend:
         }
 
     def _open_aedt_project_path(self, app: Any, desktop: Any, project_name: str) -> Path:
+        """Find the persisted AEDT project or the imported EDB directory.
+
+        PyAEDT's ``project_file`` is derived from the project name and may be
+        stale for a live layout imported from an AEDB.  Prefer an existing path
+        and use the Desktop project path as a second source of truth.
+        """
+        project = desktop.active_project()
+        names = [project_name, str(getattr(app, "project_name", "")), _name(project) or ""]
+        base_names = [Path(name).stem for name in names if name]
+        candidates: list[Path] = []
+
+        def add_candidate(value: Any) -> None:
+            if not value:
+                return
+            candidate = Path(str(value)).expanduser()
+            candidates.append(candidate)
+            if candidate.suffix:
+                return
+            for base_name in base_names:
+                candidates.append(candidate / f"{base_name}.aedt")
+                candidates.append(candidate / f"{base_name}.aedb")
+
         for attribute in ("project_file", "project_path"):
-            value = getattr(app, attribute, None)
-            if value:
-                candidate = Path(str(value)).expanduser()
-                if candidate.suffix.lower() == ".aedt":
-                    return candidate.resolve()
+            add_candidate(getattr(app, attribute, None))
         project = desktop.active_project()
         if project is not None:
             get_path = getattr(project, "GetPath", None)
             if callable(get_path):
-                directory = str(get_path() or "").strip()
-                if directory:
-                    return (Path(directory) / f"{project_name}.aedt").resolve()
-        raise LiveBackendError("unable to determine the active AEDT project file for backup")
+                add_candidate(str(get_path() or "").strip())
+
+        seen: set[Path] = set()
+        for candidate in candidates:
+            resolved = candidate.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            if resolved.is_file() and resolved.suffix.lower() == ".aedt":
+                return resolved
+            if resolved.is_dir() and resolved.suffix.lower() == ".aedb":
+                return resolved
+
+        # A manually opened AEDT project may expose only a directory through COM.
+        for candidate in candidates:
+            directory = candidate if not candidate.suffix else candidate.parent
+            if not directory.is_dir():
+                continue
+            matches = [item.resolve() for item in directory.glob("*.aedt") if item.is_file()]
+            if len(matches) == 1:
+                return matches[0]
+        raise LiveBackendError("unable to determine the active AEDT project or AEDB path for backup")
 
     def _open_aedt_identity(
         self,
@@ -580,24 +616,32 @@ class LiveAedtBackend:
     def _create_open_aedt_backup(self, desktop: Any, preview: dict[str, Any], project_path: Path) -> dict[str, Any]:
         if not desktop.save_project(project_name=str(preview["project_name"])):
             raise LiveBackendError("AEDT rejected the required pre-execution project save")
-        if not project_path.is_file():
-            raise LiveBackendError("project file disappeared after the required pre-execution save")
+        if not project_path.exists():
+            raise LiveBackendError("project or AEDB path disappeared after the required pre-execution save")
         destination = Path(str(preview["backup_dir"])).resolve()
         destination.mkdir(parents=True, exist_ok=False)
         copied: list[str] = []
-        project_copy = destination / project_path.name
-        shutil.copy2(project_path, project_copy)
-        copied.append(str(project_copy))
-        aedb = project_path.with_suffix(".aedb")
-        if aedb.is_dir():
-            aedb_copy = destination / aedb.name
-            shutil.copytree(aedb, aedb_copy)
+        if project_path.is_dir():
+            aedb_copy = destination / project_path.name
+            shutil.copytree(project_path, aedb_copy)
             copied.append(str(aedb_copy))
+            source_kind = "aedb_directory"
+        else:
+            project_copy = destination / project_path.name
+            shutil.copy2(project_path, project_copy)
+            copied.append(str(project_copy))
+            aedb = project_path.with_suffix(".aedb")
+            if aedb.is_dir():
+                aedb_copy = destination / aedb.name
+                shutil.copytree(aedb, aedb_copy)
+                copied.append(str(aedb_copy))
+            source_kind = "aedt_project"
         return {
             "directory": str(destination),
             "files": copied,
+            "source_kind": source_kind,
             "project_saved_before_backup": True,
-            "restore_hint": "close the affected project and reopen the backed-up .aedt file from this directory",
+            "restore_hint": "close the affected project and reopen the backed-up .aedt project or AEDB database from this directory",
         }
 
     def _app(

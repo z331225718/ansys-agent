@@ -2653,6 +2653,44 @@ def test_backend_open_aedt_python_requires_backup_and_executes_exact_preview(tmp
     assert (backup / "Board.aedb" / "edb.def").read_text(encoding="utf-8") == "edb"
 
 
+def test_backend_open_aedt_python_backs_up_aedb_when_live_project_file_is_missing(tmp_path: Path):
+    aedb_file = tmp_path / "Board.aedb" / "edb.def"
+    aedb_file.parent.mkdir()
+    aedb_file.write_text("edb", encoding="utf-8")
+    desktop = FakeDesktop()
+
+    class OpenAedbLayout(FakeLayout):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.project_file = str(tmp_path / "Board.aedt")
+            self.project_path = str(tmp_path)
+
+    backend = LiveAedtBackend(
+        desktop_factory=lambda **kwargs: desktop,
+        layout_factory=OpenAedbLayout,
+    )
+    target = AedtTarget("pid", 42)
+    preview = backend.execute(
+        target,
+        "open_aedt_python_preview",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "product": "layout",
+            "code": "emit('aedb')",
+        },
+    )
+    assert preview["backup_plan"]["source_project"].endswith("Board.aedb")
+    result = backend.execute(
+        target,
+        "open_aedt_python_apply",
+        {"preview_id": preview["preview_id"]},
+    )
+    assert result["status"] == "completed"
+    assert result["backup"]["source_kind"] == "aedb_directory"
+    assert Path(result["backup"]["directory"], "Board.aedb", "edb.def").read_text(encoding="utf-8") == "edb"
+
+
 def test_backend_atomically_creates_hfss_setup_and_sweep_with_readback():
     apps = []
 
