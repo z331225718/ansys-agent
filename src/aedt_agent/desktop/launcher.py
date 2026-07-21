@@ -566,7 +566,7 @@ def _git_bash_script(
             "trap cleanup EXIT",
             "trap 'exit 130' INT",
             "trap 'exit 143' TERM",
-            f"{literal(_bash_path(python_executable))} -m aedt_agent.desktop.approval_host --port {literal(str(approval_port))} --parent-pid \"$BASHPID\" >/dev/null 2>&1 &",
+            f"{literal(_bash_path(python_executable))} -m aedt_agent.desktop.approval_host --port {literal(str(approval_port))} >/dev/null 2>&1 &",
             "approval_host_pid=$!",
             "approval_ready=false",
             "for _ in {1..50}; do",

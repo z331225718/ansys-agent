@@ -263,8 +263,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     key = os.environ.get("AEDT_AGENT_APPROVAL_KEY", "")
     host = ApprovalHost(args.host, args.port, key)
-    if args.parent_pid:
-        _stop_when_parent_exits(host, args.parent_pid)
+    # In Git Bash, $BASHPID is an MSYS process id rather than a Windows process id.
+    # The child Python process can obtain its real Windows parent id directly.
+    _stop_when_parent_exits(host, args.parent_pid or os.getppid())
     host.serve_forever()
     return 0
 

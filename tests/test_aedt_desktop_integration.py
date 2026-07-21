@@ -192,7 +192,7 @@ def test_launcher_generates_session_scoped_mcp_and_visible_git_bash(
     assert "export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC='1'" in launch_script
     assert "export DISABLE_AUTOUPDATER='1'" in launch_script
     assert "aedt_agent.desktop.approval_host" in launch_script
-    assert "--parent-pid \"$BASHPID\"" in launch_script
+    assert "--parent-pid" not in launch_script
     assert "/shutdown" in launch_script
     assert "MSYS2_ARG_CONV_EXCL='*'" in launch_script
     assert processes[0][0][:3] == [str(git_bash.resolve()), "--noprofile", "--norc"]
