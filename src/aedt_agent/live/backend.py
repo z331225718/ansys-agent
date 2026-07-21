@@ -16,6 +16,7 @@ import threading
 import time
 from types import SimpleNamespace
 from typing import Any
+from uuid import uuid4
 
 from aedt_agent.live.target import AedtTarget
 from aedt_agent.live.versioning import (
@@ -428,8 +429,13 @@ class LiveAedtBackend:
                 "unable to locate an accessible on-disk AEDT project (.aedt) or EDB database (.aedb) for backup"
             )
         identity = self._open_aedt_identity(app, desktop, target, product, project_path)
+        source_fingerprint = _open_aedt_source_fingerprint(project_path)
         code_sha256 = hashlib.sha256(code.encode("utf-8")).hexdigest()
-        state = {"identity": identity, "code_sha256": code_sha256}
+        state = {
+            "identity": identity,
+            "source_fingerprint": source_fingerprint,
+            "code_sha256": code_sha256,
+        }
         digest = _digest(state)
         preview_id = "open-aedt-python-preview-" + digest[:24]
         backup_root = Path(
@@ -445,6 +451,7 @@ class LiveAedtBackend:
             "design_name": design_name,
             "project_path": str(project_path),
             "identity": identity,
+            "source_fingerprint": source_fingerprint,
             "code": code,
             "code_sha256": code_sha256,
             "digest": digest,
@@ -460,6 +467,7 @@ class LiveAedtBackend:
             "code_sha256": code_sha256,
             "code_bytes": len(code.encode("utf-8")),
             "code_preview": code[:4096],
+            "source_fingerprint": source_fingerprint,
             "backup_plan": {
                 "required": True,
                 "action": "save_active_project_then_copy_project_or_aedb",
@@ -490,6 +498,8 @@ class LiveAedtBackend:
         current_identity = self._open_aedt_identity(app, desktop, target, str(preview["product"]), project_path)
         if current_identity != preview["identity"]:
             raise LiveBackendError("stale open AEDT Python preview: project, design, or project file changed")
+        if _open_aedt_source_fingerprint(project_path) != preview["source_fingerprint"]:
+            raise LiveBackendError("stale open AEDT Python preview: on-disk project or AEDB contents changed")
 
         backup = self._create_open_aedt_backup(desktop, preview, project_path)
         events: list[Any] = []
@@ -619,27 +629,52 @@ class LiveAedtBackend:
         if not project_path.exists():
             raise LiveBackendError("project or AEDB path disappeared after the required pre-execution save")
         destination = Path(str(preview["backup_dir"])).resolve()
-        destination.mkdir(parents=True, exist_ok=False)
-        copied: list[str] = []
-        if project_path.is_dir():
-            aedb_copy = destination / project_path.name
-            shutil.copytree(project_path, aedb_copy)
-            copied.append(str(aedb_copy))
-            source_kind = "aedb_directory"
-        else:
-            project_copy = destination / project_path.name
-            shutil.copy2(project_path, project_copy)
-            copied.append(str(project_copy))
-            aedb = project_path.with_suffix(".aedb")
-            if aedb.is_dir():
-                aedb_copy = destination / aedb.name
-                shutil.copytree(aedb, aedb_copy)
-                copied.append(str(aedb_copy))
-            source_kind = "aedt_project"
+        staging = destination.with_name(destination.name + f".staging-{uuid4().hex}")
+        copied_relative: list[Path] = []
+        try:
+            staging.mkdir(parents=True, exist_ok=False)
+            if project_path.is_dir():
+                aedb_copy = staging / project_path.name
+                shutil.copytree(project_path, aedb_copy)
+                copied_relative.append(Path(project_path.name))
+                source_kind = "aedb_directory"
+            else:
+                project_copy = staging / project_path.name
+                shutil.copy2(project_path, project_copy)
+                copied_relative.append(Path(project_path.name))
+                aedb = project_path.with_suffix(".aedb")
+                if aedb.is_dir():
+                    aedb_copy = staging / aedb.name
+                    shutil.copytree(aedb, aedb_copy)
+                    copied_relative.append(Path(aedb.name))
+                source_kind = "aedt_project"
+            backup_fingerprint = _open_aedt_source_fingerprint(project_path)
+            manifest = {
+                "schema_version": 1,
+                "created_utc": datetime.now(timezone.utc).isoformat(),
+                "source_path": str(project_path),
+                "source_kind": source_kind,
+                "source_fingerprint": backup_fingerprint,
+                "preview_id": preview["digest"],
+                "project_name": preview["project_name"],
+                "design_name": preview["design_name"],
+                "copied_entries": [str(item).replace("\\", "/") for item in copied_relative],
+            }
+            (staging / "backup-manifest.json").write_text(
+                json.dumps(manifest, ensure_ascii=True, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            staging.replace(destination)
+        except Exception:
+            if staging.exists():
+                shutil.rmtree(staging, ignore_errors=True)
+            raise
         return {
             "directory": str(destination),
-            "files": copied,
+            "files": [str(destination / item) for item in copied_relative],
             "source_kind": source_kind,
+            "manifest": str(destination / "backup-manifest.json"),
+            "source_fingerprint": backup_fingerprint,
             "project_saved_before_backup": True,
             "restore_hint": "close the affected project and reopen the backed-up .aedt project or AEDB database from this directory",
         }
@@ -6535,6 +6570,39 @@ class LiveAedtBackend:
         if preview.get("kind") != kind or preview.get("target") != target:
             raise LiveBackendError("preview belongs to a different operation or AEDT target")
         return preview
+
+
+def _open_aedt_source_fingerprint(path: Path) -> dict[str, Any]:
+    """Return a deterministic content fingerprint for the source being backed up."""
+    source = path.resolve()
+    if source.is_file():
+        files = [source]
+        companion = source.with_suffix(".aedb")
+        if companion.is_dir():
+            files.extend(sorted(item for item in companion.rglob("*") if item.is_file()))
+        root = source.parent
+        kind = "aedt_project"
+    elif source.is_dir():
+        files = sorted(item for item in source.rglob("*") if item.is_file())
+        root = source
+        kind = "directory"
+    else:
+        raise LiveBackendError("cannot fingerprint a missing AEDT project or AEDB path")
+    entries = []
+    for item in files:
+        digest = hashlib.sha256()
+        with item.open("rb") as stream:
+            while chunk := stream.read(1024 * 1024):
+                digest.update(chunk)
+        relative = item.relative_to(root).as_posix()
+        entries.append({"path": relative, "bytes": item.stat().st_size, "sha256": digest.hexdigest()})
+    return {
+        "algorithm": "sha256-file-manifest-v1",
+        "kind": kind,
+        "file_count": len(entries),
+        "total_bytes": sum(int(item["bytes"]) for item in entries),
+        "digest": _digest(entries),
+    }
 
 
 def _required(arguments: dict[str, Any], name: str) -> str:

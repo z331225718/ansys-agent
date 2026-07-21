@@ -2691,6 +2691,211 @@ def test_backend_open_aedt_python_backs_up_aedb_when_live_project_file_is_missin
     assert Path(result["backup"]["directory"], "Board.aedb", "edb.def").read_text(encoding="utf-8") == "edb"
 
 
+def test_backend_open_aedt_python_rejects_changed_aedt_or_companion_aedb_before_save(tmp_path: Path):
+    project_file = tmp_path / "Board.aedt"
+    project_file.write_text("aedt", encoding="utf-8")
+    aedb_file = tmp_path / "Board.aedb" / "edb.def"
+    aedb_file.parent.mkdir()
+    aedb_file.write_text("edb-before", encoding="utf-8")
+
+    class TrackingDesktop(FakeDesktop):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.save_calls = []
+
+        def save_project(self, project_name=None):
+            self.save_calls.append(project_name)
+            return super().save_project(project_name)
+
+    class OpenLayout(FakeLayout):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.project_file = str(project_file)
+
+    desktop = TrackingDesktop()
+    backend = LiveAedtBackend(desktop_factory=lambda **kwargs: desktop, layout_factory=OpenLayout)
+    target = AedtTarget("pid", 42)
+    preview = backend.execute(
+        target,
+        "open_aedt_python_preview",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "product": "layout",
+            "code": "app.should_not_run = True",
+        },
+    )
+    aedb_file.write_text("edb-after", encoding="utf-8")
+    with pytest.raises(LiveBackendError, match="contents changed"):
+        backend.execute(target, "open_aedt_python_apply", {"preview_id": preview["preview_id"]})
+    assert desktop.save_calls == []
+    assert not Path(preview["backup_plan"]["destination"]).exists()
+    assert not hasattr(backend._apps[("layout", "Board", "Layout1")], "should_not_run")
+
+
+def test_backend_open_aedt_python_rejects_design_identity_drift_before_save(tmp_path: Path):
+    project_file = tmp_path / "Board.aedt"
+    project_file.write_text("aedt", encoding="utf-8")
+
+    class TrackingDesktop(FakeDesktop):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.save_calls = []
+
+        def save_project(self, project_name=None):
+            self.save_calls.append(project_name)
+            return super().save_project(project_name)
+
+    class OpenLayout(FakeLayout):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.project_file = str(project_file)
+
+    desktop = TrackingDesktop()
+    backend = LiveAedtBackend(desktop_factory=lambda **kwargs: desktop, layout_factory=OpenLayout)
+    target = AedtTarget("pid", 42)
+    preview = backend.execute(
+        target,
+        "open_aedt_python_preview",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "product": "layout",
+            "code": "app.should_not_run = True",
+        },
+    )
+    backend._apps[("layout", "Board", "Layout1")].design_name = "OtherDesign"
+    with pytest.raises(LiveBackendError, match="project, design, or project file changed"):
+        backend.execute(target, "open_aedt_python_apply", {"preview_id": preview["preview_id"]})
+    assert desktop.save_calls == []
+    assert not Path(preview["backup_plan"]["destination"]).exists()
+
+
+def test_backend_open_aedt_python_refuses_ambiguous_project_directory(tmp_path: Path):
+    (tmp_path / "OtherOne.aedt").write_text("one", encoding="utf-8")
+    (tmp_path / "OtherTwo.aedt").write_text("two", encoding="utf-8")
+
+    class OpenLayout(FakeLayout):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.project_file = str(tmp_path / "Board.aedt")
+            self.project_path = str(tmp_path)
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, layout_factory=OpenLayout)
+    with pytest.raises(LiveBackendError, match="unable to determine"):
+        backend.execute(
+            AedtTarget("pid", 42),
+            "open_aedt_python_preview",
+            {
+                "project_name": "Board",
+                "design_name": "Layout1",
+                "product": "layout",
+                "code": "emit('never')",
+            },
+        )
+
+
+def test_backend_open_aedt_python_keeps_atomic_backup_when_user_code_fails(tmp_path: Path):
+    project_file = tmp_path / "Board.aedt"
+    project_file.write_text("aedt", encoding="utf-8")
+
+    class OpenLayout(FakeLayout):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.project_file = str(project_file)
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, layout_factory=OpenLayout)
+    target = AedtTarget("pid", 42)
+    preview = backend.execute(
+        target,
+        "open_aedt_python_preview",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "product": "layout",
+            "code": "print('before failure')\nemit({'started': True})\nraise RuntimeError('expected failure')",
+        },
+    )
+    result = backend.execute(target, "open_aedt_python_apply", {"preview_id": preview["preview_id"]})
+    assert result["status"] == "failed"
+    assert result["error"] == {"type": "RuntimeError", "message": "expected failure"}
+    assert result["events"] == [{"started": True}]
+    assert "before failure" in result["stdout"]
+    assert Path(result["backup"]["manifest"]).is_file()
+    assert not list(Path(result["backup"]["directory"]).parent.glob("*.staging-*"))
+    with pytest.raises(LiveBackendError, match="unknown open AEDT Python preview"):
+        backend.execute(target, "open_aedt_python_apply", {"preview_id": preview["preview_id"]})
+
+
+def test_backend_open_aedt_python_catches_system_exit_and_keeps_broker_usable(tmp_path: Path):
+    project_file = tmp_path / "Board.aedt"
+    project_file.write_text("aedt", encoding="utf-8")
+
+    class OpenLayout(FakeLayout):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.project_file = str(project_file)
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, layout_factory=OpenLayout)
+    target = AedtTarget("pid", 42)
+    preview = backend.execute(
+        target,
+        "open_aedt_python_preview",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "product": "layout",
+            "code": "raise SystemExit('expected exit')",
+        },
+    )
+    result = backend.execute(target, "open_aedt_python_apply", {"preview_id": preview["preview_id"]})
+    assert result["status"] == "failed"
+    assert result["error"] == {"type": "SystemExit", "message": "expected exit"}
+    assert backend.execute(target, "project_info", {})["active_project"] == "Board"
+
+
+def test_backend_open_aedt_python_cleans_staging_directory_when_backup_copy_fails(tmp_path: Path, monkeypatch):
+    project_file = tmp_path / "Board.aedt"
+    project_file.write_text("aedt", encoding="utf-8")
+
+    class TrackingDesktop(FakeDesktop):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.save_calls = []
+
+        def save_project(self, project_name=None):
+            self.save_calls.append(project_name)
+            return super().save_project(project_name)
+
+    class OpenLayout(FakeLayout):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.project_file = str(project_file)
+
+    desktop = TrackingDesktop()
+    backend = LiveAedtBackend(desktop_factory=lambda **kwargs: desktop, layout_factory=OpenLayout)
+    target = AedtTarget("pid", 42)
+    preview = backend.execute(
+        target,
+        "open_aedt_python_preview",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "product": "layout",
+            "code": "app.should_not_run = True",
+        },
+    )
+    import aedt_agent.live.backend as backend_module
+
+    monkeypatch.setattr(backend_module.shutil, "copy2", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("copy failed")))
+    with pytest.raises(OSError, match="copy failed"):
+        backend.execute(target, "open_aedt_python_apply", {"preview_id": preview["preview_id"]})
+    assert desktop.save_calls == ["Board"]
+    assert not Path(preview["backup_plan"]["destination"]).exists()
+    assert not list(Path(preview["backup_plan"]["destination"]).parent.glob("*.staging-*"))
+    assert not hasattr(backend._apps[("layout", "Board", "Layout1")], "should_not_run")
+
+
 def test_backend_atomically_creates_hfss_setup_and_sweep_with_readback():
     apps = []
 
@@ -8476,6 +8681,14 @@ def test_manager_requires_action_bound_approval_for_open_aedt_python():
         code="emit('hello')",
     )
     assert preview["approval_request"]["action"] == "aedt.open_python.execute"
+    with pytest.raises(Exception) as rejected:
+        manager.apply_open_aedt_python(
+            session_id,
+            preview_id=preview["preview_id"],
+            approval_token="invented-token",
+        )
+    assert getattr(rejected.value, "code", None) == "approval_required"
+    assert not any(call[1] == "open_aedt_python_apply" for call in registry.calls)
     token = authority.issue(**preview["approval_request"])
     applied = manager.apply_open_aedt_python(
         session_id,
@@ -8483,6 +8696,7 @@ def test_manager_requires_action_bound_approval_for_open_aedt_python():
         approval_token=token,
     )
     assert applied["command"] == "open_aedt_python_apply"
+    assert sum(call[1] == "open_aedt_python_apply" for call in registry.calls) == 1
     with pytest.raises(Exception) as replay:
         manager.apply_open_aedt_python(
             session_id,
