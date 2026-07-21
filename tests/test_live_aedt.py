@@ -2063,6 +2063,11 @@ class FakeRegistry:
                 "preview_id": "layout-antipad-preview-1",
                 "snapshot_digest": "layout-antipad-digest-1",
             }
+        if command == "open_aedt_python_preview":
+            return {
+                "preview_id": "open-aedt-python-preview-1",
+                "snapshot_digest": "open-aedt-python-digest-1",
+            }
         if command == "hfss_material_assign_preview":
             return {
                 "preview_id": "material-preview-1",
@@ -2603,6 +2608,49 @@ def test_backend_reuses_wrappers_and_lists_live_layout_paths():
     backend.execute(target, "hfss_analysis_cancel_apply", {"preview_id": layout_cancel_preview["preview_id"]})
     backend.release()
     assert desktop.releases[-1] == {"close_projects": False, "close_on_exit": False}
+
+
+def test_backend_open_aedt_python_requires_backup_and_executes_exact_preview(tmp_path: Path):
+    project_file = tmp_path / "Board.aedt"
+    project_file.write_text("aedt", encoding="utf-8")
+    aedb_file = tmp_path / "Board.aedb" / "edb.def"
+    aedb_file.parent.mkdir()
+    aedb_file.write_text("edb", encoding="utf-8")
+    desktop = FakeDesktop()
+
+    class OpenLayout(FakeLayout):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.project_file = str(project_file)
+
+    backend = LiveAedtBackend(
+        desktop_factory=lambda **kwargs: desktop,
+        layout_factory=OpenLayout,
+    )
+    target = AedtTarget("pid", 42)
+    preview = backend.execute(
+        target,
+        "open_aedt_python_preview",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "product": "layout",
+            "code": "app.open_marker = 'done'\nemit({'marker': app.open_marker})",
+        },
+    )
+    assert preview["execution_policy"] == "open_with_approval"
+    assert preview["backup_plan"]["required"] is True
+    result = backend.execute(
+        target,
+        "open_aedt_python_apply",
+        {"preview_id": preview["preview_id"]},
+    )
+    assert result["status"] == "completed"
+    assert result["events"] == [{"marker": "done"}]
+    assert result["project_saved_before_execution"] is True
+    backup = Path(result["backup"]["directory"])
+    assert (backup / "Board.aedt").read_text(encoding="utf-8") == "aedt"
+    assert (backup / "Board.aedb" / "edb.def").read_text(encoding="utf-8") == "edb"
 
 
 def test_backend_atomically_creates_hfss_setup_and_sweep_with_readback():
@@ -8375,6 +8423,35 @@ def test_hmac_approval_is_bound_short_lived_and_one_use():
     )
     now[0] = 1011.0
     assert authority.verify("project.save", "save-preview-2", "digest-2", expired) is False
+
+
+def test_manager_requires_action_bound_approval_for_open_aedt_python():
+    registry = FakeRegistry()
+    authority = HmacApprovalAuthority("o" * 32)
+    manager = LiveAedtSessionManager(registry=registry, approval_verifier=authority)
+    session_id = manager.attach(pid=42)["live_session_id"]
+    preview = manager.preview_open_aedt_python(
+        session_id,
+        project_name="Board",
+        design_name="Layout1",
+        product="layout",
+        code="emit('hello')",
+    )
+    assert preview["approval_request"]["action"] == "aedt.open_python.execute"
+    token = authority.issue(**preview["approval_request"])
+    applied = manager.apply_open_aedt_python(
+        session_id,
+        preview_id=preview["preview_id"],
+        approval_token=token,
+    )
+    assert applied["command"] == "open_aedt_python_apply"
+    with pytest.raises(Exception) as replay:
+        manager.apply_open_aedt_python(
+            session_id,
+            preview_id=preview["preview_id"],
+            approval_token=token,
+        )
+    assert getattr(replay.value, "code", None) == "approval_required"
 
 
 def test_manager_requires_digest_bound_approval_for_project_save():

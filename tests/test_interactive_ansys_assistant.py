@@ -386,6 +386,11 @@ def test_capabilities_v2_is_additive_and_keeps_v1_unchanged(capsys):
     by_name = {item["name"]: item for item in payload["capabilities"]}
     assert by_name["layout.paths.list"]["modes"] == ["artifact", "live"]
     assert by_name["aedt.projects.save"]["approval"] == "external_host_token"
+    assert by_name["aedt.open_python.execute"]["tools"] == [
+        "preview_live_open_aedt_python",
+        "apply_live_open_aedt_python",
+    ]
+    assert payload["defaults"]["code_fallback_policy"] == "open_with_approval"
     assert CapabilityCatalog().to_dict()["version"] == "1"
 
 

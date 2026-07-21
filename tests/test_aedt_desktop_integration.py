@@ -154,12 +154,11 @@ def test_launcher_generates_session_scoped_mcp_and_visible_git_bash(
     system_context = Path(result["system_context"]).read_text(encoding="utf-8")
     assert "attach_live_aedt_session(port=50061" in system_context
     assert "wait_for_live_approval" in system_context
-    assert "Harness-first" in system_context
-    assert "get_live_layout_property_schema" in system_context
-    assert "read_live_layout_properties" in system_context
-    assert "profile `via_target/v1`" in system_context
-    assert "ansys-operation-plan/v1" in system_context
-    assert "raw COM" in system_context
+    assert "typed Harness capability" in system_context
+    assert "open_with_approval" in system_context
+    assert "preview_live_open_aedt_python" in system_context
+    assert "apply_live_open_aedt_python" in system_context
+    assert "AEDT COM" in system_context
     assert "Never auto-promote" in system_context
     launch_script = Path(result["launch_script"]).read_text(encoding="utf-8")
     assert Path(result["launch_script"]).name == "launch-claude.sh"
@@ -266,7 +265,7 @@ def test_api_memory_prepare_failure_keeps_runtime_harness_available(tmp_path: Pa
     system_context = Path(result["system_context"]).read_text(encoding="utf-8")
     assert "unknown operations as unsupported" in system_context
     assert "Keep known Runtime Harness tools available" in system_context
-    assert "program field `product` must be exactly `layout`" in system_context
+    assert "open Python preview/apply fallback" in system_context
     launch_script = Path(result["launch_script"]).read_text(encoding="utf-8")
     assert "'--allowedTools' 'AskUserQuestion,mcp__ansys-assistant__list_ansys_capabilities," in launch_script
     assert "mcp__ansys-assistant__promote_ansys_capability'" in launch_script

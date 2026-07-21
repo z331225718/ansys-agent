@@ -28,7 +28,7 @@
 ### 1.2 查询和修改走不同路径
 
 - 查询可以直接调用只读 Harness。
-- 修改必须先 `preview`，再由当前 Windows 桌面的原生确认框审批，然后才能 `apply`。
+- typed Harness 修改必须先 `preview`，再由当前 Windows 桌面的原生确认框审批，然后才能 `apply`。未知 AEDT/PyAEDT 操作也可使用开放 Python preview/apply；其 apply 会先保存并备份工程，仍必须经过同一个原生确认框。
 - `apply` 后必须逐项回读；批量任务中途失败时必须报告 rollback 状态。
 - 修改默认只发生在 AEDT 内存中，不自动保存工程。
 - 保存是独立的持久化动作，需要单独 preview 和单独审批。
@@ -465,10 +465,13 @@ preview 并等待审批。启动后只轮询状态，不重复提交。完成后
 推荐请求：
 
 ```text
-先检查 capability catalog。若没有现成 Harness，不要猜 PyAEDT/PyEDB API，也不要执行任意脚本。
-使用 ansys-api-memory 查询当前已安装版本的源码证据。若受控 Exploration 支持该操作，
-按 propose -> validate -> preview -> 原生审批 -> apply -> readback/rollback 执行；
-否则明确报告缺少的 operation、schema 和 readback 能力，不要修改工程。
+先检查 capability catalog。若没有现成 Harness，使用 ansys-api-memory 查询当前安装版本的源码证据，
+然后通过 `preview_live_open_aedt_python` 提交精确的 PyAEDT/AEDT COM 代码（`product` 为 `layout` 或 `hfss`）。
+在原生确认框中核对代码 hash、绑定工程/设计和 backup 目录；批准后只能以返回的 `preview_id` 调用
+`apply_live_open_aedt_python`。Runtime 会先保存工程并复制 `.aedt`/`.aedb`，然后在绑定 AEDT broker 中执行。
+
+这是完全访问模式，不是 sandbox：代码具备当前 AEDT Desktop 用户权限，不能承诺自动 rollback 或通用 readback。
+执行失败或 GUI 核验不符时，立即停止后续编辑，并从 apply 返回的 backup 目录手动恢复工程。
 ```
 
 成功走通的 Exploration 可以记录 capability trace，并生成供代码审查的 Harness 或 Skill 候选，但不会：

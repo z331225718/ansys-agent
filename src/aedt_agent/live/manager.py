@@ -744,6 +744,49 @@ class LiveAedtSessionManager:
         self._approval_contexts.pop((session_id, preview_id), None)
         return result
 
+    def preview_open_aedt_python(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+        product: str,
+        code: str,
+    ) -> dict[str, Any]:
+        """Preview unrestricted AEDT/PyAEDT code under the global approval policy."""
+        result = self._execute(
+            session_id,
+            "open_aedt_python_preview",
+            {
+                "project_name": project_name,
+                "design_name": design_name,
+                "product": product,
+                "code": code,
+            },
+        )
+        return self._register_approval(session_id, "aedt.open_python.execute", result)
+
+    def apply_open_aedt_python(
+        self,
+        session_id: str,
+        *,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict[str, Any]:
+        self._require_approval(
+            session_id,
+            "aedt.open_python.execute",
+            preview_id,
+            approval_token,
+        )
+        result = self._execute(
+            session_id,
+            "open_aedt_python_apply",
+            {"preview_id": preview_id},
+        )
+        self._approval_contexts.pop((session_id, preview_id), None)
+        return result
+
     def preview_hfss_material_assign(
         self,
         session_id: str,

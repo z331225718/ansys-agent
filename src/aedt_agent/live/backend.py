@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import contextlib
 import csv
 import hashlib
+import io
 import json
 import math
 import os
@@ -77,6 +79,10 @@ class LiveAedtBackend:
                 return self._project_save_preview(target, arguments)
             if command == "project_save_apply":
                 return self._project_save_apply(target, arguments)
+            if command == "open_aedt_python_preview":
+                return self._open_aedt_python_preview(target, arguments)
+            if command == "open_aedt_python_apply":
+                return self._open_aedt_python_apply(target, arguments)
             if command == "hfss_design_create":
                 return self._hfss_design_create(target, arguments)
             if command == "hfss_design_inventory":
@@ -391,6 +397,207 @@ class LiveAedtBackend:
             "preview_id": preview_id,
             "project_name": preview["project_name"],
             "project_saved": True,
+        }
+
+    def _open_aedt_python_preview(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
+        """Freeze unrestricted AEDT/PyAEDT code for explicit Desktop approval.
+
+        This is deliberately separate from the typed Harness commands.  It is not a
+        sandbox: the code executes with the permissions of the AEDT Desktop user.
+        """
+        product = _required(args, "product").strip().lower()
+        if product not in {"hfss", "layout"}:
+            raise LiveBackendError("product must be exactly 'hfss' or 'layout'")
+        project_name = _required(args, "project_name")
+        design_name = _required(args, "design_name")
+        code = args.get("code")
+        if not isinstance(code, str) or not code.strip():
+            raise LiveBackendError("code must be a non-empty Python string")
+        if "\x00" in code or len(code.encode("utf-8")) > 131_072:
+            raise LiveBackendError("code must be valid UTF-8 text no longer than 128 KiB")
+        try:
+            compile(code, "<approved-aedt-python>", "exec")
+        except SyntaxError as exc:
+            raise LiveBackendError(f"Python syntax error: {exc}") from exc
+
+        app = self._app(target, product, project_name, design_name)
+        desktop = self._desktop_for(target)
+        project_path = self._open_aedt_project_path(app, desktop, project_name)
+        if not project_path.is_file():
+            raise LiveBackendError(
+                "the active AEDT project has no accessible .aedt file; save it in AEDT before open execution"
+            )
+        identity = self._open_aedt_identity(app, desktop, target, product, project_path)
+        code_sha256 = hashlib.sha256(code.encode("utf-8")).hexdigest()
+        state = {"identity": identity, "code_sha256": code_sha256}
+        digest = _digest(state)
+        preview_id = "open-aedt-python-preview-" + digest[:24]
+        backup_root = Path(
+            os.environ.get("AEDT_AGENT_BACKUP_ROOT")
+            or project_path.parent / ".aedt-agent-backups"
+        ).resolve()
+        backup_dir = backup_root / datetime.now(timezone.utc).strftime("%Y%m%d") / preview_id
+        self._previews[preview_id] = {
+            "kind": "open_aedt_python",
+            "target": target,
+            "product": product,
+            "project_name": project_name,
+            "design_name": design_name,
+            "project_path": str(project_path),
+            "identity": identity,
+            "code": code,
+            "code_sha256": code_sha256,
+            "digest": digest,
+            "backup_dir": str(backup_dir),
+        }
+        return {
+            "preview_id": preview_id,
+            "snapshot_digest": digest,
+            "approval_required": True,
+            "execution_policy": "open_with_approval",
+            "risk": "arbitrary AEDT/PyAEDT Python executes as the AEDT Desktop user",
+            "target_identity": identity,
+            "code_sha256": code_sha256,
+            "code_bytes": len(code.encode("utf-8")),
+            "code_preview": code[:4096],
+            "backup_plan": {
+                "required": True,
+                "action": "save_active_project_then_copy_project_and_aedb",
+                "destination": str(backup_dir),
+                "source_project": str(project_path),
+            },
+            "automatic_rollback": False,
+            "project_saved": False,
+        }
+
+    def _open_aedt_python_apply(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
+        preview_id = _required(args, "preview_id")
+        try:
+            preview = self._previews[preview_id]
+        except KeyError as exc:
+            raise LiveBackendError("unknown open AEDT Python preview") from exc
+        if preview.get("kind") != "open_aedt_python" or preview.get("target") != target:
+            raise LiveBackendError("open AEDT Python preview belongs to a different AEDT target")
+
+        app = self._app(
+            target,
+            str(preview["product"]),
+            str(preview["project_name"]),
+            str(preview["design_name"]),
+        )
+        desktop = self._desktop_for(target)
+        project_path = self._open_aedt_project_path(app, desktop, str(preview["project_name"]))
+        current_identity = self._open_aedt_identity(app, desktop, target, str(preview["product"]), project_path)
+        if current_identity != preview["identity"]:
+            raise LiveBackendError("stale open AEDT Python preview: project, design, or project file changed")
+
+        backup = self._create_open_aedt_backup(desktop, preview, project_path)
+        events: list[Any] = []
+
+        def emit(value: Any) -> None:
+            if len(events) < 64:
+                events.append(_json_value(value))
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        namespace = {
+            "app": app,
+            "desktop": desktop,
+            "oeditor": getattr(getattr(app, "modeler", None), "oeditor", None),
+            "emit": emit,
+            "__name__": "__aedt_open_operation__",
+        }
+        try:
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                exec(compile(str(preview["code"]), "<approved-aedt-python>", "exec"), namespace, namespace)
+        except BaseException as exc:
+            # Do not let SystemExit or KeyboardInterrupt terminate the persistent broker.
+            result = {
+                "status": "failed",
+                "preview_id": preview_id,
+                "error": {"type": exc.__class__.__name__, "message": str(exc)},
+                "backup": backup,
+                "events": events,
+                "stdout": stdout.getvalue()[-16_384:],
+                "stderr": stderr.getvalue()[-16_384:],
+                "postcondition": "unverified; inspect AEDT and restore the backup if needed",
+                "automatic_rollback": False,
+                "project_saved_before_execution": True,
+            }
+            del self._previews[preview_id]
+            return result
+
+        del self._previews[preview_id]
+        return {
+            "status": "completed",
+            "preview_id": preview_id,
+            "backup": backup,
+            "events": events,
+            "stdout": stdout.getvalue()[-16_384:],
+            "stderr": stderr.getvalue()[-16_384:],
+            "postcondition": "unverified; validate the requested AEDT state before any further edit",
+            "automatic_rollback": False,
+            "project_saved_before_execution": True,
+        }
+
+    def _open_aedt_project_path(self, app: Any, desktop: Any, project_name: str) -> Path:
+        for attribute in ("project_file", "project_path"):
+            value = getattr(app, attribute, None)
+            if value:
+                candidate = Path(str(value)).expanduser()
+                if candidate.suffix.lower() == ".aedt":
+                    return candidate.resolve()
+        project = desktop.active_project()
+        if project is not None:
+            get_path = getattr(project, "GetPath", None)
+            if callable(get_path):
+                directory = str(get_path() or "").strip()
+                if directory:
+                    return (Path(directory) / f"{project_name}.aedt").resolve()
+        raise LiveBackendError("unable to determine the active AEDT project file for backup")
+
+    def _open_aedt_identity(
+        self,
+        app: Any,
+        desktop: Any,
+        target: AedtTarget,
+        product: str,
+        project_path: Path,
+    ) -> dict[str, Any]:
+        project = desktop.active_project()
+        design = desktop.active_design(project) if project is not None else None
+        return {
+            "target": target.to_dict(),
+            "product": product,
+            "project_name": str(getattr(app, "project_name", "")),
+            "design_name": _canonical_design_name(str(getattr(app, "design_name", ""))),
+            "desktop_active_project": _name(project),
+            "desktop_active_design": _design_display_name(desktop, design),
+            "design_type": str(getattr(app, "design_type", "")),
+            "project_path": str(project_path.resolve()),
+        }
+
+    def _create_open_aedt_backup(self, desktop: Any, preview: dict[str, Any], project_path: Path) -> dict[str, Any]:
+        if not desktop.save_project(project_name=str(preview["project_name"])):
+            raise LiveBackendError("AEDT rejected the required pre-execution project save")
+        if not project_path.is_file():
+            raise LiveBackendError("project file disappeared after the required pre-execution save")
+        destination = Path(str(preview["backup_dir"])).resolve()
+        destination.mkdir(parents=True, exist_ok=False)
+        copied: list[str] = []
+        project_copy = destination / project_path.name
+        shutil.copy2(project_path, project_copy)
+        copied.append(str(project_copy))
+        aedb = project_path.with_suffix(".aedb")
+        if aedb.is_dir():
+            aedb_copy = destination / aedb.name
+            shutil.copytree(aedb, aedb_copy)
+            copied.append(str(aedb_copy))
+        return {
+            "directory": str(destination),
+            "files": copied,
+            "project_saved_before_backup": True,
+            "restore_hint": "close the affected project and reopen the backed-up .aedt file from this directory",
         }
 
     def _app(

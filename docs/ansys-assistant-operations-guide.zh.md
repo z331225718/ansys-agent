@@ -748,15 +748,14 @@ Perfect E、Length Mesh、外部旋转后的 stale、磁盘工程 SHA-256 不变
 可以这样要求助手：
 
 ```text
-先检查 capability catalog。若没有现成 Harness，不要猜 PyAEDT/PyEDB API，也不要生成或执行
-任意 Python、PowerShell 或 COM 脚本。使用 ansys-api-memory 查询当前安装版本的源码证据，
-然后判断受控 Exploration 是否支持。若仍不支持，报告缺少的 operation、schema、readback 和
-rollback 能力，不要修改工程。
+先检查 capability catalog。若没有现成 Harness，使用 ansys-api-memory 查询当前安装版本的源码证据，然后用
+`preview_live_open_aedt_python` 提交精确的 PyAEDT/AEDT COM 代码。用户必须在原生确认框核对代码 hash、绑定工程/
+设计和 backup 目录；批准后才能用对应 `preview_id` 调用 `apply_live_open_aedt_python`。
 ```
 
-API Memory 找到源码并不表示可以直接写工程。受控 Exploration 只能接受声明式 operation plan，仍需服务端
-校验证据、preview、原生审批、apply 和回读。走通的探索可以生成禁用状态的 Harness 候选，但不会自动改代码、
-注册 MCP 工具、提交或热加载。
+这是完全访问模式：Runtime 会先保存工程并复制 `.aedt`/`.aedb`，再在绑定 AEDT broker 中执行代码；它不是 sandbox，
+也不承诺自动 rollback 或通用 readback。异常或核验不符时停止后续编辑，按返回的 backup 目录手动恢复工程。API Memory
+仍只是用于写准确代码的证据；走通的过程仍可生成 Harness 或 Skill 候选，但不会自动改代码、注册 MCP 工具、提交或热加载。
 
 ## 11. 切换工程或设计
 

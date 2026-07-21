@@ -640,6 +640,36 @@ def create_server(
         )
 
     @server.tool()
+    async def preview_live_open_aedt_python(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        product: str,
+        code: str,
+    ) -> dict:
+        """Preview arbitrary AEDT/PyAEDT Python. It is globally available but never a sandbox; Desktop approval and a disk backup are mandatory."""
+        return live.preview_open_aedt_python(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            product=product,
+            code=code,
+        )
+
+    @server.tool()
+    async def apply_live_open_aedt_python(
+        live_session_id: str,
+        preview_id: str,
+        approval_token: str,
+    ) -> dict:
+        """Execute exactly the approved open AEDT/PyAEDT Python after saving and backing up the active project."""
+        return live.apply_open_aedt_python(
+            live_session_id,
+            preview_id=preview_id,
+            approval_token=approval_token,
+        )
+
+    @server.tool()
     async def preview_live_hfss_material_assign(
         live_session_id: str,
         project_name: str,

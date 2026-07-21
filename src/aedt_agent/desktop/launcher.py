@@ -116,6 +116,8 @@ _DESKTOP_ASSISTANT_MCP_TOOLS = (
     "apply_live_layout_via_delete",
     "preview_live_layout_antipad_circle_create",
     "apply_live_layout_antipad_circle_create",
+    "preview_live_open_aedt_python",
+    "apply_live_open_aedt_python",
     "get_live_layout_connectivity_inventory",
     "get_live_layout_port_candidate_inventory",
     "preview_live_layout_component_ports_create",
@@ -466,12 +468,12 @@ Rules:
 5. The active design above is its canonical display name. Never prepend an AEDT internal prefix such as `0;`.
 6. For `HFSS 3D Layout Design`, use only the layout inventory/edit tools for geometry. Do not call HFSS 3D design or geometry inventory tools.
 7. For a `LineWidth=<value>` request, filter `list_live_layout_paths` with `selector.target_width`, then preview parameterization with the same width as the variable value unless the user specifies another value.
-8. For a 3D Layout native property request, first call `get_live_layout_property_schema`, then call `read_live_layout_properties` using only returned canonical property ids or profile `via_target/v1`. This is a registered read-only Harness capability, never an exploratory operation. Otherwise use Harness-first routing: strict Workflow, then a registered structured Ansys Assistant Runtime Harness capability, then controlled Exploration, otherwise unsupported.
-9. {knowledge_rule}
-10. API memory is knowledge only. Source evidence is not permission, cannot drive AEDT, and cannot bypass Runtime validation or Desktop approval.
-11. For an unknown Layout read, first inspect `get_controlled_live_layout_read_schema`, then use its declarative read program. For `HFSS 3D Layout Design`, the program field `product` must be exactly `layout`. It cannot run Python, shell, raw COM, or methods. For other genuine capability misses, query API memory and submit an `ansys-operation-plan/v1`; use only the declarative propose/validate/preview/apply path.
-12. Never run or request arbitrary Python, shell, `eval`/`exec`, raw COM, or generated AEDT scripts to work around a capability miss.
-13. Reads may run directly through registered tools. Every live edit, solve, cancel, export, or save must use its preview/apply contract.
+8. Prefer an existing typed Harness capability when it exactly fits; it provides the strongest readback and rollback. The global fallback policy is `open_with_approval`: for any AEDT/PyAEDT capability miss, use `preview_live_open_aedt_python` with the exact code, then wait for Desktop approval and call `apply_live_open_aedt_python` with only the returned preview id and approval token.
+9. The open Python fallback is intentionally unrestricted for AEDT/PyAEDT and raw AEDT COM work. It runs inside the server-owned AEDT broker as the Desktop user, not in Claude and not in a security sandbox. Do not claim it is safe, reversible, or verified merely because it completed.
+10. Open execution saves the active project and copies its `.aedt`/`.aedb` bundle before running. Read the approval preview's code hash, target identity, and backup destination with the user; do not alter code after preview. On failure or an unexpected result, stop, inspect AEDT, and restore that backup manually if needed.
+11. {knowledge_rule} API memory is knowledge only. It can help write the open code but is not permission and cannot bypass Desktop approval.
+12. For an unknown Layout read, use `get_controlled_live_layout_read_schema` when it is sufficient. Otherwise use the open Python preview/apply fallback rather than reporting a capability miss as unsupported.
+13. Reads may run directly through registered tools. Every typed live edit, solve, cancel, export, or save still uses its preview/apply contract; every open Python run also requires its own preview, native Desktop approval, and automatic pre-execution backup.
 14. Never invent an approval token. After preview, call `wait_for_live_approval` and wait for the native Desktop Host decision.
 15. If approval is rejected or expires, do not retry or create another preview unless the user explicitly asks.
 16. Do not save the project unless the user explicitly requests save and separately approves the save preview.

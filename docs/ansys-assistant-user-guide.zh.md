@@ -226,10 +226,12 @@ Desktop 对话入口当前适合：
 - 查询 HFSS 3D 的对象、面、材料、mesh、far-field setup、setup、port、boundary 和 report，受控创建 typed primitive batch、严格平移已有 solid/sheet 或绕 Global 原点严格旋转、在已有几何上创建 Wave/Lumped Port、五类表面边界/等效器件、数值型各向同性电磁材料，严格批量更新已有工程材料，为显式 solid batch 分配已有工程材料或 Length Based Mesh，并创建有界 Infinite Sphere；在 3D Layout 中原子创建工程材料并分配给一个明确 stackup layer 字段，基于既有 padstack、signal layer 和 net 批量创建精确 Via，批量移动、旋转、改网和锁定已有 Via，或严格删除可完整重建的 Via；
 - 通过预览和原生审批创建受支持的 setup、boundary、port、report；
 - 通过批准链路启动、查询、取消求解以及导出受控结果；
-- 对 Harness 尚未覆盖的能力查询 PyAEDT/PyEDB API Memory，并走受控 Exploration。
+- 对 Harness 尚未覆盖的 AEDT/PyAEDT 能力查询 API Memory，然后走开放 Python 的 preview -> 原生审批 -> 自动工程备份 -> apply 链路。
 
-它不是自由脚本执行器。Desktop 模式不会开放任意 Python、PowerShell、COM、`eval`、`exec`、
-文件编辑或浏览器工具，也不会因为 API Memory 找到了源码就自动获得写权限。
+Desktop 模式对 Claude 仍不开放 Bash、文件编辑或浏览器工具；但 AEDT/PyAEDT 的未知能力已全局开放为
+`preview_live_open_aedt_python` / `apply_live_open_aedt_python`。该代码在绑定 AEDT broker 中以当前 Desktop
+用户权限运行，不是 sandbox；每次执行都必须经原生审批，且 Runtime 会先保存并复制 `.aedt`/`.aedb`。它不提供
+通用自动 rollback，执行后必须按任务在 AEDT GUI 或针对性读回中核验。
 
 ## 2. 系统工作方式
 

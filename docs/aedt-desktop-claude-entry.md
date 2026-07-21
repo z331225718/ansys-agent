@@ -85,6 +85,8 @@ Windows secure gRPC/WNUA 可能使用不同的实际 listener。先用 `ansys-as
 - `ansys-api-memory` 只提供 search/inspect/trace/source/example 查询，不暴露索引、删除或 ADR 写工具。
 - Claude 的 permission mode 为 `manual`，不会启用 `dangerously-skip-permissions`。
 - live edit、solve、cancel、export、save 仍遵循 preview/apply 和外部 Host approval。
+- 对没有 typed Harness 的 AEDT/PyAEDT 操作，Desktop Runtime 全局提供 `preview_live_open_aedt_python` / `apply_live_open_aedt_python`。它不按对象类型、属性或 COM 方法再设 allowlist：先展示固定代码 hash、来源工程/设计和备份位置，用户在原生确认框批准后，Runtime 先保存工程并复制 `.aedt`/`.aedb`，再在绑定 AEDT broker 中执行该**完全访问** Python。
+- 这项开放能力不是 sandbox，也不承诺自动 rollback 或通用 readback；代码拥有当前 AEDT Desktop 用户的同等权限。失败或结果异常时必须停止后续编辑，在 AEDT GUI 核对，并按返回的 backup 目录手动恢复工程。
 - approval Host 没有 HTTP/MCP approve 接口；批准只能来自 Windows 原生确认框。
 - approved token 绑定 action/resource/digest、五分钟过期且 verify 后立即失效。
 - 同一 Desktop 会话同时只允许一个 pending/approved 原生审批，避免并发 preview 造成弹窗堆积。
@@ -108,19 +110,17 @@ session.json
 Claude 必须按固定顺序处理 Harness 尚未覆盖的任务：
 
 ```text
-确认 capability miss
-  -> API Memory search + inspect
-  -> 复制 operation_evidence
-  -> get_ansys_operation_plan_schema
-  -> propose -> validate -> preview
-  -> 写操作等待原生审批
-  -> apply + readback/rollback
-  -> capture_capability_trace
+确认 typed Harness capability miss
+  -> API Memory search + inspect（用于准确写代码）
+  -> `preview_live_open_aedt_python`
+  -> Desktop 原生审批
+  -> Runtime 保存并备份工程
+  -> `apply_live_open_aedt_python`
+  -> AEDT GUI / 针对性代码核验
 ```
 
-Runtime 会重新查询本地 API Memory，逐字段核验 `query_id`、symbol、版本、project、源码路径和
-snippet digest。仅在模型中伪造 evidence 不能通过。Runtime 从不接受原始 Python、shell、COM、
-`eval/exec` 或生成脚本。
+API Memory 用于获得与当前版本一致的源码证据；它不是执行权限。开放代码仍必须经预览、原生审批、绑定目标
+复核和自动工程备份，且完成并不等于已验证业务结果。
 
 成功 trace 可调用 `promote_ansys_capability`，或使用 `ansys-capability-promoter` Skill 生成
 `.aedt-agent/capability-candidates` 下的禁用候选。该步骤不会应用 patch、注册 tool、commit 或热加载。
