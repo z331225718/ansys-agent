@@ -1306,7 +1306,9 @@ class FakeLayoutAntipadEditor:
         assert tab == "BaseElementTab"
         if name == "GND_PLANE":
             return ["Type", "Name", "PlacementLayer", "Net"]
-        return ["Type", "Name", "PlacementLayer", "Center", "Radius", "LockPosition"]
+        if name in self.app._voids:
+            return ["Type", "Name", "PlacementLayer", "Center", "Radius", "LockPosition"]
+        return []
 
     def GetPropertyValue(self, tab, name, prop):
         if name == "GND_PLANE":
@@ -4774,6 +4776,79 @@ def test_backend_layout_antipad_circle_create_has_owner_readback_and_rollback(mo
     app = next(iter(backend._apps.values()))
     assert "AP_ROLLBACK" not in app._voids
     assert "AP_GND_1" in app._voids
+
+
+def test_backend_layout_antipad_circle_create_falls_back_to_named_readback_when_inventory_is_unavailable(monkeypatch):
+    target = AedtTarget("port", 50061)
+
+    def factory(**kwargs):
+        app = FakeLayoutAntipad(**kwargs)
+
+        def failing_find_objects(field, value):
+            raise RuntimeError("Failed to execute gRPC AEDT command: FindObjects")
+
+        app.modeler.oeditor.FindObjects = failing_find_objects
+        return app
+
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        layout_factory=factory,
+    )
+    request = {
+        "project_name": "Board",
+        "design_name": "Layout1",
+        "voids": [
+            {
+                "name": "AP_SCOPED",
+                "owner_name": "GND_PLANE",
+                "center": [1.0, -0.5],
+                "radius": 0.8,
+            }
+        ],
+    }
+
+    preview = backend.execute(target, "layout_antipad_circle_create_preview", request)
+
+    assert preview["verification_scope"] == "named_object"
+    assert preview["global_inventory_status"] == "unavailable"
+    assert preview["global_side_effects_unverified"] is True
+    result = backend.execute(
+        target,
+        "layout_antipad_circle_create_apply",
+        {"preview_id": preview["preview_id"]},
+    )
+    assert result["status"] == "verified"
+    assert result["verification_scope"] == "named_object"
+    assert result["voids"][0]["owner_membership_verified"] is True
+
+    rollback_request = {
+        **request,
+        "voids": [{**request["voids"][0], "name": "AP_SCOPED_ROLLBACK"}],
+    }
+    rollback_preview = backend.execute(
+        target,
+        "layout_antipad_circle_create_preview",
+        rollback_request,
+    )
+    from aedt_agent.live import backend as backend_module
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            backend_module,
+            "_verify_layout_antipad_circle_create_state",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                LiveBackendError("injected scoped anti-pad readback failure")
+            ),
+        )
+        with pytest.raises(LiveBackendError, match="injected scoped anti-pad readback failure"):
+            backend.execute(
+                target,
+                "layout_antipad_circle_create_apply",
+                {"preview_id": rollback_preview["preview_id"]},
+            )
+    app = next(iter(backend._apps.values()))
+    assert "AP_SCOPED" in app._voids
+    assert "AP_SCOPED_ROLLBACK" not in app._voids
 
 
 def test_backend_layout_antipad_rejects_outside_or_crossing_owner():

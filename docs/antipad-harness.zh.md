@@ -34,9 +34,11 @@ Workflow：`layout_live_antipad_circle_create`
 - 一批 1～32 个圆形 void；
 - owner 必须是精确名称、精确大小写的非负片 signal-layer rectangle，或不含圆弧的直边 polygon；
 - 整个圆必须落在 owner 外轮廓内；
-- 名称不得与既有对象重复；
+- 同一 owner 的既有 void 名称不得重复；
 - apply 后同时核验 Type、Name、PlacementLayer、Center、Radius，以及 `GetPolygonVoids(owner)` 中唯一的 owner membership；
-- 失败时只删除本批新增的 circle void，并要求 owner、既有 void 清单和目标缺席状态恢复到 preview 快照。
+- 能读取 `FindObjects(Type, "circle void")` 时，还会验证全局 circle-void 清单只增加本批名称；
+- AEDT gRPC 无法执行该全局清单查询时，preview 会明确返回 `verification_scope=named_object`、`global_inventory_status=unavailable` 和 `global_side_effects_unverified=true`。此时仍严格冻结目标 owner、其 void 清单和每个新建 void 的原生属性，但不会谎称验证了其他 owner 的全局副作用；
+- 失败时只删除经 owner membership、类型、层、圆心和半径再次核验的本批目标名称，并要求 owner、既有 void 清单和目标缺席状态恢复到 preview 快照。
 
 该能力暂不支持椭圆、长圆、矩形、带圆弧 polygon、跨 owner 的 void，或在负片层上推断相反语义。这些形状需要单独的 schema 和真实 AEDT 验收。
 

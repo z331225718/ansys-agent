@@ -739,6 +739,7 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
                 "circle_must_fit_inside_owner_outer_boundary",
                 "native_name_layer_center_radius_and_owner_membership_verified",
                 "owner_geometry_and_existing_void_catalog_frozen",
+                "verification_scope_and_global_inventory_status_reported",
                 "batch_delete_rollback_on_failure",
                 "project_not_saved",
             ],

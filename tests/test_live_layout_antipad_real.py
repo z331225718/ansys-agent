@@ -104,6 +104,41 @@ def test_real_live_layout_antipad_circle_harness(tmp_path: Path, monkeypatch):
 
         direct_backend = LiveAedtBackend(version=version)
         target = AedtTarget("port", port)
+        original_editor = backend_module._layout_modeler_editor
+
+        class FindObjectsUnavailableEditor:
+            def __init__(self, editor):
+                self._editor = editor
+
+            def FindObjects(self, field, value):
+                raise RuntimeError("Failed to execute gRPC AEDT command: FindObjects")
+
+            def __getattr__(self, name):
+                return getattr(self._editor, name)
+
+        scoped_args = {
+            "project_name": "RealLayoutAntipadAcceptance",
+            "design_name": "Layout1",
+            "voids": [{**request[0], "name": "AP_SCOPED", "center": [-1.0, -0.5]}],
+        }
+        with monkeypatch.context() as patch:
+            patch.setattr(
+                backend_module,
+                "_layout_modeler_editor",
+                lambda candidate: FindObjectsUnavailableEditor(original_editor(candidate)),
+            )
+            scoped_preview = direct_backend.execute(
+                target, "layout_antipad_circle_create_preview", scoped_args
+            )
+            assert scoped_preview["verification_scope"] == "named_object"
+            assert scoped_preview["global_inventory_status"] == "unavailable"
+            scoped_result = direct_backend.execute(
+                target,
+                "layout_antipad_circle_create_apply",
+                {"preview_id": scoped_preview["preview_id"]},
+            )
+            assert scoped_result["status"] == "verified"
+            assert scoped_result["voids"][0]["owner_membership_verified"] is True
         rollback_args = {
             "project_name": "RealLayoutAntipadAcceptance",
             "design_name": "Layout1",

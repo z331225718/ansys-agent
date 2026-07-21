@@ -4798,6 +4798,10 @@ class LiveAedtBackend:
             "void_count": len(spec["voids"]),
             "owners": state["owners"],
             "model_units": state["model_units"],
+            "verification_scope": state["verification_scope"],
+            "global_inventory_status": state["global_inventory_status"],
+            "target_presence_scope": state["target_presence_scope"],
+            "global_side_effects_unverified": state["global_side_effects_unverified"],
             "snapshot_digest": state_digest,
             "approval_required": True,
             "automatic_rollback_on_failure": True,
@@ -4823,7 +4827,6 @@ class LiveAedtBackend:
         if _digest(current) != preview["digest"]:
             raise LiveBackendError("stale 3D Layout anti-pad create preview")
 
-        created_names: list[str] = []
         try:
             editor = _layout_modeler_editor(app)
             create = getattr(editor, "CreateCircleVoid", None)
@@ -4854,8 +4857,6 @@ class LiveAedtBackend:
                     ]
                 )
                 created_name = str(result or "").strip()
-                if created_name:
-                    created_names.append(created_name)
                 if created_name != item["name"]:
                     raise LiveBackendError(
                         f"3D Layout anti-pad creation returned an unexpected name: {created_name}"
@@ -4871,7 +4872,6 @@ class LiveAedtBackend:
             rollback = _rollback_layout_antipad_circle_create(
                 app,
                 spec,
-                created_names,
                 before_state=preview["state"],
             )
             if not rollback["complete"]:
@@ -4893,6 +4893,10 @@ class LiveAedtBackend:
             "voids": readback,
             "void_count": len(readback),
             "model_units": preview["state"]["model_units"],
+            "verification_scope": preview["state"]["verification_scope"],
+            "global_inventory_status": preview["state"]["global_inventory_status"],
+            "target_presence_scope": preview["state"]["target_presence_scope"],
+            "global_side_effects_unverified": preview["state"]["global_side_effects_unverified"],
             "readback_digest": _digest(readback),
             "automatic_rollback_on_failure": True,
             "project_dirty": True,
@@ -12922,25 +12926,16 @@ def _layout_antipad_circle_create_state(app: Any, spec: dict[str, Any]) -> dict[
     model_units = str(_safe_attribute(modeler, "model_units") or "").strip()
     if not model_units:
         raise LiveBackendError("3D Layout model units are unavailable")
-    editor = _layout_modeler_editor(app)
-    find_objects = getattr(editor, "FindObjects", None)
-    if not callable(find_objects):
-        raise LiveBackendError("3D Layout native object lookup API is unavailable")
-    try:
-        circle_void_names = sorted(
-            str(item) for item in list(find_objects("Type", "circle void") or [])
-        )
-    except Exception as exc:
-        raise LiveBackendError("3D Layout circle-void inventory is unavailable") from exc
-    if len(circle_void_names) > 100_000:
-        raise LiveBackendError("3D Layout circle-void inventory exceeds the safety limit")
+    circle_void_names, inventory_error = _layout_circle_void_inventory(app)
+    global_inventory_status = "verified" if inventory_error is None else "unavailable"
     owner_names = sorted(
         {item["owner_name"] for item in spec["voids"]},
         key=str.casefold,
     )
     owners = [_layout_native_antipad_owner_record(app, name) for name in owner_names]
     target_presence = {
-        name: _layout_native_name_matches(app, name) for name in spec["names"]
+        name: sorted(owner["name"] for owner in owners if name in owner["void_names"])
+        for name in spec["names"]
     }
     for name, matches in target_presence.items():
         if matches:
@@ -12952,27 +12947,107 @@ def _layout_antipad_circle_create_state(app: Any, spec: dict[str, Any]) -> dict[
         "owners": owners,
         "circle_void_names": circle_void_names,
         "target_presence": target_presence,
+        "target_presence_scope": "owner_void_catalog",
+        "verification_scope": "global_inventory" if inventory_error is None else "named_object",
+        "global_inventory_status": global_inventory_status,
+        "global_inventory_error": inventory_error,
+        "global_side_effects_unverified": inventory_error is not None,
     }
 
 
-def _layout_native_antipad_owner_record(app: Any, name: str) -> dict[str, Any]:
-    if _layout_native_name_matches(app, name) != [name]:
-        raise LiveBackendError(f"3D Layout anti-pad owner is missing or ambiguous: {name}")
+def _layout_circle_void_inventory(app: Any) -> tuple[list[str] | None, str | None]:
+    """Return the global catalog when supported, otherwise a narrowly scoped fallback.
+
+    AEDT 2024 R2 can expose property reads and CreateCircleVoid while its gRPC
+    FindObjects implementation fails for the global circle-void query. That
+    limitation must not prevent a named, owner-scoped operation, but malformed
+    responses and unrelated backend failures remain fail-closed.
+    """
+
+    editor = _layout_modeler_editor(app)
+    find_objects = getattr(editor, "FindObjects", None)
+    if not callable(find_objects):
+        return None, "FindObjects is unavailable"
+    try:
+        raw_names = find_objects("Type", "circle void")
+    except Exception as exc:
+        if _layout_global_inventory_is_unavailable(exc):
+            return None, f"{type(exc).__name__}: {exc}"
+        raise LiveBackendError("3D Layout circle-void inventory failed") from exc
+    if raw_names is None:
+        raw_names = []
+    if isinstance(raw_names, (str, bytes, dict)):
+        raise LiveBackendError("3D Layout circle-void inventory returned an invalid response")
+    try:
+        circle_void_names = sorted(str(item) for item in list(raw_names))
+    except TypeError as exc:
+        raise LiveBackendError("3D Layout circle-void inventory returned an invalid response") from exc
+    if len(circle_void_names) > 100_000:
+        raise LiveBackendError("3D Layout circle-void inventory exceeds the safety limit")
+    return circle_void_names, None
+
+
+def _layout_global_inventory_is_unavailable(exc: Exception) -> bool:
+    detail = f"{type(exc).__name__}: {exc}".casefold()
+    return (
+        "grpcapierror" in detail
+        or "failed to execute grpc aedt command: findobjects" in detail
+        or "findobjects is unavailable" in detail
+        or "findobjects is not supported" in detail
+    )
+
+
+def _layout_native_object_properties(
+    app: Any,
+    name: str,
+    *,
+    maximum_properties: int,
+    label: str,
+) -> dict[str, Any] | None:
     editor = _layout_modeler_editor(app)
     try:
-        property_names = [
-            str(item) for item in list(editor.GetProperties("BaseElementTab", name) or [])
-        ]
-        if not property_names or len(property_names) > 256:
-            raise LiveBackendError(
-                f"3D Layout anti-pad owner property count is unsupported: {name}"
-            )
+        raw_properties = editor.GetProperties("BaseElementTab", name)
+    except Exception as exc:
+        raise LiveBackendError(
+            f"3D Layout {label} lookup failed: {name}: {type(exc).__name__}: {exc}"
+        ) from exc
+    if raw_properties is None:
+        return None
+    if isinstance(raw_properties, (str, bytes, dict)):
+        raise LiveBackendError(f"3D Layout {label} property response is invalid: {name}")
+    try:
+        property_names = [str(item) for item in list(raw_properties)]
+    except TypeError as exc:
+        raise LiveBackendError(f"3D Layout {label} property response is invalid: {name}") from exc
+    if not property_names:
+        return None
+    if len(property_names) > maximum_properties:
+        raise LiveBackendError(f"3D Layout {label} property count is unsupported: {name}")
+    try:
         native = {
             prop: _json_value(editor.GetPropertyValue("BaseElementTab", name, prop))
             for prop in property_names
         }
     except Exception as exc:
-        raise LiveBackendError(f"3D Layout anti-pad owner readback failed: {name}") from exc
+        raise LiveBackendError(f"3D Layout {label} property readback failed: {name}") from exc
+    native_name = str(native.get("Name") or "").strip()
+    if native_name != name:
+        if native_name.casefold() == name.casefold():
+            raise LiveBackendError(f"{label} must match AEDT case exactly: {native_name}")
+        raise LiveBackendError(f"3D Layout {label} identity readback failed: {name}")
+    return native
+
+
+def _layout_native_antipad_owner_record(app: Any, name: str) -> dict[str, Any]:
+    native = _layout_native_object_properties(
+        app,
+        name,
+        maximum_properties=256,
+        label="anti-pad owner",
+    )
+    if native is None:
+        raise LiveBackendError(f"3D Layout anti-pad owner is missing or ambiguous: {name}")
+    editor = _layout_modeler_editor(app)
     for required in ("Type", "Name", "PlacementLayer"):
         if required not in native:
             raise LiveBackendError(f"3D Layout anti-pad owner is missing property: {required}")
@@ -13098,19 +13173,16 @@ def _layout_native_circle_void_record(
     spec: dict[str, Any],
 ) -> dict[str, Any]:
     name = spec["name"]
-    if _layout_native_name_matches(app, name) != [name]:
+    native = _layout_native_object_properties(
+        app,
+        name,
+        maximum_properties=128,
+        label="anti-pad",
+    )
+    if native is None:
         raise LiveBackendError(f"3D Layout anti-pad is missing or ambiguous: {name}")
     editor = _layout_modeler_editor(app)
     try:
-        props = [str(item) for item in list(editor.GetProperties("BaseElementTab", name) or [])]
-        if not props or len(props) > 128:
-            raise LiveBackendError(
-                f"3D Layout anti-pad property count is unsupported: {name}"
-            )
-        native = {
-            prop: _json_value(editor.GetPropertyValue("BaseElementTab", name, prop))
-            for prop in props
-        }
         owner_voids = [str(item) for item in list(editor.GetPolygonVoids(spec["owner_name"]) or [])]
     except Exception as exc:
         raise LiveBackendError(f"3D Layout anti-pad readback failed: {name}") from exc
@@ -13170,9 +13242,12 @@ def _verify_layout_antipad_circle_create_state(
         ):
             raise LiveBackendError("3D Layout anti-pad radius readback failed")
     after = _layout_antipad_circle_create_state_allow_existing(app, spec)
-    expected_names = sorted(before_state["circle_void_names"] + spec["names"])
-    if after["circle_void_names"] != expected_names:
-        raise LiveBackendError("3D Layout anti-pad changed an unexpected circle-void object")
+    if before_state["global_inventory_status"] == "verified":
+        expected_names = sorted(before_state["circle_void_names"] + spec["names"])
+        if after["circle_void_names"] != expected_names:
+            raise LiveBackendError("3D Layout anti-pad changed an unexpected circle-void object")
+    elif after["global_inventory_status"] != "unavailable":
+        raise LiveBackendError("3D Layout anti-pad global inventory verification scope changed")
     before_owners = {item["name"]: item for item in before_state["owners"]}
     after_owners = {item["name"]: item for item in after["owners"]}
     for owner_name, original in before_owners.items():
@@ -13198,20 +13273,36 @@ def _layout_antipad_circle_create_state_allow_existing(
 def _rollback_layout_antipad_circle_create(
     app: Any,
     spec: dict[str, Any],
-    created_names: list[str],
     *,
     before_state: dict[str, Any],
 ) -> dict[str, Any]:
     errors = []
     editor = _layout_modeler_editor(app)
+    expected = {item["name"]: item for item in spec["voids"]}
     try:
         current = _layout_antipad_circle_create_state_allow_existing(app, spec)
-        candidates = sorted(
-            set(current["circle_void_names"]).difference(before_state["circle_void_names"])
-        )
+        before_owners = {item["name"]: item for item in before_state["owners"]}
+        current_owners = {item["name"]: item for item in current["owners"]}
+        candidates = []
+        for name, item in expected.items():
+            owner_before = before_owners[item["owner_name"]]
+            owner_current = current_owners[item["owner_name"]]
+            if name not in owner_before["void_names"] and name in owner_current["void_names"]:
+                actual = _layout_native_circle_void_record(app, item)
+                if (
+                    actual["type"].casefold() != "circle void"
+                    or actual["layer_name"] != owner_before["layer_name"]
+                    or not actual["owner_membership_verified"]
+                    or not _layout_locations_equal(actual["center"], item["center"])
+                    or not math.isclose(
+                        float(actual["radius"]), float(item["radius"]), rel_tol=1e-9, abs_tol=1e-12
+                    )
+                ):
+                    raise LiveBackendError(f"3D Layout rollback target verification failed: {name}")
+                candidates.append(name)
     except Exception as exc:
-        candidates = list(created_names)
         errors.append(f"candidate_readback: {type(exc).__name__}: {exc}")
+        candidates = []
     for name in reversed(candidates):
         try:
             editor.Delete(name)
@@ -13223,7 +13314,7 @@ def _rollback_layout_antipad_circle_create(
     except Exception as exc:
         restored = {}
         readback_error = f"{type(exc).__name__}: {exc}"
-    state_restored = bool(restored) and restored == before_state
+    state_restored = bool(restored) and _layout_antipad_state_restored(restored, before_state)
     return {
         "complete": not errors and not readback_error and state_restored,
         "state_restored": state_restored,
@@ -13231,6 +13322,23 @@ def _rollback_layout_antipad_circle_create(
         "errors": errors,
         "readback_error": readback_error,
     }
+
+
+def _layout_antipad_state_restored(restored: dict[str, Any], before: dict[str, Any]) -> bool:
+    for field in (
+        "design_type",
+        "solution_type",
+        "model_units",
+        "owners",
+        "target_presence",
+        "target_presence_scope",
+        "global_inventory_status",
+    ):
+        if restored.get(field) != before.get(field):
+            return False
+    if before["global_inventory_status"] == "verified":
+        return restored.get("circle_void_names") == before.get("circle_void_names")
+    return restored.get("global_inventory_status") == "unavailable"
 
 
 def _layout_via_dependency_state(
