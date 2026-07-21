@@ -5649,6 +5649,16 @@ class LiveAedtBackend:
         object_kind = _layout_object_kind(args)
         collection = dict(getattr(app.modeler, _LAYOUT_OBJECT_COLLECTIONS[object_kind]) or {})
         requested = [str(item) for item in args.get("names") or []]
+        profile = str(args.get("profile") or "").strip()
+        if profile:
+            return _layout_via_target_inventory(
+                app,
+                object_kind=object_kind,
+                collection=collection,
+                requested=requested,
+                profile=profile,
+                max_items=args.get("max_items", 25),
+            )
         missing = sorted(set(requested).difference(collection))
         if missing:
             raise LiveBackendError(f"unknown layout {object_kind}: {missing[0]}")
@@ -12023,6 +12033,125 @@ def _layout_object_record(kind: str, name: str, obj: Any) -> dict[str, Any]:
         except Exception:
             unavailable.append(prop)
     return {"name": name, "properties": properties, "unavailable_properties": unavailable}
+
+
+def _layout_via_target_inventory(
+    app: Any,
+    *,
+    object_kind: str,
+    collection: dict[str, Any],
+    requested: list[str],
+    profile: str,
+    max_items: Any,
+) -> dict[str, Any]:
+    if object_kind != "via" or profile != "via_target/v1":
+        raise LiveBackendError("profile via_target/v1 is available only for object_kind via")
+    limit = _bounded_integer(max_items, "max_items", minimum=1, maximum=50)
+    names = _unique_nonempty_names(requested, "names")
+    if names and len(names) > limit:
+        raise LiveBackendError(f"names count {len(names)} exceeds max_items {limit}")
+    truncated = False
+    if not names:
+        all_names = sorted(str(name) for name in collection)
+        names = all_names[:limit]
+        truncated = len(all_names) > len(names)
+    records = [
+        _layout_via_target_record(app, name)
+        if name in collection
+        else _layout_via_target_not_found(name)
+        for name in names
+    ]
+    complete = bool(records) and all(record["status"] == "ok" for record in records)
+    return {
+        "project_name": app.project_name,
+        "design_name": app.design_name,
+        "object_kind": "via",
+        "profile": "via_target/v1",
+        "max_items": limit,
+        "count": len(records),
+        "objects": records,
+        "not_found_names": [
+            record["name"] for record in records if record["status"] == "not_found"
+        ],
+        "truncated": truncated,
+        "status": "ok" if complete and not truncated else "partial",
+        "snapshot_digest": _digest(records),
+        "design_unchanged": True,
+    }
+
+
+def _layout_via_target_not_found(name: str) -> dict[str, Any]:
+    return {
+        "name": name,
+        "status": "not_found",
+        "target_eligible": False,
+        "values": {},
+    }
+
+
+def _layout_via_target_record(app: Any, name: str) -> dict[str, Any]:
+    fields = {
+        "net": "Net",
+        "location": "Location",
+        "start_layer": "Start Layer",
+        "stop_layer": "Stop Layer",
+    }
+    values: dict[str, dict[str, Any]] = {}
+    try:
+        matches = _layout_native_name_matches(app, name)
+        if matches != [name]:
+            return _layout_via_target_not_found(name)
+        get_property_value = getattr(_layout_modeler_editor(app), "GetPropertyValue", None)
+        if not callable(get_property_value):
+            raise LiveBackendError("3D Layout native via property API is unavailable")
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"
+        values = {key: {"status": "read_failed", "error": error} for key in fields}
+    else:
+        for key, native_name in fields.items():
+            try:
+                raw = _json_value(get_property_value("BaseElementTab", name, native_name))
+                values[key] = _layout_via_target_value(key, raw)
+            except Exception as exc:
+                values[key] = {
+                    "status": "read_failed",
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+    eligible = bool(values) and all(value.get("status") == "ok" for value in values.values())
+    result: dict[str, Any] = {
+        "name": name,
+        "status": "ok" if eligible else "partial",
+        "target_eligible": eligible,
+        "values": values,
+    }
+    if eligible:
+        result["via_target_digest"] = _digest(
+            {
+                "profile": "via_target/v1",
+                "name": name,
+                "net": values["net"]["value"],
+                "location": values["location"]["value"],
+                "start_layer": values["start_layer"]["value"],
+                "stop_layer": values["stop_layer"]["value"],
+            }
+        )
+    return result
+
+
+def _layout_via_target_value(key: str, raw: Any) -> dict[str, Any]:
+    text = str(raw).strip()
+    if not text:
+        return {"status": "invalid_value", "raw": raw, "error": "value is empty"}
+    if key != "location":
+        return {"status": "ok", "raw": raw, "value": text}
+    parts = [item.strip() for item in text.split(",")]
+    if len(parts) != 2 or not all(parts):
+        return {
+            "status": "invalid_value",
+            "raw": raw,
+            "error": "Location must contain two comma-separated coordinates",
+        }
+    return {"status": "ok", "raw": raw, "value": {"x": parts[0], "y": parts[1]}}
 
 
 def _layout_selector_names(selector: dict[str, Any], field: str) -> set[str]:

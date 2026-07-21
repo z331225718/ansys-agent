@@ -3976,6 +3976,48 @@ def test_backend_layout_via_create_batch_has_native_typed_readback():
     assert result["project_saved"] is False
 
 
+def test_backend_layout_via_target_inventory_reads_fixed_native_properties():
+    app = FakeViaCreateLayout(project="Board", design="Layout1")
+    app.modeler.vias["V2"] = FakeVia("V2")
+    app.modeler.vias["V2"].net_name = "SIG"
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, layout_factory=lambda **kwargs: app)
+    target = AedtTarget("pid", 42)
+
+    result = backend.execute(
+        target,
+        "layout_object_property_inventory",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "object_kind": "via",
+            "profile": "via_target/v1",
+            "names": ["V1", "MISSING"],
+            "max_items": 2,
+        },
+    )
+
+    assert result["status"] == "partial"
+    assert result["not_found_names"] == ["MISSING"]
+    via = result["objects"][0]
+    assert via["status"] == "ok"
+    assert via["target_eligible"] is True
+    assert via["values"] == {
+        "net": {"status": "ok", "raw": "GND", "value": "GND"},
+        "location": {"status": "ok", "raw": "1.0 ,2.0", "value": {"x": "1.0", "y": "2.0"}},
+        "start_layer": {"status": "ok", "raw": "TOP", "value": "TOP"},
+        "stop_layer": {"status": "ok", "raw": "BOT", "value": "BOT"},
+    }
+    assert via["via_target_digest"]
+    assert result["objects"][1]["status"] == "not_found"
+
+    with pytest.raises(LiveBackendError, match="exceeds max_items"):
+        backend.execute(
+            target,
+            "layout_object_property_inventory",
+            {"project_name": "Board", "design_name": "Layout1", "object_kind": "via", "profile": "via_target/v1", "names": [f"V{index}" for index in range(51)], "max_items": 50},
+        )
+
+
 def test_backend_layout_via_create_rejects_stale_and_rolls_back(monkeypatch):
     apps = []
 
@@ -9299,6 +9341,9 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
     assert "hfss.design.create" not in by_name
     assert by_name["layout.paths.list"]["tools"] == ["list_live_layout_paths"]
     assert by_name["layout.paths.list"]["modes"] == ["live"]
+    assert by_name["layout.via.target_inventory"]["tools"] == [
+        "get_live_layout_object_property_inventory"
+    ]
     assert by_name["layout.path_width.parameterize"]["tools"] == [
         "preview_live_parameterize_path_width",
         "apply_live_parameterize_path_width",

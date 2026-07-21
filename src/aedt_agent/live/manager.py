@@ -1868,6 +1868,8 @@ class LiveAedtSessionManager:
         design_name: str,
         object_kind: str,
         names: list[str] | None = None,
+        profile: str = "",
+        max_items: int = 25,
     ) -> dict[str, Any]:
         return self._execute(
             session_id,
@@ -1877,6 +1879,8 @@ class LiveAedtSessionManager:
                 "design_name": design_name,
                 "object_kind": object_kind,
                 "names": names or [],
+                "profile": profile,
+                "max_items": max_items,
             },
         )
 

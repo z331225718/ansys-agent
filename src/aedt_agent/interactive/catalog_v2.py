@@ -836,6 +836,14 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             postconditions=["design_unchanged", "explicit_via_or_component_properties_returned"],
         ),
         _cap(
+            "layout.via.target_inventory",
+            "read_only",
+            ["live"],
+            ["get_live_layout_object_property_inventory"],
+            postconditions=["native_via_target_profile_readback_verified", "design_unchanged"],
+            products=["layout"],
+        ),
+        _cap(
             "layout.object_properties.update",
             "reversible_edit",
             ["live"],

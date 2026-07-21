@@ -879,6 +879,20 @@ Via 和 component 可以继续下钻到精确属性：
 
 先调用 `get_live_layout_object_property_inventory`。当前稳定写属性 allowlist 为：
 
+当任务需要为 Via 反焊盘或连通性确认读取 `Net`、`Location`、`Start Layer`、`Stop Layer` 时，必须使用
+固定只读 profile，而不是走 exploratory operation：
+
+```text
+调用 get_live_layout_object_property_inventory：object_kind="via"，
+profile="via_target/v1"，names=["via_149700", "via_149701"]，max_items=50。
+只读返回每个 Via 的 Net、坐标、起止层和 via_target_digest；不要修改工程。
+```
+
+profile 由 Harness 固定使用 AEDT `BaseElementTab` 读取这四项已验证属性，不接受 tab 名或任意 COM 属性输入。
+每个 Via 独立返回 `ok`、`partial` 或 `not_found`；只有四项均成功读回时才会标记 `target_eligible=true` 并生成
+`via_target_digest`。单次最多读取 50 个 Via，超过时必须分批。不要把这种已知只读能力降级为 API Memory 或探索任务，
+也不要要求用户从 AEDT GUI 手抄这些属性。
+
 | 对象 | 可修改属性 |
 |---|---|
 | via | `net_name`、`location`、`angle`、`lock_position` |

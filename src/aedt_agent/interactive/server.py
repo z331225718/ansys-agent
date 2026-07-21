@@ -1616,14 +1616,18 @@ def create_server(
         design_name: str,
         object_kind: str,
         names: list[str] | None = None,
+        profile: str = "",
+        max_items: int = 25,
     ) -> dict:
-        """Read stable properties for selected 3D Layout vias or components."""
+        """Read stable object properties, or fixed BaseElementTab via targets with profile via_target/v1."""
         return live.layout_object_property_inventory(
             live_session_id,
             project_name=project_name,
             design_name=design_name,
             object_kind=object_kind,
             names=names,
+            profile=profile,
+            max_items=max_items,
         )
 
     @server.tool()

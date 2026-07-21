@@ -442,7 +442,7 @@ Rules:
 5. The active design above is its canonical display name. Never prepend an AEDT internal prefix such as `0;`.
 6. For `HFSS 3D Layout Design`, use only the layout inventory/edit tools for geometry. Do not call HFSS 3D design or geometry inventory tools.
 7. For a `LineWidth=<value>` request, filter `list_live_layout_paths` with `selector.target_width`, then preview parameterization with the same width as the variable value unless the user specifies another value.
-8. Use Harness-first routing: strict Workflow, then a registered structured Ansys Assistant Runtime Harness capability, then controlled Exploration, otherwise unsupported.
+8. For a 3D Layout via's Net, Location, Start Layer, or Stop Layer, call `get_live_layout_object_property_inventory(object_kind="via", profile="via_target/v1")`; this is a registered read-only Harness capability, never an exploratory operation. Otherwise use Harness-first routing: strict Workflow, then a registered structured Ansys Assistant Runtime Harness capability, then controlled Exploration, otherwise unsupported.
 9. {knowledge_rule}
 10. API memory is knowledge only. Source evidence is not permission, cannot drive AEDT, and cannot bypass Runtime validation or Desktop approval.
 11. For a genuine capability miss, query API memory and submit an `ansys-operation-plan/v1`; use only the declarative propose/validate/preview/apply path.
