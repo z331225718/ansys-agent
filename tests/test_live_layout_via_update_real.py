@@ -140,6 +140,60 @@ def test_real_live_layout_via_update_harness(tmp_path: Path, monkeypatch):
         opened = manager.attach(port=port, version=version)
         launched_pid = opened["probe"]["pid"]
         session_id = opened["live_session_id"]
+        native_schema = manager.layout_property_schema(
+            session_id,
+            project_name="RealLayoutViaUpdateAcceptance",
+            design_name="Layout1",
+            object_kind="via",
+        )
+        assert native_schema["object_kinds"][0]["id"] == "via"
+        native_read = manager.read_layout_properties(
+            session_id,
+            project_name="RealLayoutViaUpdateAcceptance",
+            design_name="Layout1",
+            object_kind="via",
+            names=["V_UPDATE1", "V_UPDATE2"],
+            profile="via_target/v1",
+        )
+        assert native_read["status"] == "ok"
+        assert native_read["records"][0]["properties"]["net"]["value"] == "N1"
+        native_location = native_read["records"][0]["properties"]["location"]["value"]
+        assert float(native_location["x"]) == 1.0
+        assert float(native_location["y"]) == 2.0
+        controlled_schema = manager.controlled_layout_read_schema(
+            session_id,
+            project_name="RealLayoutViaUpdateAcceptance",
+            design_name="Layout1",
+        )
+        assert controlled_schema["schema_version"] == "controlled-aedt-read/v1"
+        controlled_read = manager.execute_controlled_layout_read(
+            session_id,
+            project_name="RealLayoutViaUpdateAcceptance",
+            design_name="Layout1",
+            program={
+                "schema_version": "controlled-aedt-read/v1",
+                "mode": "read_only",
+                "product": "layout",
+                "steps": [
+                    {
+                        "id": "via_net",
+                        "op": "read_attribute",
+                        "object_kind": "via",
+                        "name": "V_UPDATE1",
+                        "attribute": "net_name",
+                    }
+                ],
+            },
+        )
+        assert controlled_read["results"] == [
+            {
+                "id": "via_net",
+                "status": "ok",
+                "name": "V_UPDATE1",
+                "attribute": "net_name",
+                "value": "N1",
+            }
+        ]
         updates = [
             {
                 "name": "V_UPDATE1",

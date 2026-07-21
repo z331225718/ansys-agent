@@ -266,6 +266,7 @@ def test_api_memory_prepare_failure_keeps_runtime_harness_available(tmp_path: Pa
     system_context = Path(result["system_context"]).read_text(encoding="utf-8")
     assert "unknown operations as unsupported" in system_context
     assert "Keep known Runtime Harness tools available" in system_context
+    assert "program field `product` must be exactly `layout`" in system_context
     launch_script = Path(result["launch_script"]).read_text(encoding="utf-8")
     assert "'--allowedTools' 'AskUserQuestion,mcp__ansys-assistant__list_ansys_capabilities," in launch_script
     assert "mcp__ansys-assistant__promote_ansys_capability'" in launch_script
