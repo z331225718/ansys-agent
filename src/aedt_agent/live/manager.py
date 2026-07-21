@@ -1884,6 +1884,48 @@ class LiveAedtSessionManager:
             },
         )
 
+    def layout_property_schema(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+        object_kind: str = "",
+    ) -> dict[str, Any]:
+        return self._execute(
+            session_id,
+            "layout_property_schema",
+            {
+                "project_name": project_name,
+                "design_name": design_name,
+                "object_kind": object_kind,
+            },
+        )
+
+    def read_layout_properties(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+        object_kind: str,
+        names: list[str],
+        property_ids: list[str] | None = None,
+        profile: str = "",
+    ) -> dict[str, Any]:
+        return self._execute(
+            session_id,
+            "layout_properties_read",
+            {
+                "project_name": project_name,
+                "design_name": design_name,
+                "object_kind": object_kind,
+                "names": names,
+                "property_ids": property_ids,
+                "profile": profile,
+            },
+        )
+
     def preview_layout_object_property_update(
         self,
         session_id: str,

@@ -4018,6 +4018,78 @@ def test_backend_layout_via_target_inventory_reads_fixed_native_properties():
         )
 
 
+def test_backend_layout_native_property_bridge_uses_canonical_schema_only():
+    app = FakeViaCreateLayout(project="Board", design="Layout1")
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, layout_factory=lambda **kwargs: app)
+    target = AedtTarget("pid", 42)
+
+    schema = backend.execute(
+        target,
+        "layout_property_schema",
+        {"project_name": "Board", "design_name": "Layout1"},
+    )
+    assert schema["schema_version"] == "layout_native_property/v1"
+    via_schema = schema["object_kinds"][0]
+    assert via_schema["id"] == "via"
+    assert via_schema["max_objects"] == 50
+    assert via_schema["max_properties"] == 8
+    assert {item["id"] for item in via_schema["properties"]} == {
+        "net",
+        "location",
+        "start_layer",
+        "stop_layer",
+        "padstack_definition",
+        "hole_diameter",
+        "angle",
+        "lock_position",
+    }
+    assert via_schema["profiles"] == [
+        {"id": "via_target/v1", "property_ids": ["net", "location", "start_layer", "stop_layer"]}
+    ]
+
+    result = backend.execute(
+        target,
+        "layout_properties_read",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "object_kind": "via",
+            "names": ["V1", "MISSING"],
+            "property_ids": ["net", "padstack_definition", "lock_position"],
+        },
+    )
+    assert result["status"] == "partial"
+    assert result["records"][0] == {
+        "name": "V1",
+        "status": "ok",
+        "properties": {
+            "net": {"status": "ok", "raw": "GND", "value": "GND"},
+            "padstack_definition": {"status": "ok", "raw": "VIA", "value": "VIA"},
+            "lock_position": {"status": "ok", "raw": "false", "value": False},
+        },
+    }
+    assert result["records"][1] == {"name": "MISSING", "status": "not_found", "properties": {}}
+    assert result["response_digest"]
+
+    unsupported = backend.execute(
+        target,
+        "layout_properties_read",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "object_kind": "via",
+            "names": ["V1"],
+            "property_ids": ["Net", "GetPropertyValue('BaseElementTab', 'V1', 'Net')"],
+        },
+    )
+    assert unsupported["status"] == "property_not_supported"
+    assert unsupported["unsupported_property_ids"] == [
+        "GetPropertyValue('BaseElementTab', 'V1', 'Net')",
+        "Net",
+    ]
+    assert unsupported["records"] == []
+
+
 def test_backend_layout_via_create_rejects_stale_and_rolls_back(monkeypatch):
     apps = []
 
@@ -9343,6 +9415,12 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
     assert by_name["layout.paths.list"]["modes"] == ["live"]
     assert by_name["layout.via.target_inventory"]["tools"] == [
         "get_live_layout_object_property_inventory"
+    ]
+    assert by_name["layout.object.properties.schema"]["tools"] == [
+        "get_live_layout_property_schema"
+    ]
+    assert by_name["layout.object.properties.read"]["tools"] == [
+        "read_live_layout_properties"
     ]
     assert by_name["layout.path_width.parameterize"]["tools"] == [
         "preview_live_parameterize_path_width",

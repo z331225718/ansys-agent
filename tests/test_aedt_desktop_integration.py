@@ -155,7 +155,9 @@ def test_launcher_generates_session_scoped_mcp_and_visible_git_bash(
     assert "attach_live_aedt_session(port=50061" in system_context
     assert "wait_for_live_approval" in system_context
     assert "Harness-first" in system_context
-    assert "profile=\"via_target/v1\"" in system_context
+    assert "get_live_layout_property_schema" in system_context
+    assert "read_live_layout_properties" in system_context
+    assert "profile `via_target/v1`" in system_context
     assert "ansys-operation-plan/v1" in system_context
     assert "raw COM" in system_context
     assert "Never auto-promote" in system_context

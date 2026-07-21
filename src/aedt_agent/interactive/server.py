@@ -1631,6 +1631,42 @@ def create_server(
         )
 
     @server.tool()
+    async def get_live_layout_property_schema(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        object_kind: str = "",
+    ) -> dict:
+        """List the canonical, read-only native 3D Layout property ids supported by Runtime."""
+        return live.layout_property_schema(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            object_kind=object_kind,
+        )
+
+    @server.tool()
+    async def read_live_layout_properties(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        object_kind: str,
+        names: list[str],
+        property_ids: list[str] | None = None,
+        profile: str = "",
+    ) -> dict:
+        """Read schema-listed 3D Layout properties for explicit names; native names and COM are never exposed."""
+        return live.read_layout_properties(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            object_kind=object_kind,
+            names=names,
+            property_ids=property_ids,
+            profile=profile,
+        )
+
+    @server.tool()
     async def preview_live_layout_object_property_update(
         live_session_id: str,
         project_name: str,

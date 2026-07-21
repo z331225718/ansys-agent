@@ -879,19 +879,31 @@ Via 和 component 可以继续下钻到精确属性：
 
 先调用 `get_live_layout_object_property_inventory`。当前稳定写属性 allowlist 为：
 
-当任务需要为 Via 反焊盘或连通性确认读取 `Net`、`Location`、`Start Layer`、`Stop Layer` 时，必须使用
-固定只读 profile，而不是走 exploratory operation：
+当任务需要读取 AEDT `BaseElementTab` 的原生属性时，先调用 `get_live_layout_property_schema`，再仅使用它
+返回的 canonical property id 调用 `read_live_layout_properties`。不接受 tab 名、原生属性名或任何 COM 表达式；
+schema 未列出的属性直接返回 `property_not_supported`，不会被降级为 exploratory operation。
+
+例如，读取 Via 的孔径、net、位置、起止层、角度和锁定状态：
 
 ```text
-调用 get_live_layout_object_property_inventory：object_kind="via"，
-profile="via_target/v1"，names=["via_149700", "via_149701"]，max_items=50。
-只读返回每个 Via 的 Net、坐标、起止层和 via_target_digest；不要修改工程。
+调用 get_live_layout_property_schema：object_kind="via"。
+调用 read_live_layout_properties：object_kind="via"，names=["via_149700", "via_149701"]，
+property_ids=["net", "location", "start_layer", "stop_layer", "hole_diameter", "angle", "lock_position"]。
+只读返回逐 Via、逐字段状态；不要修改工程。
 ```
 
-profile 由 Harness 固定使用 AEDT `BaseElementTab` 读取这四项已验证属性，不接受 tab 名或任意 COM 属性输入。
-每个 Via 独立返回 `ok`、`partial` 或 `not_found`；只有四项均成功读回时才会标记 `target_eligible=true` 并生成
-`via_target_digest`。单次最多读取 50 个 Via，超过时必须分批。不要把这种已知只读能力降级为 API Memory 或探索任务，
-也不要要求用户从 AEDT GUI 手抄这些属性。
+反焊盘或连通性确认仍可用固定 profile `via_target/v1`，同样不走 exploratory operation：
+
+```text
+调用 read_live_layout_properties：object_kind="via"，
+profile="via_target/v1"，names=["via_149700", "via_149701"]。
+只读返回每个 Via 的 Net、坐标和起止层；不要修改工程。
+```
+
+profile 由 Harness 固定使用 AEDT `BaseElementTab` 读取这四项已验证属性。每个 Via 和字段独立返回
+`ok`、`partial`、`not_found`、`unavailable`、`read_failed` 或 `invalid_value`；单次最多读取 50 个 Via、8 个属性，
+超过限制会明确拒绝而非静默截断。不要把这种已知只读能力降级为 API Memory 或探索任务，也不要要求用户从 AEDT GUI
+手抄这些属性。旧的 `get_live_layout_object_property_inventory(profile="via_target/v1")` 仍保留兼容。
 
 | 对象 | 可修改属性 |
 |---|---|

@@ -235,6 +235,10 @@ class LiveAedtBackend:
                 return self._layout_object_inventory(target, arguments)
             if command == "layout_object_property_inventory":
                 return self._layout_object_property_inventory(target, arguments)
+            if command == "layout_property_schema":
+                return self._layout_property_schema(target, arguments)
+            if command == "layout_properties_read":
+                return self._layout_properties_read(target, arguments)
             if command == "layout_object_property_update_preview":
                 return self._layout_object_property_update_preview(target, arguments)
             if command == "layout_object_property_update_apply":
@@ -5677,6 +5681,90 @@ class LiveAedtBackend:
             "design_unchanged": True,
         }
 
+    def _layout_property_schema(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
+        app = self._app(target, "layout", _required(args, "project_name"), _required(args, "design_name"))
+        requested_kind = str(args.get("object_kind") or "").strip().casefold()
+        if requested_kind and requested_kind not in _LAYOUT_NATIVE_PROPERTY_SCHEMA:
+            raise LiveBackendError("object_kind is not supported by the native property bridge")
+        object_kinds = _layout_native_property_schema(requested_kind or None)
+        return {
+            "schema_version": "layout_native_property/v1",
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "object_kinds": object_kinds,
+            "schema_digest": _digest(object_kinds),
+            "design_unchanged": True,
+        }
+
+    def _layout_properties_read(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
+        app = self._app(target, "layout", _required(args, "project_name"), _required(args, "design_name"))
+        object_kind = str(args.get("object_kind") or "").strip().casefold()
+        if object_kind not in _LAYOUT_NATIVE_PROPERTY_SCHEMA:
+            raise LiveBackendError("object_kind is not supported by the native property bridge")
+        names = _normalize_explicit_names(args.get("names"), field="names", maximum=50)
+        profile = str(args.get("profile") or "").strip()
+        raw_property_ids = args.get("property_ids")
+        if bool(profile) == (raw_property_ids is not None):
+            raise LiveBackendError("provide exactly one of profile or property_ids")
+        if profile:
+            property_ids = _layout_native_profile_property_ids(object_kind, profile)
+            if property_ids is None:
+                return _layout_property_not_supported_response(
+                    app,
+                    object_kind=object_kind,
+                    names=names,
+                    profile=profile,
+                    unsupported_property_ids=[],
+                    reason="profile_not_supported",
+                )
+        else:
+            property_ids = _layout_native_property_ids(raw_property_ids)
+            unsupported = sorted(set(property_ids).difference(_LAYOUT_NATIVE_PROPERTY_SCHEMA[object_kind]["properties"]))
+            if unsupported:
+                return _layout_property_not_supported_response(
+                    app,
+                    object_kind=object_kind,
+                    names=names,
+                    profile="",
+                    unsupported_property_ids=unsupported,
+                    reason="property_not_supported",
+                )
+        try:
+            collection = dict(getattr(app.modeler, _LAYOUT_OBJECT_COLLECTIONS[object_kind]) or {})
+        except Exception as exc:
+            raise LiveBackendError(f"layout {object_kind} inventory is unavailable") from exc
+        records = _layout_native_property_records(
+            app,
+            object_kind,
+            names,
+            property_ids,
+            available_names=set(collection),
+        )
+        complete = all(record["status"] == "ok" for record in records)
+        response = {
+            "schema_version": "layout_native_property/v1",
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "object_kind": object_kind,
+            "profile": profile,
+            "property_ids": property_ids,
+            "count": len(records),
+            "records": records,
+            "status": "ok" if complete else "partial",
+            "design_unchanged": True,
+        }
+        if len(json.dumps(response, ensure_ascii=True, default=str).encode("utf-8")) > 256 * 1024:
+            raise LiveBackendError("layout native property response exceeds the approved 256 KiB limit")
+        response["response_digest"] = _digest(
+            {
+                "object_kind": object_kind,
+                "profile": profile,
+                "property_ids": property_ids,
+                "records": records,
+            }
+        )
+        return response
+
     def _layout_object_property_update_preview(
         self,
         target: AedtTarget,
@@ -6692,6 +6780,25 @@ _LAYOUT_OBJECT_READABLE_PROPERTIES = {
 _LAYOUT_OBJECT_WRITABLE_PROPERTIES = {
     "via": {"net_name", "location", "angle", "lock_position"},
     "component": {"enabled", "placement_layer", "location", "angle", "lock_position"},
+}
+_LAYOUT_NATIVE_PROPERTY_SCHEMA = {
+    "via": {
+        "max_objects": 50,
+        "max_properties": 8,
+        "properties": {
+            "net": {"native_name": "Net", "value_type": "string"},
+            "location": {"native_name": "Location", "value_type": "point_2d"},
+            "start_layer": {"native_name": "Start Layer", "value_type": "string"},
+            "stop_layer": {"native_name": "Stop Layer", "value_type": "string"},
+            "padstack_definition": {"native_name": "Padstack Definition", "value_type": "string"},
+            "hole_diameter": {"native_name": "HoleDiameter", "value_type": "string"},
+            "angle": {"native_name": "Angle", "value_type": "string"},
+            "lock_position": {"native_name": "LockPosition", "value_type": "boolean"},
+        },
+        "profiles": {
+            "via_target/v1": ("net", "location", "start_layer", "stop_layer"),
+        },
+    },
 }
 
 _LAYOUT_VIA_CREATE_FIELDS = {
@@ -12035,6 +12142,143 @@ def _layout_object_record(kind: str, name: str, obj: Any) -> dict[str, Any]:
     return {"name": name, "properties": properties, "unavailable_properties": unavailable}
 
 
+def _layout_native_property_schema(object_kind: str | None = None) -> list[dict[str, Any]]:
+    kinds = (object_kind,) if object_kind else tuple(sorted(_LAYOUT_NATIVE_PROPERTY_SCHEMA))
+    result = []
+    for kind in kinds:
+        definition = _LAYOUT_NATIVE_PROPERTY_SCHEMA[kind]
+        result.append(
+            {
+                "id": kind,
+                "max_objects": definition["max_objects"],
+                "max_properties": definition["max_properties"],
+                "profiles": [
+                    {"id": profile, "property_ids": list(property_ids)}
+                    for profile, property_ids in sorted(definition["profiles"].items())
+                ],
+                "properties": [
+                    {"id": property_id, "value_type": properties["value_type"]}
+                    for property_id, properties in sorted(definition["properties"].items())
+                ],
+            }
+        )
+    return result
+
+
+def _layout_native_profile_property_ids(object_kind: str, profile: str) -> list[str] | None:
+    values = _LAYOUT_NATIVE_PROPERTY_SCHEMA[object_kind]["profiles"].get(profile)
+    return list(values) if values else None
+
+
+def _layout_native_property_ids(raw: Any) -> list[str]:
+    if not isinstance(raw, list) or not raw:
+        raise LiveBackendError("property_ids must be a non-empty list from the published property schema")
+    if len(raw) > 8:
+        raise LiveBackendError("property_ids exceeds the approved maximum of 8")
+    property_ids = []
+    seen = set()
+    for item in raw:
+        value = str(item).strip()
+        normalized = value.casefold()
+        if not value or normalized in seen:
+            raise LiveBackendError("property_ids must contain unique canonical property ids")
+        property_ids.append(value)
+        seen.add(normalized)
+    return property_ids
+
+
+def _layout_property_not_supported_response(
+    app: Any,
+    *,
+    object_kind: str,
+    names: list[str],
+    profile: str,
+    unsupported_property_ids: list[str],
+    reason: str,
+) -> dict[str, Any]:
+    response = {
+        "schema_version": "layout_native_property/v1",
+        "project_name": app.project_name,
+        "design_name": app.design_name,
+        "object_kind": object_kind,
+        "profile": profile,
+        "property_ids": [],
+        "count": len(names),
+        "records": [],
+        "status": reason,
+        "unsupported_property_ids": unsupported_property_ids,
+        "design_unchanged": True,
+    }
+    response["response_digest"] = _digest(
+        {
+            "object_kind": object_kind,
+            "profile": profile,
+            "unsupported_property_ids": unsupported_property_ids,
+            "reason": reason,
+        }
+    )
+    return response
+
+
+def _layout_native_property_records(
+    app: Any,
+    object_kind: str,
+    names: list[str],
+    property_ids: list[str],
+    *,
+    available_names: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    properties = _LAYOUT_NATIVE_PROPERTY_SCHEMA[object_kind]["properties"]
+    try:
+        get_property_value = getattr(_layout_modeler_editor(app), "GetPropertyValue", None)
+        if not callable(get_property_value):
+            raise LiveBackendError("3D Layout native property API is unavailable")
+    except Exception:
+        return [
+            {
+                "name": name,
+                "status": "unavailable",
+                "properties": {
+                    property_id: {"status": "unavailable"} for property_id in property_ids
+                },
+            }
+            for name in names
+        ]
+    records = []
+    for name in names:
+        if (
+            (available_names is not None and name not in available_names)
+            or _layout_native_name_matches(app, name) != [name]
+        ):
+            records.append({"name": name, "status": "not_found", "properties": {}})
+            continue
+        values: dict[str, dict[str, Any]] = {}
+        for property_id in property_ids:
+            definition = properties[property_id]
+            try:
+                raw = _json_value(get_property_value("BaseElementTab", name, definition["native_name"]))
+                values[property_id] = _layout_native_property_value(property_id, raw)
+            except Exception:
+                values[property_id] = {"status": "read_failed"}
+        status = "ok" if all(value["status"] == "ok" for value in values.values()) else "partial"
+        records.append({"name": name, "status": status, "properties": values})
+    return records
+
+
+def _layout_native_property_value(property_id: str, raw: Any) -> dict[str, Any]:
+    if property_id == "location":
+        return _layout_via_target_value(property_id, raw)
+    text = str(raw).strip()
+    if not text:
+        return {"status": "invalid_value", "raw": raw}
+    if property_id == "lock_position":
+        normalized = text.casefold()
+        if normalized in {"true", "false"}:
+            return {"status": "ok", "raw": raw, "value": normalized == "true"}
+        return {"status": "invalid_value", "raw": raw}
+    return {"status": "ok", "raw": raw, "value": text}
+
+
 def _layout_via_target_inventory(
     app: Any,
     *,
@@ -12055,12 +12299,14 @@ def _layout_via_target_inventory(
         all_names = sorted(str(name) for name in collection)
         names = all_names[:limit]
         truncated = len(all_names) > len(names)
-    records = [
-        _layout_via_target_record(app, name)
-        if name in collection
-        else _layout_via_target_not_found(name)
-        for name in names
-    ]
+    native_records = _layout_native_property_records(
+        app,
+        "via",
+        names,
+        _layout_native_profile_property_ids("via", "via_target/v1") or [],
+        available_names=set(collection),
+    )
+    records = [_layout_via_target_record_from_native(record) for record in native_records]
     complete = bool(records) and all(record["status"] == "ok" for record in records)
     return {
         "project_name": app.project_name,
@@ -12089,37 +12335,13 @@ def _layout_via_target_not_found(name: str) -> dict[str, Any]:
     }
 
 
-def _layout_via_target_record(app: Any, name: str) -> dict[str, Any]:
-    fields = {
-        "net": "Net",
-        "location": "Location",
-        "start_layer": "Start Layer",
-        "stop_layer": "Stop Layer",
-    }
-    values: dict[str, dict[str, Any]] = {}
-    try:
-        matches = _layout_native_name_matches(app, name)
-        if matches != [name]:
-            return _layout_via_target_not_found(name)
-        get_property_value = getattr(_layout_modeler_editor(app), "GetPropertyValue", None)
-        if not callable(get_property_value):
-            raise LiveBackendError("3D Layout native via property API is unavailable")
-    except Exception as exc:
-        error = f"{type(exc).__name__}: {exc}"
-        values = {key: {"status": "read_failed", "error": error} for key in fields}
-    else:
-        for key, native_name in fields.items():
-            try:
-                raw = _json_value(get_property_value("BaseElementTab", name, native_name))
-                values[key] = _layout_via_target_value(key, raw)
-            except Exception as exc:
-                values[key] = {
-                    "status": "read_failed",
-                    "error": f"{type(exc).__name__}: {exc}",
-                }
+def _layout_via_target_record_from_native(record: dict[str, Any]) -> dict[str, Any]:
+    if record["status"] == "not_found":
+        return _layout_via_target_not_found(record["name"])
+    values = dict(record.get("properties") or {})
     eligible = bool(values) and all(value.get("status") == "ok" for value in values.values())
     result: dict[str, Any] = {
-        "name": name,
+        "name": record["name"],
         "status": "ok" if eligible else "partial",
         "target_eligible": eligible,
         "values": values,
@@ -12128,7 +12350,7 @@ def _layout_via_target_record(app: Any, name: str) -> dict[str, Any]:
         result["via_target_digest"] = _digest(
             {
                 "profile": "via_target/v1",
-                "name": name,
+                "name": record["name"],
                 "net": values["net"]["value"],
                 "location": values["location"]["value"],
                 "start_layer": values["start_layer"]["value"],
