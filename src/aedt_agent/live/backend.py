@@ -29,6 +29,23 @@ from aedt_agent.live.versioning import (
 
 _ANALYSIS_SUBMISSION_GRACE_SECONDS = 5.0
 _MAX_SOLUTION_EVIDENCE_ATTEMPTS = 8
+_LAYOUT_NONPERSISTENT_READ_COMMANDS = frozenset(
+    {
+        "layout_paths_list",
+        "layout_routing_inventory",
+        "layout_technology_inventory",
+        "layout_connectivity_inventory",
+        "layout_signal_via_inventory",
+        "layout_port_candidate_inventory",
+        "layout_edge_port_candidate_inventory",
+        "layout_object_inventory",
+        "layout_object_property_inventory",
+        "layout_property_schema",
+        "layout_properties_read",
+        "controlled_read_schema",
+        "controlled_read_execute",
+    }
+)
 
 
 class LiveBackendError(RuntimeError):
@@ -72,6 +89,27 @@ class LiveAedtBackend:
         self._lock = threading.RLock()
 
     def execute(self, target: AedtTarget, command: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Execute one command without allowing a layout read wrapper to leak.
+
+        PyAEDT layout collections can mutate their Python-side wrapper while
+        reading. A completed read therefore never remains in the shared cache:
+        a later read or an edit will bind a fresh wrapper to the same verified
+        AEDT Desktop session rather than inheriting that state.
+        """
+
+        nonpersistent_layout_read = _is_nonpersistent_layout_read(command, arguments)
+        with self._lock:
+            try:
+                result = self._execute_dispatch(target, command, arguments)
+            except Exception:
+                if nonpersistent_layout_read:
+                    self._discard_layout_app_from_arguments(arguments)
+                raise
+            if nonpersistent_layout_read:
+                self._discard_layout_app_from_arguments(arguments)
+            return result
+
+    def _execute_dispatch(self, target: AedtTarget, command: str, arguments: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
             if command == "release":
                 return {"released": self.release()}
@@ -698,6 +736,12 @@ class LiveAedtBackend:
         """Forget one PyAEDT application wrapper without touching AEDT Desktop."""
 
         self._apps.pop((kind, project, design), None)
+
+    def _discard_layout_app_from_arguments(self, arguments: dict[str, Any]) -> None:
+        project = arguments.get("project_name")
+        design = arguments.get("design_name")
+        if isinstance(project, str) and project and isinstance(design, str) and design:
+            self._discard_cached_app("layout", project, design)
 
     def _app(
         self,
@@ -4382,24 +4426,35 @@ class LiveAedtBackend:
         stackup, stackup_error = _layout_stackup_records(app, max_items=max_items)
         if stackup_error:
             unavailable.append({"section": "stackup", "reason": stackup_error})
-        padstacks, padstack_error = _layout_padstack_records(
-            app,
-            max_items=max_items,
-            include_layers=include_padstack_layers,
-        )
+        wrapper_tainted = _layout_read_section_taints_wrapper(stackup_error)
+        if wrapper_tainted:
+            padstacks, padstack_error = [], "not_attempted_after_wrapper_fault"
+        else:
+            padstacks, padstack_error = _layout_padstack_records(
+                app,
+                max_items=max_items,
+                include_layers=include_padstack_layers,
+            )
         if padstack_error:
             unavailable.append({"section": "padstacks", "reason": padstack_error})
-        differential_pairs, differential_error = _layout_differential_pair_records(
-            app,
-            max_items=max_items,
-        )
+        wrapper_tainted = wrapper_tainted or _layout_read_section_taints_wrapper(padstack_error)
+        if wrapper_tainted:
+            differential_pairs, differential_error = [], "not_attempted_after_wrapper_fault"
+        else:
+            differential_pairs, differential_error = _layout_differential_pair_records(
+                app,
+                max_items=max_items,
+            )
         if differential_error:
             unavailable.append(
                 {"section": "differential_pairs", "reason": differential_error}
             )
-        ports = _port_names(app)
+        wrapper_tainted = wrapper_tainted or _layout_read_section_taints_wrapper(differential_error)
+        ports = [] if wrapper_tainted else _port_names(app)
         bounded_ports = ports[:max_items]
-        if len(ports) > max_items:
+        if wrapper_tainted:
+            unavailable.append({"section": "ports", "reason": "not_attempted_after_wrapper_fault"})
+        elif len(ports) > max_items:
             unavailable.append(
                 {"section": "ports", "reason": "truncated_by_max_items"}
             )
@@ -4407,7 +4462,7 @@ class LiveAedtBackend:
             "stackup": stackup,
             "padstacks": padstacks,
             "ports": bounded_ports,
-            "port_order_source": _port_order_source(app),
+            "port_order_source": "unavailable" if wrapper_tainted else _port_order_source(app),
             "differential_pairs": differential_pairs,
         }
         response = {
@@ -4426,12 +4481,6 @@ class LiveAedtBackend:
             "snapshot_digest": _digest(technology),
             "design_unchanged": True,
         }
-        # Optional padstack and differential-pair reads can leave a PyAEDT
-        # layout wrapper partially refreshed after an exception. Keep this
-        # read-only result, but never reuse a wrapper that reported either
-        # optional-section failure.
-        if padstack_error or differential_error:
-            self._discard_cached_app("layout", app.project_name, app.design_name)
         return response
 
     def _layout_material_create_assign_preview(
@@ -13291,6 +13340,18 @@ def _layout_modeler_editor(app: Any) -> Any:
     if editor is None:
         raise LiveBackendError("3D Layout native editor API is unavailable")
     return editor
+
+
+def _is_nonpersistent_layout_read(command: str, arguments: dict[str, Any]) -> bool:
+    return command in _LAYOUT_NONPERSISTENT_READ_COMMANDS
+
+
+def _layout_read_section_taints_wrapper(detail: str) -> bool:
+    """Distinguish an API fault from a bounded but otherwise valid response."""
+
+    return bool(detail) and detail != "truncated_by_max_items" and not detail.startswith(
+        "not_attempted_after_wrapper_fault"
+    )
 
 
 def _layout_wrapper_rebind_is_warranted(error: LiveBackendError) -> bool:

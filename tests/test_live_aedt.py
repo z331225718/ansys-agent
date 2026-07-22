@@ -2166,10 +2166,11 @@ def test_protocol_round_trip_and_strict_fields():
 
 def test_backend_reuses_wrappers_and_lists_live_layout_paths():
     desktop = FakeDesktop()
+    layout = FakeLayout(project="Board", design="Layout1")
     backend = LiveAedtBackend(
         desktop_factory=lambda **kwargs: desktop,
         hfss_factory=FakeHfss,
-        layout_factory=FakeLayout,
+        layout_factory=lambda **kwargs: layout,
     )
     target = AedtTarget("pid", 42)
     assert backend.execute(target, "ping", {})["project_names"] == ["Board"]
@@ -4541,6 +4542,7 @@ def test_backend_layout_technology_inventory_discards_its_layout_wrapper():
         "layout_technology_inventory",
         {"project_name": "Board", "design_name": "Layout1"},
     )
+    assert backend._apps == {}
     result = backend.execute(
         target,
         "layout_signal_via_inventory",
@@ -7685,11 +7687,11 @@ def test_backend_component_port_create_rejects_stale_preview_and_rolls_back_part
 def test_backend_component_port_preview_rejects_ambiguous_or_invalid_targets():
     desktop = FakeDesktop()
     instances = []
+    layout = FakePortLayout(project="Board", design="Layout1")
 
     def factory(**kwargs):
-        instance = FakePortLayout(**kwargs)
-        instances.append(instance)
-        return instance
+        instances.append(layout)
+        return layout
 
     backend = LiveAedtBackend(
         desktop_factory=lambda **kwargs: desktop,
@@ -7736,11 +7738,11 @@ def test_backend_component_port_preview_rejects_ambiguous_or_invalid_targets():
 def test_backend_ranks_live_uniform_edges_and_creates_typed_edge_ports():
     desktop = FakeDesktop()
     instances = []
+    layout = FakeEdgePortLayout(project="Board", design="Layout1")
 
     def factory(**kwargs):
-        instance = FakeEdgePortLayout(**kwargs)
-        instances.append(instance)
-        return instance
+        instances.append(layout)
+        return layout
 
     backend = LiveAedtBackend(
         desktop_factory=lambda **kwargs: desktop,
