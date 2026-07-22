@@ -5,9 +5,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
-import secrets
 import shutil
-import socket
 import subprocess
 from typing import Any, Callable
 from uuid import uuid4
@@ -141,7 +139,6 @@ _DESKTOP_ASSISTANT_MCP_TOOLS = (
     "apply_live_aedt_variable_batch_upsert",
     "preview_live_parameterize_path_width",
     "apply_live_parameterize_path_width",
-    "wait_for_live_approval",
     "get_ansys_operation_plan_schema",
     "propose_ansys_operation",
     "validate_ansys_operation",
@@ -216,7 +213,6 @@ class ClaudeDesktopLauncher:
         session = self.prepare(context, api_memory_status=api_memory_status)
         creationflags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
         environment = _claude_process_environment()
-        environment["AEDT_AGENT_APPROVAL_KEY"] = secrets.token_urlsafe(32)
         process = self.process_factory(
             [
                 str(self.git_bash_executable),
@@ -256,8 +252,6 @@ class ClaudeDesktopLauncher:
         settings_path = session_dir / "claude-settings.json"
         launch_path = session_dir / "launch-claude.sh"
         metadata_path = session_dir / "session.json"
-        approval_port = approval_port or _available_loopback_port()
-        approval_url = f"http://127.0.0.1:{approval_port}"
         if api_memory_status is None:
             api_memory_status = self._prepare_api_memory()
         api_memory = _api_memory_metadata(api_memory_status)
@@ -274,8 +268,7 @@ class ClaudeDesktopLauncher:
                     "AEDT_AGENT_EXPECTED_DESIGN": context.design_name,
                     "AEDT_AGENT_EXPECTED_VERSION": context.version,
                     "AEDT_AGENT_DESKTOP_STRICT": "1",
-                    "AEDT_AGENT_APPROVAL_URL": approval_url,
-                    "AEDT_AGENT_APPROVAL_KEY": "${AEDT_AGENT_APPROVAL_KEY}",
+                    "AEDT_AGENT_APPROVAL_MODE": "automatic",
                 },
             }
         }
@@ -303,9 +296,6 @@ class ClaudeDesktopLauncher:
                 context_path=context_path,
                 settings_path=settings_path,
                 context=context,
-                python_executable=self.python_executable,
-                approval_port=approval_port,
-                approval_url=approval_url,
                 mcp_server_names=tuple(mcp_servers),
             ),
             encoding="utf-8",
@@ -331,7 +321,7 @@ class ClaudeDesktopLauncher:
             "launch_script": str(launch_path),
             # Deprecated alias kept for existing read-only consumers.
             "powershell_script": str(launch_path),
-            "approval_url": approval_url,
+            "approval_mode": "automatic",
             "api_memory": api_memory,
         }
         metadata_path.write_text(json.dumps(metadata, ensure_ascii=True, indent=2), encoding="utf-8")
@@ -347,7 +337,7 @@ class ClaudeDesktopLauncher:
             # Deprecated alias kept for existing read-only consumers.
             "powershell_script": str(launch_path),
             "metadata": str(metadata_path),
-            "approval_url": approval_url,
+            "approval_mode": "automatic",
             "api_memory": api_memory,
         }
 
@@ -470,15 +460,15 @@ Rules:
 6. For `HFSS 3D Layout Design`, use only the layout inventory/edit tools for geometry. Do not call HFSS 3D design or geometry inventory tools.
 7. For a `LineWidth=<value>` request, filter `list_live_layout_paths` with `selector.target_width`, then preview parameterization with the same width as the variable value unless the user specifies another value.
 8. Prefer an existing typed Harness capability when it exactly fits; it provides the strongest readback and rollback. Property lookup, inventory, and other queries use the registered read-only tools directly and never require approval. For an unknown Layout query, first use `get_controlled_live_layout_read_schema` / `execute_controlled_live_layout_read`; do not use arbitrary Python merely to bypass a missing read tool.
-9. Claude Code is launched with its own permission prompts bypassed. This applies to every registered MCP read tool and prevents a second Claude confirmation for a pure query. It does **not** bypass Runtime rules: the global fallback policy remains `open_with_approval`; use `preview_live_open_aedt_python` only for an AEDT/PyAEDT **edit or uncertain operation**, with the exact code and a concise `change_summary` describing the intended modification. Then wait for Desktop approval and call `apply_live_open_aedt_python` with only the returned preview id and approval token.
+9. Claude Code and the Desktop Runtime are both launched without user approval prompts. Keep the preview/apply contract for every AEDT-changing operation: preview freezes the target state and returns an automatic `approval_token`; immediately call the corresponding apply tool with exactly that `preview_id` and token. For an unrestricted fallback, use `preview_live_open_aedt_python` then `apply_live_open_aedt_python` in this same way. Never call `wait_for_live_approval` in this Desktop session.
 10. The open Python fallback is intentionally unrestricted for AEDT/PyAEDT and raw AEDT COM work. It runs inside the server-owned AEDT broker as the Desktop user, not in Claude and not in a security sandbox. Do not claim it is safe, reversible, or verified merely because it completed.
-11. Open execution saves the active project and copies its `.aedt`/`.aedb` bundle before running. The native approval dialog shows only the concise change summary, target identity, backup destination, and fixed code hash; it never shows source code. Do not alter code after preview. On failure or an unexpected result, stop, inspect AEDT, and restore that backup manually if needed.
-12. {knowledge_rule} API memory is knowledge only. It can help write the open code but is not permission and cannot bypass Desktop approval.
-13. Every typed live edit, solve, cancel, export, or save still uses its preview/apply contract; every open Python edit also requires its own preview, native Desktop approval, and automatic pre-execution backup.
+11. Open execution saves the active project and copies its `.aedt`/`.aedb` bundle before running. There is no native approval dialog. The preview still reports the concise change summary, target identity, backup destination, and fixed code hash. Do not alter code after preview. On failure or an unexpected result, stop, inspect AEDT, and restore that backup manually if needed.
+12. {knowledge_rule} API memory is knowledge only. It can help write the open code but is not permission and cannot bypass the preview, target binding, stale-state check, or automatic backup.
+13. Every typed live edit, solve, cancel, export, or save still uses its preview/apply contract; every open Python edit also requires its own preview and automatic pre-execution backup.
 14. If a layout tool returns `capability_unsupported`, `FindObjects`, or `GetAllLayerNames`, treat it as a deterministic AEDT-session capability miss. Do not retry it, call sibling inventory aliases in parallel, or use open Python to invoke the same oEditor method. Keep any successful partial technology data, then report the unavailable live inventory scope concisely.
-15. Never invent an approval token. Only an AEDT-changing preview needs `wait_for_live_approval` and the native Desktop Host decision; a read tool must never create or wait for an approval.
-16. If approval is rejected or expires, do not retry or create another preview unless the user explicitly asks.
-17. Do not save the project unless the user explicitly requests save and separately approves the save preview.
+15. Never invent an approval token. For an AEDT-changing preview, use only the automatic token returned by that exact preview. A read tool must never create or wait for an approval.
+16. If a preview becomes stale or its token is rejected, do not retry or create another preview unless the user explicitly asks.
+17. Do not save the project unless the user explicitly requests save and creates a separate save preview.
 18. Never auto-promote a successful exploration, hot-patch the Harness, or modify this repository. Promotion may only create a review candidate for explicit human approval.
 19. Release the live session when the task is complete; release must leave AEDT and all projects open.
 """
@@ -492,9 +482,6 @@ def _git_bash_script(
     context_path: Path,
     settings_path: Path,
     context: AedtDesktopContext,
-    python_executable: Path,
-    approval_port: int,
-    approval_url: str,
     mcp_server_names: tuple[str, ...],
 ) -> str:
     prompt = (
@@ -511,17 +498,6 @@ def _git_bash_script(
         )
     allowed_tools = ",".join([*_DESKTOP_CLAUDE_BUILTIN_TOOLS, *allowed_mcp_tools])
     denied_tools = ",".join(_DESKTOP_CLAUDE_DENIED_TOOLS)
-    health_probe = (
-        "import sys,urllib.request;"
-        "request=urllib.request.Request(sys.argv[1]+'/health',headers={'X-Ansys-Agent-Key':sys.argv[2]});"
-        "response=urllib.request.urlopen(request,timeout=1);response.close()"
-    )
-    shutdown_request = (
-        "import sys,urllib.request;"
-        "request=urllib.request.Request(sys.argv[1]+'/shutdown',data=b'{}',method='POST',"
-        "headers={'X-Ansys-Agent-Key':sys.argv[2],'Content-Type':'application/json'});"
-        "response=urllib.request.urlopen(request,timeout=2);response.close()"
-    )
     literal = _bash_literal
     claude_arguments = (
         "--settings",
@@ -557,37 +533,6 @@ def _git_bash_script(
             "# Keep built-in context compaction active for long AEDT conversations.",
             "unset DISABLE_AUTO_COMPACT DISABLE_COMPACT",
             "export CLAUDE_AUTOCOMPACT_PCT_OVERRIDE='85'",
-            'if [[ -z "${AEDT_AGENT_APPROVAL_KEY:-}" ]]; then',
-            "  echo 'AEDT_AGENT_APPROVAL_KEY is missing.' >&2",
-            "  exit 1",
-            "fi",
-            "approval_host_pid=''",
-            "cleanup() {",
-            "  local status=$?",
-            "  trap - EXIT INT TERM",
-            '  if [[ -n "${approval_host_pid:-}" ]]; then',
-            f"    {literal(_bash_path(python_executable))} -c {literal(shutdown_request)} {literal(approval_url)} \"$AEDT_AGENT_APPROVAL_KEY\" >/dev/null 2>&1 || true",
-            '    wait "$approval_host_pid" 2>/dev/null || true',
-            "  fi",
-            '  exit "$status"',
-            "}",
-            "trap cleanup EXIT",
-            "trap 'exit 130' INT",
-            "trap 'exit 143' TERM",
-            f"{literal(_bash_path(python_executable))} -m aedt_agent.desktop.approval_host --port {literal(str(approval_port))} >/dev/null 2>&1 &",
-            "approval_host_pid=$!",
-            "approval_ready=false",
-            "for _ in {1..50}; do",
-            f"  if {literal(_bash_path(python_executable))} -c {literal(health_probe)} {literal(approval_url)} \"$AEDT_AGENT_APPROVAL_KEY\" >/dev/null 2>&1; then",
-            "    approval_ready=true",
-            "    break",
-            "  fi",
-            "  sleep 0.1",
-            "done",
-            'if [[ "$approval_ready" != "true" ]]; then',
-            "  echo 'Ansys Agent approval host failed to start.' >&2",
-            "  exit 1",
-            "fi",
             "# Keep Git Bash from rewriting Windows paths passed to Claude Code.",
             f"MSYS2_ARG_CONV_EXCL='*' {literal(_bash_path(claude_executable))} {claude_command}",
             "",
@@ -770,9 +715,3 @@ def _record_launch_pid(metadata_path: Path, launcher: dict[str, Any]) -> None:
         )
     except (OSError, TypeError, ValueError, json.JSONDecodeError):
         return
-
-
-def _available_loopback_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
-        listener.bind(("127.0.0.1", 0))
-        return int(listener.getsockname()[1])

@@ -129,8 +129,9 @@ def test_launcher_generates_session_scoped_mcp_and_visible_git_bash(
     assert server["env"]["AEDT_AGENT_EXPECTED_DESIGN"] == "Layout1"
     assert server["env"]["AEDT_AGENT_EXPECTED_VERSION"] == "2026.1"
     assert server["env"]["AEDT_AGENT_DESKTOP_STRICT"] == "1"
-    assert server["env"]["AEDT_AGENT_APPROVAL_KEY"] == "${AEDT_AGENT_APPROVAL_KEY}"
-    assert server["env"]["AEDT_AGENT_APPROVAL_URL"].startswith("http://127.0.0.1:")
+    assert server["env"]["AEDT_AGENT_APPROVAL_MODE"] == "automatic"
+    assert "AEDT_AGENT_APPROVAL_KEY" not in server["env"]
+    assert "AEDT_AGENT_APPROVAL_URL" not in server["env"]
     assert "APPROVAL_SECRET" not in json.dumps(config)
     knowledge = config["mcpServers"]["ansys-api-memory"]
     assert knowledge["command"] == str(python.resolve())
@@ -154,9 +155,9 @@ def test_launcher_generates_session_scoped_mcp_and_visible_git_bash(
     assert metadata["claude_settings"] == result["claude_settings"]
     system_context = Path(result["system_context"]).read_text(encoding="utf-8")
     assert "attach_live_aedt_session(port=50061" in system_context
-    assert "wait_for_live_approval" in system_context
+    assert "Never call `wait_for_live_approval`" in system_context
     assert "typed Harness capability" in system_context
-    assert "open_with_approval" in system_context
+    assert "automatic `approval_token`" in system_context
     assert "preview_live_open_aedt_python" in system_context
     assert "apply_live_open_aedt_python" in system_context
     assert "capability_unsupported" in system_context
@@ -195,12 +196,13 @@ def test_launcher_generates_session_scoped_mcp_and_visible_git_bash(
     assert "export DISABLE_AUTOUPDATER='1'" in launch_script
     assert "unset DISABLE_AUTO_COMPACT DISABLE_COMPACT" in launch_script
     assert "export CLAUDE_AUTOCOMPACT_PCT_OVERRIDE='85'" in launch_script
-    assert "aedt_agent.desktop.approval_host" in launch_script
+    assert "aedt_agent.desktop.approval_host" not in launch_script
+    assert "AEDT_AGENT_APPROVAL_KEY" not in launch_script
     assert "--parent-pid" not in launch_script
-    assert "/shutdown" in launch_script
+    assert "/shutdown" not in launch_script
     assert "MSYS2_ARG_CONV_EXCL='*'" in launch_script
     assert processes[0][0][:3] == [str(git_bash.resolve()), "--noprofile", "--norc"]
-    assert len(processes[0][1]["env"]["AEDT_AGENT_APPROVAL_KEY"]) >= 32
+    assert "AEDT_AGENT_APPROVAL_KEY" not in processes[0][1]["env"]
     assert processes[0][1]["env"]["ANTHROPIC_BASE_URL"] == "https://gateway.example.invalid"
     assert processes[0][1]["env"]["ANTHROPIC_MODEL"] == "deepseek-v4-flash"
     assert processes[0][1]["env"]["ANTHROPIC_AUTH_TOKEN"] == "settings-only-secret-token"
@@ -219,6 +221,7 @@ def test_launcher_generates_session_scoped_mcp_and_visible_git_bash(
     metadata = json.loads(Path(result["metadata"]).read_text(encoding="utf-8"))
     assert metadata["schema_version"] == 2
     assert metadata["launch_protocol_version"] == 2
+    assert metadata["approval_mode"] == "automatic"
     assert metadata["launcher"] == result["launcher"]
 
 
@@ -270,7 +273,7 @@ def test_api_memory_prepare_failure_keeps_runtime_harness_available(tmp_path: Pa
     system_context = Path(result["system_context"]).read_text(encoding="utf-8")
     assert "unknown operations as unsupported" in system_context
     assert "Keep known Runtime Harness tools available" in system_context
-    assert "open_with_approval" in system_context
+    assert "automatic `approval_token`" in system_context
     launch_script = Path(result["launch_script"]).read_text(encoding="utf-8")
     assert "'--allowedTools' 'AskUserQuestion,mcp__ansys-assistant__list_ansys_capabilities," in launch_script
     assert "mcp__ansys-assistant__promote_ansys_capability'" in launch_script

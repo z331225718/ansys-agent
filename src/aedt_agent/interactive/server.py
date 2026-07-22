@@ -49,6 +49,17 @@ def create_server(
         else "Operate only on an explicitly selected AEDT target or a managed artifact session. "
         "Prefer attaching to a user-selected running session; launch AEDT only when the user requests it. "
     )
+    automatic_approval = strict_desktop and bool(
+        getattr(getattr(live, "approval_verifier", None), "automatic", False)
+    )
+    approval_instructions = (
+        "Desktop automatic mode is active: every AEDT-changing preview returns a one-use automatic token. "
+        "Apply immediately with that exact preview_id and token; never call wait_for_live_approval. "
+        if automatic_approval
+        else "Never invent an approval token; live apply and save require a token issued by the external host. "
+        "When a Desktop approval dialog is configured, wait_for_live_approval only returns a token after "
+        "the user clicks Approve; a rejected or expired request must not be retried implicitly. "
+    )
     server = FastMCP(
         "ansys-assistant",
         instructions=scope_instructions
@@ -56,14 +67,14 @@ def create_server(
             "Always release live sessions after use without closing AEDT or projects. "
             "Artifact tools never overwrite the source project: if a request explicitly forbids snapshots, "
             "working copies, or preview while demanding source overwrite, report blocked before calling them. "
-            "Never invent an approval token; live apply and save require a token issued by the external host. "
-            "When a Desktop approval dialog is configured, wait_for_live_approval only returns a token after "
-            "the user clicks Approve; a rejected or expired request must not be retried implicitly. "
+        )
+        + approval_instructions
+        + (
             "Report missing capabilities and backend failures truthfully."
             " Existing graph workflows are guarded Harness capabilities: inspect them first, preview start or "
-            "advance, wait for native approval, and execute at most one graph step per approved apply."
+            "advance, and execute at most one graph step per previewed apply."
             " A live workflow operation token is distinct from its graph-step token and may only be passed in "
-            "operation_approval_token after wait_for_live_approval approves the operation preview."
+            "operation_approval_token from the corresponding operation preview."
             " For layout_live_touchstone_score, read the current setup inventory first and pass the exact AEDT "
             "port order plus explicit source/destination mapping; never infer a differential pair or claim TDR "
             "verification from its frequency-domain score."
@@ -278,7 +289,7 @@ def create_server(
         preview_id: str,
         approval_token: str,
     ) -> dict:
-        """Save one live project only with a short-lived token issued by the external host."""
+        """Save one live project only with the one-use token returned by its preview."""
         return live.apply_project_save(
             live_session_id,
             preview_id=preview_id,
@@ -1108,7 +1119,7 @@ def create_server(
         preview_id: str,
         approval_token: str,
     ) -> dict:
-        """Create and verify an HFSS setup with an external host token; does not save the project."""
+        """Create and verify an HFSS setup with its preview token; does not save the project."""
         return live.apply_hfss_setup(
             live_session_id,
             preview_id=preview_id,
@@ -1138,7 +1149,7 @@ def create_server(
         preview_id: str,
         approval_token: str,
     ) -> dict:
-        """Apply a setup update with native approval, stale-state checks, readback, and rollback."""
+        """Apply a setup update with its preview token, stale-state checks, readback, and rollback."""
         return live.apply_hfss_setup_update(
             live_session_id,
             preview_id=preview_id,
@@ -1186,7 +1197,7 @@ def create_server(
         preview_id: str,
         approval_token: str,
     ) -> dict:
-        """Create and verify one previewed sweep with native approval and rollback on failure."""
+        """Create and verify one previewed sweep with its token and rollback on failure."""
         return live.apply_frequency_sweep_create(
             live_session_id,
             preview_id=preview_id,
@@ -1252,7 +1263,7 @@ def create_server(
         preview_id: str,
         approval_token: str,
     ) -> dict:
-        """Create and verify an HFSS report with an external host token; does not save the project."""
+        """Create and verify an HFSS report with its preview token; does not save the project."""
         return live.apply_hfss_report(
             live_session_id,
             preview_id=preview_id,
@@ -1305,7 +1316,7 @@ def create_server(
         preview_id: str,
         approval_token: str,
     ) -> dict:
-        """Create and verify an HFSS boundary or port with an external host token; does not save."""
+        """Create and verify an HFSS boundary or port with its preview token; does not save."""
         return live.apply_hfss_boundary(
             live_session_id,
             preview_id=preview_id,
@@ -1362,7 +1373,7 @@ def create_server(
         preview_id: str,
         approval_token: str,
     ) -> dict:
-        """Start a previewed HFSS solve only with an external host approval; always returns without waiting."""
+        """Start a previewed HFSS solve with its token; always returns without waiting."""
         return live.apply_hfss_analysis_start(
             live_session_id,
             preview_id=preview_id,
@@ -1411,7 +1422,7 @@ def create_server(
         preview_id: str,
         approval_token: str,
     ) -> dict:
-        """Interrupt a previewed solve only with an external host approval token."""
+        """Interrupt a previewed solve only with its preview token."""
         return live.apply_hfss_analysis_cancel(
             live_session_id,
             preview_id=preview_id,
@@ -1798,7 +1809,7 @@ def create_server(
         preview_id: str,
         approval_token: str,
     ) -> dict:
-        """Apply one previewed variable change with native approval, rollback, and readback."""
+        """Apply one previewed variable change with its token, rollback, and readback."""
         return live.apply_variable_upsert(
             live_session_id,
             preview_id=preview_id,
@@ -1846,7 +1857,7 @@ def create_server(
         variable_name: str,
         variable_value: str,
     ) -> dict:
-        """Preview without modifying; apply needs an external host token and the session must be released."""
+        """Preview without modifying; apply needs this preview's one-use token and the session must be released."""
         return live.preview_layout_width(
             live_session_id,
             project_name=project_name,
@@ -1862,14 +1873,14 @@ def create_server(
         preview_id: str,
         approval_token: str,
     ) -> dict:
-        """Apply a live preview only with a host-approved token; does not save the project."""
+        """Apply a live preview only with its one-use token; does not save the project."""
         return live.apply_layout_width(
             live_session_id,
             preview_id=preview_id,
             approval_token=approval_token,
         )
 
-    @server.tool()
+    @register_tool(not strict_desktop)
     async def wait_for_live_approval(
         live_session_id: str,
         preview_id: str,
@@ -1908,7 +1919,7 @@ def create_server(
         preview_id: str,
         approval_token: str = "",
     ) -> dict:
-        """Apply only the frozen plan; reversible edits require native approval and verified readback."""
+        """Apply only the frozen plan; reversible edits require its preview token and verified readback."""
         return live.apply_exploratory_operation(
             live_session_id,
             preview_id=preview_id,

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import hashlib
 import inspect
 import json
+import os
 import secrets
 from typing import Any
 
@@ -13,7 +14,7 @@ from aedt_agent.capability_learning import (
     PromotionError,
     TraceStateError,
 )
-from aedt_agent.live.approval import HmacApprovalAuthority
+from aedt_agent.live.approval import AutomaticApprovalAuthority, HmacApprovalAuthority
 from aedt_agent.live.broker import AedtBrokerRegistry, LiveAedtError
 from aedt_agent.live.discovery import list_aedt_sessions
 from aedt_agent.live.launcher import AedtLaunchError, AedtLauncher
@@ -53,11 +54,10 @@ class LiveAedtSessionManager:
     ) -> None:
         self.registry = registry or AedtBrokerRegistry()
         self.launcher = launcher or AedtLauncher()
-        if approval_verifier is None:
-            from aedt_agent.desktop.approval_client import DesktopApprovalClient
-
-            approval_verifier = DesktopApprovalClient.from_environment() or HmacApprovalAuthority.from_environment()
-        self.approval_verifier = approval_verifier
+        automatic_approval_requested = (
+            approval_verifier is None
+            and os.environ.get("AEDT_AGENT_APPROVAL_MODE", "").strip().lower() == "automatic"
+        )
         self._sessions: dict[str, LiveSession] = {}
         self._approval_contexts: dict[tuple[str, str], tuple[str, str, str]] = {}
         self._exploration_candidates: dict[str, dict[str, Any]] = {}
@@ -75,6 +75,14 @@ class LiveAedtSessionManager:
             self.required_version = normalize_aedt_version(str(required_version))
         if self.strict_desktop and self.required_version is None:
             raise ValueError("required_version is required for a strict AEDT Desktop session")
+        if approval_verifier is None:
+            if automatic_approval_requested and self.strict_desktop:
+                approval_verifier = AutomaticApprovalAuthority()
+            else:
+                from aedt_agent.desktop.approval_client import DesktopApprovalClient
+
+                approval_verifier = DesktopApprovalClient.from_environment() or HmacApprovalAuthority.from_environment()
+        self.approval_verifier = approval_verifier
         if exploration_validator is None:
             from aedt_agent.exploration.validator import OperationValidator
             from aedt_agent.knowledge.evidence import ApiMemoryEvidenceVerifier
@@ -2541,11 +2549,25 @@ class LiveAedtSessionManager:
                 self._approval_contexts.pop((session_id, preview_id), None)
                 raise LiveAedtError("approval_host_unavailable", str(exc)) from exc
             result["approval_status"] = registration.get("status", "pending")
-            result["approval_poll"] = {
-                "tool": "wait_for_live_approval",
-                "live_session_id": session_id,
-                "preview_id": preview_id,
-            }
+            if getattr(self.approval_verifier, "automatic", False):
+                token = str(registration.get("approval_token") or "")
+                if not token:
+                    self._approval_contexts.pop((session_id, preview_id), None)
+                    raise LiveAedtError("approval_host_unavailable", "automatic approval did not issue a token")
+                result.update(
+                    {
+                        "approval_required": False,
+                        "approval_source": "automatic_desktop_session",
+                        "approval_token": token,
+                        "approval_mode": "automatic",
+                    }
+                )
+            else:
+                result["approval_poll"] = {
+                    "tool": "wait_for_live_approval",
+                    "live_session_id": session_id,
+                    "preview_id": preview_id,
+                }
         result["release_required"] = True
         return result
 

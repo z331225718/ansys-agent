@@ -28,10 +28,10 @@
 ### 1.2 查询和修改走不同路径
 
 - 查询可以直接调用只读 Harness。
-- typed Harness 修改必须先 `preview`，再由当前 Windows 桌面的原生确认框审批，然后才能 `apply`。未知 AEDT/PyAEDT 操作也可使用开放 Python preview/apply；其 apply 会先保存并备份工程，仍必须经过同一个原生确认框。
+- typed Harness 修改必须先 `preview`，再使用该 preview 返回的一次性 automatic token `apply`。未知 AEDT/PyAEDT 操作也可使用开放 Python preview/apply；其 apply 会先保存并备份工程，但不会显示原生确认框。
 - `apply` 后必须逐项回读；批量任务中途失败时必须报告 rollback 状态。
 - 修改默认只发生在 AEDT 内存中，不自动保存工程。
-- 保存是独立的持久化动作，需要单独 preview 和单独审批。
+- 保存是独立的持久化动作，需要单独 preview 和单独 automatic token。
 
 ### 1.3 能力选择有固定优先级
 
@@ -258,11 +258,11 @@ Automation -> Ansys Agent
 .aedt-agent\desktop\sessions\<session-id>\session.json
 ```
 
-这些文件只服务当前会话。launcher 会启动 Runtime MCP、可用时启动 API Memory MCP，并启动只监听
-`127.0.0.1` 的审批 Host。它不会加载项目中的任意 MCP 配置来扩大工具权限。
+这些文件只服务当前会话。launcher 会启动 Runtime MCP 和可用时启动 API Memory MCP；它不会启动审批 Host，
+也不会加载项目中的任意 MCP 配置来扩大工具权限。
 
 Claude Code 自己以最大权限模式启动：已注册 MCP 工具不会再触发 Claude 的二次确认。Runtime 的绑定工程/设计
-校验仍然生效；只有 AEDT 修改、求解、导出或保存才会走 `preview -> Windows 原生确认 -> apply`。会话 settings
+校验仍然生效；AEDT 修改、求解、导出或保存走 `preview -> 自动 token -> apply`，不显示 Windows 原生确认框。会话 settings
 包含 `autoCompactEnabled: true`，并设置 `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=85`，使长对话保留自动 compact；仍可随时输入
 `/compact` 手动压缩。
 

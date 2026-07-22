@@ -12,7 +12,7 @@ from types import SimpleNamespace
 import pytest
 
 from aedt_agent.live.backend import LiveAedtBackend, LiveBackendError
-from aedt_agent.live.approval import HmacApprovalAuthority
+from aedt_agent.live.approval import AutomaticApprovalAuthority, HmacApprovalAuthority
 from aedt_agent.live.discovery import list_aedt_sessions
 from aedt_agent.live.launcher import (
     AedtLaunchError,
@@ -8706,6 +8706,51 @@ def test_live_apply_is_disabled_without_host_approval_verifier():
     assert not any(call[1] == "layout_width_apply" for call in registry.calls)
 
 
+def test_strict_desktop_automatic_approval_issues_one_use_preview_bound_token(monkeypatch):
+    monkeypatch.setenv("AEDT_AGENT_APPROVAL_MODE", "automatic")
+    registry = FakeRegistry()
+    manager = LiveAedtSessionManager(
+        registry=registry,
+        strict_desktop=True,
+        required_version="2026.1",
+    )
+    assert isinstance(manager.approval_verifier, AutomaticApprovalAuthority)
+    session_id = manager.attach(pid=42)["live_session_id"]
+    preview = manager.preview_open_aedt_python(
+        session_id,
+        project_name="Board",
+        design_name="Layout1",
+        product="layout",
+        code="emit('hello')",
+        change_summary="将选中路径改为设计变量 W_line",
+    )
+    assert preview["approval_required"] is False
+    assert preview["approval_mode"] == "automatic"
+    assert preview["approval_source"] == "automatic_desktop_session"
+    assert preview["approval_token"]
+    assert "approval_poll" not in preview
+
+    applied = manager.apply_open_aedt_python(
+        session_id,
+        preview_id=preview["preview_id"],
+        approval_token=preview["approval_token"],
+    )
+    assert applied["command"] == "open_aedt_python_apply"
+    with pytest.raises(Exception) as replay:
+        manager.apply_open_aedt_python(
+            session_id,
+            preview_id=preview["preview_id"],
+            approval_token=preview["approval_token"],
+        )
+    assert getattr(replay.value, "code", None) == "approval_required"
+
+
+def test_automatic_approval_environment_cannot_enable_non_desktop_manager(monkeypatch):
+    monkeypatch.setenv("AEDT_AGENT_APPROVAL_MODE", "automatic")
+    manager = LiveAedtSessionManager(registry=FakeRegistry())
+    assert manager.approval_verifier is None
+
+
 def test_hmac_approval_is_bound_short_lived_and_one_use():
     now = [1000.0]
     authority = HmacApprovalAuthority("a" * 32, clock=lambda: now[0])
@@ -9896,7 +9941,6 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
         "list_live_layout_paths",
         "preview_live_parameterize_path_width",
         "apply_live_parameterize_path_width",
-        "wait_for_live_approval",
         "propose_ansys_operation",
         "validate_ansys_operation",
         "preview_exploratory_operation",
@@ -9904,6 +9948,7 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
         "capture_capability_trace",
         "promote_ansys_capability",
     }.issubset(server.tools)
+    assert "wait_for_live_approval" not in server.tools
 
     v1 = asyncio.run(server.tools["list_ansys_capabilities"]())
     assert v1["scope"] == "desktop_bound"

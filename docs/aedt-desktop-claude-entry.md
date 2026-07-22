@@ -17,7 +17,7 @@ AEDT 2024 R2 离线 Windows Server 的完整打包、验签、项目安装和只
 4. 打开一个可见 Git Bash，工作目录为本项目，然后启动交互式 Claude Code。
 5. Claude Code 加载受控 Runtime MCP；知识图 ready 时再加载只读 API Memory MCP。
 6. Runtime 被硬限制到按钮来源的 port、project 和 design。
-7. 同时启动只监听 loopback 的 approval Host；Claude 退出时自动关闭该 Host。
+7. Desktop Runtime 使用会话级 automatic policy，不启动 Windows approval Host。
 
 实现采用 PyAEDT 官方 Custom Extension/Automation Tab 接口，不修改 AEDT 安装目录。
 
@@ -72,7 +72,7 @@ Windows secure gRPC/WNUA 可能使用不同的实际 listener。先用 `ansys-as
 - Claude Code 以 `--settings <session-file> --setting-sources= --strict-mcp-config` 启动。不会加载用户或
   项目 settings，MCP 也不能混入其他 server；不再使用 `--bare` 或 `--disable-slash-commands`，因此
   Claude Code 的内建 `/compact` 可以压缩长对话。启用内建 slash commands 不会放宽固定 MCP 配置、
-  命令行工具白名单、Runtime target binding 或 native approval。
+  命令行工具白名单、Runtime target binding、preview 或自动备份。
 - 仅从用户 Claude settings 白名单继承 Anthropic endpoint/model/auth 和 `API_TIMEOUT_MS` 到子进程环境，
   显式进程环境优先；密钥不会写入会话文件或 metadata。
 - Claude 内建工具只保留 `AskUserQuestion`；Bash、文件读写、Notebook、浏览器、子 Agent、Skill 和进程工具
@@ -83,15 +83,13 @@ Windows secure gRPC/WNUA 可能使用不同的实际 listener。先用 `ansys-as
 - 所有带 `project_name` 的调用硬限制到来源 project；其他工程返回 `project_forbidden`。
 - 所有带 `design_name` 的调用硬限制到来源 design；活动 design 变化会返回 `design_forbidden`。
 - `ansys-api-memory` 只提供 search/inspect/trace/source/example 查询，不暴露索引、删除或 ADR 写工具。
-- Claude Code 以 `bypassPermissions` 启动，并显式启用 `allow-dangerously-skip-permissions`：Claude 不会为任何已注册 MCP 调用再弹一层确认框。Runtime 仍独立判定操作类型，无法通过此配置绕过 AEDT 写入的原生审批、绑定目标核验或自动备份。
+- Claude Code 以 `bypassPermissions` 启动，并显式启用 `allow-dangerously-skip-permissions`：Claude 不会为任何已注册 MCP 调用再弹一层确认框。Desktop Runtime 同时使用会话级 automatic policy，不启动 Windows 审批 Host，也不显示原生确认框。
 - 会话专用 `claude-settings.json` 固定写入 `autoCompactEnabled: true`，长对话可自动 compact，也保留内建 `/compact`。
-- live edit、solve、cancel、export、save 仍遵循 preview/apply 和外部 Host approval。
+- live edit、solve、cancel、export、save 仍遵循 preview/apply；preview 产生绑定 action/resource/digest 的五分钟一次性 automatic token，apply 必须使用同一 preview 返回的 token。
 - 属性查询、对象查找、inventory 等只读操作直接调用注册的 read tool，不弹审批框；未知的 3D Layout 查询先使用 `get_controlled_live_layout_read_schema` / `execute_controlled_live_layout_read`，该程序不能执行 Python、COM 或方法调用。
-- 对没有 typed Harness 的 AEDT/PyAEDT **修改或不确定操作**，Desktop Runtime 全局提供 `preview_live_open_aedt_python` / `apply_live_open_aedt_python`。它不按对象类型、属性或 COM 方法再设 allowlist：preview 必须传入简洁 `change_summary`。原生确认框只显示修改摘要、来源工程/设计、备份位置和固定代码 hash，**绝不展示代码正文**；批准后 Runtime 先保存工程并复制 `.aedt`/`.aedb`，再在绑定 AEDT broker 中执行该**完全访问** Python。
+- 对没有 typed Harness 的 AEDT/PyAEDT **修改或不确定操作**，Desktop Runtime 全局提供 `preview_live_open_aedt_python` / `apply_live_open_aedt_python`。它不按对象类型、属性或 COM 方法再设 allowlist：preview 必须传入简洁 `change_summary`，然后将返回的 automatic token 原样传给 apply。Runtime 先保存工程并复制 `.aedt`/`.aedb`，再在绑定 AEDT broker 中执行该**完全访问** Python。
 - 这项开放能力不是 sandbox，也不承诺自动 rollback 或通用 readback；代码拥有当前 AEDT Desktop 用户的同等权限。失败或结果异常时必须停止后续编辑，在 AEDT GUI 核对，并按返回的 backup 目录手动恢复工程。
-- approval Host 没有 HTTP/MCP approve 接口；批准只能来自 Windows 原生确认框。
-- approved token 绑定 action/resource/digest、五分钟过期且 verify 后立即失效。
-- 同一 Desktop 会话同时只允许一个 pending/approved 原生审批，避免并发 preview 造成弹窗堆积。
+- automatic token 绑定 action/resource/digest、五分钟过期且 verify 后立即失效；它不是人工批准，也不能跨 preview、会话、工程或设计复用。
 - release 只释放 PyAEDT wrapper，AEDT 与工程保持打开。
 
 每次点击都会生成独立审计目录，包含：
@@ -104,8 +102,7 @@ launch-claude.sh
 session.json
 ```
 
-这些文件不包含 API key 或 approval secret。approval session key 只通过本次 Git Bash 的进程环境传递。
-脚本会用 `trap` 关闭 approval Host；Host 还会监测 Bash 父进程，避免终端被强制关闭后遗留 loopback 服务。
+这些文件不包含 API key、approval secret 或 automatic token。Desktop 自动模式不启动 loopback approval Host。
 
 ## 未知能力
 
@@ -115,30 +112,27 @@ Claude 必须按固定顺序处理 Harness 尚未覆盖的任务：
 确认 typed Harness capability miss
   -> API Memory search + inspect（用于准确写代码）
   -> 修改/不确定操作：`preview_live_open_aedt_python` + 简洁 `change_summary`
-  -> Desktop 原生审批
+  -> 取得 preview 自动 token
   -> Runtime 保存并备份工程
   -> `apply_live_open_aedt_python`
   -> AEDT GUI / 针对性代码核验
 ```
 
-API Memory 用于获得与当前版本一致的源码证据；它不是执行权限。开放代码仍必须经预览、原生审批、绑定目标
+API Memory 用于获得与当前版本一致的源码证据；它不是执行权限。开放代码仍必须经预览、绑定目标
 复核和自动工程备份，且完成并不等于已验证业务结果。
 
 成功 trace 可调用 `promote_ansys_capability`，或使用 `ansys-capability-promoter` Skill 生成
 `.aedt-agent/capability-candidates` 下的禁用候选。该步骤不会应用 patch、注册 tool、commit 或热加载。
 
-## 审批体验
+## 自动执行体验
 
 Claude 可以直接完成发现、连接、inventory 和状态读取。写操作流程为：
 
 ```text
 preview tool
-  -> approval Host 注册 action/resource/digest
-  -> Windows 原生确认框展示 preview
-  -> 用户点击 Yes 或 No
-  -> Claude 调用 wait_for_live_approval
-  -> Yes: 返回一次性 token，再调用 apply
-  -> No/timeout: 停止，不允许隐式重试
+  -> 返回 action/resource/digest 绑定的一次性 automatic token
+  -> Claude 立即调用 apply
+  -> apply 再次核对目标和 preview 状态，随后备份、执行和回读
 ```
 
-Claude Code 自己的工具确认不能替代这次 Host approval；approval Host 也不能调用 AEDT 或 apply tool。
+automatic token 不是通用执行权限：它只允许匹配的单次 apply，不能跨 preview 或会话复用。
