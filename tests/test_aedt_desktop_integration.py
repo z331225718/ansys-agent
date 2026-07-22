@@ -160,8 +160,6 @@ def test_launcher_generates_session_scoped_mcp_and_visible_git_bash(
         "env": {
             "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
             "DISABLE_AUTOUPDATER": "1",
-            "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "120000",
-            "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "60",
         },
     }
     assert metadata["claude_settings"] == result["claude_settings"]
@@ -207,8 +205,8 @@ def test_launcher_generates_session_scoped_mcp_and_visible_git_bash(
     assert "export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC='1'" in launch_script
     assert "export DISABLE_AUTOUPDATER='1'" in launch_script
     assert "unset DISABLE_AUTO_COMPACT DISABLE_COMPACT" in launch_script
-    assert "export CLAUDE_CODE_AUTO_COMPACT_WINDOW='120000'" in launch_script
-    assert "export CLAUDE_AUTOCOMPACT_PCT_OVERRIDE='60'" in launch_script
+    assert "CLAUDE_CODE_AUTO_COMPACT_WINDOW" not in launch_script
+    assert "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE" not in launch_script
     assert "never inspect this repository, PersonalLib scripts, launcher code" in system_context
     assert "aedt_agent.desktop.approval_host" not in launch_script
     assert "AEDT_AGENT_APPROVAL_KEY" not in launch_script

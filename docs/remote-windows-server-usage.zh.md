@@ -263,7 +263,7 @@ Automation -> Ansys Agent
 
 Claude Code 自己以最大权限模式启动：已注册 MCP 工具不会再触发 Claude 的二次确认。Runtime 的绑定工程/设计
 校验仍然生效；AEDT 修改、求解、导出或保存走 `preview -> 自动 token -> apply`，不显示 Windows 原生确认框。会话 settings
-包含 `autoCompactEnabled: true`，并设置 120,000-token compact window 与 `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=60`，使长对话尽早自动 compact；仍可随时输入
+包含 `autoCompactEnabled: true`，但不覆盖 Claude Code/模型的 compact window 或阈值；仍可随时输入
 `/compact` 手动压缩。
 
 ### 6.2 核对首次输出

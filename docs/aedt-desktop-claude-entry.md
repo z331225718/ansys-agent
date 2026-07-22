@@ -84,7 +84,7 @@ Windows secure gRPC/WNUA 可能使用不同的实际 listener。先用 `ansys-as
 - 所有带 `design_name` 的调用硬限制到来源 design；活动 design 变化会返回 `design_forbidden`。
 - `ansys-api-memory` 只提供 search/inspect/trace/source/example 查询，不暴露索引、删除或 ADR 写工具。
 - Claude Code 以 `bypassPermissions` 启动，并显式启用 `allow-dangerously-skip-permissions`：Claude 不会为任何已注册 MCP 调用再弹一层确认框。Desktop Runtime 同时使用会话级 automatic policy，不启动 Windows 审批 Host，也不显示原生确认框。
-- 会话专用 `claude-settings.json` 固定写入 `autoCompactEnabled: true`，并将 auto-compact window 固定为 120,000 tokens、阈值设为 60%；长对话可自动 compact，也保留内建 `/compact`。
+- 会话专用 `claude-settings.json` 固定写入 `autoCompactEnabled: true`；compact 的窗口与阈值沿用 Claude Code/模型的默认配置，也保留内建 `/compact`。
 - live edit、solve、cancel、export、save 仍遵循 preview/apply；preview 产生绑定 action/resource/digest 的五分钟一次性 automatic token，apply 必须使用同一 preview 返回的 token。
 - 属性查询、对象查找、inventory 等只读操作直接调用注册的 read tool，不弹审批框；未知的 3D Layout 查询先使用 `get_controlled_live_layout_read_schema` / `execute_controlled_live_layout_read`，该程序不能执行 Python、COM 或方法调用。
 - 对没有 typed Harness 的 AEDT/PyAEDT **修改或不确定操作**，Desktop Runtime 全局提供 `preview_live_open_aedt_python` / `apply_live_open_aedt_python`。它不按对象类型、属性或 COM 方法再设 allowlist：preview 必须传入简洁 `change_summary`，然后将返回的 automatic token 原样传给 apply。Runtime 先保存工程并复制 `.aedt`/`.aedb`，再在绑定 AEDT broker 中执行该**完全访问** Python。

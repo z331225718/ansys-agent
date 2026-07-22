@@ -38,7 +38,7 @@ Layout1             -> AEDT GUI 中的活动设计名
 最重要的默认约定是：**只读无需审批；写入必须 preview 和自动 token；未明确要求时不保存工程。**
 
 从 AEDT Desktop 入口启动的 Claude Code 与 Windows 原生确认均已取消；这不会跳过 Runtime 的 preview、绑定目标、
-stale-state 核验、自动备份和 readback。每个 AEDT 写 preview 返回一次性自动 token，apply 只能使用该 token。会话启用 `autoCompactEnabled: true`，并以 120,000-token window 的 60% 阈值触发自动
+stale-state 核验、自动备份和 readback。每个 AEDT 写 preview 返回一次性自动 token，apply 只能使用该 token。会话启用 `autoCompactEnabled: true`，compact 的窗口与阈值由 Claude Code/模型默认配置决定；长对话仍可自动
 compact；也可输入 `/compact` 手动压缩。
 
 ## 1. 使用原则

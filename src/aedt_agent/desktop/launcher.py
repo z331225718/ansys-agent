@@ -545,9 +545,6 @@ def _git_bash_script(
             "export DISABLE_AUTOUPDATER='1'",
             "# Keep built-in context compaction active for long AEDT conversations.",
             "unset DISABLE_AUTO_COMPACT DISABLE_COMPACT",
-            "# Compact early: recent Claude Code builds can miss the default trigger near a full context.",
-            "export CLAUDE_CODE_AUTO_COMPACT_WINDOW='120000'",
-            "export CLAUDE_AUTOCOMPACT_PCT_OVERRIDE='60'",
             "# Keep Git Bash from rewriting Windows paths passed to Claude Code.",
             f"MSYS2_ARG_CONV_EXCL='*' {literal(_bash_path(claude_executable))} {claude_command}",
             "",
@@ -564,8 +561,6 @@ def _claude_settings() -> dict[str, Any]:
         "env": {
             "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
             "DISABLE_AUTOUPDATER": "1",
-            "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "120000",
-            "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "60",
         },
     }
 
