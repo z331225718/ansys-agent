@@ -43,6 +43,12 @@ class AedtVersionMismatchError(LiveBackendError):
     code = "version_mismatch"
 
 
+class LayoutInventoryCapabilityUnavailableError(LiveBackendError):
+    """A live 3D Layout enumeration API was rejected by the AEDT gRPC server."""
+
+    code = "capability_unsupported"
+
+
 class LiveAedtBackend:
     def __init__(
         self,
@@ -62,6 +68,7 @@ class LiveAedtBackend:
         self._version_verified = False
         self._apps: dict[tuple[str, str, str], Any] = {}
         self._previews: dict[str, dict[str, Any]] = {}
+        self._layout_inventory_capability_failures: dict[tuple[str, str, str], str] = {}
         self._analysis_runs: dict[tuple[str, str, str], dict[str, Any]] = {}
         self._active_analysis_runs: dict[tuple[str, str], str] = {}
         configured_export_root = os.environ.get("AEDT_AGENT_EXPORT_ROOT")
@@ -4308,31 +4315,67 @@ class LiveAedtBackend:
             "project_saved": False,
         }
 
+    def _layout_inventory_capability_key(self, target: AedtTarget, app: Any) -> tuple[str, str, str]:
+        return (
+            target.key,
+            str(_safe_attribute(app, "project_name") or ""),
+            str(_safe_attribute(app, "design_name") or ""),
+        )
+
+    def _require_live_layout_inventory_capability(self, target: AedtTarget, app: Any) -> None:
+        reason = self._layout_inventory_capability_failures.get(
+            self._layout_inventory_capability_key(target, app)
+        )
+        if reason:
+            raise LayoutInventoryCapabilityUnavailableError(
+                f"live 3D Layout inventory is unsupported in this AEDT session: {reason}. "
+                + _layout_inventory_fallback_hint()
+            )
+
+    def _remember_layout_inventory_failure(self, target: AedtTarget, app: Any, reason: str) -> None:
+        self._layout_inventory_capability_failures[
+            self._layout_inventory_capability_key(target, app)
+        ] = reason
+
+    def _raise_layout_inventory_failure(self, target: AedtTarget, app: Any, exc: Exception) -> None:
+        detail = f"{type(exc).__name__}: {exc}"
+        if _layout_grpc_inventory_failure(detail):
+            self._remember_layout_inventory_failure(target, app, detail)
+            raise LayoutInventoryCapabilityUnavailableError(
+                f"AEDT gRPC rejected live 3D Layout enumeration ({detail}). "
+                + _layout_inventory_fallback_hint()
+            ) from exc
+
     def _layout_paths_list(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
         app = self._app(target, "layout", _required(args, "project_name"), _required(args, "design_name"))
+        self._require_live_layout_inventory_capability(target, app)
         selector = dict(args.get("selector") or {})
         nets = {str(value) for value in selector.get("nets") or []}
         layers = {str(value) for value in selector.get("layers") or []}
         names = {str(value) for value in selector.get("names") or []}
         target_width = str(selector.get("target_width") or "")
         paths = []
-        for name in app.modeler.line_names:
-            line = app.modeler.lines[name]
-            record = {
-                "name": str(name),
-                "net": str(line.net_name),
-                "layer": str(line.placement_layer),
-                "width_expression": str(line.width),
-            }
-            if nets and record["net"] not in nets:
-                continue
-            if layers and record["layer"] not in layers:
-                continue
-            if names and record["name"] not in names:
-                continue
-            if target_width and _normalized_expression(record["width_expression"]) != _normalized_expression(target_width):
-                continue
-            paths.append(record)
+        try:
+            for name in app.modeler.line_names:
+                line = app.modeler.lines[name]
+                record = {
+                    "name": str(name),
+                    "net": str(line.net_name),
+                    "layer": str(line.placement_layer),
+                    "width_expression": str(line.width),
+                }
+                if nets and record["net"] not in nets:
+                    continue
+                if layers and record["layer"] not in layers:
+                    continue
+                if names and record["name"] not in names:
+                    continue
+                if target_width and _normalized_expression(record["width_expression"]) != _normalized_expression(target_width):
+                    continue
+                paths.append(record)
+        except Exception as exc:
+            self._raise_layout_inventory_failure(target, app, exc)
+            raise
         return {"project_name": app.project_name, "design_name": app.design_name, "count": len(paths), "paths": paths}
 
     def _layout_routing_inventory(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
@@ -5206,6 +5249,7 @@ class LiveAedtBackend:
             _required(args, "project_name"),
             _required(args, "design_name"),
         )
+        self._require_live_layout_inventory_capability(target, app)
         max_items = args.get("max_items", 500)
         if type(max_items) is not int or not 1 <= max_items <= 2_000:
             raise LiveBackendError("max_items must be an integer between 1 and 2000")
@@ -5237,9 +5281,16 @@ class LiveAedtBackend:
                 unavailable.append(
                     {
                         "section": section,
-                        "reason": f"{type(exc).__name__}: {attribute} API unavailable",
+                        "reason": f"{type(exc).__name__}: {attribute} API unavailable: {exc}",
                     }
                 )
+
+        if not any(collections.values()) and _layout_inventory_failure_reasons(unavailable):
+            self._raise_layout_inventory_failure(
+                target,
+                app,
+                RuntimeError(_layout_inventory_failure_reasons(unavailable)[0]),
+            )
 
         net_names = {str(item) for item in collections["nets"]}
         component_names = {str(item) for item in collections["components"]}
@@ -5407,6 +5458,7 @@ class LiveAedtBackend:
             _required(args, "project_name"),
             _required(args, "design_name"),
         )
+        self._require_live_layout_inventory_capability(target, app)
         signal_nets = _unique_nonempty_names(args.get("signal_nets"), "signal_nets")
         if not signal_nets:
             raise LiveBackendError("signal_nets must contain at least one exact net name")
@@ -5637,6 +5689,7 @@ class LiveAedtBackend:
             _required(args, "project_name"),
             _required(args, "design_name"),
         )
+        self._require_live_layout_inventory_capability(target, app)
         signal_nets = _unique_nonempty_names(args.get("signal_nets"), "signal_nets")
         if not signal_nets:
             raise LiveBackendError("signal_nets must contain at least one exact net name")
@@ -5920,6 +5973,7 @@ class LiveAedtBackend:
 
     def _layout_object_inventory(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
         app = self._app(target, "layout", _required(args, "project_name"), _required(args, "design_name"))
+        self._require_live_layout_inventory_capability(target, app)
         attributes = {
             "components": "components",
             "pins": "pins",
@@ -5936,19 +5990,27 @@ class LiveAedtBackend:
         }
         categories: dict[str, dict[str, Any]] = {}
         unavailable: list[str] = []
+        errors: list[str] = []
         for category, attribute in attributes.items():
             try:
                 value = getattr(app.modeler, attribute)
                 names = sorted(str(item) for item in (value.keys() if isinstance(value, dict) else value or []))
                 categories[category] = {"count": len(names), "names": names}
-            except Exception:
+            except Exception as exc:
                 categories[category] = {"count": 0, "names": [], "status": "unavailable"}
                 unavailable.append(category)
+                errors.append(f"{category}: {type(exc).__name__}: {exc}")
+        capability_failure = _layout_inventory_failure_reasons(errors)
+        if len(unavailable) == len(attributes) and capability_failure:
+            self._remember_layout_inventory_failure(target, app, capability_failure[0])
         return {
             "project_name": app.project_name,
             "design_name": app.design_name,
             "categories": categories,
             "unavailable_categories": unavailable,
+            "capability_status": "unsupported" if capability_failure else "available",
+            "retry_recommended": False if capability_failure else True,
+            "fallback_hint": _layout_inventory_fallback_hint() if capability_failure else "",
             "design_unchanged": True,
         }
 
@@ -13323,6 +13385,27 @@ def _layout_global_inventory_is_unavailable(exc: Exception) -> bool:
         or "failed to execute grpc aedt command: findobjects" in detail
         or "findobjects is unavailable" in detail
         or "findobjects is not supported" in detail
+    )
+
+
+def _layout_grpc_inventory_failure(detail: str) -> bool:
+    normalized = str(detail).casefold()
+    return "grpcapierror" in normalized and (
+        "findobjects" in normalized or "getalllayernames" in normalized
+    ) or "failed to execute grpc aedt command: findobjects" in normalized or (
+        "failed to execute grpc aedt command: getalllayernames" in normalized
+    )
+
+
+def _layout_inventory_failure_reasons(records: list[Any]) -> list[str]:
+    return [str(record) for record in records if _layout_grpc_inventory_failure(str(record))]
+
+
+def _layout_inventory_fallback_hint() -> str:
+    return (
+        "This is a deterministic capability miss, not a transient error: do not retry "
+        "layout inventory aliases or the same raw oEditor command in this session. "
+        "Use a verified disk-AEDB fallback when available, or report that live enumeration is unavailable."
     )
 
 

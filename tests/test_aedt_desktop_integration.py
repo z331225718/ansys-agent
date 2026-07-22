@@ -158,6 +158,8 @@ def test_launcher_generates_session_scoped_mcp_and_visible_git_bash(
     assert "open_with_approval" in system_context
     assert "preview_live_open_aedt_python" in system_context
     assert "apply_live_open_aedt_python" in system_context
+    assert "capability_unsupported" in system_context
+    assert "Do not retry it" in system_context
     assert "AEDT COM" in system_context
     assert "Never auto-promote" in system_context
     launch_script = Path(result["launch_script"]).read_text(encoding="utf-8")

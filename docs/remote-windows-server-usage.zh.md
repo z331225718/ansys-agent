@@ -657,7 +657,15 @@ PID 选择；检查 loopback 和本机安全软件；早期 2024 R2 Service Pack
 原生审批框显示在启动 AEDT 和 Ansys Agent 的交互式桌面。Windows 服务、计划任务、纯 SSH 或另一个
 RDP session 看不到该窗口。回到正确 RDP session 操作。
 
-### 15.6 API Memory 不是 ready
+### 15.6 `FindObjects` 或 `GetAllLayerNames` 经 gRPC 失败
+
+这表示 AEDT 已连接、但当前 3D Layout 会话拒绝该**具体**枚举命令，不是缺少 gRPC 组件，也不是可通过
+重复调用恢复的临时错误。Runtime 会将其标记为 `capability_unsupported` 并在本会话记忆该负能力：不要继续并行
+尝试 layout object、routing、connectivity、port candidate 等同类 inventory，也不要用开放 Python 重复调用相同
+`oEditor` 方法。保留仍可读取的 technology/stackup 数据；live 全局对象清单需要等待经过验证的磁盘 `.aedb`
+只读 fallback，不能把磁盘快照误报为当前未保存的 Desktop 内存状态。
+
+### 15.7 API Memory 不是 ready
 
 已知 Harness 仍可使用，未知能力 fallback 暂停。执行：
 
@@ -666,7 +674,7 @@ D:\ansys-agent\.venv\Scripts\python.exe `
   -m aedt_agent.knowledge.api_memory_cli prepare --force
 ```
 
-### 15.7 Agent 说成功，但没有 preview 或 readback
+### 15.8 Agent 说成功，但没有 preview 或 readback
 
 把任务视为未完成。没有 `preview -> 原生审批 -> apply -> typed readback` 的写操作不属于受控路径。停止
 会话，核对 `session.json` 的项目根、MCP 配置和当前 commit，再从测试工程副本重新验证。

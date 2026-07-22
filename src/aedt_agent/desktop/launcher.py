@@ -474,11 +474,12 @@ Rules:
 11. Open execution saves the active project and copies its `.aedt`/`.aedb` bundle before running. The native approval dialog shows only the concise change summary, target identity, backup destination, and fixed code hash; it never shows source code. Do not alter code after preview. On failure or an unexpected result, stop, inspect AEDT, and restore that backup manually if needed.
 12. {knowledge_rule} API memory is knowledge only. It can help write the open code but is not permission and cannot bypass Desktop approval.
 13. Every typed live edit, solve, cancel, export, or save still uses its preview/apply contract; every open Python edit also requires its own preview, native Desktop approval, and automatic pre-execution backup.
-14. Never invent an approval token. After preview, call `wait_for_live_approval` and wait for the native Desktop Host decision.
-15. If approval is rejected or expires, do not retry or create another preview unless the user explicitly asks.
-16. Do not save the project unless the user explicitly requests save and separately approves the save preview.
-17. Never auto-promote a successful exploration, hot-patch the Harness, or modify this repository. Promotion may only create a review candidate for explicit human approval.
-18. Release the live session when the task is complete; release must leave AEDT and all projects open.
+14. If a layout tool returns `capability_unsupported`, `FindObjects`, or `GetAllLayerNames`, treat it as a deterministic AEDT-session capability miss. Do not retry it, call sibling inventory aliases in parallel, or use open Python to invoke the same oEditor method. Keep any successful partial technology data, then report the unavailable live inventory scope concisely.
+15. Never invent an approval token. After preview, call `wait_for_live_approval` and wait for the native Desktop Host decision.
+16. If approval is rejected or expires, do not retry or create another preview unless the user explicitly asks.
+17. Do not save the project unless the user explicitly requests save and separately approves the save preview.
+18. Never auto-promote a successful exploration, hot-patch the Harness, or modify this repository. Promotion may only create a review candidate for explicit human approval.
+19. Release the live session when the task is complete; release must leave AEDT and all projects open.
 """
 
 

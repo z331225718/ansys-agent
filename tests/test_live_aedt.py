@@ -2610,6 +2610,63 @@ def test_backend_reuses_wrappers_and_lists_live_layout_paths():
     assert desktop.releases[-1] == {"close_projects": False, "close_on_exit": False}
 
 
+def test_layout_inventory_grpc_capability_miss_is_cached_without_alias_retries():
+    class RejectingLayoutModeler:
+        def __init__(self, wrapped):
+            self.wrapped = wrapped
+            self.line_name_reads = 0
+
+        @property
+        def line_names(self):
+            self.line_name_reads += 1
+            raise RuntimeError("GrpcApiError: Failed to execute gRPC AEDT command: FindObjects")
+
+        def __getattr__(self, name):
+            return getattr(self.wrapped, name)
+
+    class RejectingLayout(FakeLayout):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.modeler = RejectingLayoutModeler(self.modeler)
+
+    apps = []
+
+    def factory(**kwargs):
+        app = RejectingLayout(**kwargs)
+        apps.append(app)
+        return app
+
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, layout_factory=factory)
+    target = AedtTarget("pid", 42)
+    with pytest.raises(LiveBackendError, match="deterministic capability miss") as first:
+        backend.execute(
+            target,
+            "layout_paths_list",
+            {"project_name": "Board", "design_name": "Layout1", "selector": {}},
+        )
+    assert first.value.code == "capability_unsupported"
+    assert apps[0].modeler.line_name_reads == 1
+
+    # A sibling inventory tool must fail from the session cache instead of
+    # making another collection request against the known-broken gRPC API.
+    with pytest.raises(LiveBackendError, match="do not retry") as second:
+        backend.execute(
+            target,
+            "layout_connectivity_inventory",
+            {"project_name": "Board", "design_name": "Layout1"},
+        )
+    assert second.value.code == "capability_unsupported"
+    assert apps[0].modeler.line_name_reads == 1
+
+    # Technology reads that do not enumerate layout objects remain usable.
+    technology = backend.execute(
+        target,
+        "layout_technology_inventory",
+        {"project_name": "Board", "design_name": "Layout1"},
+    )
+    assert technology["counts"]["stackup_layers"] == 2
+
+
 def test_backend_open_aedt_python_requires_backup_and_executes_exact_preview(tmp_path: Path):
     project_file = tmp_path / "Board.aedt"
     project_file.write_text("aedt", encoding="utf-8")
