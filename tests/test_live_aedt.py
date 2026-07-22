@@ -4456,6 +4456,102 @@ def test_backend_layout_signal_via_inventory_uses_native_net_class_queries():
     assert result["objects"][0]["values"]["net"]["value"] == "SIG"
 
 
+def test_backend_layout_signal_via_inventory_rebinds_a_poisoned_wrapper_once():
+    def configured_app(*, broken: bool):
+        app = FakeViaCreateLayout(project="Board", design="Layout1")
+        app.modeler.vias["V1"].net_name = "SIG"
+        editor = app.modeler.oeditor
+        original_find = editor.FindObjects
+
+        def find_objects(field, value):
+            if (field, value) == ("Net", "SIG"):
+                return ["V1"]
+            return original_find(field, value)
+
+        editor.FindObjects = find_objects
+        if broken:
+            editor.GetNetClassNets = lambda _net_class: (_ for _ in ()).throw(
+                RuntimeError("GrpcApiError: Failed to execute gRPC AEDT command: GetNetClassNets")
+            )
+        else:
+            editor.GetNetClassNets = lambda net_class: ["SIG"] if net_class == "Non Power/Ground" else []
+        editor.FilterObjectList = (
+            lambda field, value, names: list(names) if (field, value) == ("Type", "via") else []
+        )
+        return app
+
+    apps = [configured_app(broken=True), configured_app(broken=False)]
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        layout_factory=lambda **kwargs: apps.pop(0),
+    )
+
+    result = backend.execute(
+        AedtTarget("pid", 42),
+        "layout_signal_via_inventory",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "crossing_layer": "TOP",
+        },
+    )
+
+    assert result["count"] == 1
+    assert result["recovered_after_wrapper_rebind"] is True
+    assert apps == []
+
+
+def test_backend_layout_technology_inventory_discards_its_layout_wrapper():
+    def configured_app(*, broken: bool):
+        app = FakeViaCreateLayout(project="Board", design="Layout1")
+        app.modeler.vias["V1"].net_name = "SIG"
+        if broken:
+            app.save_diff_pairs_to_file = lambda _path: (_ for _ in ()).throw(
+                RuntimeError("wrapper refresh failed")
+            )
+        editor = app.modeler.oeditor
+        original_find = editor.FindObjects
+
+        def find_objects(field, value):
+            if (field, value) == ("Net", "SIG"):
+                return ["V1"]
+            return original_find(field, value)
+
+        editor.FindObjects = find_objects
+        if broken:
+            editor.GetNetClassNets = lambda _net_class: (_ for _ in ()).throw(
+                RuntimeError("GrpcApiError: Failed to execute gRPC AEDT command: GetNetClassNets")
+            )
+        else:
+            editor.GetNetClassNets = lambda net_class: ["SIG"] if net_class == "Non Power/Ground" else []
+        editor.FilterObjectList = (
+            lambda field, value, names: list(names) if (field, value) == ("Type", "via") else []
+        )
+        return app
+
+    apps = [configured_app(broken=True), configured_app(broken=False)]
+    backend = LiveAedtBackend(
+        desktop_factory=FakeDesktop,
+        layout_factory=lambda **kwargs: apps.pop(0),
+    )
+    target = AedtTarget("pid", 42)
+
+    backend.execute(
+        target,
+        "layout_technology_inventory",
+        {"project_name": "Board", "design_name": "Layout1"},
+    )
+    result = backend.execute(
+        target,
+        "layout_signal_via_inventory",
+        {"project_name": "Board", "design_name": "Layout1", "crossing_layer": "TOP"},
+    )
+
+    assert result["count"] == 1
+    assert result["recovered_after_wrapper_rebind"] is False
+    assert apps == []
+
+
 def test_backend_layout_native_property_bridge_uses_canonical_schema_only():
     app = FakeViaCreateLayout(project="Board", design="Layout1")
     backend = LiveAedtBackend(desktop_factory=FakeDesktop, layout_factory=lambda **kwargs: app)

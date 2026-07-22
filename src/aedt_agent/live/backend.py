@@ -694,6 +694,11 @@ class LiveAedtBackend:
             "restore_hint": "close the affected project and reopen the backed-up .aedt project or AEDB database from this directory",
         }
 
+    def _discard_cached_app(self, kind: str, project: str, design: str) -> None:
+        """Forget one PyAEDT application wrapper without touching AEDT Desktop."""
+
+        self._apps.pop((kind, project, design), None)
+
     def _app(
         self,
         target: AedtTarget,
@@ -4405,7 +4410,7 @@ class LiveAedtBackend:
             "port_order_source": _port_order_source(app),
             "differential_pairs": differential_pairs,
         }
-        return {
+        response = {
             "project_name": app.project_name,
             "design_name": app.design_name,
             **technology,
@@ -4421,6 +4426,13 @@ class LiveAedtBackend:
             "snapshot_digest": _digest(technology),
             "design_unchanged": True,
         }
+        # Optional padstack and differential-pair reads can leave a PyAEDT
+        # layout wrapper partially refreshed after an exception. Keep this
+        # read-only result, but never reuse a wrapper that reported either
+        # optional-section failure.
+        if padstack_error or differential_error:
+            self._discard_cached_app("layout", app.project_name, app.design_name)
+        return response
 
     def _layout_material_create_assign_preview(
         self,
@@ -5965,20 +5977,41 @@ class LiveAedtBackend:
             "fallback_hint": "Some PyAEDT collection wrappers were unavailable; use a targeted native read before declaring an AEDT API unsupported." if capability_failure else "",
             "design_unchanged": True,
         }
-
     def _layout_signal_via_inventory(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
         """Return signal vias and their native location/layer state without PyAEDT collections."""
 
-        app = self._app(
-            target,
-            "layout",
-            _required(args, "project_name"),
-            _required(args, "design_name"),
-        )
+        project_name = _required(args, "project_name")
+        design_name = _required(args, "design_name")
         max_items = args.get("max_items", 200)
         if type(max_items) is not int or not 1 <= max_items <= 500:
             raise LiveBackendError("max_items must be an integer between 1 and 500")
         crossing_layer = str(args.get("crossing_layer") or "").strip()
+
+        app = self._app(target, "layout", project_name, design_name)
+        try:
+            return self._layout_signal_via_inventory_for_app(app, crossing_layer, max_items)
+        except LiveBackendError as exc:
+            if not _layout_wrapper_rebind_is_warranted(exc):
+                raise
+            # A failed read-only PyAEDT collection can poison the cached
+            # Hfss3dLayout wrapper while native oEditor remains healthy. Make
+            # exactly one fresh-wrapper retry of this same native query.
+            self._discard_cached_app("layout", project_name, design_name)
+            fresh_app = self._app(target, "layout", project_name, design_name)
+            result = self._layout_signal_via_inventory_for_app(
+                fresh_app,
+                crossing_layer,
+                max_items,
+            )
+            result["recovered_after_wrapper_rebind"] = True
+            return result
+
+    def _layout_signal_via_inventory_for_app(
+        self,
+        app: Any,
+        crossing_layer: str,
+        max_items: int,
+    ) -> dict[str, Any]:
         editor = _layout_modeler_editor(app)
         get_signal_nets = getattr(editor, "GetNetClassNets", None)
         filter_objects = getattr(editor, "FilterObjectList", None)
@@ -6032,6 +6065,7 @@ class LiveAedtBackend:
             "objects": returned,
             "inventory_source": "native_oeditor",
             "status": "ok" if not any(record["status"] != "ok" for record in returned) else "partial",
+            "recovered_after_wrapper_rebind": False,
             "snapshot_digest": _digest(returned),
             "design_unchanged": True,
         }
@@ -13257,6 +13291,13 @@ def _layout_modeler_editor(app: Any) -> Any:
     if editor is None:
         raise LiveBackendError("3D Layout native editor API is unavailable")
     return editor
+
+
+def _layout_wrapper_rebind_is_warranted(error: LiveBackendError) -> bool:
+    """Whether a native read can safely retry after rebuilding only its wrapper."""
+
+    message = str(error)
+    return "GrpcApiError" in message or "Failed to execute gRPC AEDT command" in message
 
 
 def _layout_native_name_matches(app: Any, name: str) -> list[str]:
