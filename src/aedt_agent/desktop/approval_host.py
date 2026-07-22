@@ -230,22 +230,53 @@ def windows_approval_prompt(record: ApprovalRecord) -> bool:
 
     details = _preview_summary(record.preview)
     message = (
-        "Claude Code requested an Ansys operation.\n\n"
-        f"Action: {record.action}\n"
-        f"Resource: {record.resource_id}\n"
-        f"Digest: {record.digest[:16]}...\n\n"
-        f"Preview:\n{details}\n\n"
-        "Approve this one operation?"
+        "Claude Code 请求执行一项 Ansys 修改。\n\n"
+        f"操作: {record.action}\n"
+        f"审批指纹: {record.digest[:16]}...\n\n"
+        f"修改摘要:\n{details}\n\n"
+        "是否只批准本次操作？"
     )
     flags = 0x00000004 | 0x00000030 | 0x00040000 | 0x00010000
     return ctypes.windll.user32.MessageBoxW(0, message, "Ansys Agent Approval", flags) == 6
 
 
 def _preview_summary(preview: dict[str, Any]) -> str:
-    omitted = {"approval_request", "approval_poll", "release_required", "approval_source"}
-    value = {key: item for key, item in preview.items() if key not in omitted}
+    """Render a human-sized approval prompt, never source code or large inventories."""
+    display = preview.get("approval_display")
+    if isinstance(display, dict):
+        labels = (
+            ("修改内容", "change_summary"),
+            ("目标", "target"),
+            ("备份", "backup"),
+            ("代码指纹", "code_sha256"),
+            ("风险", "risk"),
+        )
+        lines = [f"{label}: {_compact_text(display[key], 700)}" for label, key in labels if display.get(key)]
+        if lines:
+            return "\n".join(lines)[:1800]
+
+    # Typed previews can contain full inventories/readback snapshots.  Approval is
+    # about the requested change, not a JSON dump of server internals.
+    omitted = {
+        "approval_display", "approval_request", "approval_poll", "approval_source", "release_required",
+        "code", "code_preview", "source_fingerprint", "before", "after", "records", "events",
+        "stdout", "stderr", "snapshot", "response", "properties",
+    }
+    preferred = (
+        "change_summary", "project_name", "design_name", "product", "object_kind", "object_names",
+        "names", "variable_name", "variable_value", "material_name", "setup_name", "target_count",
+        "backup_plan", "backup", "risk",
+    )
+    value = {key: preview[key] for key in preferred if key in preview and key not in omitted}
+    if not value:
+        value = {key: item for key, item in preview.items() if key not in omitted}
     text = json.dumps(value, ensure_ascii=False, indent=2, default=str)
-    return text[:5000] + ("\n..." if len(text) > 5000 else "")
+    return text[:1800] + ("\n..." if len(text) > 1800 else "")
+
+
+def _compact_text(value: Any, limit: int) -> str:
+    text = str(value).strip().replace("\r", " ").replace("\n", " ")
+    return text[:limit] + ("..." if len(text) > limit else "")
 
 
 def _required(payload: dict[str, Any], name: str) -> str:

@@ -431,10 +431,12 @@ class LiveAedtBackend:
         identity = self._open_aedt_identity(app, desktop, target, product, project_path)
         source_fingerprint = _open_aedt_source_fingerprint(project_path)
         code_sha256 = hashlib.sha256(code.encode("utf-8")).hexdigest()
+        change_summary = _open_aedt_change_summary(args.get("change_summary"))
         state = {
             "identity": identity,
             "source_fingerprint": source_fingerprint,
             "code_sha256": code_sha256,
+            "change_summary": change_summary,
         }
         digest = _digest(state)
         preview_id = "open-aedt-python-preview-" + digest[:24]
@@ -454,6 +456,7 @@ class LiveAedtBackend:
             "source_fingerprint": source_fingerprint,
             "code": code,
             "code_sha256": code_sha256,
+            "change_summary": change_summary,
             "digest": digest,
             "backup_dir": str(backup_dir),
         }
@@ -466,7 +469,14 @@ class LiveAedtBackend:
             "target_identity": identity,
             "code_sha256": code_sha256,
             "code_bytes": len(code.encode("utf-8")),
-            "code_preview": code[:4096],
+            "change_summary": change_summary,
+            "approval_display": {
+                "change_summary": change_summary,
+                "target": f"{project_name} / {design_name} ({product})",
+                "backup": str(backup_dir),
+                "code_sha256": code_sha256[:16] + "...",
+                "risk": "完全访问 Python；执行前会保存并备份工程",
+            },
             "source_fingerprint": source_fingerprint,
             "backup_plan": {
                 "required": True,
@@ -15301,6 +15311,18 @@ def _analysis_state(app: Any, setup_name: str) -> dict[str, Any]:
 def _safe_component(value: Any) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", str(value)).strip("._")
     return cleaned[:80] or "unnamed"
+
+
+def _open_aedt_change_summary(value: Any) -> str:
+    """Keep the approval intent concise; it is bound to the frozen code digest."""
+    if value is None or not str(value).strip():
+        return "执行已批准的 AEDT/PyAEDT 修改脚本"
+    if not isinstance(value, str):
+        raise LiveBackendError("change_summary must be a short text string")
+    summary = " ".join(value.split())
+    if len(summary) > 600:
+        raise LiveBackendError("change_summary must be at most 600 characters")
+    return summary
 
 
 def _require_within(path: Path, root: Path) -> None:

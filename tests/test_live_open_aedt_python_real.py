@@ -66,7 +66,8 @@ def test_real_live_open_aedt_python_saves_backs_up_and_executes_exact_code(tmp_p
             code=code,
         )
         assert preview["execution_policy"] == "open_with_approval"
-        assert preview["code_preview"] == code
+        assert "code_preview" not in preview
+        assert len(preview["code_sha256"]) == 64
         result = manager.apply_open_aedt_python(
             session_id,
             preview_id=preview["preview_id"],

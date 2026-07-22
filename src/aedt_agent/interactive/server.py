@@ -646,14 +646,16 @@ def create_server(
         design_name: str,
         product: str,
         code: str,
+        change_summary: str = "",
     ) -> dict:
-        """Preview arbitrary AEDT/PyAEDT Python. It is globally available but never a sandbox; Desktop approval and a disk backup are mandatory."""
+        """Preview an arbitrary AEDT/PyAEDT edit. Give a concise Chinese change_summary; Desktop approval and a disk backup are mandatory."""
         return live.preview_open_aedt_python(
             live_session_id,
             project_name=project_name,
             design_name=design_name,
             product=product,
             code=code,
+            change_summary=change_summary,
         )
 
     @server.tool()

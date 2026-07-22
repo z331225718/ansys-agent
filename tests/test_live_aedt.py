@@ -24,7 +24,7 @@ from aedt_agent.live.manager import LiveAedtSessionManager
 from aedt_agent.live.protocol import ProtocolError, WorkerRequest, WorkerResponse
 from aedt_agent.live.target import AedtTarget, TargetValidationError
 from aedt_agent.live.worker import serve
-from aedt_agent.desktop.approval_host import ApprovalHost, DesktopApprovalStore
+from aedt_agent.desktop.approval_host import ApprovalHost, DesktopApprovalStore, _preview_summary
 
 
 class FakeProject:
@@ -2640,6 +2640,8 @@ def test_backend_open_aedt_python_requires_backup_and_executes_exact_preview(tmp
     )
     assert preview["execution_policy"] == "open_with_approval"
     assert preview["backup_plan"]["required"] is True
+    assert "code_preview" not in preview
+    assert preview["change_summary"] == "执行已批准的 AEDT/PyAEDT 修改脚本"
     result = backend.execute(
         target,
         "open_aedt_python_apply",
@@ -8679,8 +8681,10 @@ def test_manager_requires_action_bound_approval_for_open_aedt_python():
         design_name="Layout1",
         product="layout",
         code="emit('hello')",
+        change_summary="读取后将选中路径改为设计变量 W_line",
     )
     assert preview["approval_request"]["action"] == "aedt.open_python.execute"
+    assert registry.calls[-1][2]["change_summary"] == "读取后将选中路径改为设计变量 W_line"
     with pytest.raises(Exception) as rejected:
         manager.apply_open_aedt_python(
             session_id,
@@ -8704,6 +8708,29 @@ def test_manager_requires_action_bound_approval_for_open_aedt_python():
             approval_token=token,
         )
     assert getattr(replay.value, "code", None) == "approval_required"
+
+
+def test_open_aedt_approval_summary_never_shows_source_code():
+    source = "app.modeler.oeditor.ChangeProperty(['NAME:AllTabs', 'secret'])"
+    summary = _preview_summary(
+        {
+            "code_preview": source,
+            "code": source,
+            "approval_display": {
+                "change_summary": "将 3 条 line 的 LineWidth 改为 W_line",
+                "target": "Board / Layout1 (layout)",
+                "backup": r"D:\\work\\.aedt-agent-backups\\preview-1",
+                "code_sha256": "0123456789abcdef...",
+                "risk": "完全访问 Python；执行前会保存并备份工程",
+            },
+        }
+    )
+    assert "ChangeProperty" not in summary
+    assert "secret" not in summary
+    assert "LineWidth 改为 W_line" in summary
+    assert "Board / Layout1" in summary
+    assert "0123456789abcdef" in summary
+    assert len(summary) < 1800
 
 
 def test_manager_requires_digest_bound_approval_for_project_save():

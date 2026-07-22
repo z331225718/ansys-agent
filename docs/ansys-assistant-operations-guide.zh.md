@@ -749,8 +749,10 @@ Perfect E、Length Mesh、外部旋转后的 stale、磁盘工程 SHA-256 不变
 
 ```text
 先检查 capability catalog。若没有现成 Harness，使用 ansys-api-memory 查询当前安装版本的源码证据，然后用
-`preview_live_open_aedt_python` 提交精确的 PyAEDT/AEDT COM 代码。用户必须在原生确认框核对代码 hash、绑定工程/
-设计和 backup 目录；批准后才能用对应 `preview_id` 调用 `apply_live_open_aedt_python`。
+属性查询、对象查找和 inventory 直接使用只读 Harness，不需要审批；未知 3D Layout 查询先用受控 read schema。只有修改或
+不确定操作才通过 `preview_live_open_aedt_python` 提交精确的 PyAEDT/AEDT COM 代码，并填写一句简洁的 `change_summary`。
+原生确认框只显示这句修改摘要、绑定工程/设计、backup 目录和代码 hash，不显示完整代码；批准后才能用对应 `preview_id`
+调用 `apply_live_open_aedt_python`。
 ```
 
 这是完全访问模式：Runtime 会先保存工程并复制 `.aedt`/`.aedb`，再在绑定 AEDT broker 中执行代码；它不是 sandbox，

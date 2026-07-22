@@ -752,6 +752,7 @@ class LiveAedtSessionManager:
         design_name: str,
         product: str,
         code: str,
+        change_summary: str = "",
     ) -> dict[str, Any]:
         """Preview unrestricted AEDT/PyAEDT code under the global approval policy."""
         result = self._execute(
@@ -762,6 +763,7 @@ class LiveAedtSessionManager:
                 "design_name": design_name,
                 "product": product,
                 "code": code,
+                "change_summary": change_summary,
             },
         )
         return self._register_approval(session_id, "aedt.open_python.execute", result)

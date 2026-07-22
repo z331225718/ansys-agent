@@ -85,7 +85,8 @@ Windows secure gRPC/WNUA 可能使用不同的实际 listener。先用 `ansys-as
 - `ansys-api-memory` 只提供 search/inspect/trace/source/example 查询，不暴露索引、删除或 ADR 写工具。
 - Claude 的 permission mode 为 `manual`，不会启用 `dangerously-skip-permissions`。
 - live edit、solve、cancel、export、save 仍遵循 preview/apply 和外部 Host approval。
-- 对没有 typed Harness 的 AEDT/PyAEDT 操作，Desktop Runtime 全局提供 `preview_live_open_aedt_python` / `apply_live_open_aedt_python`。它不按对象类型、属性或 COM 方法再设 allowlist：先展示固定代码 hash、来源工程/设计和备份位置，用户在原生确认框批准后，Runtime 先保存工程并复制 `.aedt`/`.aedb`，再在绑定 AEDT broker 中执行该**完全访问** Python。
+- 属性查询、对象查找、inventory 等只读操作直接调用注册的 read tool，不弹审批框；未知的 3D Layout 查询先使用 `get_controlled_live_layout_read_schema` / `execute_controlled_live_layout_read`，该程序不能执行 Python、COM 或方法调用。
+- 对没有 typed Harness 的 AEDT/PyAEDT **修改或不确定操作**，Desktop Runtime 全局提供 `preview_live_open_aedt_python` / `apply_live_open_aedt_python`。它不按对象类型、属性或 COM 方法再设 allowlist：preview 必须传入简洁 `change_summary`。原生确认框只显示修改摘要、来源工程/设计、备份位置和固定代码 hash，**绝不展示代码正文**；批准后 Runtime 先保存工程并复制 `.aedt`/`.aedb`，再在绑定 AEDT broker 中执行该**完全访问** Python。
 - 这项开放能力不是 sandbox，也不承诺自动 rollback 或通用 readback；代码拥有当前 AEDT Desktop 用户的同等权限。失败或结果异常时必须停止后续编辑，在 AEDT GUI 核对，并按返回的 backup 目录手动恢复工程。
 - approval Host 没有 HTTP/MCP approve 接口；批准只能来自 Windows 原生确认框。
 - approved token 绑定 action/resource/digest、五分钟过期且 verify 后立即失效。
@@ -112,7 +113,7 @@ Claude 必须按固定顺序处理 Harness 尚未覆盖的任务：
 ```text
 确认 typed Harness capability miss
   -> API Memory search + inspect（用于准确写代码）
-  -> `preview_live_open_aedt_python`
+  -> 修改/不确定操作：`preview_live_open_aedt_python` + 简洁 `change_summary`
   -> Desktop 原生审批
   -> Runtime 保存并备份工程
   -> `apply_live_open_aedt_python`
