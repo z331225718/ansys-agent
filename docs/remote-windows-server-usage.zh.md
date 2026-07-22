@@ -664,11 +664,12 @@ RDP session 看不到该窗口。回到正确 RDP session 操作。
 
 ### 15.6 `FindObjects` 或 `GetAllLayerNames` 经 gRPC 失败
 
-这表示 AEDT 已连接、但当前 3D Layout 会话拒绝该**具体**枚举命令，不是缺少 gRPC 组件，也不是可通过
-重复调用恢复的临时错误。Runtime 会将其标记为 `capability_unsupported` 并在本会话记忆该负能力：不要继续并行
-尝试 layout object、routing、connectivity、port candidate 等同类 inventory，也不要用开放 Python 重复调用相同
-`oEditor` 方法。保留仍可读取的 technology/stackup 数据；live 全局对象清单需要等待经过验证的磁盘 `.aedb`
-只读 fallback，不能把磁盘快照误报为当前未保存的 Desktop 内存状态。
+这首先只表示 **某个 PyAEDT wrapper 调用**失败，不能据此把整个 AEDT 会话或所有 `FindObjects` /
+`GetAllLayerNames` 调用判为不可用。Runtime 会对同一 AEDT broker 的同一原生 `oEditor` 参数做一次针对性
+fallback；例如 `vias` collection 刷新失败时，会直接读取 `FindObjects("Type", "via")` 和固定
+`BaseElementTab` 属性。若这次原生调用成功，结果标为 `native_oeditor_fallback`；若原生调用也失败，才报告该
+**具体 API 加参数**不可用。不要把一个失败的 wrapper 结果扩展为 layout object、routing、connectivity 等全部
+inventory 都不支持，也不要并行轰炸同一个原生调用。
 
 ### 15.7 API Memory 不是 ready
 

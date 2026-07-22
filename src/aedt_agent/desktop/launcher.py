@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from aedt_agent.knowledge.api_memory import AnsysApiMemory
 from aedt_agent.live.manager import LiveAedtSessionManager
+from aedt_agent.live.versioning import normalize_aedt_version
 
 
 _DESKTOP_CLAUDE_BUILTIN_TOOLS = ("AskUserQuestion",)
@@ -387,7 +388,17 @@ def launch_from_aedt_environment() -> dict[str, Any]:
         port = int(os.environ["PYAEDT_DESKTOP_PORT"])
     except (KeyError, TypeError, ValueError) as exc:
         raise DesktopLaunchError("PYAEDT_DESKTOP_PORT is missing; launch this entry from AEDT") from exc
-    version = os.environ.get("PYAEDT_DESKTOP_VERSION", "2026.1")
+    version_text = os.environ.get("PYAEDT_DESKTOP_VERSION", "").strip()
+    if not version_text:
+        raise DesktopLaunchError(
+            "PYAEDT_DESKTOP_VERSION is missing; refusing to guess an AEDT release for this live session"
+        )
+    try:
+        version = normalize_aedt_version(version_text)
+    except ValueError as exc:
+        raise DesktopLaunchError(
+            f"PYAEDT_DESKTOP_VERSION is invalid: {version_text!r}"
+        ) from exc
     project_root = os.environ.get("AEDT_AGENT_PROJECT_ROOT")
     return ClaudeDesktopLauncher(project_root=project_root).launch(port=port, version=version)
 
@@ -465,7 +476,7 @@ Rules:
 11. Open execution saves the active project and copies its `.aedt`/`.aedb` bundle before running. There is no native approval dialog. The preview still reports the concise change summary, target identity, backup destination, and fixed code hash. Do not alter code after preview. On failure or an unexpected result, stop, inspect AEDT, and restore that backup manually if needed.
 12. {knowledge_rule} API memory is knowledge only. It can help write the open code but is not permission and cannot bypass the preview, target binding, stale-state check, or automatic backup.
 13. Every typed live edit, solve, cancel, export, or save still uses its preview/apply contract; every open Python edit also requires its own preview and automatic pre-execution backup.
-14. If a layout tool returns `capability_unsupported`, `FindObjects`, or `GetAllLayerNames`, treat it as a deterministic AEDT-session capability miss. Do not retry it, call sibling inventory aliases in parallel, or use open Python to invoke the same oEditor method. Keep any successful partial technology data, then report the unavailable live inventory scope concisely.
+14. A layout result mentioning `FindObjects` or `GetAllLayerNames` describes only that exact PyAEDT wrapper/API invocation, not the entire AEDT session. Do not infer a global capability miss. Prefer the typed native-oEditor fallback returned by Runtime; after one exact native call also fails, report that API and arguments as unavailable without retrying the same call or spraying sibling aliases.
 15. Never invent an approval token. For an AEDT-changing preview, use only the automatic token returned by that exact preview. A read tool must never create or wait for an approval.
 16. If a preview becomes stale or its token is rejected, do not retry or create another preview unless the user explicitly asks.
 17. Do not save the project unless the user explicitly requests save and creates a separate save preview.

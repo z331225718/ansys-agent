@@ -16,6 +16,8 @@ from aedt_agent.desktop.approval_host import ApprovalHost
 from aedt_agent.desktop.approval_host import DesktopApprovalStore
 from aedt_agent.desktop.launcher import AedtDesktopContext
 from aedt_agent.desktop.launcher import ClaudeDesktopLauncher
+from aedt_agent.desktop.launcher import DesktopLaunchError
+from aedt_agent.desktop.launcher import launch_from_aedt_environment
 
 
 def _project(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
@@ -31,6 +33,14 @@ def _project(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     git_bash.parent.mkdir(parents=True)
     git_bash.write_bytes(b"")
     return root, python, claude, git_bash
+
+
+def test_aedt_extension_requires_the_actual_desktop_version(monkeypatch):
+    monkeypatch.setenv("PYAEDT_DESKTOP_PORT", "50061")
+    monkeypatch.delenv("PYAEDT_DESKTOP_VERSION", raising=False)
+
+    with pytest.raises(DesktopLaunchError, match="refusing to guess"):
+        launch_from_aedt_environment()
 
 
 class _PreparingApiMemory:
@@ -162,8 +172,8 @@ def test_launcher_generates_session_scoped_mcp_and_visible_git_bash(
     assert "automatic `approval_token`" in system_context
     assert "preview_live_open_aedt_python" in system_context
     assert "apply_live_open_aedt_python" in system_context
-    assert "capability_unsupported" in system_context
-    assert "Do not retry it" in system_context
+    assert "not the entire AEDT session" in system_context
+    assert "native-oEditor fallback" in system_context
     assert "AEDT COM" in system_context
     assert "Never auto-promote" in system_context
     launch_script = Path(result["launch_script"]).read_text(encoding="utf-8")

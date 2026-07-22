@@ -2610,11 +2610,29 @@ def test_backend_reuses_wrappers_and_lists_live_layout_paths():
     assert desktop.releases[-1] == {"close_projects": False, "close_on_exit": False}
 
 
-def test_layout_inventory_grpc_capability_miss_is_cached_without_alias_retries():
+def test_layout_inventory_uses_native_fallback_when_pyaedt_collection_fails():
+    class NativeEditor:
+        def __init__(self, wrapped):
+            self.wrapped = wrapped
+
+        def FindObjects(self, field, value):
+            assert (field, value) == ("Type", "line")
+            return list(self.wrapped.line_names)
+
+        def GetPropertyValue(self, tab, name, property_name):
+            assert tab == "BaseElementTab"
+            line = self.wrapped.lines[name]
+            return {
+                "Net": line.net_name,
+                "PlacementLayer": line.placement_layer,
+                "LineWidth": line.width,
+            }[property_name]
+
     class RejectingLayoutModeler:
         def __init__(self, wrapped):
             self.wrapped = wrapped
             self.line_name_reads = 0
+            self.oeditor = NativeEditor(wrapped)
 
         @property
         def line_names(self):
@@ -2638,33 +2656,21 @@ def test_layout_inventory_grpc_capability_miss_is_cached_without_alias_retries()
 
     backend = LiveAedtBackend(desktop_factory=FakeDesktop, layout_factory=factory)
     target = AedtTarget("pid", 42)
-    with pytest.raises(LiveBackendError, match="deterministic capability miss") as first:
-        backend.execute(
-            target,
-            "layout_paths_list",
-            {"project_name": "Board", "design_name": "Layout1", "selector": {}},
-        )
-    assert first.value.code == "capability_unsupported"
-    assert apps[0].modeler.line_name_reads == 1
-
-    # A sibling inventory tool must fail from the session cache instead of
-    # making another collection request against the known-broken gRPC API.
-    with pytest.raises(LiveBackendError, match="do not retry") as second:
-        backend.execute(
-            target,
-            "layout_connectivity_inventory",
-            {"project_name": "Board", "design_name": "Layout1"},
-        )
-    assert second.value.code == "capability_unsupported"
-    assert apps[0].modeler.line_name_reads == 1
-
-    # Technology reads that do not enumerate layout objects remain usable.
-    technology = backend.execute(
+    paths = backend.execute(
         target,
-        "layout_technology_inventory",
+        "layout_paths_list",
+        {"project_name": "Board", "design_name": "Layout1", "selector": {}},
+    )
+    assert apps[0].modeler.line_name_reads == 1
+    assert [item["name"] for item in paths["paths"]] == ["line1", "line2"]
+
+    # A failing line wrapper must not poison unrelated live inventory calls.
+    connectivity = backend.execute(
+        target,
+        "layout_connectivity_inventory",
         {"project_name": "Board", "design_name": "Layout1"},
     )
-    assert technology["counts"]["stackup_layers"] == 2
+    assert connectivity["counts"]["nets"] == 3
 
 
 def test_backend_open_aedt_python_requires_backup_and_executes_exact_preview(tmp_path: Path):
@@ -4368,6 +4374,52 @@ def test_backend_layout_via_target_inventory_reads_fixed_native_properties():
             "layout_object_property_inventory",
             {"project_name": "Board", "design_name": "Layout1", "object_kind": "via", "profile": "via_target/v1", "names": [f"V{index}" for index in range(51)], "max_items": 50},
         )
+
+
+def test_backend_layout_via_target_inventory_uses_native_fallback_when_collection_fails():
+    app = FakeViaCreateLayout(project="Board", design="Layout1")
+    values = {
+        "V1": {
+            "Net": "GND",
+            "Location": "1.0 ,2.0",
+            "Start Layer": "TOP",
+            "Stop Layer": "BOT",
+        }
+    }
+
+    class NativeEditor:
+        def FindObjects(self, field, value):
+            assert (field, value) == ("Type", "via")
+            return list(values)
+
+        def GetPropertyValue(self, tab, name, property_name):
+            assert tab == "BaseElementTab"
+            return values[name][property_name]
+
+    class FailingViasModeler:
+        oeditor = NativeEditor()
+
+        @property
+        def vias(self):
+            raise RuntimeError("GrpcApiError: wrapper refresh failed at FindObjects")
+
+    app.modeler = FailingViasModeler()
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, layout_factory=lambda **kwargs: app)
+
+    result = backend.execute(
+        AedtTarget("pid", 42),
+        "layout_object_property_inventory",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "object_kind": "via",
+            "profile": "via_target/v1",
+        },
+    )
+
+    assert result["inventory_source"] == "native_oeditor_fallback"
+    assert result["status"] == "ok"
+    assert result["objects"][0]["values"]["net"]["value"] == "GND"
 
 
 def test_backend_layout_native_property_bridge_uses_canonical_schema_only():
