@@ -1764,6 +1764,26 @@ class LiveAedtSessionManager:
             },
         )
 
+    def layout_signal_via_inventory(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        design_name: str,
+        crossing_layer: str = "",
+        max_items: int = 200,
+    ) -> dict[str, Any]:
+        return self._execute(
+            session_id,
+            "layout_signal_via_inventory",
+            {
+                "project_name": project_name,
+                "design_name": design_name,
+                "crossing_layer": crossing_layer,
+                "max_items": max_items,
+            },
+        )
+
     def layout_port_candidate_inventory(
         self,
         session_id: str,

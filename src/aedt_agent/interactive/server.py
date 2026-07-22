@@ -1534,6 +1534,23 @@ def create_server(
         )
 
     @server.tool()
+    async def get_live_layout_signal_via_inventory(
+        live_session_id: str,
+        project_name: str,
+        design_name: str,
+        crossing_layer: str = "",
+        max_items: int = 200,
+    ) -> dict:
+        """Read signal vias using direct native oEditor calls; optionally require a crossed layer."""
+        return live.layout_signal_via_inventory(
+            live_session_id,
+            project_name=project_name,
+            design_name=design_name,
+            crossing_layer=crossing_layer,
+            max_items=max_items,
+        )
+
+    @server.tool()
     async def get_live_layout_port_candidate_inventory(
         live_session_id: str,
         project_name: str,

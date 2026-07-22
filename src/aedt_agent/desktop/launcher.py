@@ -119,6 +119,7 @@ _DESKTOP_ASSISTANT_MCP_TOOLS = (
     "preview_live_open_aedt_python",
     "apply_live_open_aedt_python",
     "get_live_layout_connectivity_inventory",
+    "get_live_layout_signal_via_inventory",
     "get_live_layout_port_candidate_inventory",
     "preview_live_layout_component_ports_create",
     "apply_live_layout_component_ports_create",
@@ -470,7 +471,7 @@ Rules:
 5. The active design above is its canonical display name. Never prepend an AEDT internal prefix such as `0;`.
 6. For `HFSS 3D Layout Design`, use only the layout inventory/edit tools for geometry. Do not call HFSS 3D design or geometry inventory tools.
 7. For a `LineWidth=<value>` request, filter `list_live_layout_paths` with `selector.target_width`, then preview parameterization with the same width as the variable value unless the user specifies another value.
-8. Prefer an existing typed Harness capability when it exactly fits; it provides the strongest readback and rollback. Property lookup, inventory, and other queries use the registered read-only tools directly and never require approval. For an unknown Layout query, first use `get_controlled_live_layout_read_schema` / `execute_controlled_live_layout_read`; do not use arbitrary Python merely to bypass a missing read tool.
+8. Prefer an existing typed Harness capability when it exactly fits; it provides the strongest readback and rollback. Property lookup, inventory, and other queries use the registered read-only tools directly and never require approval. For "signal vias crossing a layer" or a 3D Layout anti-pad request, first read the stackup, then call `get_live_layout_signal_via_inventory` with the exact target layer; do not start with generic object/connectivity inventory or controlled reads. For an unknown Layout query, first use `get_controlled_live_layout_read_schema` / `execute_controlled_live_layout_read`; do not use arbitrary Python merely to bypass a missing read tool.
 9. Claude Code and the Desktop Runtime are both launched without user approval prompts. Keep the preview/apply contract for every AEDT-changing operation: preview freezes the target state and returns an automatic `approval_token`; immediately call the corresponding apply tool with exactly that `preview_id` and token. For an unrestricted fallback, use `preview_live_open_aedt_python` then `apply_live_open_aedt_python` in this same way. Never call `wait_for_live_approval` in this Desktop session.
 10. The open Python fallback is intentionally unrestricted for AEDT/PyAEDT and raw AEDT COM work. It runs inside the server-owned AEDT broker as the Desktop user, not in Claude and not in a security sandbox. Do not claim it is safe, reversible, or verified merely because it completed.
 11. Open execution saves the active project and copies its `.aedt`/`.aedb` bundle before running. There is no native approval dialog. The preview still reports the concise change summary, target identity, backup destination, and fixed code hash. Do not alter code after preview. On failure or an unexpected result, stop, inspect AEDT, and restore that backup manually if needed.

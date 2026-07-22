@@ -229,6 +229,8 @@ class LiveAedtBackend:
                 return self._layout_antipad_circle_create_apply(target, arguments)
             if command == "layout_connectivity_inventory":
                 return self._layout_connectivity_inventory(target, arguments)
+            if command == "layout_signal_via_inventory":
+                return self._layout_signal_via_inventory(target, arguments)
             if command == "layout_port_candidate_inventory":
                 return self._layout_port_candidate_inventory(target, arguments)
             if command == "layout_component_ports_create_preview":
@@ -5961,6 +5963,76 @@ class LiveAedtBackend:
             "capability_status": "partial" if unavailable else "available",
             "retry_recommended": bool(unavailable),
             "fallback_hint": "Some PyAEDT collection wrappers were unavailable; use a targeted native read before declaring an AEDT API unsupported." if capability_failure else "",
+            "design_unchanged": True,
+        }
+
+    def _layout_signal_via_inventory(self, target: AedtTarget, args: dict[str, Any]) -> dict[str, Any]:
+        """Return signal vias and their native location/layer state without PyAEDT collections."""
+
+        app = self._app(
+            target,
+            "layout",
+            _required(args, "project_name"),
+            _required(args, "design_name"),
+        )
+        max_items = args.get("max_items", 200)
+        if type(max_items) is not int or not 1 <= max_items <= 500:
+            raise LiveBackendError("max_items must be an integer between 1 and 500")
+        crossing_layer = str(args.get("crossing_layer") or "").strip()
+        editor = _layout_modeler_editor(app)
+        get_signal_nets = getattr(editor, "GetNetClassNets", None)
+        filter_objects = getattr(editor, "FilterObjectList", None)
+        if not callable(get_signal_nets) or not callable(filter_objects):
+            raise LiveBackendError("3D Layout native signal-via inventory API is unavailable")
+        try:
+            raw_signal_nets = get_signal_nets("Non Power/Ground")
+        except Exception as exc:
+            raise LiveBackendError(
+                f"3D Layout signal-net inventory failed: {type(exc).__name__}: {exc}"
+            ) from exc
+        signal_nets = _layout_native_name_list(raw_signal_nets, label="signal-net inventory", maximum=5_000)
+        via_names: set[str] = set()
+        for net_name in signal_nets:
+            candidates = _layout_native_find_objects(app, "Net", net_name, maximum=100_000)
+            try:
+                raw_vias = filter_objects("Type", "via", candidates)
+            except Exception as exc:
+                raise LiveBackendError(
+                    f"3D Layout signal-via filter failed for {net_name}: {type(exc).__name__}: {exc}"
+                ) from exc
+            via_names.update(_layout_native_name_list(raw_vias, label="signal-via filter", maximum=100_000))
+        names = sorted(via_names)
+        if len(names) > 5_000:
+            raise LiveBackendError("3D Layout signal-via inventory exceeds the 5000-item safety limit")
+        native_records = _layout_native_property_records(
+            app,
+            "via",
+            names,
+            _layout_native_profile_property_ids("via", "via_target/v1") or [],
+            available_names=set(names),
+        )
+        records = [_layout_via_target_record_from_native(record) for record in native_records]
+        if crossing_layer:
+            records = [
+                record
+                for record in records
+                if record.get("values", {}).get("start_layer", {}).get("value") == crossing_layer
+                or record.get("values", {}).get("stop_layer", {}).get("value") == crossing_layer
+            ]
+        returned = records[:max_items]
+        return {
+            "project_name": app.project_name,
+            "design_name": app.design_name,
+            "signal_nets": signal_nets,
+            "signal_net_count": len(signal_nets),
+            "crossing_layer": crossing_layer,
+            "count": len(returned),
+            "total_matching_count": len(records),
+            "truncated": len(records) > len(returned),
+            "objects": returned,
+            "inventory_source": "native_oeditor",
+            "status": "ok" if not any(record["status"] != "ok" for record in returned) else "partial",
+            "snapshot_digest": _digest(returned),
             "design_unchanged": True,
         }
 
@@ -13210,16 +13282,20 @@ def _layout_native_find_objects(
             f"3D Layout native object lookup failed for {field}={value!r}: "
             f"{type(exc).__name__}: {exc}"
         ) from exc
+    return _layout_native_name_list(raw, label="object lookup", maximum=maximum)
+
+
+def _layout_native_name_list(raw: Any, *, label: str, maximum: int) -> list[str]:
     if raw is None:
         return []
     if isinstance(raw, (str, bytes, dict)):
-        raise LiveBackendError("3D Layout native object lookup returned an invalid response")
+        raise LiveBackendError(f"3D Layout native {label} returned an invalid response")
     try:
         names = sorted({str(item) for item in list(raw) if str(item)})
     except TypeError as exc:
-        raise LiveBackendError("3D Layout native object lookup returned an invalid response") from exc
+        raise LiveBackendError(f"3D Layout native {label} returned an invalid response") from exc
     if len(names) > maximum:
-        raise LiveBackendError(f"3D Layout native object lookup exceeds the limit of {maximum}")
+        raise LiveBackendError(f"3D Layout native {label} exceeds the limit of {maximum}")
     return names
 
 

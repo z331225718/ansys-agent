@@ -4422,6 +4422,40 @@ def test_backend_layout_via_target_inventory_uses_native_fallback_when_collectio
     assert result["objects"][0]["values"]["net"]["value"] == "GND"
 
 
+def test_backend_layout_signal_via_inventory_uses_native_net_class_queries():
+    app = FakeViaCreateLayout(project="Board", design="Layout1")
+    app.modeler.vias["V1"].net_name = "SIG"
+    editor = app.modeler.oeditor
+    original_find = editor.FindObjects
+
+    def find_objects(field, value):
+        if (field, value) == ("Net", "SIG"):
+            return ["V1"]
+        return original_find(field, value)
+
+    editor.FindObjects = find_objects
+    editor.GetNetClassNets = lambda net_class: ["SIG"] if net_class == "Non Power/Ground" else []
+    editor.FilterObjectList = lambda field, value, names: list(names) if (field, value) == ("Type", "via") else []
+    backend = LiveAedtBackend(desktop_factory=FakeDesktop, layout_factory=lambda **kwargs: app)
+
+    result = backend.execute(
+        AedtTarget("pid", 42),
+        "layout_signal_via_inventory",
+        {
+            "project_name": "Board",
+            "design_name": "Layout1",
+            "crossing_layer": "TOP",
+            "max_items": 10,
+        },
+    )
+
+    assert result["inventory_source"] == "native_oeditor"
+    assert result["signal_nets"] == ["SIG"]
+    assert result["total_matching_count"] == 1
+    assert result["objects"][0]["name"] == "V1"
+    assert result["objects"][0]["values"]["net"]["value"] == "SIG"
+
+
 def test_backend_layout_native_property_bridge_uses_canonical_schema_only():
     app = FakeViaCreateLayout(project="Board", design="Layout1")
     backend = LiveAedtBackend(desktop_factory=FakeDesktop, layout_factory=lambda **kwargs: app)
