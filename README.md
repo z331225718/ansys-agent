@@ -22,6 +22,48 @@ AEDT Automation Tab 的 Claude Code 入口见
 3D Layout circle void 与 HFSS 3D 圆柱减金属的严格反焊盘能力见
 [`docs/antipad-harness.zh.md`](docs/antipad-harness.zh.md)。
 
+## 将跑通的操作固化为可复用能力
+
+一次成功的 AEDT 对话不应直接复制成提示词、Python 片段或工程专属脚本。应保留
+实际调用、回读结果和版本信息，先生成候选，再经人工审查、回放测试和发布进入正式能力。
+这样可以避免把某个工程的 layer alias、via 名称、polygon owner、项目路径误固化为通用规则。
+
+```text
+已验证任务（含 readback）
+  -> 受服务器签名的 capability trace
+  -> candidate（Harness / Skill / Workflow）
+  -> 参数化、代码审查、跨工程和跨版本回放
+  -> 提交仓库、随离线包发布、启用
+```
+
+三个资产的边界如下：
+
+- **Harness**：稳定且高频的原子 AEDT 操作，例如枚举指定层的信号 via、更新设计变量、创建 circle void、回读验证。
+- **Skill**：把多个已注册 Harness 组合成工程方法，例如“指定层按信号 via 创建参数化反焊盘”。Skill 不得绕过 Harness 改用 raw Python、shell 或 COM。
+- **Workflow**：包含循环、分支、重试、批量处理、预算或多个审批点的流程。
+
+对于本项目的反焊盘场景，先将完整方法做成 `ansys-layout-antipad` Skill 候选；待其内部原子步骤在
+代表性工程和支持的 AEDT 版本上稳定后，再分别提升为正式 Harness。Skill 的输入应保持通用，例如
+`target_layer`、`net_selector`、`radius_variable`、`radius_value` 和 `preview_only`；不得写死 `L2_GND`、
+`via_149632`、`poly_149675` 或本机文件路径。
+
+当前候选生成器只接收服务器创建、密封且已验证的 exploration trace。生成候选：
+
+```powershell
+.venv\Scripts\python.exe -m aedt_agent.capability_learning promote `
+  --trace-id <trace-id> --target-kind auto
+```
+
+它会在 `.aedt-agent/capability-candidates/<candidate-id>/` 生成候选、审查报告和 patch，但**不会自动启用、
+热注册或提交**。维护者必须检查参数化与脱敏结果，补足 typed Harness 实现和负向测试，并至少在不同工程及
+目标 AEDT 版本回放后再合入。
+
+`skill-creator` 是 Codex 用于编写和校验 Skill 的通用开发方法，不是远端运行时依赖，不需要随本项目发布。
+真正的领域 Skill 必须提交到 `.agents/skills/<skill-name>/`，并同步更新
+[`scripts/offline/New-AnsysAgentOfflineBundle.ps1`](scripts/offline/New-AnsysAgentOfflineBundle.ps1) 的 Skill
+白名单，才能进入远端离线包。后续会补充“从已完成 typed Harness 任务自动创建 trace”的入口；在此之前，
+不要把任意聊天记录直接交给 promotion 命令。
+
 ansys-agent 是面向高速 BRD / AEDT 仿真的工程 agent 系统。当前重点不是旧的
 Stage C demo，而是把“脚本式仿真工具”升级为可编排、可审计、可接管的工程
 闭环：
