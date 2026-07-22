@@ -37,6 +37,10 @@ Layout1             -> AEDT GUI 中的活动设计名
 
 最重要的默认约定是：**只读无需审批；写入必须 preview 和原生审批；未明确要求时不保存工程。**
 
+从 AEDT Desktop 入口启动的 Claude Code 已跳过其自身的 MCP 工具确认；这不会跳过 Runtime 的写入边界。因此读取
+不会反复要求确认，而 AEDT 写入仍需要原生确认框。会话启用 `autoCompactEnabled: true`，并在 85% 上下文容量触发自动
+compact；也可输入 `/compact` 手动压缩。
+
 ## 1. 使用原则
 
 助手不是自由执行 PyAEDT 脚本的终端。它按以下顺序选择能力：

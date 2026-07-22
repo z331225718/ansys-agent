@@ -17,6 +17,7 @@ from aedt_agent.live.manager import LiveAedtSessionManager
 
 
 _DESKTOP_CLAUDE_BUILTIN_TOOLS = ("AskUserQuestion",)
+_DESKTOP_CLAUDE_PERMISSION_MODE = "bypassPermissions"
 _DESKTOP_CLAUDE_DENIED_TOOLS = (
     "Bash",
     "Edit",
@@ -469,13 +470,13 @@ Rules:
 6. For `HFSS 3D Layout Design`, use only the layout inventory/edit tools for geometry. Do not call HFSS 3D design or geometry inventory tools.
 7. For a `LineWidth=<value>` request, filter `list_live_layout_paths` with `selector.target_width`, then preview parameterization with the same width as the variable value unless the user specifies another value.
 8. Prefer an existing typed Harness capability when it exactly fits; it provides the strongest readback and rollback. Property lookup, inventory, and other queries use the registered read-only tools directly and never require approval. For an unknown Layout query, first use `get_controlled_live_layout_read_schema` / `execute_controlled_live_layout_read`; do not use arbitrary Python merely to bypass a missing read tool.
-9. The global fallback policy is `open_with_approval`: use `preview_live_open_aedt_python` only for any AEDT/PyAEDT **edit or uncertain operation**, with the exact code and a concise `change_summary` describing the intended modification. Then wait for Desktop approval and call `apply_live_open_aedt_python` with only the returned preview id and approval token.
+9. Claude Code is launched with its own permission prompts bypassed. This applies to every registered MCP read tool and prevents a second Claude confirmation for a pure query. It does **not** bypass Runtime rules: the global fallback policy remains `open_with_approval`; use `preview_live_open_aedt_python` only for an AEDT/PyAEDT **edit or uncertain operation**, with the exact code and a concise `change_summary` describing the intended modification. Then wait for Desktop approval and call `apply_live_open_aedt_python` with only the returned preview id and approval token.
 10. The open Python fallback is intentionally unrestricted for AEDT/PyAEDT and raw AEDT COM work. It runs inside the server-owned AEDT broker as the Desktop user, not in Claude and not in a security sandbox. Do not claim it is safe, reversible, or verified merely because it completed.
 11. Open execution saves the active project and copies its `.aedt`/`.aedb` bundle before running. The native approval dialog shows only the concise change summary, target identity, backup destination, and fixed code hash; it never shows source code. Do not alter code after preview. On failure or an unexpected result, stop, inspect AEDT, and restore that backup manually if needed.
 12. {knowledge_rule} API memory is knowledge only. It can help write the open code but is not permission and cannot bypass Desktop approval.
 13. Every typed live edit, solve, cancel, export, or save still uses its preview/apply contract; every open Python edit also requires its own preview, native Desktop approval, and automatic pre-execution backup.
 14. If a layout tool returns `capability_unsupported`, `FindObjects`, or `GetAllLayerNames`, treat it as a deterministic AEDT-session capability miss. Do not retry it, call sibling inventory aliases in parallel, or use open Python to invoke the same oEditor method. Keep any successful partial technology data, then report the unavailable live inventory scope concisely.
-15. Never invent an approval token. After preview, call `wait_for_live_approval` and wait for the native Desktop Host decision.
+15. Never invent an approval token. Only an AEDT-changing preview needs `wait_for_live_approval` and the native Desktop Host decision; a read tool must never create or wait for an approval.
 16. If approval is rejected or expires, do not retry or create another preview unless the user explicitly asks.
 17. Do not save the project unless the user explicitly requests save and separately approves the save preview.
 18. Never auto-promote a successful exploration, hot-patch the Harness, or modify this repository. Promotion may only create a review candidate for explicit human approval.
@@ -538,8 +539,9 @@ def _git_bash_script(
         "--no-chrome",
         "--append-system-prompt-file",
         _bash_path(context_path),
+        "--allow-dangerously-skip-permissions",
         "--permission-mode",
-        "manual",
+        _DESKTOP_CLAUDE_PERMISSION_MODE,
         prompt,
     )
     claude_command = " ".join(literal(argument) for argument in claude_arguments)
@@ -552,6 +554,9 @@ def _git_bash_script(
             "export FASTMCP_CHECK_FOR_UPDATES='off'",
             "export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC='1'",
             "export DISABLE_AUTOUPDATER='1'",
+            "# Keep built-in context compaction active for long AEDT conversations.",
+            "unset DISABLE_AUTO_COMPACT DISABLE_COMPACT",
+            "export CLAUDE_AUTOCOMPACT_PCT_OVERRIDE='85'",
             'if [[ -z "${AEDT_AGENT_APPROVAL_KEY:-}" ]]; then',
             "  echo 'AEDT_AGENT_APPROVAL_KEY is missing.' >&2",
             "  exit 1",
@@ -595,6 +600,7 @@ def _claude_settings() -> dict[str, Any]:
 
     return {
         "$schema": "https://json.schemastore.org/claude-code-settings.json",
+        "autoCompactEnabled": True,
         "env": {
             "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
             "DISABLE_AUTOUPDATER": "1",

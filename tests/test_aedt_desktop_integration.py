@@ -145,6 +145,7 @@ def test_launcher_generates_session_scoped_mcp_and_visible_git_bash(
     settings = json.loads(Path(result["claude_settings"]).read_text(encoding="utf-8"))
     assert settings == {
         "$schema": "https://json.schemastore.org/claude-code-settings.json",
+        "autoCompactEnabled": True,
         "env": {
             "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
             "DISABLE_AUTOUPDATER": "1",
@@ -187,11 +188,13 @@ def test_launcher_generates_session_scoped_mcp_and_visible_git_bash(
     assert "Computer" not in launch_script
     assert "Chrome" not in launch_script
     assert "--no-chrome" in launch_script
-    assert "--dangerously-skip-permissions" not in launch_script
+    assert "--allow-dangerously-skip-permissions" in launch_script
     assert "'--permission-mode'" in launch_script
-    assert "'manual'" in launch_script
+    assert "'bypassPermissions'" in launch_script
     assert "export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC='1'" in launch_script
     assert "export DISABLE_AUTOUPDATER='1'" in launch_script
+    assert "unset DISABLE_AUTO_COMPACT DISABLE_COMPACT" in launch_script
+    assert "export CLAUDE_AUTOCOMPACT_PCT_OVERRIDE='85'" in launch_script
     assert "aedt_agent.desktop.approval_host" in launch_script
     assert "--parent-pid" not in launch_script
     assert "/shutdown" in launch_script

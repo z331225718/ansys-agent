@@ -261,6 +261,11 @@ Automation -> Ansys Agent
 这些文件只服务当前会话。launcher 会启动 Runtime MCP、可用时启动 API Memory MCP，并启动只监听
 `127.0.0.1` 的审批 Host。它不会加载项目中的任意 MCP 配置来扩大工具权限。
 
+Claude Code 自己以最大权限模式启动：已注册 MCP 工具不会再触发 Claude 的二次确认。Runtime 的绑定工程/设计
+校验仍然生效；只有 AEDT 修改、求解、导出或保存才会走 `preview -> Windows 原生确认 -> apply`。会话 settings
+包含 `autoCompactEnabled: true`，并设置 `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=85`，使长对话保留自动 compact；仍可随时输入
+`/compact` 手动压缩。
+
 ### 6.2 核对首次输出
 
 正常行为是：
