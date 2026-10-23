@@ -40,6 +40,7 @@ class LiveAedtSessionManager:
     def __init__(
         self,
         *,
+        access=None,
         registry: AedtBrokerRegistry | None = None,
         launcher: AedtLauncher | None = None,
         approval_verifier=None,
@@ -52,7 +53,17 @@ class LiveAedtSessionManager:
         trace_store: CapabilityTraceStore | None = None,
         capability_promoter: CapabilityPromoter | None = None,
     ) -> None:
-        self.registry = registry or AedtBrokerRegistry()
+        if access is not None:
+            self.access = access
+            self.registry = access
+        elif registry is not None:
+            self.registry = registry
+            self.access = registry
+        else:
+            from aedt_agent.aedt_access import create_aedt_access
+
+            self.access = create_aedt_access()
+            self.registry = self.access
         self.launcher = launcher or AedtLauncher()
         automatic_approval_requested = (
             approval_verifier is None
