@@ -237,28 +237,6 @@ def create_server(
             {"session_id": session_id, "preview_id": preview_id},
         )
 
-    @register_tool(not strict_desktop)
-    async def list_live_aedt_sessions() -> dict:
-        """Discover running AEDT processes and listener ports without attaching."""
-        return live.list_sessions()
-
-    @register_tool(not strict_desktop)
-    async def launch_live_aedt_session(
-        version: str = "2026.1",
-        port: int = 0,
-        install_dir: str | None = None,
-        non_graphical: bool = False,
-        timeout: float = 120.0,
-    ) -> dict:
-        """Launch and attach one assistant-owned AEDT gRPC session; release still leaves AEDT running."""
-        return live.launch(
-            version=version,
-            port=port,
-            install_dir=install_dir,
-            non_graphical=non_graphical,
-            timeout=timeout,
-        )
-
     @server.tool()
     async def attach_live_aedt_session(
         pid: int | None = None,
@@ -272,44 +250,6 @@ def create_server(
     async def release_live_aedt_session(live_session_id: str) -> dict:
         """Release PyAEDT wrappers without closing AEDT or projects."""
         return live.release(live_session_id)
-
-    @server.tool()
-    async def get_live_aedt_project_info(live_session_id: str) -> dict:
-        """Read project, active design, and design type from an attached AEDT session."""
-        return live.project_info(live_session_id)
-
-    @server.tool()
-    async def preview_live_project_save(live_session_id: str, project_name: str) -> dict:
-        """Preview saving one open live project; this does not write to disk."""
-        return live.preview_project_save(live_session_id, project_name=project_name)
-
-    @server.tool()
-    async def apply_live_project_save(
-        live_session_id: str,
-        preview_id: str,
-        approval_token: str,
-    ) -> dict:
-        """Save one live project only with the one-use token returned by its preview."""
-        return live.apply_project_save(
-            live_session_id,
-            preview_id=preview_id,
-            approval_token=approval_token,
-        )
-
-    @register_tool(not strict_desktop)
-    async def create_live_hfss_design(
-        live_session_id: str,
-        project_name: str,
-        design_name: str,
-        solution_type: str = "DrivenModal",
-    ) -> dict:
-        """Create or activate an HFSS design in memory; this tool does not save the project."""
-        return live.create_hfss_design(
-            live_session_id,
-            project_name=project_name,
-            design_name=design_name,
-            solution_type=solution_type,
-        )
 
     @server.tool()
     async def get_live_hfss_design_inventory(
@@ -650,37 +590,6 @@ def create_server(
             approval_token=approval_token,
         )
 
-    @server.tool()
-    async def preview_live_open_aedt_python(
-        live_session_id: str,
-        project_name: str,
-        design_name: str,
-        product: str,
-        code: str,
-        change_summary: str = "",
-    ) -> dict:
-        """Preview an arbitrary AEDT/PyAEDT edit. Give a concise Chinese change_summary; Desktop approval and a disk backup are mandatory."""
-        return live.preview_open_aedt_python(
-            live_session_id,
-            project_name=project_name,
-            design_name=design_name,
-            product=product,
-            code=code,
-            change_summary=change_summary,
-        )
-
-    @server.tool()
-    async def apply_live_open_aedt_python(
-        live_session_id: str,
-        preview_id: str,
-        approval_token: str,
-    ) -> dict:
-        """Execute exactly the approved open AEDT/PyAEDT Python after saving and backing up the active project."""
-        return live.apply_open_aedt_python(
-            live_session_id,
-            preview_id=preview_id,
-            approval_token=approval_token,
-        )
 
     @server.tool()
     async def preview_live_hfss_material_assign(
@@ -1323,149 +1232,6 @@ def create_server(
             approval_token=approval_token,
         )
 
-    @register_tool(not strict_desktop)
-    async def start_live_hfss_analysis(
-        live_session_id: str,
-        project_name: str,
-        design_name: str,
-        setup_name: str,
-        blocking: bool = False,
-        product: str = "hfss",
-    ) -> dict:
-        """Compatibility entry point; prefer the preview/apply start tools for approved resource-bounded solves."""
-        return live.start_hfss_analysis(
-            live_session_id,
-            project_name=project_name,
-            design_name=design_name,
-            setup_name=setup_name,
-            blocking=blocking,
-            product=product,
-        )
-
-    @server.tool()
-    async def preview_live_hfss_analysis_start(
-        live_session_id: str,
-        project_name: str,
-        design_name: str,
-        setup_name: str,
-        cores: int | None = None,
-        tasks: int | None = None,
-        gpus: int | None = None,
-        use_auto_settings: bool = True,
-        product: str = "hfss",
-    ) -> dict:
-        """Freeze setup state and a bounded compute budget before starting a non-blocking HFSS solve."""
-        return live.preview_hfss_analysis_start(
-            live_session_id,
-            project_name=project_name,
-            design_name=design_name,
-            setup_name=setup_name,
-            cores=cores,
-            tasks=tasks,
-            gpus=gpus,
-            use_auto_settings=use_auto_settings,
-            product=product,
-        )
-
-    @server.tool()
-    async def apply_live_hfss_analysis_start(
-        live_session_id: str,
-        preview_id: str,
-        approval_token: str,
-    ) -> dict:
-        """Start a previewed HFSS solve with its token; always returns without waiting."""
-        return live.apply_hfss_analysis_start(
-            live_session_id,
-            preview_id=preview_id,
-            approval_token=approval_token,
-        )
-
-    @server.tool()
-    async def get_live_hfss_analysis_status(
-        live_session_id: str,
-        project_name: str,
-        design_name: str,
-        setup_name: str = "",
-        product: str = "hfss",
-    ) -> dict:
-        """Read running state and setup inventory for one live HFSS design."""
-        return live.hfss_analysis_status(
-            live_session_id,
-            project_name=project_name,
-            design_name=design_name,
-            setup_name=setup_name,
-            product=product,
-        )
-
-    @server.tool()
-    async def preview_live_hfss_analysis_cancel(
-        live_session_id: str,
-        project_name: str,
-        design_name: str,
-        setup_name: str = "",
-        clean_stop: bool = True,
-        product: str = "hfss",
-    ) -> dict:
-        """Preview interrupting the currently running AEDT simulation without changing it yet."""
-        return live.preview_hfss_analysis_cancel(
-            live_session_id,
-            project_name=project_name,
-            design_name=design_name,
-            setup_name=setup_name,
-            clean_stop=clean_stop,
-            product=product,
-        )
-
-    @server.tool()
-    async def apply_live_hfss_analysis_cancel(
-        live_session_id: str,
-        preview_id: str,
-        approval_token: str,
-    ) -> dict:
-        """Interrupt a previewed solve only with its preview token."""
-        return live.apply_hfss_analysis_cancel(
-            live_session_id,
-            preview_id=preview_id,
-            approval_token=approval_token,
-        )
-
-    @server.tool()
-    async def preview_live_hfss_results_export(
-        live_session_id: str,
-        project_name: str,
-        design_name: str,
-        export_kind: str,
-        setup_name: str = "",
-        sweep_name: str = "",
-        report_name: str = "",
-        artifact_name: str = "",
-        product: str = "hfss",
-    ) -> dict:
-        """Preview HFSS or 3D Layout Touchstone/report CSV export into the managed root."""
-        return live.preview_hfss_export(
-            live_session_id,
-            project_name=project_name,
-            design_name=design_name,
-            export_kind=export_kind,
-            setup_name=setup_name,
-            sweep_name=sweep_name,
-            report_name=report_name,
-            artifact_name=artifact_name,
-            product=product,
-        )
-
-    @server.tool()
-    async def apply_live_hfss_results_export(
-        live_session_id: str,
-        preview_id: str,
-        approval_token: str,
-    ) -> dict:
-        """Export into the restricted root and emit a SHA-256 evidence manifest after host approval."""
-        return live.apply_hfss_export(
-            live_session_id,
-            preview_id=preview_id,
-            approval_token=approval_token,
-        )
 
     @server.tool()
     async def list_live_layout_paths(

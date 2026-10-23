@@ -10,24 +10,12 @@ _DESKTOP_BOUND_HIDDEN_TOOLS = frozenset(
         "list_layout_paths",
         "preview_parameterize_path_width",
         "apply_parameterize_path_width",
-        "list_live_aedt_sessions",
-        "launch_live_aedt_session",
-        "create_live_hfss_design",
-        "start_live_hfss_analysis",
     }
 )
 
 
 def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
     capabilities = [
-        _cap("aedt.sessions.list", "read_only", ["live"], ["list_live_aedt_sessions"]),
-        _cap(
-            "aedt.sessions.launch",
-            "process_start",
-            ["live"],
-            ["launch_live_aedt_session"],
-            side_effects=["starts_assistant_owned_aedt_process"],
-        ),
         _cap("aedt.sessions.attach", "read_only", ["live"], ["attach_live_aedt_session"]),
         _cap(
             "aedt.approvals.wait",
@@ -42,40 +30,6 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
             ["live"],
             ["release_live_aedt_session"],
             postconditions=["aedt_process_remains_running", "projects_remain_open"],
-        ),
-        _cap("aedt.projects.info", "read_only", ["live"], ["get_live_aedt_project_info"]),
-        _cap(
-            "aedt.projects.save",
-            "persistent_write",
-            ["live"],
-            ["preview_live_project_save", "apply_live_project_save"],
-            approval="external_host_token",
-            postconditions=["preview_digest_unchanged", "project_saved"],
-        ),
-        _cap(
-            "aedt.open_python.execute",
-            "arbitrary_code",
-            ["live"],
-            ["preview_live_open_aedt_python", "apply_live_open_aedt_python"],
-            approval="external_host_token",
-            side_effects=[
-                "arbitrary_aedt_or_pyaedt_operations_as_desktop_user",
-                "project_saved_before_execution",
-                "aedt_and_aedb_backup_created",
-            ],
-            postconditions=[
-                "exact_previewed_code_hash_executed",
-                "target_identity_rechecked_before_execution",
-                "result_is_not_generically_verified_or_reversible",
-            ],
-            products=["hfss", "layout"],
-        ),
-        _cap(
-            "hfss.design.create",
-            "reversible_edit",
-            ["live"],
-            ["create_live_hfss_design"],
-            side_effects=["project_becomes_dirty"],
         ),
         _cap(
             "hfss.design.inventory",
@@ -575,43 +529,6 @@ def capability_catalog_v2(*, desktop_bound: bool = False) -> dict[str, Any]:
                 "project_not_saved",
             ],
             products=["hfss"],
-        ),
-        _cap(
-            "hfss.analysis.start",
-            "expensive",
-            ["live"],
-            ["preview_live_hfss_analysis_start", "apply_live_hfss_analysis_start"],
-            approval="external_host_token",
-            side_effects=["solver_job_started"],
-            postconditions=["setup_digest_unchanged", "resource_budget_bounded", "non_blocking"],
-            products=["hfss", "layout"],
-        ),
-        _cap(
-            "hfss.analysis.status",
-            "read_only",
-            ["live"],
-            ["get_live_hfss_analysis_status"],
-            products=["hfss", "layout"],
-        ),
-        _cap(
-            "hfss.analysis.cancel",
-            "expensive",
-            ["live"],
-            ["preview_live_hfss_analysis_cancel", "apply_live_hfss_analysis_cancel"],
-            approval="external_host_token",
-            side_effects=["running_solver_job_interrupted"],
-            postconditions=["running_state_digest_unchanged_before_cancel"],
-            products=["hfss", "layout"],
-        ),
-        _cap(
-            "hfss.results.export",
-            "persistent_write",
-            ["live"],
-            ["preview_live_hfss_results_export", "apply_live_hfss_results_export"],
-            approval="external_host_token",
-            side_effects=["result_artifacts_written_to_managed_export_root"],
-            postconditions=["design_unchanged", "artifact_sha256_verified", "evidence_manifest_written"],
-            products=["hfss", "layout"],
         ),
         _cap(
             "layout.paths.list",

@@ -9967,10 +9967,8 @@ def test_mcp_registers_live_tools_without_changing_artifact_tools(monkeypatch):
     kernel = InteractiveKernel(session_manager=SimpleNamespace())
     server = create_server(kernel=kernel, live_manager=Live())
     assert "open_layout_session" in server.tools
-    assert "list_live_aedt_sessions" in server.tools
-    assert "preview_live_project_save" in server.tools
-    assert "apply_live_project_save" in server.tools
-    assert "launch_live_aedt_session" in server.tools
+    assert "attach_live_aedt_session" in server.tools
+    assert "release_live_aedt_session" in server.tools
     assert "get_live_hfss_design_inventory" in server.tools
     assert "get_live_hfss_geometry_inventory" in server.tools
     assert "preview_live_hfss_geometry_create" in server.tools
@@ -10021,12 +10019,6 @@ def test_mcp_registers_live_tools_without_changing_artifact_tools(monkeypatch):
     assert "apply_live_hfss_boundary_create" in server.tools
     assert "preview_live_aedt_variable_batch_upsert" in server.tools
     assert "apply_live_aedt_variable_batch_upsert" in server.tools
-    assert "preview_live_hfss_analysis_start" in server.tools
-    assert "apply_live_hfss_analysis_start" in server.tools
-    assert "preview_live_hfss_analysis_cancel" in server.tools
-    assert "apply_live_hfss_analysis_cancel" in server.tools
-    assert "preview_live_hfss_results_export" in server.tools
-    assert "apply_live_hfss_results_export" in server.tools
     assert "wait_for_live_approval" in server.tools
     assert "propose_ansys_operation" in server.tools
     assert "get_ansys_operation_plan_schema" in server.tools
@@ -10036,7 +10028,6 @@ def test_mcp_registers_live_tools_without_changing_artifact_tools(monkeypatch):
     assert "capture_capability_trace" in server.tools
     assert "promote_ansys_capability" in server.tools
     assert "list_ansys_capabilities_v2" in server.tools
-    assert asyncio.run(server.tools["list_live_aedt_sessions"]()) == {"sessions": []}
     assert asyncio.run(server.tools["capture_capability_trace"]("candidate-1")) == {
         "candidate_id": "candidate-1",
         "server_owned": True,
@@ -10080,17 +10071,12 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
         "list_layout_paths",
         "preview_parameterize_path_width",
         "apply_parameterize_path_width",
-        "list_live_aedt_sessions",
-        "launch_live_aedt_session",
-        "create_live_hfss_design",
-        "start_live_hfss_analysis",
     }
     assert hidden.isdisjoint(server.tools)
     assert set(server.tools) == set(_DESKTOP_ASSISTANT_MCP_TOOLS)
     assert {
         "attach_live_aedt_session",
         "release_live_aedt_session",
-        "get_live_aedt_project_info",
         "get_live_hfss_design_inventory",
         "get_live_hfss_geometry_inventory",
         "preview_live_hfss_geometry_move",
@@ -10258,7 +10244,4 @@ def test_desktop_bound_mcp_hides_out_of_scope_tools_and_filters_catalogs(monkeyp
     assert "existing_project_material_only" in by_name["hfss.material.assign"][
         "postconditions"
     ]
-    assert by_name["hfss.results.export"]["products"] == ["hfss", "layout"]
-    unavailable = {item["name"] for item in v2["unavailable_capabilities"]}
-    assert {"aedt.sessions.list", "aedt.sessions.launch", "hfss.design.create"}.issubset(unavailable)
     assert "preselected AEDT port, project, and design" in server.instructions
