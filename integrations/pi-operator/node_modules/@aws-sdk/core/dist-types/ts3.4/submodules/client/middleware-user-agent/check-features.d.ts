@@ -1,0 +1,20 @@
+import { AccountIdEndpointMode } from "@aws-sdk/core/account-id-endpoint";
+import { AwsHandlerExecutionContext } from "@aws-sdk/types";
+import { AwsCredentialIdentityProvider, BuildHandlerArguments, Provider } from "@smithy/types";
+/**
+ * @internal
+ */
+type PreviouslyResolved = Partial<{
+    credentials?: AwsCredentialIdentityProvider;
+    accountIdEndpointMode?: Provider<AccountIdEndpointMode>;
+    retryStrategy?: Provider<{
+        mode?: string;
+    }>;
+}>;
+/**
+ * @internal
+ * Check for features that don't have a middleware activation site but
+ * may be detected on the context, client config, or request.
+ */
+export declare function checkFeatures(context: AwsHandlerExecutionContext, config: PreviouslyResolved, args: BuildHandlerArguments<any>): Promise<void>;
+export {};

@@ -6,14 +6,22 @@ Pi 的状态是 **deferred（延后评估）**，不是 rejected（拒绝采用�
 
 当前 Python Runtime 已拥有 Mission、Job、YAML DAG、审批、证据、有限循环和 Process Harness。Pi 只有在不破坏这些稳定边界，并能带来可测量收益时才进入产品依赖。
 
+截至 2026-07-26，`deferred` 指正式产品依赖仍未批准；允许按新规格推进 P0-P3
+只读 PoC。R2/R3 写能力仍受 `P3-READONLY-GATE` 约束，不能因演示需要提前开放。
+
+具体接入方式已在
+[2026-07-26 Pi SDK Operator 架构规格](./pi-operator/architecture-spec.md)
+中收敛为 `pi-agent-core + pi-ai` 和版本化 Operator Bridge；本评估门继续决定最终
+Adopt/Defer/Reject。
+
 ## 允许的接入边界
 
 ```text
 Pi session / model runtime
-    -> Mission API
-    -> Event stream
-    -> Approval API
-    -> Worker capability API
+    -> bounded Operator API
+       -> Mission / Graph status
+       -> bounded Event replay
+       -> Approval summary（提交走受信任通道）
     -> Python Agent Runtime
     -> Process Harness
     -> AEDT / deterministic evaluator
@@ -23,8 +31,8 @@ Pi 可以负责：
 
 - 模型 provider 与 session 生命周期；
 - thinking/tool-call streaming；
-- 前端与审批交互；
-- 扩展发现和工具描述；
+- 前端展示与审批说明；
+- 项目自有白名单工具描述，不自动发现第三方扩展；
 - 面向用户的上下文压缩。
 
 Pi 不得负责：
@@ -36,6 +44,7 @@ Pi 不得负责：
 - checkpoint、rollback 和 artifact 完整性；
 - 许可证并发；
 - Python Worker 内部导入。
+- Worker capability API 的直接调用。
 
 Mission/Job/Event 契约中不得出现 Pi 专有类型。
 

@@ -1,5 +1,12 @@
 # 📝 项目技术白皮书：面向 Ansys AEDT 的电磁仿真智能体 (ansys-agent)
 
+> [!WARNING]
+> 本文是早期愿景稿，不是当前 Pi 集成依据。早期版本曾把 Pi “安全沙箱”、
+> Project Trust 和 PyAEDT 细粒度工具直连当作目标，这些表述已在第 4.1 节修正。
+> 当前决策见
+> [Pi SDK Operator 架构规格](./pi-operator/architecture-spec.md)：
+> Pi 只作为外层 Operator，Python/YAML/SQLite/AEDT Runtime 保持权威。
+
 ## 1. 核心愿景与项目定位
 
 ### 1.1 最终愿景：全职电磁仿真“数字员工”
@@ -63,8 +70,8 @@
 
 ### 4.1 彻底剥离并吸收的“灵魂”组件
 1. **RPC / Session 隔离机制：** 剥离 Pi 的终端 TUI 界面和前端高亮代码，将其优秀的多会话管理、明晰的 Session ID 控制和长连接能力封装进项目的 `api/` 路由中，作为纯粹的后端 Agent 引擎。
-2. **Extension 强类型工具注册：** 学习 Pi 注册本地工具的方式。把针对 PyAEDT 编写的高频核心函数（如 `CreateAirBox`、`SetPort`、`ChangeVariable`）标准化为 Agent 的专用 Tools 库，使大模型能够安全组合这些 100% 可行的高可靠性脚本。
-3. **Project Trust（项目信任机制）：** 保留安全沙箱和权限白名单机制。在 `v0.79.1` 中 Pi 进一步优化了默认项目信任设置，这能严格锁死 Agent 的文件系统访问权限，防止 AI 误操作导致删除本地关键仿真资产。
+2. **Extension 强类型工具注册：** 学习 Pi 注册本地工具的方式，但只向模型开放 Mission/Graph/Approval 摘要等高层 Operator Tools。PyAEDT 细粒度函数继续封装在 Python Worker 内，不能由模型直接组合调用。
+3. **Project Trust（输入加载信任机制）：** Project Trust 只控制项目资源、扩展和配置是否加载，不是安全沙箱，也不能限制模型工具权限。真正的权限边界由工具白名单、Python 服务端校验、审批、execution profile 与操作系统账户共同提供。
 
 ### 4.2 果断抛弃的“杂质”组件
 * **通用型 Agent 的提示词包袱：** 清空 Pi 内置的通用日常聊天、写普通代码的提示词，全面替换为纯粹的电磁仿真专家 System Prompt。

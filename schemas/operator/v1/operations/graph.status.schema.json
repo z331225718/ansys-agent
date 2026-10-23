@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aedt-agent:operator:v1:operation:graph.status",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["graph_run_id"],
+  "properties": {"graph_run_id": {"$ref": "urn:aedt-agent:operator:v1:common#/$defs/opaqueId"}},
+  "$defs": {"successData": {"$anchor": "successData", "$ref": "urn:aedt-agent:operator:v1:common#/$defs/graphStatusResult"}}
+}

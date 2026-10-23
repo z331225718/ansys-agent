@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "bundle_digest": "sha256:3af9f2383f517c38812ac027d126f0c6efcf1f26e28484e4244dc0ccde0c6dcd",
+  "schemas": [
+    "common.schema.json",
+    "envelope.schema.json",
+    "operations/approval.get_pending.schema.json",
+    "operations/approval.prepare_decision.schema.json",
+    "operations/artifact.query_bounded.schema.json",
+    "operations/graph.advance.schema.json",
+    "operations/graph.status.schema.json",
+    "operations/graph.stop.prepare.schema.json",
+    "operations/graph.visualize.schema.json",
+    "operations/intervention.apply.schema.json",
+    "operations/mission.start.schema.json",
+    "operations/replay.delta.schema.json",
+    "operations/system.handshake.schema.json",
+    "operations/system.preflight.schema.json",
+    "operations/template.catalog.schema.json"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aedt-agent:operator:v1:operation:artifact.query_bounded",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["mission_id", "query", "limit"],
+  "properties": {
+    "mission_id": {"$ref": "urn:aedt-agent:operator:v1:common#/$defs/opaqueId"},
+    "query": {"type": "string", "minLength": 1, "maxLength": 500},
+    "limit": {"type": "integer", "minimum": 1, "maximum": 100}
+  },
+  "$defs": {"successData": {"$anchor": "successData", "$ref": "urn:aedt-agent:operator:v1:common#/$defs/artifactQueryResult"}}
+}

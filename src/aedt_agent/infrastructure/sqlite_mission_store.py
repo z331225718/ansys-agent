@@ -6,6 +6,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 from uuid import uuid4
 
 from aedt_agent.agent.actions import (
@@ -81,16 +82,32 @@ class _GraphInterventionRejected(RuntimeError):
 
 
 class SQLiteMissionStore:
-    def __init__(self, db_path: Path | str):
+    def __init__(self, db_path: Path | str, *, read_only: bool = False):
         self.db_path = Path(db_path)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._init_schema()
+        self.read_only = read_only
+        if read_only:
+            if not self.db_path.is_file():
+                raise FileNotFoundError(f"mission database not found: {self.db_path}")
+        else:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            self._init_schema()
+
+    @classmethod
+    def open_read_only(cls, db_path: Path | str) -> "SQLiteMissionStore":
+        return cls(db_path, read_only=True)
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.db_path)
+        if self.read_only:
+            uri = f"file:{quote(str(self.db_path.resolve()))}?mode=ro"
+            connection = sqlite3.connect(uri, uri=True)
+        else:
+            connection = sqlite3.connect(self.db_path)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA journal_mode = WAL")
+        if self.read_only:
+            connection.execute("PRAGMA query_only = ON")
+        else:
+            connection.execute("PRAGMA journal_mode = WAL")
         connection.execute("PRAGMA busy_timeout = 5000")
         return connection
 

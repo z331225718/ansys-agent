@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "type": "request",
+  "request_id": "00000000-0000-4000-8000-000000000001",
+  "trace_id": "00000000-0000-4000-8000-000000000002",
+  "operation": "system.handshake",
+  "sent_at": "2026-07-26T08:00:00Z",
+  "caller": {
+    "pi_session_id": "session-001",
+    "pi_tool_call_id": "tool-001"
+  },
+  "arguments": {
+    "client": {
+      "name": "pi-operator",
+      "version": "0.1.0",
+      "schema_version": "1.0"
+    },
+    "requested_capabilities": ["graph.status", "replay.delta"]
+  }
+}

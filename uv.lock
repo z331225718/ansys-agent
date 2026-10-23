@@ -41,6 +41,9 @@ knowledge = [
 mcp = [
     { name = "fastmcp" },
 ]
+operator = [
+    { name = "jsonschema" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -49,6 +52,7 @@ requires-dist = [
     { name = "fastmcp", marker = "extra == 'desktop'", specifier = "==3.4.4" },
     { name = "fastmcp", marker = "extra == 'knowledge'", specifier = "==3.4.4" },
     { name = "fastmcp", marker = "extra == 'mcp'", specifier = "==3.4.4" },
+    { name = "jsonschema", marker = "extra == 'operator'", specifier = "==4.26.0" },
     { name = "pyaedt", marker = "extra == 'aedt'", specifier = "==1.3.0" },
     { name = "pyaedt", marker = "extra == 'desktop'", specifier = "==1.3.0" },
     { name = "pyedb", extras = ["dotnet"], marker = "extra == 'aedt'", specifier = "==0.80.2" },
@@ -58,7 +62,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.1" },
     { name = "scikit-rf", specifier = ">=2.0.0" },
 ]
-provides-extras = ["dev", "mcp", "aedt", "desktop", "knowledge"]
+provides-extras = ["dev", "operator", "mcp", "aedt", "desktop", "knowledge"]
 
 [[package]]
 name = "aiofile"

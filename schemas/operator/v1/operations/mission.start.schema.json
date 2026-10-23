@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aedt-agent:operator:v1:operation:mission.start",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["preflight_snapshot_id", "initial_payload", "write_guard"],
+  "properties": {
+    "preflight_snapshot_id": {"$ref": "urn:aedt-agent:operator:v1:common#/$defs/opaqueId"},
+    "initial_payload": {"type": "object", "maxProperties": 100},
+    "write_guard": {"$ref": "urn:aedt-agent:operator:v1:common#/$defs/writeGuard"}
+  }
+}

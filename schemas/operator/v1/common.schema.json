@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aedt-agent:operator:v1:common",
+  "title": "Operator Protocol v1 Common Definitions",
+  "$defs": {
+    "opaqueId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9._:-]+$"
+    },
+    "sha256Digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "boundedText": {
+      "type": "string",
+      "maxLength": 60000
+    },
+    "resourceSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mission_id", "graph_run_id", "event_cursor", "state_digest"],
+      "properties": {
+        "mission_id": {"$ref": "#/$defs/opaqueId"},
+        "graph_run_id": {"$ref": "#/$defs/opaqueId"},
+        "event_cursor": {"type": "string", "pattern": "^[0-9]+$", "maxLength": 200},
+        "state_digest": {"$ref": "#/$defs/sha256Digest"}
+      }
+    },
+    "templateSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["template_id", "version", "description", "capabilities", "digest"],
+      "properties": {
+        "template_id": {"$ref": "#/$defs/opaqueId"},
+        "version": {"type": "integer", "minimum": 1},
+        "description": {"type": "string", "minLength": 1, "maxLength": 500},
+        "capabilities": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/opaqueId"}},
+        "digest": {"$ref": "#/$defs/sha256Digest"}
+      }
+    },
+    "approvalSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["approval_id", "mission_id", "reason", "options", "created_at"],
+      "properties": {
+        "approval_id": {"$ref": "#/$defs/opaqueId"},
+        "mission_id": {"$ref": "#/$defs/opaqueId"},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 500},
+        "options": {
+          "type": "array", "maxItems": 30,
+          "items": {"type": "object", "additionalProperties": false, "required": ["option_id", "label"], "properties": {
+            "option_id": {"$ref": "#/$defs/opaqueId"}, "label": {"type": "string", "minLength": 1, "maxLength": 500}
+          }}
+        },
+        "created_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "handshakeResult": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "schema_bundle_digest", "runtime_pid", "runtime_argv_digest", "capabilities", "limits"],
+      "properties": {
+        "schema_version": {"const": "1.0"}, "schema_bundle_digest": {"$ref": "#/$defs/sha256Digest"},
+        "runtime_pid": {"type": "integer", "minimum": 1},
+        "runtime_argv_digest": {"$ref": "#/$defs/sha256Digest"},
+        "capabilities": {"type": "array", "maxItems": 30, "items": {"$ref": "#/$defs/opaqueId"}},
+        "limits": {"type": "object", "additionalProperties": false, "required": ["max_protocol_frame_bytes", "max_tool_result_bytes"], "properties": {
+          "max_protocol_frame_bytes": {"type": "integer", "minimum": 1}, "max_tool_result_bytes": {"type": "integer", "minimum": 1}
+        }}
+      }
+    },
+    "templateCatalogResult": {
+      "type": "object", "additionalProperties": false, "required": ["templates", "truncated"],
+      "properties": {"templates": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/templateSummary"}}, "truncated": {"type": "boolean"}}
+    },
+    "preflightResult": {
+      "type": "object", "additionalProperties": false, "required": ["preflight_snapshot_id", "safe_to_start", "requires_trusted_controller", "snapshot"],
+      "properties": {
+        "preflight_snapshot_id": {"$ref": "#/$defs/sha256Digest"}, "safe_to_start": {"const": false}, "requires_trusted_controller": {"const": true},
+        "snapshot": {"type": "object", "additionalProperties": false, "required": ["template_id", "execution_profile", "inputs"], "properties": {
+          "template_id": {"$ref": "#/$defs/opaqueId"}, "execution_profile": {"$ref": "#/$defs/opaqueId"},
+          "inputs": {"type": "object", "maxProperties": 100, "additionalProperties": true}
+        }}
+      }
+    },
+    "graphStatusResult": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "summary", "blocking_node_id", "reason", "recommended_action", "nodes", "truncated_nodes"],
+      "properties": {
+        "status": {"type": "string", "minLength": 1, "maxLength": 100}, "summary": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "blocking_node_id": {"anyOf": [{"$ref": "#/$defs/opaqueId"}, {"type": "null"}]}, "reason": {"type": "string", "minLength": 1, "maxLength": 500},
+        "recommended_action": {"type": "string", "minLength": 1, "maxLength": 100}, "truncated_nodes": {"type": "boolean"},
+        "nodes": {"type": "array", "maxItems": 100, "items": {"type": "object", "additionalProperties": false,
+          "required": ["node_run_id", "node_id", "node_role", "node_kind", "sequence", "status", "edge_decision"], "properties": {
+            "node_run_id": {"$ref": "#/$defs/opaqueId"}, "node_id": {"$ref": "#/$defs/opaqueId"}, "node_role": {"type": "string", "maxLength": 100}, "node_kind": {"type": "string", "maxLength": 100},
+            "sequence": {"type": "integer", "minimum": 0}, "status": {"type": "string", "minLength": 1, "maxLength": 100}, "edge_decision": {"anyOf": [{"type": "string", "maxLength": 100}, {"type": "null"}]}
+          }}}
+      }
+    },
+    "replayResult": {
+      "type": "object", "additionalProperties": false, "required": ["events", "next_cursor", "truncated"],
+      "properties": {"events": {"type": "array", "maxItems": 100, "items": {"type": "object", "additionalProperties": false, "required": ["sequence", "event_type", "scope", "created_at"], "properties": {
+        "sequence": {"type": "integer", "minimum": 0}, "event_type": {"type": "string", "minLength": 1, "maxLength": 100}, "scope": {"type": "string", "minLength": 1, "maxLength": 100}, "created_at": {"type": "string", "format": "date-time"}
+      }}}, "next_cursor": {"type": "string", "pattern": "^[0-9]+$", "maxLength": 200}, "truncated": {"type": "boolean"}}
+    },
+    "visualizeResult": {"type": "object", "additionalProperties": false, "required": ["format", "content"], "properties": {"format": {"enum": ["text", "mermaid"]}, "content": {"$ref": "#/$defs/boundedText"}}},
+    "artifactQueryResult": {"type": "object", "additionalProperties": false, "required": ["artifacts", "truncated"], "properties": {"artifacts": {"type": "array", "maxItems": 100, "items": {"type": "object", "additionalProperties": false, "required": ["artifact_id", "kind", "producer_kind", "producer_id", "sha256", "size_bytes", "created_at"], "properties": {
+      "artifact_id": {"$ref": "#/$defs/opaqueId"}, "kind": {"type": "string", "minLength": 1, "maxLength": 100}, "producer_kind": {"type": "string", "minLength": 1, "maxLength": 100}, "producer_id": {"$ref": "#/$defs/opaqueId"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "size_bytes": {"type": "integer", "minimum": 0}, "created_at": {"type": "string", "format": "date-time"}
+    }}}, "truncated": {"type": "boolean"}}},
+    "pendingApprovalsResult": {"type": "object", "additionalProperties": false, "required": ["approvals", "truncated"], "properties": {"approvals": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/approvalSummary"}}, "truncated": {"type": "boolean"}}},
+    "prepareApprovalResult": {"type": "object", "additionalProperties": false, "required": ["approval", "decision_intent", "requires_trusted_controller"], "properties": {"approval": {"$ref": "#/$defs/approvalSummary"}, "decision_intent": {"enum": ["approve", "reject"]}, "requires_trusted_controller": {"const": true}}},
+    "writeGuard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "idempotency_key",
+        "expected_event_cursor",
+        "expected_state_digest",
+        "reason"
+      ],
+      "properties": {
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 200,
+          "pattern": "^[A-Za-z0-9._:-]+$"
+        },
+        "expected_event_cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "expected_state_digest": {
+          "$ref": "#/$defs/sha256Digest"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      }
+    }
+  }
+}

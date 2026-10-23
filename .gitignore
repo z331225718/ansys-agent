@@ -26,3 +26,9 @@ user_input/
 geometry_validation_manifest.json
 nul
 skills-lock.json
+
+# scratch scripts
+scripts/screenshot_demo.py
+scripts/test_quick_line.py
+scripts/test_solve.py
+

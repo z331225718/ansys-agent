@@ -1,0 +1,19 @@
+{
+  "manifest_version": 1,
+  "reviewed": true,
+  "topology": {
+    "launcher": {
+      "executable_path": "C:\\Users\\z3312\\code\\ansys-agent\\.venv\\Scripts\\python.exe",
+      "sha256": "sha256:896ccf899b9d45c1c119ba35d6cce6e16cc10dd6a7f502f88fb50429a6e5cf4c"
+    },
+    "runtime": {
+      "executable_path": "C:\\Users\\z3312\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe",
+      "sha256": "sha256:3adbbf2af609e206e3ca18cd55fc7c4b52f5c8bb8218dd99fd5a9e50d7a193cd",
+      "argv_digest": "sha256:2b80a80f574d349dab0d1e5f4c0ccd2cb13d457bca2474ec430e8701d68c7963"
+    },
+    "console_host": {
+      "executable_path": "C:\\WINDOWS\\System32\\conhost.exe",
+      "sha256": "sha256:c3e9853b646902520e22c78eb4c6123b6ed437bf48a514af1eae401d30c66046"
+    }
+  }
+}

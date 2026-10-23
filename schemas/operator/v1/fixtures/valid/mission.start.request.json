@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "type": "request",
+  "request_id": "00000000-0000-4000-8000-000000000005",
+  "trace_id": "00000000-0000-4000-8000-000000000006",
+  "operation": "mission.start",
+  "sent_at": "2026-07-26T08:00:00Z",
+  "arguments": {
+    "preflight_snapshot_id": "snapshot-001",
+    "initial_payload": {
+      "goal": "review BRD channel"
+    },
+    "write_guard": {
+      "idempotency_key": "start-mission-0001",
+      "expected_event_cursor": "none",
+      "expected_state_digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "reason": "User confirmed the reviewed preflight proposal."
+    }
+  }
+}

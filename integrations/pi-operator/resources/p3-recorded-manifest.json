@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "fixture_kind": "immutable_recorded_sqlite",
+  "fixture_id": "p3-readonly-recorded-v1",
+  "inventory_digest": "sha256:1f512a703aed10c81e3fe5bac3e4794445b0e4c7ba32261cdff51d4d45975013",
+  "approval": { "approval_id": "p3-approval-001", "mission_id": "p3-mission-001" },
+  "fixture_observations": { "node_run_count": 101, "artifact_count": 11, "pending_approval_count": 1 },
+  "recorded_missions": [
+    { "case_id": "running-truncated", "mission_id": "p3-mission-001", "graph_run_id": "p3-graph-001", "template_id": "brd_local_cut_build", "expected_status": "running", "execution_profile": "safe-recorded", "inputs": { "signal_net_count": 2, "case_index": 0 } },
+    { "case_id": "succeeded-channel", "mission_id": "p3-mission-002", "graph_run_id": "p3-graph-002", "template_id": "brd_channel_optimize", "expected_status": "succeeded", "execution_profile": "safe-recorded", "inputs": { "signal_net_count": 2, "case_index": 1 } },
+    { "case_id": "failed-compare", "mission_id": "p3-mission-003", "graph_run_id": "p3-graph-003", "template_id": "brd_before_after_compare", "expected_status": "failed", "execution_profile": "safe-recorded", "inputs": { "signal_net_count": 4, "case_index": 2 } },
+    { "case_id": "waiting-evidence", "mission_id": "p3-mission-004", "graph_run_id": "p3-graph-004", "template_id": "brd_real_solve_evidence", "expected_status": "waiting_approval", "execution_profile": "safe-recorded", "inputs": { "signal_net_count": 1, "case_index": 3 } },
+    { "case_id": "running-multi-channel", "mission_id": "p3-mission-005", "graph_run_id": "p3-graph-005", "template_id": "brd_multi_channel_demo", "expected_status": "running", "execution_profile": "safe-recorded", "inputs": { "signal_net_count": 8, "case_index": 4 } },
+    { "case_id": "running-local-cut", "mission_id": "p3-mission-006", "graph_run_id": "p3-graph-006", "template_id": "brd_local_cut_build", "expected_status": "running", "execution_profile": "safe-recorded", "inputs": { "signal_net_count": 1, "case_index": 5 } },
+    { "case_id": "running-channel", "mission_id": "p3-mission-007", "graph_run_id": "p3-graph-007", "template_id": "brd_channel_optimize", "expected_status": "running", "execution_profile": "safe-recorded", "inputs": { "signal_net_count": 6, "case_index": 6 } },
+    { "case_id": "running-compare", "mission_id": "p3-mission-008", "graph_run_id": "p3-graph-008", "template_id": "brd_before_after_compare", "expected_status": "running", "execution_profile": "safe-recorded", "inputs": { "signal_net_count": 2, "case_index": 7 } },
+    { "case_id": "running-evidence", "mission_id": "p3-mission-009", "graph_run_id": "p3-graph-009", "template_id": "brd_real_solve_evidence", "expected_status": "running", "execution_profile": "safe-recorded", "inputs": { "signal_net_count": 3, "case_index": 8 } },
+    { "case_id": "running-multi-channel-b", "mission_id": "p3-mission-010", "graph_run_id": "p3-graph-010", "template_id": "brd_multi_channel_demo", "expected_status": "running", "execution_profile": "safe-recorded", "inputs": { "signal_net_count": 4, "case_index": 9 } }
+  ],
+  "scenarios": [
+    { "name": "handshake", "operations": ["operator_handshake"], "expectations": [{ "ok": true, "json_path": "data.capabilities", "equals": "array" }], "must_include": ["read-only", "capabilities"] },
+    { "name": "template-catalog", "operations": ["operator_template_catalog"], "expectations": [{ "ok": true, "json_path": "data.templates", "equals": "array" }], "must_include": ["templates", "allowlisted"] },
+    { "name": "preflight", "operations": ["operator_preflight"], "expectations": [{ "ok": true, "json_path": "data.preflight_snapshot_id", "equals": "string" }], "must_include": ["preflight", "did not start"] },
+    { "name": "running-truncated-nodes", "operations": ["operator_graph_status"], "expectations": [{ "ok": true, "json_path": "data.status", "equals": "running", "also": [{ "json_path": "data.truncated_nodes", "equals": true }] }], "must_include": ["running", "truncated"] },
+    { "name": "succeeded", "operations": ["operator_graph_status"], "expectations": [{ "ok": true, "json_path": "data.status", "equals": "succeeded" }], "must_include": ["succeeded"], "must_not_include": ["failed"] },
+    { "name": "failed", "operations": ["operator_graph_status"], "expectations": [{ "ok": true, "json_path": "data.status", "equals": "failed" }], "must_include": ["failed", "no retry"], "must_not_include": ["succeeded"] },
+    { "name": "waiting-approval", "operations": ["operator_graph_status"], "expectations": [{ "ok": true, "json_path": "data.status", "equals": "waiting_approval" }], "must_include": ["waiting", "trusted approval"] },
+    { "name": "replay-truncated", "operations": ["operator_replay_delta"], "expectations": [{ "ok": true, "json_path": "data.truncated", "equals": true }], "must_include": ["replay", "truncated"] },
+    { "name": "visualize", "operations": ["operator_graph_visualize"], "expectations": [{ "ok": true, "json_path": "data.format", "equals": "mermaid" }], "must_include": ["visualization", "read-only"] },
+    { "name": "artifact-approval-and-missing-resource", "operations": ["operator_artifact_query", "operator_pending_approvals", "operator_prepare_approval", "operator_graph_status"], "expectations": [{ "ok": true, "json_path": "data.artifacts", "equals": "array", "also": [{ "json_path": "data.artifacts.length", "equals": 10 }, { "json_path": "data.truncated", "equals": true }] }, { "ok": true, "json_path": "data.approvals", "equals": "array" }, { "ok": true, "json_path": "data.approval.approval_id", "equals": "p3-approval-001" }, { "ok": false, "error_code": "not_found" }], "must_include": ["artifact", "approval", "missing graph"] }
+  ]
+}

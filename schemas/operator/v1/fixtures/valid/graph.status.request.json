@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0",
+  "type": "request",
+  "request_id": "00000000-0000-4000-8000-000000000003",
+  "trace_id": "00000000-0000-4000-8000-000000000004",
+  "operation": "graph.status",
+  "sent_at": "2026-07-26T08:00:00Z",
+  "arguments": {
+    "graph_run_id": "graph-run-001"
+  }
+}

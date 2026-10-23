@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aedt-agent:operator:v1:operation:graph.stop.prepare",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["graph_run_id", "reason", "write_guard"],
+  "properties": {
+    "graph_run_id": {"$ref": "urn:aedt-agent:operator:v1:common#/$defs/opaqueId"},
+    "reason": {"type": "string", "minLength": 1, "maxLength": 500},
+    "write_guard": {"$ref": "urn:aedt-agent:operator:v1:common#/$defs/writeGuard"}
+  }
+}
