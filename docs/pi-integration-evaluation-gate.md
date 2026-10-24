@@ -9,10 +9,9 @@ Pi 的状态是 **deferred（延后评估）**，不是 rejected（拒绝采用�
 截至 2026-07-26，`deferred` 指正式产品依赖仍未批准；允许按新规格推进 P0-P3
 只读 PoC。R2/R3 写能力仍受 `P3-READONLY-GATE` 约束，不能因演示需要提前开放。
 
-具体接入方式已在
-[2026-07-26 Pi SDK Operator 架构规格](./pi-operator/architecture-spec.md)
-中收敛为 `pi-agent-core + pi-ai` 和版本化 Operator Bridge；本评估门继续决定最终
-Adopt/Defer/Reject。
+根据 [ADR 0002: 采用 DeepSeek Harness 替代 Pi Operator](./adr/0002-replace-pi-operator-with-deepseek-harness.md)，
+Pi Operator 原生外壳已被废弃，正式确立 DeepSeek Harness (DSH) 作为官方优先支持的 Agent Host，
+通过标准 Model Context Protocol (MCP) 与本仓库交互。
 
 ## 允许的接入边界
 

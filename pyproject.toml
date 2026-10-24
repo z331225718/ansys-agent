@@ -16,9 +16,6 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
 ]
-operator = [
-    "jsonschema==4.26.0",
-]
 mcp = [
     "fastmcp==3.4.4",
 ]

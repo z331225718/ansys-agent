@@ -1,9 +1,0 @@
-{
-  "schema_version": "1.0",
-  "type": "request",
-  "request_id": "00000000-0000-4000-8000-000000000007",
-  "trace_id": "00000000-0000-4000-8000-000000000008",
-  "operation": "shell.exec",
-  "sent_at": "2026-07-26T08:00:00Z",
-  "arguments": {}
-}

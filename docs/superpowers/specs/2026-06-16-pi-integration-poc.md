@@ -2,7 +2,7 @@
 
 > [!WARNING]
 > 本文是历史草案，已被
-> [2026-07-26 Pi SDK ansys-agent 架构规格](../../pi-operator/architecture-spec.md)
+> [ADR 0002: 采用 DeepSeek Harness 替代 Pi Operator](../../adr/0002-replace-pi-operator-with-deepseek-harness.md)
 > 取代。草案中的“Pi 安全沙箱”和 Python `@tool` 示例都不能作为实现依据：
 > Pi 官方明确说明其运行时没有内建沙箱，官方 SDK 为 TypeScript。新的规格采用
 > `pi-agent-core + pi-ai`、白名单工具和由 Python 持有权威状态的本机桥接架构。

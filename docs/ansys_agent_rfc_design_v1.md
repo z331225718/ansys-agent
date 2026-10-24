@@ -4,8 +4,8 @@
 > 本文是早期愿景稿，不是当前 Pi 集成依据。早期版本曾把 Pi “安全沙箱”、
 > Project Trust 和 PyAEDT 细粒度工具直连当作目标，这些表述已在第 4.1 节修正。
 > 当前决策见
-> [Pi SDK Operator 架构规格](./pi-operator/architecture-spec.md)：
-> Pi 只作为外层 Operator，Python/YAML/SQLite/AEDT Runtime 保持权威。
+> [ADR 0002: 采用 DeepSeek Harness 替代 Pi Operator](./adr/0002-replace-pi-operator-with-deepseek-harness.md)：
+> 确立 DeepSeek Harness (DSH) 为首选 Agent Host，Python/YAML/SQLite/AEDT Runtime 保持权威。
 
 ## 1. 核心愿景与项目定位
 
