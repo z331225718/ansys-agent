@@ -17,13 +17,26 @@ const REVIEWED_PREFIXES = ['mcp__ansys_api_memory__']
  * official PyAEDT-MCP server must not appear in the reviewed model catalog.
  */
 export function apply(ctx) {
+  // Execution-level boundary: even a tool hidden from the catalog must not be
+  // callable by name through the shared profile's registered tools.
+  const disposeGuard = ctx.tools.guard((execution) => (
+    isReviewedTool(execution.name)
+      ? undefined
+      : `ansys-reviewed preset denies tool: ${execution.name}`
+  ))
+  ctx.effect?.(() => disposeGuard())
+
   ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
     const assembled = await next()
     return {
       ...assembled,
       tools: assembled.tools.filter((tool) =>
-        REVIEWED_TOOLS.has(tool.name)
-        || REVIEWED_PREFIXES.some((prefix) => tool.name.startsWith(prefix))),
+        isReviewedTool(tool.name)),
     }
   })
+}
+
+function isReviewedTool(name) {
+  return REVIEWED_TOOLS.has(name)
+    || REVIEWED_PREFIXES.some((prefix) => name.startsWith(prefix))
 }

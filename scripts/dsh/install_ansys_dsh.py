@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -169,8 +171,27 @@ def _install_plugin(repo_root: Path, profile_dir: Path) -> None:
     target.write_text(text, encoding="utf-8")
 
 
+MANIFEST_NAME = "ansys-dsh-install.json"
+
+
+def _manifest(profile_dir: Path) -> dict[str, Any] | None:
+    path = profile_dir / MANIFEST_NAME
+    if not path.is_file():
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
 def _stamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _contains_entry_id(text: str, entry_id: str) -> bool:
+    pattern = rf"(?m)^\s*-\s*id:\s*[\'\"]?{re.escape(entry_id)}[\'\"]?\s*(?:#.*)?$"
+    return re.search(pattern, text) is not None
 
 
 def _block_span(text: str) -> tuple[int, int] | None:
@@ -205,8 +226,24 @@ def check_installation(repo_root: Path, profile_dir: Path, python: Path, workflo
             errors.append(f"preset asset missing: {template}")
     if not workflow_db.is_absolute():
         errors.append(f"workflow_db must be an absolute path: {workflow_db}")
-    elif not workflow_db.exists():
-        warnings.append(f"workflow_db does not exist yet: {workflow_db}")
+    else:
+        manifest = _manifest(profile_dir)
+        installed_db = str(manifest.get("workflow_db") or "") if manifest else ""
+        if installed_db and Path(installed_db).resolve() != workflow_db:
+            errors.append(f"workflow_db differs from installed reviewed DB: installed={installed_db} requested={workflow_db}")
+        if not workflow_db.exists():
+            warnings.append(f"workflow_db does not exist yet: {workflow_db}")
+        else:
+            try:
+                with sqlite3.connect(workflow_db) as db:
+                    tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+                required = {"missions", "graph_runs"}
+                if tables and not required <= tables:
+                    errors.append(f"workflow_db is not an ansys-agent mission database: missing {sorted(required - tables)}")
+                elif not tables:
+                    warnings.append("workflow_db is empty; initialize it with the local CLI/dashboard before use")
+            except sqlite3.DatabaseError as exc:
+                errors.append(f"workflow_db is not a valid SQLite database: {exc}")
     if not cordis.is_file():
         errors.append(f"cordis.patch.yml not found: {cordis}")
         text = ""
@@ -218,7 +255,7 @@ def check_installation(repo_root: Path, profile_dir: Path, python: Path, workflo
         block_exists = span is not None
         outside = text if span is None else text[: span[0]] + text[span[1] :]
         for managed_id in CONFLICT_IDS:
-            if f"id: {managed_id}" in outside:
+            if _contains_entry_id(outside, managed_id):
                 if managed_id == "preset-ansys-engineering":
                     errors.append(
                         "legacy unmarked preset-ansys-engineering exists; migrate it to ansys-explore "
@@ -269,6 +306,18 @@ def apply_installation(repo_root: Path, profile_dir: Path, python: Path, workflo
     original = cordis.read_text(encoding="utf-8")
     block = build_block(repo_root, profile_dir, python, workflow_db)
     span = _block_span(original)
+    plugin_target = profile_dir / "ansys-reviewed-tools.mjs"
+    plugin_source = repo_root / "integrations" / "dsh" / "agent-presets" / "ansys-reviewed" / "reviewed-tools.mjs"
+    manifest = _manifest(profile_dir) or {}
+    unchanged = (
+        span is not None
+        and original[span[0] : span[1]].strip() == block.strip()
+        and plugin_target.is_file()
+        and plugin_target.read_text(encoding="utf-8") == plugin_source.read_text(encoding="utf-8")
+        and str(manifest.get("workflow_db") or "") == str(workflow_db)
+    )
+    if unchanged:
+        return {**report, "applied": False, "unchanged": True, "backup": None, "restart_required": False}
     if span is None:
         updated = original.rstrip() + "\n\n" + block + "\n"
     else:
@@ -276,6 +325,7 @@ def apply_installation(repo_root: Path, profile_dir: Path, python: Path, workflo
     backup = cordis.with_name(cordis.name + f".bak-ansys-agent-{_stamp()}")
     shutil.copy2(cordis, backup)
     _install_plugin(repo_root, profile_dir)
+    (profile_dir / MANIFEST_NAME).write_text(json.dumps({"workflow_db": str(workflow_db), "repo_root": str(repo_root), "python": str(python)}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     tmp = cordis.with_suffix(cordis.suffix + ".ansys-agent.tmp")
     tmp.write_text(updated, encoding="utf-8")
     tmp.replace(cordis)

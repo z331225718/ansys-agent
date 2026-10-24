@@ -44,7 +44,8 @@ def test_check_is_read_only_and_then_apply_is_idempotent(tmp_path):
     assert "id: ui-theme" in text
 
     second = apply_installation(REPO, profile, Path(sys.executable), _db(tmp_path))
-    assert second["applied"] is True
+    assert second["applied"] is False
+    assert second["unchanged"] is True
     text2 = (profile / "cordis.patch.yml").read_text(encoding="utf-8")
     assert text2.count(BEGIN) == 1
     assert text2.count("id: preset-ansys-reviewed") == 1
@@ -117,3 +118,28 @@ def test_relative_arguments_are_written_as_absolute_paths(tmp_path):
     assert f"cwd: '{REPO.resolve()}'" in text
     assert f"'{db.resolve()}'" in text
     assert "name: './ansys-reviewed-tools.mjs'" not in text
+
+
+@pytest.mark.parametrize("legacy_line", [
+    "- id:  preset-ansys-engineering\n",
+    "- id: 'preset-ansys-engineering'\n",
+    '- id: "preset-ansys-engineering"  # legacy\n',
+])
+def test_whitespace_and_quoted_legacy_conflicts_are_rejected(tmp_path, legacy_line):
+    profile = _profile(tmp_path, legacy_line + "  name: '@deepseek-ai/dsh-agent-preset'\n")
+    result = check_installation(REPO, profile, Path(sys.executable), _db(tmp_path))
+    assert result["ok"] is False
+    assert any("legacy unmarked" in error for error in result["errors"])
+
+
+def test_installed_workflow_db_cannot_silently_change(tmp_path):
+    profile = _profile(tmp_path)
+    db1 = _db(tmp_path)
+    assert apply_installation(REPO, profile, Path(sys.executable), db1)["applied"] is True
+    db2 = tmp_path / "other.db"
+    db2.write_bytes(b"")
+    checked = check_installation(REPO, profile, Path(sys.executable), db2)
+    assert checked["ok"] is False
+    assert any("differs from installed reviewed DB" in error for error in checked["errors"])
+    result = apply_installation(REPO, profile, Path(sys.executable), db2)
+    assert result["applied"] is False
