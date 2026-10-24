@@ -106,3 +106,14 @@ def test_generated_block_is_valid_yaml_after_js_placeholders(tmp_path):
     entries = yaml.safe_load(normalized)
     ids = [row["id"] for insert in entries for row in insert["insert"]]
     assert ids == ["mcp-ansys-assistant-reviewed", "preset-ansys-reviewed", "preset-ansys-explore"]
+
+
+def test_relative_arguments_are_written_as_absolute_paths(tmp_path):
+    profile = _profile(tmp_path)
+    db = _db(tmp_path)
+    assert apply_installation(REPO, profile, Path(sys.executable), db)["applied"] is True
+    text = (profile / "cordis.patch.yml").read_text(encoding="utf-8")
+    assert f"command: '{Path(sys.executable).resolve()}'" in text
+    assert f"cwd: '{REPO.resolve()}'" in text
+    assert f"'{db.resolve()}'" in text
+    assert "name: './ansys-reviewed-tools.mjs'" not in text

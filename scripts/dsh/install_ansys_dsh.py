@@ -186,6 +186,10 @@ def _block_span(text: str) -> tuple[int, int] | None:
 
 
 def check_installation(repo_root: Path, profile_dir: Path, python: Path, workflow_db: Path) -> dict[str, Any]:
+    repo_root = repo_root.resolve()
+    profile_dir = profile_dir.resolve()
+    python = python.resolve()
+    workflow_db = workflow_db.resolve()
     errors: list[str] = []
     warnings: list[str] = []
     cordis = profile_dir / "cordis.patch.yml"
@@ -254,6 +258,10 @@ def check_installation(repo_root: Path, profile_dir: Path, python: Path, workflo
 
 
 def apply_installation(repo_root: Path, profile_dir: Path, python: Path, workflow_db: Path) -> dict[str, Any]:
+    repo_root = repo_root.resolve()
+    profile_dir = profile_dir.resolve()
+    python = python.resolve()
+    workflow_db = workflow_db.resolve()
     report = check_installation(repo_root, profile_dir, python, workflow_db)
     if not report["ok"]:
         return {**report, "applied": False}
