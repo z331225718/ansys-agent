@@ -1,0 +1,14 @@
+{
+  "name": "@local/dsh-ansys-presets",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "exports": {
+    "./production-guard.mjs": "./production-guard.mjs"
+  }
+}

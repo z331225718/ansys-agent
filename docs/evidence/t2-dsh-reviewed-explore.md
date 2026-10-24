@@ -1,3 +1,5 @@
+> **Superseded by ADR-0003:** reviewed/explore were replaced by one `ansys-engineering` DSH mode on 2026-10-24.
+
 # T2 DSH reviewed / explore evidence
 
 - Date: 2026-10-24

@@ -1,23 +1,29 @@
-# DSH Agent Presets
+# DSH Ansys 模式
 
-## 推荐模式
+## 单一模式
 
-- **ansys-reviewed**：M1 只读观察。独立 reviewed MCP 进程，仅暴露 workflow catalog/status + ansys-api-memory；无官方 PyAEDT-MCP、shell、文件写、PTC、preview/apply。生产启动/推进/审批仍走本地 CLI/dashboard。
-- **ansys-explore**：非生产探索。保留官方 PyAEDT-MCP、受控领域工具和 PTC；所有结果都不构成生产审批证据。
+只有一个 **ansys-engineering（Ansys 工程优化模式）**：
+- 官方 PyAEDT-MCP + ansys-assistant + ansys-api-memory；
+- shell、文件系统、PTC；
+- 两阶段 preview/apply/readback 领域修改；
+- 生产 Mission 的 start/advance/approval 由 `production-guard.mjs` 在执行级拒绝，仍走本地 CLI/dashboard。
+
+reviewed / explore 两个模式已废弃：Ans​​ys 操作只保留一个入口，避免反复切换。
 
 ## 安装
 
 ~~~powershell
-.\.venv\Scripts\python.exe scripts\dsh\install_ansys_dsh.py check --repo-root . --dsh-profile "$env:USERPROFILE\.dsh\profiles\desktop" --python .venv\Scripts\python.exe --workflow-db D:\aedt-agent-runs\reviewed-loop\missions.db
+.\.venv\Scripts\python.exe scripts\dsh\install_ansys_dsh.py check --repo-root . --dsh-profile "$env:USERPROFILE\.dsh\profiles\desktop" --python .venv\Scripts\python.exe
 ~~~
 
-确认 check 通过后，把 check 换成 apply。安装器只替换带 ansys-agent-dsh managed block 标记的块，先备份，重复执行幂等，不解析/重写含 !!js 的整份 YAML。
-
-## 旧模式迁移
-
-ansys-engineering 不再作为含义不清的全权限生产模式。安装器遇到未标记的旧 preset-ansys-engineering 会 fail before write；请人工确认后改名为 ansys-explore 或删除旧条目，再执行 apply。安装器不会自动覆盖未标记条目。
+确认 check 通过后把 `check` 换成 `apply`。安装器会：
+- 安装本地 bundle `@local/dsh-ansys-presets`；
+- 注册 profile 的 `dsh.profile.bundles`；
+- 只在内容变化时备份和写入；
+- 移除旧的 managed block；
+- 遇到未标记的旧 `preset-ansys-engineering` 时在写入前失败。
 
 ## 验证
 
-- 服务端 reviewed allowlist：tests/test_interactive_ansys_assistant.py::test_reviewed_mcp_profile_exposes_only_read_only_workflow_catalog
-- 安装器：tests/dsh/test_install_ansys_dsh.py
+- 安装器：`tests/dsh/test_install_ansys_dsh.py`
+- 模式内生产 guard：bundle 中的 `production-guard.mjs`

@@ -81,28 +81,6 @@ def create_server(
         ),
     )
 
-    reviewed_profile = os.environ.get("AEDT_AGENT_MCP_PROFILE", "").strip().casefold() == "reviewed"
-    if reviewed_profile:
-        reviewed_tools = {
-            "list_ansys_capabilities_v2",
-            "list_ansys_workflows",
-            "inspect_ansys_workflow",
-            "get_ansys_workflow_status",
-        }
-        original_tool = server.tool
-
-        def scoped_tool(*args, **kwargs):
-            decorator = original_tool(*args, **kwargs)
-
-            def register(function):
-                if function.__name__ not in reviewed_tools:
-                    return function
-                return decorator(function)
-
-            return register
-
-        server.tool = scoped_tool
-
     def register_tool(enabled: bool = True):
         if enabled:
             return server.tool()
@@ -1745,24 +1723,6 @@ def create_server(
 
 
 def main() -> None:
-    import argparse
-
-    parser = argparse.ArgumentParser(prog="aedt-agent-mcp")
-    parser.add_argument(
-        "--profile",
-        choices=("full", "reviewed"),
-        default=os.environ.get("AEDT_AGENT_MCP_PROFILE", "full"),
-        help="reviewed restricts the MCP tool surface to read-only workflow observation",
-    )
-    parser.add_argument(
-        "--workflow-db",
-        default="",
-        help="Mission SQLite path; reviewed observation must use the same DB as the local CLI",
-    )
-    args = parser.parse_args()
-    os.environ["AEDT_AGENT_MCP_PROFILE"] = args.profile
-    if args.workflow_db:
-        os.environ["AEDT_AGENT_WORKFLOW_DB"] = args.workflow_db
     create_server().run(show_banner=False)
 
 

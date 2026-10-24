@@ -176,6 +176,10 @@ docs/evidence/*/
 
 ## 7. T2：DSH reviewed / explore 双模式与可重复安装
 
+> **2026-10-24 设计变更：** 用户明确要求 Ans​​ys 操作只保留一个 DSH 模式。
+> reviewed/explore 双模式已被 ADR-0003 取代；仓库实现为单一 `ansys-engineering`
+> 模式 + 生产 workflow 执行 guard。本节仅保留为历史设计记录。
+
 ### 安全设计（按此实现，不改成共享全开 preset）
 
 | 项目 | ansys-reviewed（M1 只读观察） | ansys-explore |
