@@ -54,6 +54,16 @@ def prepare_working_project(
 ) -> dict[str, Any]:
     payload = dict(context.input_payload)
     source_project, working_project, run_root, report_dir = _validated_prepare_paths(payload)
+    identity = _source_identity(source_project)
+    existing_baseline = str(_loop_context(payload).get("source_project_sha256") or "").strip()
+    if existing_baseline:
+        if existing_baseline != identity["source_project_sha256"]:
+            raise ValueError(
+                "source project changed since the original baseline; refusing to "
+                "overwrite source_project_sha256"
+            )
+        identity["source_project_sha256"] = existing_baseline
+        identity["source_integrity"] = "baseline_preserved"
     reset = bool(payload.get("reset_working_project", False))
     cleanup_lock = bool(payload.get("cleanup_stale_aedt_lock", True))
     removed_lock_files = (
@@ -70,7 +80,6 @@ def prepare_working_project(
         )
 
     loop_context = _initial_loop_context(payload, working_project)
-    identity = _source_identity(source_project)
     loop_context.update(identity)
     output = _solve_input(payload, loop_context, round_index=1)
     output["working_project_prepared"] = True

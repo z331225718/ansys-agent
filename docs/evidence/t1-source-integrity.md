@@ -16,7 +16,9 @@
 - working differs from source and is contained by run_root; report_dir is contained by run_root.
 - source must be an existing .aedt file.
 - path comparison uses resolve and os.path.normcase; working is rejected for case and relative aliases.
-- source SHA256 and size are recorded in loop_context at prepare.
+- source SHA256 and size are recorded in loop_context at the first prepare.
+- repeated prepare preserves the first baseline; if source changed since then it fails before lock removal/copy and never overwrites the baseline.
+- pre-T1 graph runs without `source_project_sha256` cannot be resumed through final report; they fail with `source_integrity_unavailable` and must be recreated/re-prepared rather than auto-upgraded.
 - final report worker re-hashes source and raises non-retryable WorkerReportedError on mismatch or missing baseline.
 - diagnosis artifact paths are carried in WorkerReportedError.details.
 - fail_optimization keeps structured FAILED output, original artifact refs, and source_integrity status.

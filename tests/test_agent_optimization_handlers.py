@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
+import subprocess
 
 import pytest
 
@@ -1415,3 +1417,51 @@ def test_prepare_rejects_case_and_relative_path_aliases(tmp_path, alias):
     payload = {"source_project_path": str(source), "working_project_path": str(working), "run_root": str(run_root), "report_dir": str(run_root / "progress")}
     with pytest.raises(ValueError, match="must differ"):
         prepare_working_project(_prepare_context(tmp_path, payload))
+
+
+def test_reprepare_cannot_overwrite_original_source_baseline(tmp_path):
+    source, run_root, working, report = _base_paths(tmp_path)
+    payload = {"source_project_path": str(source), "working_project_path": str(working), "run_root": str(run_root), "report_dir": str(report)}
+    first = prepare_working_project(_prepare_context(tmp_path, payload))
+    baseline = first["output_payload"]["loop_context"]["source_project_sha256"]
+    working_before = working.read_text(encoding="utf-8")
+    source.write_text("modified source", encoding="utf-8")
+    source_lock = source.with_name(source.name + ".lock")
+    source_lock.write_text("lock", encoding="utf-8")
+
+    retry_payload = {**payload, "loop_context": {"source_project_sha256": baseline}}
+    with pytest.raises(ValueError, match="changed since the original baseline"):
+        prepare_working_project(_prepare_context(tmp_path, retry_payload))
+
+    assert working.read_text(encoding="utf-8") == working_before
+    assert source_lock.exists()
+
+
+def test_reprepare_with_unchanged_source_preserves_baseline(tmp_path):
+    source, run_root, working, report = _base_paths(tmp_path)
+    payload = {"source_project_path": str(source), "working_project_path": str(working), "run_root": str(run_root), "report_dir": str(report)}
+    first = prepare_working_project(_prepare_context(tmp_path, payload))
+    baseline = first["output_payload"]["loop_context"]["source_project_sha256"]
+    retry_payload = {**payload, "loop_context": {"source_project_sha256": baseline}}
+    second = prepare_working_project(_prepare_context(tmp_path, retry_payload))
+    assert second["output_payload"]["loop_context"]["source_project_sha256"] == baseline
+    assert second["output_payload"]["loop_context"]["source_integrity"] == "baseline_preserved"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows junction test")
+def test_prepare_rejects_working_path_via_junction_outside_run_root(tmp_path):
+    source, run_root, _working, report = _base_paths(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    run_root.mkdir(parents=True, exist_ok=True)
+    link = run_root / "escape"
+    command = 'cmd /c mklink /J "' + str(link) + '" "' + str(outside) + '"'
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode != 0:
+        pytest.skip(f"junction unavailable: {command}: {result.stderr or result.stdout}")
+    try:
+        payload = {"source_project_path": str(source), "working_project_path": str(link / "working" / "case.aedt"), "run_root": str(run_root), "report_dir": str(report)}
+        with pytest.raises(ValueError, match="under run_root"):
+            prepare_working_project(_prepare_context(tmp_path, payload))
+    finally:
+        os.rmdir(link)
