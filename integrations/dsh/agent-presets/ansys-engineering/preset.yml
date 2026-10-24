@@ -1,0 +1,2 @@
+name: Ansys 工程优化模式
+description: 面向高速 SI/PI 通道与 AEDT 仿真的工程 Agent。强制两阶段安全修改（preview→审批→apply→readback→rollback）、差分对 TDR/SDD 评分纪律、artifact-only 证据边界；官方 PyAEDT-MCP 负责基础设施，ansys-assistant 负责领域安全修改，ansys-api-memory 负责 API 知识检索。
