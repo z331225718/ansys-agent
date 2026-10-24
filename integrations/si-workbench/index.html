@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#0c1117">
+  <meta name="theme-color" content="#f3f6fa">
   <title>SI Forge · 高速通道优化工作台</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
@@ -92,7 +92,13 @@
         </section>
 
         <section class="workbench-grid reveal delay-2">
-          <div class="panel geometry-panel">
+          <div class="model-workspace">
+            <div class="model-views" aria-label="模型多视角">
+              <button class="model-thumb active" data-model-view="cutaway"><span class="thumb-visual cutaway-thumb"><i></i><b></b><em></em></span><span>过孔剖面</span></button>
+              <button class="model-thumb" data-model-view="layout"><span class="thumb-visual layout-thumb"><i></i><b></b><em></em></span><span>顶层版图</span></button>
+              <button class="model-thumb" data-model-view="stackup"><span class="thumb-visual stackup-thumb"><i></i><b></b><em></em></span><span>层叠结构</span></button>
+            </div>
+            <div class="panel geometry-panel">
             <div class="panel-header geometry-header">
               <div class="panel-title"><span class="panel-symbol">⌗</span><h2>物理结构</h2><span class="subtle-badge">HFSS 3D Layout</span></div>
               <div class="segmented-control" role="tablist" aria-label="结构视图">
@@ -159,6 +165,7 @@
             </div>
             <div class="geometry-footer"><div class="legend"><span><i class="legend-line signal"></i>差分信号</span><span><i class="legend-box copper"></i>铜皮 / 焊盘</span><span><i class="legend-box void"></i>反焊盘</span><span><i class="legend-box reference"></i>参考平面</span></div><span class="model-units">mm · top view / cutaway</span></div>
           </div>
+          </div>
 
           <aside class="panel inspector-panel">
             <div class="inspector-tabs" role="tablist"><button class="inspector-tab active" data-inspector="parameters">参数与约束</button><button class="inspector-tab" data-inspector="review">审查记录<span class="count-badge">3</span></button></div>
@@ -205,6 +212,16 @@
               </div>
               <button class="button secondary full" id="review-evidence-button">查看完整审查证据 ↗</button>
             </div>
+          </aside>
+          <aside class="assistant-panel" aria-label="AI 设计助手">
+            <header class="assistant-header"><div><span class="assistant-spark">✦</span><strong>AI 设计助手</strong><span class="assistant-model">SI Copilot</span></div><button class="icon-button small" id="assistant-collapse" aria-label="收起助手">×</button></header>
+            <div class="assistant-context"><span class="status-dot"></span><span>已理解当前工程</span><button id="assistant-context-button">TX0 → RX0 ⌄</button></div>
+            <div class="assistant-messages" id="assistant-messages">
+              <article class="assistant-message assistant-note"><span class="message-label">工程分析</span><p>当前差分过孔在 <strong>20 ps</strong> 附近产生 <strong>11.0 Ω</strong> 阻抗下冲，SDD11 在 <strong>18 GHz</strong> 处最差，为 <strong>−14.2 dB</strong>。</p><p>建议先扩大 L2/L4/L6 参考层的反焊盘，降低过孔寄生电容；保持 Diff1 的 TX 侧观察方向。</p><div class="assistant-actions"><button data-assistant-action="preview">生成候选预览</button><button data-assistant-action="explain">解释优化依据</button></div></article>
+              <article class="assistant-message assistant-step"><span class="step-check">✓</span><div><strong>已核对几何约束</strong><p>anti-pad ≤ 22 mil · NFP 7.875–10 mil</p></div></article>
+              <article class="assistant-message assistant-step"><span class="step-check">✓</span><div><strong>已确认源工程只读</strong><p>候选仅写入隔离的 working project</p></div></article>
+            </div>
+            <div class="assistant-composer"><div class="composer-suggestions"><button data-prompt="建议下一轮反焊盘半径">下一轮建议</button><button data-prompt="解释 TDR 峰值">TDR 分析</button></div><form id="assistant-form"><textarea id="assistant-input" rows="2" placeholder="询问结构、指标或下一步优化…" aria-label="向 AI 设计助手提问"></textarea><div><span>Enter 发送 · 演示助手</span><button type="submit" aria-label="发送">↑</button></div></form></div>
           </aside>
         </section>
 

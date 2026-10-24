@@ -92,6 +92,10 @@
     applyZoom();
   }
   $$('[data-geometry-view]').forEach(b => b.addEventListener('click', () => setGeometryView(b.dataset.geometryView)));
+  $$('[data-model-view]').forEach(b => b.addEventListener('click', () => {
+    $$('[data-model-view]').forEach(item => item.classList.toggle('active', item === b));
+    setGeometryView(b.dataset.modelView);
+  }));
   $('#stackup-overlay').innerHTML = '<div class="stackup-list">' + layerNames.map((name, i) => '<div class="stackup-row ' + (i % 2 === 0 ? 'signal' : '') + '"><span>' + name + '</span><i></i><span>' + (i % 2 === 0 ? 'copper' : 'FR-4') + '</span><small>' + (i % 2 === 0 ? '35 μm' : '120 μm') + '</small></div>').join('') + '</div>';
   function applyZoom() {
     $('#zoom-label').textContent = state.zoom + '%';
@@ -425,6 +429,57 @@
     openModal({ title, kicker: subtitle.toUpperCase(), content: '<p>' + subtitle + '。以下为演示导航入口，实际数据将在生产集成时读取 Mission/Graph 与 artifact store。</p><ul class="evidence-list">' + items.map(item => '<li>' + item + '</li>').join('') + '</ul><div class="callout">返回「通道优化」继续当前 TX0 → RX0 工作流。</div>', buttons: [{ label: '返回工作台', primary: true, onClick: closeModal }] });
   }));
   $('#history-button').addEventListener('click', () => $('[data-view="history"]').click());
+
+  function assistantReply(prompt) {
+    const text = prompt.toLowerCase();
+    if (text.includes('tdr') || text.includes('峰值') || text.includes('阻抗')) {
+      return 'Diff1 已确认观察 TX 侧。20 ps 附近的 79.0 Ω 下冲与过孔过渡区相符，但不能只凭时间位置指定物理层。建议结合 L2/L4/L6 参考平面 shape 和 padstack 圆心，先验证增大反焊盘的影响。';
+    }
+    if (text.includes('半径') || text.includes('下一轮') || text.includes('建议') || text.includes('优化')) {
+      return '建议先把反焊盘从 18.0 mil 调整为 20.0 mil，保持 NFP 8.5 mil 不变，以单变量评估寄生电容改善。该值满足 ≤ 22 mil。请通过“生成修改预览”核对 shape、圆心和观察端后，再人工批准。';
+    }
+    if (text.includes('sdd') || text.includes('回波') || text.includes('插入')) {
+      return '当前 SDD11 最差为 −14.2 dB @ 18.0 GHz，距离 −17 dB 目标仍差 2.8 dB；SDD21 最差为 −2.10 dB，通道损耗在预算内。优先降低反射，而不是增加链路衰减。';
+    }
+    if (text.includes('证据') || text.includes('审查') || text.includes('源工程')) {
+      return '源工程保持只读，候选只写入隔离 working project。演示流程包含快照摘要、人工批准、模拟 readback 和优化历史；生产模式必须由 Harness 返回真实回读与失败回滚证据。';
+    }
+    return '我目前聚焦 TX0 → RX0 的差分过孔优化。你可以询问“TDR 峰值原因”“下一轮反焊盘半径”或“SDD11 为什么未达标”。我只会提供有界工程建议，修改仍需通过预览和人工审批。';
+  }
+  function appendAssistantMessage(text, user = false) {
+    const article = document.createElement('article');
+    article.className = 'assistant-message ' + (user ? 'assistant-user' : 'assistant-note');
+    article.textContent = text;
+    $('#assistant-messages').appendChild(article);
+    $('#assistant-messages').scrollTop = $('#assistant-messages').scrollHeight;
+  }
+  function askAssistant(prompt) {
+    const text = String(prompt || '').trim();
+    if (!text) { notify('请输入要分析的工程问题。', 'warning'); return; }
+    appendAssistantMessage(text, true);
+    $('#assistant-input').value = '';
+    const thinking = document.createElement('div');
+    thinking.className = 'assistant-thinking';
+    thinking.textContent = '正在结合当前几何与指标分析…';
+    $('#assistant-messages').appendChild(thinking);
+    $('#assistant-messages').scrollTop = $('#assistant-messages').scrollHeight;
+    setTimeout(() => { thinking.remove(); appendAssistantMessage(assistantReply(text)); }, 550);
+  }
+  $('#assistant-form').addEventListener('submit', event => { event.preventDefault(); askAssistant($('#assistant-input').value); });
+  $('#assistant-input').addEventListener('keydown', event => {
+    if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); askAssistant(event.target.value); }
+  });
+  $$('[data-prompt]').forEach(button => button.addEventListener('click', () => askAssistant(button.dataset.prompt)));
+  $$('[data-assistant-action]').forEach(button => button.addEventListener('click', () => {
+    if (button.dataset.assistantAction === 'preview') previewChange();
+    else askAssistant('解释 TDR 峰值和下一轮优化依据');
+  }));
+  $('#assistant-collapse').addEventListener('click', () => {
+    const collapsed = $('.assistant-panel').classList.toggle('assistant-collapsed');
+    $('.assistant-context, .assistant-messages, .assistant-composer').forEach(el => { el.hidden = collapsed; });
+    $('#assistant-collapse').textContent = collapsed ? '+' : '×';
+  });
+  $('#assistant-context-button').addEventListener('click', () => notify('当前助手上下文：TX0 → RX0、差分过孔对、Diff1 / 90 Ω、L2/L4/L6 参考平面。'));
 
   renderChart();
   updateCandidateSummary();
