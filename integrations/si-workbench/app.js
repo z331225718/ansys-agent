@@ -1,0 +1,432 @@
+(() => {
+  'use strict';
+  const $ = (s, root = document) => root.querySelector(s);
+  const $$ = (s, root = document) => [...root.querySelectorAll(s)];
+  const state = {
+    antipadRadius: 18, nfpRadius: 8.5, nfpEnabled: true, layer: 'L2_GND',
+    zoom: 100, chart: 'tdr', previewed: false, approved: false,
+    running: false, optimized: false, dirty: false, history: [],
+  };
+  const baseline = { antipadRadius: 18, nfpRadius: 8.5, nfpEnabled: true };
+  const limits = { antipad: [12, 22], nfp: [7.875, 10] };
+  const layerNames = ['L1 · TOP', 'L2 · GND', 'L3 · SIG', 'L4 · GND', 'L5 · SIG', 'L6 · GND', 'L7 · BOTTOM'];
+  const fmt = (v, d = 1) => Number(v).toFixed(d);
+  const esc = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  function notify(message, kind = 'success', duration = 3500) {
+    const el = document.createElement('div');
+    el.className = 'toast ' + kind;
+    el.textContent = message;
+    $('#toast-stack').appendChild(el);
+    setTimeout(() => el.remove(), duration);
+  }
+  function setSaved(text, dirty = state.dirty) {
+    state.dirty = dirty;
+    $('#save-state-text').textContent = text;
+    $('#preview-status').classList.toggle('dirty', dirty);
+    $('#preview-status span:last-child').textContent = dirty ? '参数已修改，等待生成预览' : '参数未修改，可预览当前基线';
+  }
+  function syncRadius(kind, raw) {
+    const anti = kind === 'antipad';
+    const value = Number(raw);
+    const [min, max] = anti ? limits.antipad : limits.nfp;
+    const key = anti ? 'antipadRadius' : 'nfpRadius';
+    if (!Number.isFinite(value) || value < min || value > max) {
+      notify((anti ? '反焊盘' : '非功能焊盘') + '半径必须在 ' + min + '–' + max + ' mil 范围内。', 'warning');
+      $('#' + kind + '-radius-number').value = state[key];
+      return;
+    }
+    state[key] = value;
+    $('#' + kind + '-radius').value = value;
+    $('#' + kind + '-radius-number').value = value;
+    state.previewed = false;
+    state.approved = false;
+    setSaved('有未预览的参数修改', true);
+    if (anti) {
+      $('#radius-caption').textContent = 'r = ' + fmt(value) + ' mil';
+      const scale = value / 18;
+      $('#radius-dimension').setAttribute('transform', 'translate(' + (276 - 276 * scale) + ' 0) scale(' + scale + ' 1)');
+    }
+    updateCandidateSummary();
+  }
+  function updateCandidateSummary() {
+    $('#candidate-summary').textContent = '反焊盘 r = ' + fmt(state.antipadRadius) + ' mil · ' + (state.antipadRadius > 18 ? '减小寄生电容' : '候选几何调整');
+    const delta = Math.max(.3, (state.antipadRadius - 18) * .9);
+    $('.history-item.next .history-metrics span:last-child').innerHTML = '预计 <b>−' + fmt(delta) + ' dB</b>';
+    $('#chart-insight').textContent = state.previewed ? '候选预览 · 反焊盘 ' + fmt(state.antipadRadius) + ' mil · 等待人工审批' : '过孔阻抗下冲 · 11.0 Ω @ 20.0 ps';
+  }
+  ['antipad', 'nfp'].forEach(kind => {
+    $('#' + kind + '-radius').addEventListener('input', e => syncRadius(kind, e.target.value));
+    $('#' + kind + '-radius-number').addEventListener('change', e => syncRadius(kind, e.target.value));
+  });
+  $('#antipad-layer').addEventListener('change', e => {
+    state.layer = e.target.value;
+    state.previewed = false;
+    state.approved = false;
+    setSaved('参考层已修改，等待预览', true);
+    $('.selected-via text:last-child').textContent = 'via_149632 · ' + state.layer;
+    notify('已选择 ' + state.layer + ' 参考平面，请重新生成预览。');
+  });
+  $('#nfp-toggle').addEventListener('change', e => {
+    state.nfpEnabled = e.target.checked;
+    $('#nfp-radius').disabled = !state.nfpEnabled;
+    $('#nfp-radius-number').disabled = !state.nfpEnabled;
+    $('#nfp-pads').style.opacity = state.nfpEnabled ? '1' : '.12';
+    state.previewed = false;
+    state.approved = false;
+    setSaved('NFP 设置已修改，等待预览', true);
+  });
+  $('#reset-antipad').addEventListener('click', () => {
+    syncRadius('antipad', baseline.antipadRadius);
+    notify('反焊盘已恢复基线 18.0 mil。');
+  });
+
+  function setGeometryView(view) {
+    $$('[data-geometry-view]').forEach(b => b.classList.toggle('active', b.dataset.geometryView === view));
+    $('#via-geometry').hidden = view !== 'cutaway';
+    $('#layout-overlay').hidden = view !== 'layout';
+    $('#stackup-overlay').hidden = view !== 'stackup';
+    const captions = { cutaway: 'Via transition · X-ray cutaway', layout: 'TX0 → RX0 · Top-layer routing', stackup: '7-layer stackup · material & reference' };
+    $('#structure-caption').textContent = captions[view];
+    $('#canvas-note-text').textContent = view === 'cutaway' ? '选中反焊盘以调整几何约束' : view === 'layout' ? '差分对走线、过孔与反焊盘位置关系' : '参考层与信号层材料定义（演示）';
+    applyZoom();
+  }
+  $$('[data-geometry-view]').forEach(b => b.addEventListener('click', () => setGeometryView(b.dataset.geometryView)));
+  $('#stackup-overlay').innerHTML = '<div class="stackup-list">' + layerNames.map((name, i) => '<div class="stackup-row ' + (i % 2 === 0 ? 'signal' : '') + '"><span>' + name + '</span><i></i><span>' + (i % 2 === 0 ? 'copper' : 'FR-4') + '</span><small>' + (i % 2 === 0 ? '35 μm' : '120 μm') + '</small></div>').join('') + '</div>';
+  function applyZoom() {
+    $('#zoom-label').textContent = state.zoom + '%';
+    const scale = state.zoom / 100;
+    $('#via-geometry').style.transform = 'scale(' + scale + ')';
+    $('#layout-overlay').style.transform = 'scale(' + scale + ')';
+    $('#stackup-overlay').style.transform = 'scale(' + scale + ')';
+  }
+  $('#zoom-in').addEventListener('click', () => { state.zoom = Math.min(160, state.zoom + 10); applyZoom(); });
+  $('#zoom-out').addEventListener('click', () => { state.zoom = Math.max(60, state.zoom - 10); applyZoom(); });
+  $('#fit-view').addEventListener('click', () => { state.zoom = 100; applyZoom(); notify('结构视图已适配窗口。'); });
+  $('#reset-geometry').addEventListener('click', () => { state.zoom = 100; setGeometryView('cutaway'); });
+  $$('[data-tool]').forEach(button => button.addEventListener('click', () => {
+    $$('[data-tool]').forEach(item => item.classList.toggle('active', item === button));
+    $('#canvas-note-text').textContent = button.dataset.tool === 'measure' ? '测量模式：反焊盘半径与差分过孔间距' : '选中反焊盘以调整几何约束';
+    if (button.dataset.tool === 'measure') notify('当前选中尺寸：反焊盘半径 18.0 mil；差分过孔中心距 0.45 mm（演示）。');
+  }));
+  $('.selected-via').addEventListener('click', () => {
+    $('#antipad-layer').focus();
+    notify('已选中 via_149632 的反焊盘，可在右侧调整参考层与半径。');
+  });
+  $('#geometry-expand').addEventListener('click', () => {
+    $('.geometry-panel').classList.toggle('expanded');
+    $('#geometry-expand').textContent = $('.geometry-panel').classList.contains('expanded') ? '×' : '⛶';
+  });
+  $$('[data-inspector]').forEach(button => button.addEventListener('click', () => {
+    $$('[data-inspector]').forEach(item => item.classList.toggle('active', item === button));
+    const review = button.dataset.inspector === 'review';
+    $('#parameters-pane').hidden = review;
+    $('#review-pane').hidden = !review;
+  }));
+
+
+  const chartDefinitions = {
+    tdr: {
+      title: '差分阻抗 / TDR', subtitle: '近端过孔不连续性是主要优化对象',
+      xLabel: '时间 / ps', yLabel: '阻抗 / Ω', xMax: 120, yMin: 65, yMax: 110,
+      ticksX: [0, 20, 40, 60, 80, 100, 120], ticksY: [70, 80, 90, 100, 110],
+      target: 90, tolerance: 9, xFormat: v => v.toFixed(0) + ' ps', yFormat: v => v.toFixed(1) + ' Ω',
+      insight: '过孔阻抗下冲 · 11.0 Ω @ 20.0 ps',
+      values: [[0,89.7],[5,90.5],[10,91.2],[14,90.2],[17,85.4],[20,79],[23,82.1],[26,89.8],[30,94.1],[35,96.4],[39,94.5],[44,89.4],[50,88.8],[57,90.4],[63,92.1],[69,91.1],[75,89.4],[82,89.6],[90,90.7],[98,90.2],[106,89.5],[113,90.1],[120,90.2]],
+      candidate: [[0,89.7],[5,90.2],[10,90.6],[14,90.2],[17,88.1],[20,84.2],[23,86.1],[26,90.3],[30,92.3],[35,93.4],[39,92.4],[44,90.1],[50,89.2],[57,90.3],[63,91.1],[69,90.7],[75,89.8],[82,89.7],[90,90.3],[98,90.1],[106,89.8],[113,90.1],[120,90.2]],
+    },
+    sdd11: {
+      title: '差分回波损耗 / SDD11', subtitle: '目标：0–28 GHz 频段内 ≤ −17 dB',
+      xLabel: '频率 / GHz', yLabel: '幅度 / dB', xMax: 28, yMin: -32, yMax: -6,
+      ticksX: [0, 4, 8, 12, 16, 20, 24, 28], ticksY: [-30, -25, -20, -15, -10],
+      target: -17, tolerance: 0, xFormat: v => v.toFixed(1) + ' GHz', yFormat: v => v.toFixed(1) + ' dB',
+      insight: '回波损耗最差 −14.2 dB @ 18.0 GHz · 目标差距 2.8 dB',
+      values: [[0,-25],[2,-24.5],[4,-22.4],[6,-21.3],[8,-19.7],[10,-17.6],[12,-16.1],[14,-15.7],[16,-14.9],[18,-14.2],[20,-15.4],[22,-17.1],[24,-18.4],[26,-20.5],[28,-21.2]],
+      candidate: [[0,-25],[2,-25],[4,-23.4],[6,-22.8],[8,-21.1],[10,-19.3],[12,-17.8],[14,-17.1],[16,-17.2],[18,-16.6],[20,-17.9],[22,-18.9],[24,-19.5],[26,-21.1],[28,-22]],
+    },
+    sdd21: {
+      title: '差分插入损耗 / SDD21', subtitle: '通道损耗预算内，重点改善过孔反射而非盲目衰减',
+      xLabel: '频率 / GHz', yLabel: '幅度 / dB', xMax: 28, yMin: -4.5, yMax: 0,
+      ticksX: [0, 4, 8, 12, 16, 20, 24, 28], ticksY: [-4, -3, -2, -1, 0],
+      target: -3, tolerance: 0, xFormat: v => v.toFixed(1) + ' GHz', yFormat: v => v.toFixed(2) + ' dB',
+      insight: '插入损耗最差 −2.10 dB @ 26.5 GHz · 裕量 0.90 dB',
+      values: [[0,-.05],[2,-.23],[4,-.39],[6,-.54],[8,-.72],[10,-.91],[12,-1.05],[14,-1.23],[16,-1.4],[18,-1.55],[20,-1.72],[22,-1.85],[24,-1.97],[26,-2.06],[26.5,-2.1],[28,-2.02]],
+      candidate: [[0,-.05],[2,-.22],[4,-.38],[6,-.52],[8,-.7],[10,-.89],[12,-1.02],[14,-1.2],[16,-1.36],[18,-1.5],[20,-1.67],[22,-1.8],[24,-1.91],[26,-2],[26.5,-2.04],[28,-1.98]],
+    },
+  };
+  function chartCoords(def, x, y) {
+    return [53 + (x / def.xMax) * 607, 214 - ((y - def.yMin) / (def.yMax - def.yMin)) * 200];
+  }
+  function linePath(def, values) {
+    return values.map(([x, y], i) => (i ? 'L' : 'M') + chartCoords(def, x, y).map(n => n.toFixed(2)).join(',')).join(' ');
+  }
+  function renderChart() {
+    const def = chartDefinitions[state.chart];
+    $('#chart-title').textContent = def.title;
+    $('#chart-subtitle').textContent = def.subtitle;
+    $('#chart-insight').textContent = def.insight;
+    $('#chart-grid').innerHTML = [
+      ...def.ticksY.map(value => {
+        const y = chartCoords(def, 0, value)[1];
+        return '<line class="grid-line" x1="53" x2="660" y1="' + y + '" y2="' + y + '"/><text x="43" y="' + (y + 3) + '" text-anchor="end">' + value + '</text>';
+      }),
+      ...def.ticksX.map(value => {
+        const x = chartCoords(def, value, def.yMin)[0];
+        return '<line class="grid-line" x1="' + x + '" x2="' + x + '" y1="14" y2="214"/><text x="' + x + '" y="232" text-anchor="middle">' + value + '</text>';
+      }),
+      '<text x="13" y="17">' + def.yLabel + '</text><text x="657" y="247" text-anchor="end">' + def.xLabel + '</text>',
+    ].join('');
+    const targetY = chartCoords(def, 0, def.target)[1];
+    const toleranceRect = def.tolerance ? '<rect class="target-fill" x="53" y="' + chartCoords(def, 0, def.target + def.tolerance)[1] + '" width="607" height="' + Math.abs(chartCoords(def, 0, def.target - def.tolerance)[1] - chartCoords(def, 0, def.target + def.tolerance)[1]) + '"/>' : '';
+    $('#chart-thresholds').innerHTML = toleranceRect + '<line class="target-line" x1="53" x2="660" y1="' + targetY + '" y2="' + targetY + '"/><text x="655" y="' + (targetY - 5) + '" text-anchor="end">' + def.target + (state.chart === 'tdr' ? ' Ω' : ' dB') + ' target</text>';
+    const path = linePath(def, def.values);
+    $('#chart-line').setAttribute('d', path);
+    $('#chart-area').setAttribute('d', path + ' L660,214 L53,214 Z');
+    $('#chart-candidate').setAttribute('d', linePath(def, def.candidate));
+    $('#chart-candidate').setAttribute('opacity', state.previewed ? '.92' : '0');
+    $('#candidate-legend').hidden = !state.previewed;
+    const [peakX, peakY] = state.chart === 'tdr' ? [20, 79] : state.chart === 'sdd11' ? [18, -14.2] : [26.5, -2.1];
+    const [ax, ay] = chartCoords(def, peakX, peakY);
+    const label = state.chart === 'tdr' ? '79.0 Ω @ 20 ps' : state.chart === 'sdd11' ? '−14.2 dB @ 18 GHz' : '−2.10 dB @ 26.5 GHz';
+    $('#chart-annotation').innerHTML = '<line class="annotation-line" x1="' + ax + '" x2="' + ax + '" y1="' + ay + '" y2="214"/><circle cx="' + ax + '" cy="' + ay + '" r="3" fill="#d9ad69"/><text class="annotation-text" x="' + Math.min(ax + 8, 550) + '" y="' + Math.max(ay - 10, 24) + '">' + label + '</text>';
+  }
+  $$('[data-chart]').forEach(button => button.addEventListener('click', () => {
+    state.chart = button.dataset.chart;
+    $$('[data-chart]').forEach(item => item.classList.toggle('active', item === button));
+    renderChart();
+  }));
+  $('#chart-hit-area').addEventListener('mousemove', event => {
+    const svg = $('#response-chart');
+    const rect = svg.getBoundingClientRect();
+    const x = (event.clientX - rect.left) * 680 / rect.width;
+    if (x < 53 || x > 660) { $('#chart-crosshair').setAttribute('opacity', '0'); return; }
+    const def = chartDefinitions[state.chart];
+    const xValue = (x - 53) / 607 * def.xMax;
+    const nearest = def.values.reduce((a, b) => Math.abs(b[0] - xValue) < Math.abs(a[0] - xValue) ? b : a);
+    const [cx, cy] = chartCoords(def, ...nearest);
+    const crosshair = $('#chart-crosshair');
+    crosshair.setAttribute('opacity', '1');
+    crosshair.setAttribute('transform', 'translate(' + cx + ',' + cy + ')');
+    crosshair.querySelector('line').setAttribute('y1', String(-cy + 14));
+    crosshair.querySelector('line').setAttribute('y2', String(214 - cy));
+    $('#crosshair-value').textContent = def.yFormat(nearest[1]);
+    $('#crosshair-x').textContent = def.xFormat(nearest[0]);
+  });
+  $('#chart-hit-area').addEventListener('mouseleave', () => $('#chart-crosshair').setAttribute('opacity', '0'));
+  $('#chart-expand').addEventListener('click', () => {
+    $('.chart-panel').classList.toggle('expanded');
+    $('#chart-expand').textContent = $('.chart-panel').classList.contains('expanded') ? '×' : '⛶';
+  });
+  $('#chart-data-button').addEventListener('click', showBoundedMetrics);
+
+  function changeTable() {
+    const changes = [
+      ['参考平面', 'L2_GND', state.layer],
+      ['反焊盘半径', fmt(baseline.antipadRadius) + ' mil', fmt(state.antipadRadius) + ' mil'],
+      ['NFP 信号圆', baseline.nfpEnabled ? fmt(baseline.nfpRadius) + ' mil' : 'disabled', state.nfpEnabled ? fmt(state.nfpRadius, 3) + ' mil' : 'disabled'],
+      ['观察端 / 阻抗', 'Diff1 / 90 Ω', 'Diff1 / 90 Ω'],
+    ];
+    return '<table class="diff-table"><thead><tr><th>参数</th><th>当前结构</th><th>候选结构</th></tr></thead><tbody>' + changes.map(row => '<tr><td>' + row[0] + '</td><td class="old">' + row[1] + '</td><td class="new">' + row[2] + '</td></tr>').join('') + '</tbody></table>';
+  }
+  function openModal({ title, kicker = 'ENGINEERING WORKSPACE', content, buttons = [], large = false }) {
+    $('#modal-title').textContent = title;
+    $('#modal-kicker').textContent = kicker;
+    $('#modal-content').innerHTML = content;
+    $('#modal').classList.toggle('large', large);
+    $('#modal-footer').innerHTML = '';
+    buttons.forEach(({ label, primary = false, onClick }) => {
+      const button = document.createElement('button');
+      button.className = 'button ' + (primary ? 'primary' : 'secondary');
+      button.textContent = label;
+      button.addEventListener('click', onClick);
+      $('#modal-footer').appendChild(button);
+    });
+    $('#modal-backdrop').hidden = false;
+    document.body.classList.add('modal-open');
+    $('#modal-close').focus();
+  }
+  function closeModal() {
+    if (state.running) return;
+    $('#modal-backdrop').hidden = true;
+    document.body.classList.remove('modal-open');
+    $$('.geometry-panel.expanded, .chart-panel.expanded').forEach(panel => panel.classList.remove('expanded'));
+  }
+  $('#modal-close').addEventListener('click', closeModal);
+  $('#modal-backdrop').addEventListener('click', e => { if (e.target === $('#modal-backdrop')) closeModal(); });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') closeModal();
+    if (event.key === '?' && !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) showShortcuts();
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+      event.preventDefault();
+      setSaved('所有更改已保存', false);
+      notify('当前演示配置已保存在浏览器会话中。');
+    }
+  });
+
+
+  function previewChange() {
+    if (state.antipadRadius > 22 || state.nfpRadius < 7.875 || state.nfpRadius > 10) {
+      notify('几何约束校验失败，请修正半径后再预览。', 'error');
+      return;
+    }
+    state.previewed = true;
+    setSaved('候选预览已生成，等待人工审批', false);
+    renderChart();
+    updateCandidateSummary();
+    const digest = simpleDigest(JSON.stringify({ radius: state.antipadRadius, nfp: state.nfpRadius, layer: state.layer, source: 'a91c7e42' }));
+    openModal({
+      title: '确认候选几何修改', kicker: 'PREVIEW / HUMAN APPROVAL REQUIRED',
+      content: '<p>以下变更将写入<strong>工作副本</strong>，不会修改人工审查的源工程。请先核对物理目标与证据，再批准应用。</p>' + changeTable() +
+        '<h3>几何与证据检查</h3><ul class="evidence-list"><li>目标层 ' + esc(state.layer) + ' 在过孔附近具有有效参考平面 shape</li><li>圆心来自 via_149632 / via_149633 的 padstack 实例</li><li>反焊盘半径 ' + fmt(state.antipadRadius) + ' mil，满足 ≤ 22 mil</li><li>NFP ' + (state.nfpEnabled ? fmt(state.nfpRadius, 3) + ' mil，满足 [7.875, 10] mil' : '已禁用，本轮不修改') + '</li><li>TDR 观察端 Diff1 已定向至 TX 侧</li></ul><div class="callout warning">此处是交互演示预览，未连接 AEDT。生产模式将由 Harness 执行 preview → apply → native readback，失败自动回滚。</div><div class="digest-box">snapshot_digest: ' + digest + '<br>source_project: reviewed TX0_RX0.aedt (read-only)<br>working_project: run-002/working/TX0_RX0.aedt</div>',
+      buttons: [
+        { label: '返回修改', onClick: closeModal },
+        { label: '批准并应用候选', primary: true, onClick: applyCandidate },
+      ],
+    });
+  }
+  function applyCandidate() {
+    state.approved = true;
+    state.optimized = false;
+    closeModal();
+    state.history.push({ round: 2, radius: state.antipadRadius, nfp: state.nfpRadius, status: 'approved', time: new Date().toISOString() });
+    $('.history-item.next .history-status').textContent = 'APPROVED';
+    $('.history-item.next .history-status').style.color = 'var(--teal)';
+    $('.history-item.next small').textContent = '候选已批准 · 等待运行验证';
+    $('.history-item.next .history-metrics').innerHTML = '<span>Cost <b>12.7</b></span><span>SDD11 <b>−16.6 dB</b></span>';
+    $('#metric-cost').innerHTML = '12.7 <small>cost</small>';
+    $('#metric-sdd11').innerHTML = '−16.6 <small>dB</small>';
+    $('#metric-tdr').innerHTML = '±5.8 <small>Ω</small>';
+    $('#round-label').textContent = '第 02 轮 · 候选';
+    $('#footer-round').textContent = 'Round 02 / 03';
+    notify('候选已批准并应用到演示工作副本；模拟 readback 已通过。');
+    setSaved('候选已应用 · 待运行验证', false);
+  }
+  $('#preview-button').addEventListener('click', previewChange);
+
+  function runOptimization() {
+    if (state.running) return;
+    if (!state.approved) {
+      notify('请先生成修改预览并完成人工审批，再运行优化。', 'warning');
+      previewChange();
+      return;
+    }
+    state.running = true;
+    $('#run-button').disabled = true;
+    $('#run-button').innerHTML = '<span>◌</span>优化运行中';
+    const stages = [
+      ['检查工作副本与源工程隔离', 14],
+      ['候选几何 readback 与约束校验', 31],
+      ['HFSS 求解与 Touchstone 导出（演示）', 55],
+      ['TDR / SDD 确定性评分', 76],
+      ['保存证据与优化历史', 93],
+      ['验证完成 · 未修改源工程', 100],
+    ];
+    openModal({
+      title: '运行通道优化', kicker: 'LOCAL WORKER / DEMO RUN',
+      content: '<p>正在通过受控 worker 执行候选结构验证。此演示不会调用真实 AEDT，也不会修改任何工程文件。</p><div class="progress-track"><span id="run-progress"></span></div><div class="log-box" id="run-log"></div>',
+      buttons: [],
+    });
+    let index = 0;
+    const next = () => {
+      if (index >= stages.length) {
+        state.running = false;
+        state.optimized = true;
+        $('#run-button').disabled = false;
+        $('#run-button').innerHTML = '<span>↻</span>再次验证';
+        $('#modal-content').innerHTML = '<div class="callout">验证完成。候选结构改善了过孔阻抗连续性，综合成本从 14.5 降至 12.7。</div><h3>本轮有界指标</h3><table class="diff-table"><thead><tr><th>指标</th><th>基线</th><th>第 02 轮</th><th>变化</th></tr></thead><tbody><tr><td>SDD11 最差</td><td class="old">−14.2 dB</td><td class="new">−16.6 dB</td><td class="new">+2.4 dB</td></tr><tr><td>TDR 峰值偏差</td><td class="old">±11.0 Ω</td><td class="new">±5.8 Ω</td><td class="new">−5.2 Ω</td></tr><tr><td>Objective cost</td><td class="old">14.5</td><td class="new">12.7</td><td class="new">−1.8</td></tr></tbody></table><ul class="evidence-list"><li>working project 隔离且模拟 readback 一致</li><li>源工程 SHA256 未改变（演示）</li><li>optimization_history.csv 已追加第 02 轮</li><li>TDR / SDD 证据与审批记录已归档</li></ul><p>当前仍未达到全频段 SDD11 ≤ −17 dB 的目标，可保留候选并评估下一轮小幅调整。</p>';
+        $('#modal-footer').innerHTML = '';
+        const exportBtn = document.createElement('button');
+        exportBtn.className = 'button secondary';
+        exportBtn.textContent = '导出本轮证据';
+        exportBtn.addEventListener('click', exportReport);
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'button primary';
+        closeBtn.textContent = '返回工作台';
+        closeBtn.addEventListener('click', closeModal);
+        $('#modal-footer').append(exportBtn, closeBtn);
+        $('.history-item.next .history-status').textContent = 'VERIFIED';
+        $('.history-item.next small').textContent = '已求解 · readback 通过 · 证据已固化';
+        $('.history-item.muted').classList.remove('muted');
+        $('#preview-status span:last-child').textContent = '第 02 轮验证完成，可继续评估';
+        notify('第 02 轮验证完成：TDR 偏差降低 5.2 Ω，成本降至 12.7。', 'success', 5000);
+        return;
+      }
+      const [label, progress] = stages[index++];
+      $('#run-progress').style.width = progress + '%';
+      const line = document.createElement('span');
+      line.className = 'log-line';
+      line.textContent = String(index).padStart(2, '0') + '  ' + label;
+      $('#run-log').appendChild(line);
+      $('#run-log').scrollTop = $('#run-log').scrollHeight;
+      setTimeout(next, index === 3 ? 950 : 650);
+    };
+    setTimeout(next, 350);
+  }
+  $('#run-button').addEventListener('click', runOptimization);
+
+  function simpleDigest(input) {
+    let hash = 2166136261;
+    for (let i = 0; i < input.length; i++) { hash ^= input.charCodeAt(i); hash = Math.imul(hash, 16777619); }
+    return 'demo_' + (hash >>> 0).toString(16).padStart(8, '0') + String(input.length).padStart(4, '0');
+  }
+  function exportReport() {
+    const report = {
+      schema: 'si-forge-demo-report/v1',
+      generated_at: new Date().toISOString(),
+      demo: true,
+      notice: '交互演示数据，不是 AEDT 仿真结果，不可作为生产验收证据。',
+      channel: 'TX0 → RX0', protocol: '112G PAM4',
+      source_project: { path: 'reviewed/TX0_RX0.aedt', read_only: true, sha256: 'a91c…7e42' },
+      working_project: { isolated: true, path: 'run-002/working/TX0_RX0.aedt' },
+      baseline: { anti_pad_radius_mil: 18, nfp_radius_mil: 8.5, sdd11_worst_db: -14.2, sdd11_frequency_ghz: 18, sdd21_worst_db: -2.1, tdr_peak_deviation_ohm: 11, tdr_peak_time_ps: 20, objective_cost: 14.5 },
+      candidate: { anti_pad_radius_mil: state.antipadRadius, nfp_radius_mil: state.nfpEnabled ? state.nfpRadius : null, layer: state.layer, approved: state.approved, verified: state.optimized, sdd11_worst_db: state.approved ? -16.6 : null, tdr_peak_deviation_ohm: state.approved ? 5.8 : null, objective_cost: state.approved ? 12.7 : null },
+      constraints: { anti_pad_radius_max_mil: 22, nfp_radius_range_mil: [7.875, 10], tdr_observation_port: 'Diff1', orientation: 'TX side', differential_reference_ohm: 90 },
+      history: state.history,
+    };
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'si-forge-round-02-evidence.json';
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    notify('已导出有界演示证据 JSON；未包含原始曲线或工程文件。');
+  }
+  $('#export-button').addEventListener('click', exportReport);
+
+  function showBoundedMetrics() {
+    const def = chartDefinitions[state.chart];
+    openModal({
+      title: '有界通道指标', kicker: 'ARTIFACT-ONLY CURVES / BOUNDED SUMMARY',
+      content: '<p>工作台只将关键指标送入分析上下文；原始曲线作为 artifact 保存，不粘贴完整采样数组。</p><table class="diff-table"><tbody><tr><td>当前视图</td><td class="new">' + def.title + '</td></tr><tr><td>观察端</td><td class="new">Diff1 → TX 侧（已定向）</td></tr><tr><td>频率 / 时间范围</td><td class="new">' + (state.chart === 'tdr' ? '0–120 ps' : '0–28 GHz') + '</td></tr><tr><td>最差值</td><td class="new">' + (state.chart === 'tdr' ? '79.0 Ω @ 20 ps' : state.chart === 'sdd11' ? '−14.2 dB @ 18.0 GHz' : '−2.10 dB @ 26.5 GHz') + '</td></tr><tr><td>参考阻抗</td><td class="new">90 Ω differential</td></tr><tr><td>artifact SHA256</td><td class="new">demo_7e42a91c</td></tr></tbody></table><div class="callout">指标用于定位候选物理结构；若需把 TDR 峰值映射到过孔，必须先确认观察端方向。</div>',
+      buttons: [{ label: '关闭', primary: true, onClick: closeModal }],
+    });
+  }
+  function showShortcuts() {
+    openModal({ title: '工作台快捷键', content: '<div class="shortcut-grid"><span>保存当前演示配置</span><kbd>Ctrl / ⌘ + S</kbd><span>关闭对话框或展开视图</span><kbd>Esc</kbd><span>打开快捷键帮助</span><kbd>?</kbd><span>预览参数修改</span><kbd>右侧「生成修改预览」</kbd><span>切换响应曲线</span><kbd>TDR / SDD11 / SDD21</kbd></div>', buttons: [{ label: '知道了', primary: true, onClick: closeModal }] });
+  }
+  $('#shortcuts-button').addEventListener('click', showShortcuts);
+  $('#notification-button').addEventListener('click', () => openModal({ title: '工程通知', content: '<ul class="evidence-list"><li>源模型已通过人工审查，working project 已隔离</li><li>候选动作约束已加载：anti-pad ≤ 22 mil，NFP 7.875–10 mil</li><li>本地 AEDT 2026.1 gRPC 可用（状态为演示）</li></ul>', buttons: [{ label: '关闭', primary: true, onClick: closeModal }] }));
+  $('#heading-more').addEventListener('click', () => openModal({ title: '项目操作', content: '<div class="setting-row"><span>工程</span><strong>TX0 → RX0 / 112G PAM4</strong></div><div class="setting-row"><span>源工程</span><strong>已审查 · 只读</strong></div><div class="setting-row"><span>工作副本</span><strong>run-002 / isolated</strong></div><div class="callout">此原型仅操作浏览器内演示状态，不连接 AEDT 或生产 Mission。</div>', buttons: [{ label: '关闭', primary: true, onClick: closeModal }] }));
+  $('#workspace-button').addEventListener('click', () => openModal({ title: '选择工作空间', content: '<div class="callout">当前工作空间：<strong>SerDes Lab</strong><br>本地 AEDT 工作站 · 112G 通道优化</div><p>本原型只包含一个演示工作空间。生产版本可从 Mission/Graph 数据库读取项目列表。</p>', buttons: [{ label: '继续使用 SerDes Lab', primary: true, onClick: closeModal }] }));
+  $('#user-card').addEventListener('click', () => openModal({ title: '工程身份', content: '<div class="setting-row"><span>工程师</span><strong>Z. Lin</strong></div><div class="setting-row"><span>角色</span><strong>SI / PI Engineer</strong></div><div class="setting-row"><span>审批权限</span><strong>Human gate / reviewed</strong></div><p>审批身份将绑定到每次候选几何修改的审计记录中。</p>', buttons: [{ label: '关闭', primary: true, onClick: closeModal }] }));
+  $('#review-evidence-button').addEventListener('click', () => openModal({ title: '源模型审查证据', kicker: 'HUMAN-REVIEWED SOURCE', content: '<ul class="evidence-list"><li>四端口差分模型 · Touchstone s4p</li><li>端口位置与参考关系已人工确认</li><li>L2/L4/L6 参考平面 shape 证据完整</li><li>Diff1 观察端定向至 TX 侧</li><li>源工程与工作副本路径分离</li><li>几何半径与 NFP 工艺约束已加载</li></ul><div class="digest-box">source_sha256: a91c…7e42<br>reviewer: Z. Lin<br>review_status: approved<br>scope: TX0_RX0 via transition</div>', buttons: [{ label: '关闭', primary: true, onClick: closeModal }] }));
+  $$('[data-view]').forEach(button => button.addEventListener('click', () => {
+    const view = button.dataset.view;
+    if (view === 'workbench') return;
+    const viewInfo = {
+      models: ['模型库', '已审查模型与工作副本', ['TX0 → RX0 · reviewed', 'RX1 → Connector · reviewed', 'TX2 → Backplane · draft', 'Training via · sandbox']],
+      patterns: ['Via 模式库', '从实际板级证据归类的过孔结构', ['L3 + BGA + P100 · 8 pairs', 'L5 + Connector + P85 · 6 pairs', 'L7 + BGA + P100 · 4 pairs', 'L2 + Backplane + P110 · 3 pairs']],
+      history: ['优化历史', '可追溯的轮次与指标变化', ['Round 01 · baseline · cost 14.5', 'Round 02 · approved candidate · cost 12.7', 'Round 03 · awaiting evidence']],
+      evidence: ['证据与报告', 'Bounded evidence / artifact-only curves', ['optimization_history.csv', 'optimization_progress.html', 'source_integrity.json', 'approval_manifest.json']],
+      settings: ['工作站设置', '本地执行环境与安全边界', ['AEDT 2026.1 · gRPC connected', 'simulation_runner = local_cli', 'max_concurrent_aedt = 1', 'source project = read-only']],
+    };
+    const [title, subtitle, items] = viewInfo[view];
+    openModal({ title, kicker: subtitle.toUpperCase(), content: '<p>' + subtitle + '。以下为演示导航入口，实际数据将在生产集成时读取 Mission/Graph 与 artifact store。</p><ul class="evidence-list">' + items.map(item => '<li>' + item + '</li>').join('') + '</ul><div class="callout">返回「通道优化」继续当前 TX0 → RX0 工作流。</div>', buttons: [{ label: '返回工作台', primary: true, onClick: closeModal }] });
+  }));
+  $('#history-button').addEventListener('click', () => $('[data-view="history"]').click());
+
+  renderChart();
+  updateCandidateSummary();
+})();
+
