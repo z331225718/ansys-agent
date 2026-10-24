@@ -140,6 +140,21 @@ def test_validate_reviewed_loop_example_without_machine_paths():
     assert "l02_void_r" not in config_text
 
 
+def test_valid_resume_config_still_passes_safety_validation():
+    config_path = Path("config/optimization_loops/reviewed_brd_remote.example.json")
+    config = loop_runner.load_loop_config(config_path)
+    config["graph_run_id"] = "graph-existing"
+
+    report = loop_runner.validate_loop_config_for_run(config, check_paths=False)
+
+    assert report["status"] == "passed"
+    check_status = {item["id"]: item["status"] for item in report["checks"]}
+    assert check_status["resume_graph_run_id"] == "passed"
+    assert check_status["working_project_is_separate"] == "passed"
+    assert check_status["touchstone_is_s4p"] == "passed"
+    assert check_status["tdr_diff1"] == "passed"
+
+
 def test_resume_graph_id_does_not_bypass_safety_validation():
     config = {
         "goal": "resume loop",
