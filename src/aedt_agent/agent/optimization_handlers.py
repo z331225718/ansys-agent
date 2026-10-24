@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
+import os
 import shutil
 from pathlib import Path
 from typing import Any, Mapping
@@ -51,16 +53,8 @@ def prepare_working_project(
     context: GraphNodeExecutionContext,
 ) -> dict[str, Any]:
     payload = dict(context.input_payload)
-    source_project = Path(
-        str(payload.get("source_project_path") or payload.get("project_path"))
-    )
-    working_project = Path(
-        str(payload.get("working_project_path") or source_project)
-    )
-    if not source_project.is_file():
-        raise FileNotFoundError(f"source_project_path not found: {source_project}")
+    source_project, working_project, run_root, report_dir = _validated_prepare_paths(payload)
     reset = bool(payload.get("reset_working_project", False))
-    run_root = _run_root(payload, working_project.parent)
     cleanup_lock = bool(payload.get("cleanup_stale_aedt_lock", True))
     removed_lock_files = (
         _remove_project_lock(working_project, run_root=run_root)
@@ -76,10 +70,15 @@ def prepare_working_project(
         )
 
     loop_context = _initial_loop_context(payload, working_project)
+    identity = _source_identity(source_project)
+    loop_context.update(identity)
     output = _solve_input(payload, loop_context, round_index=1)
     output["working_project_prepared"] = True
     output["source_project_path"] = str(source_project)
+    output["working_project_path"] = str(working_project)
+    output["report_dir"] = str(report_dir)
     output["stale_aedt_lock_files_removed"] = removed_lock_files
+    output.update(identity)
     return _ok(output)
 
 
@@ -341,11 +340,13 @@ def fail_optimization(
         or payload.get("reason")
         or "optimization loop failed"
     )
+    loop_context = _loop_context(payload)
     output = {
         **payload,
         "status": "failed",
         "decision": "failed",
         "reason": reason,
+        "source_integrity": _source_integrity_snapshot(loop_context),
     }
     return {
         "status": NodeRunStatus.FAILED,
@@ -356,6 +357,77 @@ def fail_optimization(
             "code": "optimization_loop_failed",
             "message": reason,
         },
+    }
+
+
+def _source_integrity_snapshot(loop_context: Mapping[str, Any]) -> dict[str, Any]:
+    source_value = str(loop_context.get("source_project_path") or "").strip()
+    expected = str(loop_context.get("source_project_sha256") or "").strip()
+    if not source_value or not expected:
+        return {"status": "unavailable", "verified": False}
+    source = Path(source_value)
+    try:
+        actual = hashlib.sha256(source.read_bytes()).hexdigest() if source.is_file() else ""
+    except OSError:
+        actual = ""
+    return {
+        "status": "passed" if actual == expected else "failed",
+        "verified": actual == expected,
+        "source_project_path": str(source),
+        "expected_sha256": expected,
+        "actual_sha256": actual,
+    }
+
+
+def _resolved_key(path: Path) -> str:
+    return os.path.normcase(str(path.resolve(strict=False)))
+
+
+def _path_within(path: Path, root: Path) -> bool:
+    child_key = _resolved_key(path)
+    root_key = _resolved_key(root)
+    try:
+        return os.path.commonpath([child_key, root_key]) == root_key
+    except ValueError:
+        return False
+
+
+def _required_path(payload: Mapping[str, Any], field: str) -> Path:
+    value = str(payload.get(field) or "").strip()
+    if not value:
+        raise ValueError(f"{field} is required")
+    return Path(value)
+
+
+def _validated_prepare_paths(
+    payload: Mapping[str, Any],
+) -> tuple[Path, Path, Path, Path]:
+    source_project = _required_path(payload, "source_project_path")
+    working_project = _required_path(payload, "working_project_path")
+    run_root = _required_path(payload, "run_root")
+    report_dir = _required_path(payload, "report_dir")
+    if source_project.suffix.casefold() != ".aedt" or not source_project.is_file():
+        raise FileNotFoundError(f"source_project_path not found: {source_project}")
+    if working_project.suffix.casefold() != ".aedt":
+        raise ValueError("working_project_path must end with .aedt")
+    if _resolved_key(source_project) == _resolved_key(working_project):
+        raise ValueError("working_project_path must differ from source_project_path")
+    if not _path_within(working_project, run_root):
+        raise ValueError("working_project_path must be under run_root")
+    if not _path_within(report_dir, run_root):
+        raise ValueError("report_dir must be under run_root")
+    if not run_root.is_absolute():
+        raise ValueError("run_root must be an absolute controlled directory")
+    return source_project, working_project, run_root, report_dir
+
+
+def _source_identity(source_project: Path) -> dict[str, Any]:
+    digest = hashlib.sha256(source_project.read_bytes()).hexdigest()
+    return {
+        "source_project_sha256": digest,
+        "source_project_size": source_project.stat().st_size,
+        "source_sidecar_present": source_project.with_suffix(".aedb").is_dir(),
+        "source_integrity": "baseline_recorded",
     }
 
 

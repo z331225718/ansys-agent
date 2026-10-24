@@ -140,6 +140,24 @@ def test_validate_reviewed_loop_example_without_machine_paths():
     assert "l02_void_r" not in config_text
 
 
+def test_resume_graph_id_does_not_bypass_safety_validation():
+    config = {
+        "goal": "resume loop",
+        "template_id": "brd_reviewed_model_optimize_loop",
+        "graph_run_id": "graph-existing",
+        "poll_interval_seconds": 30,
+    }
+
+    report = loop_runner.validate_loop_config_for_run(config, check_paths=False)
+
+    assert report["status"] == "failed"
+    assert "resume_graph_run_id" not in report["failed_checks"]
+    assert "source_project_path_present" in report["failed_checks"]
+    assert "working_project_path_present" in report["failed_checks"]
+    assert "run_root_present" in report["failed_checks"]
+    assert "report_dir_present" in report["failed_checks"]
+
+
 def test_validate_loop_config_rejects_single_ended_contract():
     config = {
         "goal": "bad loop",

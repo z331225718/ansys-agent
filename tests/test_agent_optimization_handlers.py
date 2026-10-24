@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import hashlib
+from pathlib import Path
+
+import pytest
+
 from aedt_agent.agent.graph_executors import GraphNodeExecutionContext, execute_graph_node
 from aedt_agent.agent.graph_template import GraphNode, GraphTemplate
 from aedt_agent.agent.handoff import HandoffSchema
 from aedt_agent.agent.mission import GraphRunRecord, NodeRunRecord, NodeRunStatus
+from aedt_agent.agent.optimization_handlers import prepare_working_project, fail_optimization
 
 
 def test_prepare_working_project_copies_reviewed_bundle(tmp_path):
@@ -1316,3 +1322,96 @@ def test_optimization_failure_handler_fails_without_action_gate():
     assert result.outcome == "failed"
     assert result.error["code"] == "optimization_loop_failed"
     assert "non-executable" in result.output_payload["reason"]
+
+
+
+def _prepare_context(tmp_path, payload):
+    node = GraphNode("prepare", "prepare", "program", handler="brd.optimization.prepare_working_project", output_schema="real_solve_request")
+    template = GraphTemplate("test", 1, "", [node], [], {"real_solve_request": HandoffSchema("real_solve_request", ["project_path", "setup_name", "sweep_name", "tdr_expression", "expected_port_count", "loop_context"])})
+    graph = GraphRunRecord.create("graph-1", "mission-1", "test", 1, 1)
+    node_run = NodeRunRecord.create("node-run-1", graph.graph_run_id, graph.mission_id, node.node_id, node.role, node.kind, 1, {})
+    return GraphNodeExecutionContext(runtime=None, graph_run=graph, node_run=node_run, node=node, template=template, input_payload=payload, run_index=1, worker_id="test")
+
+
+def _base_paths(tmp_path):
+    source = tmp_path / "source" / "case.aedt"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("source", encoding="utf-8")
+    source.with_suffix(".aedb").mkdir()
+    (source.with_suffix(".aedb") / "edb.def").write_text("edb", encoding="utf-8")
+    run_root = tmp_path / "run"
+    return source, run_root, run_root / "working" / "case.aedt", run_root / "progress"
+
+
+def test_prepare_rejects_same_source_and_working_without_side_effects(tmp_path):
+    source, run_root, working, report = _base_paths(tmp_path)
+    source_lock = source.with_name(source.name + ".lock")
+    source_lock.write_text("lock", encoding="utf-8")
+    payload = {"source_project_path": str(source), "working_project_path": str(source), "run_root": str(run_root), "report_dir": str(report)}
+    with pytest.raises(ValueError, match="must differ"):
+        prepare_working_project(_prepare_context(tmp_path, payload))
+    assert source.read_text(encoding="utf-8") == "source"
+    assert source_lock.exists()
+    assert not working.exists()
+
+
+def test_prepare_requires_explicit_working_project(tmp_path):
+    source, run_root, _working, report = _base_paths(tmp_path)
+    payload = {"source_project_path": str(source), "run_root": str(run_root), "report_dir": str(report)}
+    with pytest.raises(ValueError, match="working_project_path is required"):
+        prepare_working_project(_prepare_context(tmp_path, payload))
+
+
+def test_prepare_rejects_working_outside_run_root(tmp_path):
+    source, run_root, _working, report = _base_paths(tmp_path)
+    payload = {"source_project_path": str(source), "working_project_path": str(tmp_path / "outside" / "case.aedt"), "run_root": str(run_root), "report_dir": str(report)}
+    with pytest.raises(ValueError, match="under run_root"):
+        prepare_working_project(_prepare_context(tmp_path, payload))
+
+
+def test_prepare_rejects_missing_source(tmp_path):
+    _source, run_root, working, report = _base_paths(tmp_path)
+    payload = {"source_project_path": str(tmp_path / "missing.aedt"), "working_project_path": str(working), "run_root": str(run_root), "report_dir": str(report)}
+    with pytest.raises(FileNotFoundError, match="source_project_path not found"):
+        prepare_working_project(_prepare_context(tmp_path, payload))
+
+
+def test_prepare_records_source_hash_and_size(tmp_path):
+    source, run_root, working, report = _base_paths(tmp_path)
+    payload = {"source_project_path": str(source), "working_project_path": str(working), "run_root": str(run_root), "report_dir": str(report)}
+    result = prepare_working_project(_prepare_context(tmp_path, payload))
+    assert result["status"] == NodeRunStatus.SUCCEEDED
+    assert result["output_payload"]["loop_context"]["source_project_sha256"] == hashlib.sha256(b"source").hexdigest()
+    assert result["output_payload"]["loop_context"]["source_project_size"] == 6
+    assert result["output_payload"]["loop_context"]["source_sidecar_present"] is True
+
+
+def test_fail_optimization_preserves_diagnostics_and_integrity(tmp_path):
+    source, _run_root, _working, _report = _base_paths(tmp_path)
+    loop_context = {"source_project_path": str(source), "source_project_sha256": "0" * 64}
+    artifact = tmp_path / "evidence.json"
+    artifact.write_text("{}", encoding="utf-8")
+    node = GraphNode("failure", "failure", "program", handler="brd.optimization.fail_optimization")
+    graph = GraphRunRecord.create("graph-1", "mission-1", "test", 1, 1)
+    node_run = NodeRunRecord.create("node-run-1", graph.graph_run_id, graph.mission_id, node.node_id, node.role, node.kind, 1, {})
+    context = GraphNodeExecutionContext(runtime=None, graph_run=graph, node_run=node_run, node=node, template=GraphTemplate("test", 1, "", [node], [], {}), input_payload={"loop_context": loop_context, "artifact_refs": [str(artifact)], "reason": "test failure"}, run_index=1, worker_id="test")
+    result = fail_optimization(context)
+    assert result["status"] == NodeRunStatus.FAILED
+    assert result["artifact_refs"] == [str(artifact)]
+    assert result["output_payload"]["source_integrity"]["status"] == "failed"
+    assert result["output_payload"]["reason"] == "test failure"
+
+
+@pytest.mark.parametrize("alias", ["case_variant", "relative_variant"])
+def test_prepare_rejects_case_and_relative_path_aliases(tmp_path, alias):
+    run_root = tmp_path / "run"
+    source = run_root / "source" / "case.aedt"
+    source.parent.mkdir(parents=True)
+    source.write_text("source", encoding="utf-8")
+    if alias == "case_variant":
+        working = Path(str(source).upper())
+    else:
+        working = source.parent / "nested" / ".." / source.name
+    payload = {"source_project_path": str(source), "working_project_path": str(working), "run_root": str(run_root), "report_dir": str(run_root / "progress")}
+    with pytest.raises(ValueError, match="must differ"):
+        prepare_working_project(_prepare_context(tmp_path, payload))

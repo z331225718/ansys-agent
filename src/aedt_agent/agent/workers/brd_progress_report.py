@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Mapping
 
 from aedt_agent.agent.mission import JobRecord
-from aedt_agent.agent.workers.registry import WorkerContext
+from aedt_agent.agent.workers.registry import WorkerContext, WorkerReportedError
 from aedt_agent.reporting.brd_optimization_report import (
     build_brd_optimization_summary,
     render_brd_optimization_report_html,
@@ -60,7 +61,9 @@ def run_brd_optimization_report_worker(
     loop_context = _loop_context(payload)
     report = _write_progress_artifacts(loop_context, context=context)
     final_score = dict(report.get("final_score") or {})
+    source_check = _verify_source_integrity(loop_context, report)
     checks = [
+        source_check,
         {
             "id": "raw_trace_policy",
             "status": "passed",
@@ -154,6 +157,60 @@ def _write_progress_artifacts(
         "report_json": str(report_json),
         "final_score": summary.get("final_score") or {},
         "best_project": summary.get("best_project") or {},
+    }
+
+
+def _verify_source_integrity(
+    loop_context: Mapping[str, Any],
+    report: Mapping[str, Any],
+) -> dict[str, Any]:
+    artifact_refs = [
+        str(value)
+        for value in (
+            report.get("optimization_history_csv"),
+            report.get("report_html"),
+            report.get("report_json"),
+        )
+        if value
+    ]
+    source_value = str(loop_context.get("source_project_path") or "").strip()
+    expected = str(loop_context.get("source_project_sha256") or "").strip()
+    if not source_value or not expected:
+        raise WorkerReportedError(
+            "invalid_model",
+            "source project integrity baseline is unavailable",
+            retryable=False,
+            details={
+                "code": "source_integrity_unavailable",
+                "source_project_path": source_value,
+                "artifact_refs": artifact_refs,
+            },
+        )
+    source = Path(source_value)
+    try:
+        actual = hashlib.sha256(source.read_bytes()).hexdigest() if source.is_file() else ""
+    except OSError as exc:
+        actual = ""
+        error = exc
+    else:
+        error = None
+    if actual != expected:
+        raise WorkerReportedError(
+            "invalid_model",
+            f"source project was modified during the optimization loop: {source}",
+            retryable=False,
+            details={
+                "code": "source_project_modified",
+                "source_project_path": str(source),
+                "expected_sha256": expected,
+                "actual_sha256": actual,
+                "artifact_refs": artifact_refs,
+            },
+        )
+    return {
+        "id": "source_project_integrity",
+        "status": "passed",
+        "message": f"source project SHA256 unchanged: {expected}",
     }
 
 
