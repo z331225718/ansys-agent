@@ -46,7 +46,7 @@ def _preset_persona(reviewed: bool) -> str:
     )
 
 
-def _reviewed_plugins() -> str:
+def _reviewed_plugins(plugin_path: Path) -> str:
     return f"""          - id: persona
             name: '@deepseek-ai/dsh-persona'
             config:
@@ -57,7 +57,7 @@ def _reviewed_plugins() -> str:
             config:
               maxBytes: 65536
           - id: reviewed-tools
-            name: ./ansys-reviewed-tools.mjs
+            name: {_quote(str(plugin_path))}
           - id: tool-ask-user
             name: '@deepseek-ai/dsh-tool-ask-user'
 """
@@ -111,10 +111,11 @@ def _explore_plugins(repo_root: Path) -> str:
 """
 
 
-def build_block(repo_root: Path, python: Path, workflow_db: Path) -> str:
+def build_block(repo_root: Path, profile_dir: Path, python: Path, workflow_db: Path) -> str:
     repo = _quote(str(repo_root))
     py = _quote(str(python))
     db = _quote(str(workflow_db))
+    plugin_path = profile_dir / "ansys-reviewed-tools.mjs"
     return f"""{BEGIN}
 - insert:
     - id: mcp-ansys-assistant-reviewed
@@ -144,7 +145,7 @@ def build_block(repo_root: Path, python: Path, workflow_db: Path) -> str:
         description: 只读观察真实 Mission/Graph/报告；无官方 PyAEDT-MCP、shell、PTC 或写入口。
         order: 11
         plugins:
-{_reviewed_plugins()}    - id: preset-ansys-explore
+{_reviewed_plugins(plugin_path)}    - id: preset-ansys-explore
       name: '@deepseek-ai/dsh-agent-preset'
       config:
         id: ansys-explore
@@ -258,7 +259,7 @@ def apply_installation(repo_root: Path, profile_dir: Path, python: Path, workflo
         return {**report, "applied": False}
     cordis = profile_dir / "cordis.patch.yml"
     original = cordis.read_text(encoding="utf-8")
-    block = build_block(repo_root, python, workflow_db)
+    block = build_block(repo_root, profile_dir, python, workflow_db)
     span = _block_span(original)
     if span is None:
         updated = original.rstrip() + "\n\n" + block + "\n"

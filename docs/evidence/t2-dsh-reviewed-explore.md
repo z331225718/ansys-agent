@@ -39,6 +39,7 @@ Verified in temporary profiles:
 - generated block parses as YAML after replacing `!!js` placeholders;
 - reviewed block has no official AEDT MCP, shell, filesystem, PTC, preview/apply;
 - `--workflow-db` is propagated to the reviewed MCP process.
+- the reviewed catalog filter plugin is referenced by an installer-generated absolute path, avoiding inline-preset relative-path ambiguity.
 
 ## Real profile check (no apply)
 
