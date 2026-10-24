@@ -22,7 +22,7 @@ def _dispatch(method, path, runtime):
     return status, ct, json.loads(body) if "json" in ct else body.decode()
 
 
-def _fixture(tmp_path: Path):
+def _fixture(tmp_path: Path, inventory: dict | None = None):
     runtime = _runtime(tmp_path)
     mission = runtime.create_mission("TX0 to RX0 reviewed differential via", [], [])
     graph = runtime.store.create_graph_run(GraphRunRecord.create(
@@ -35,6 +35,7 @@ def _fixture(tmp_path: Path):
             "frequency_stop_ghz": 28.0,
             "tdr_observation_port": "Diff1",
             "geometry_constraints": {"anti_pad": {"max_radius_mil": 22}, "non_functional_pad": {"min_radius_mil": 7.875, "max_radius_mil": 10}},
+            **({"model_inventory": inventory} if inventory else {}),
         },
         template_snapshot={"id": "brd_reviewed_model_optimize_loop", "version": 1, "nodes": [], "edges": [], "handoffs": {}},
     ))
@@ -44,8 +45,10 @@ def _fixture(tmp_path: Path):
     report_json.write_text(json.dumps({"rounds": [{"round_index": 1, "status": "scored", "solve_status": "succeeded", "score_status": "fail", "return_loss_trace": "SDD11", "rl_worst_db": -16.8, "rl_worst_frequency_ghz": 18.0, "insertion_loss_trace": "SDD21", "insertion_worst_db_in_band": -1.2, "tdr_observation_port": "Diff1", "tdr_peak_deviation_ohm": 10.5, "tdr_peak_time_ps": 20.0, "objective_total_cost": 42.0, "plot_artifacts": {}}]}), encoding="utf-8")
     history = tmp_path / "optimization_history.csv"
     history.write_text("round_index,round_status,score_status,rl_worst_db,objective_total_cost\n1,scored,fail,-16.8,42.0\n", encoding="utf-8")
+    source_project = tmp_path / "source.aedt"
+    source_project.write_text("source", encoding="utf-8")
     node = runtime.store.create_node_run(NodeRunRecord.create("node-si-1", graph.graph_run_id, mission.mission_id, "channel_score", "worker", "worker", 1, {}))
-    runtime.store.complete_node_run(node.node_run_id, NodeRunStatus.SUCCEEDED, {"loop_context": {"source_project_path": str(tmp_path / "reviewed.aedt"), "working_project_path": str(tmp_path / "working.aedt"), "source_project_sha256": "source-hash", "optimization_history_csv": str(history), "report_json": str(report_json), "report_html": str(report_html), "report_dir": str(tmp_path)}, "score": {"status": "fail"}}, [str(report_html), str(report_json), str(history)], edge_decision="succeeded")
+    runtime.store.complete_node_run(node.node_run_id, NodeRunStatus.SUCCEEDED, {"loop_context": {"source_project_path": str(tmp_path / "reviewed.aedt"), "working_project_path": str(tmp_path / "working.aedt"), "source_project_sha256": "source-hash", "optimization_history_csv": str(history), "report_json": str(report_json), "report_html": str(report_html), "report_dir": str(tmp_path)}, "score": {"status": "fail"}}, [str(report_html), str(report_json), str(history), str(source_project)], edge_decision="succeeded")
     return runtime, mission, graph
 
 
@@ -106,3 +109,25 @@ def test_workbench_mission_list_and_missing_graph(tmp_path):
     assert data["missions"][0]["graph_run_id"] == "graph-si-1"
     status, _, data = _dispatch("GET", "/api/workbench/graphs/not-a-graph", runtime)
     assert status == 400 and data["error"] == "KeyError"
+
+
+def test_workbench_never_exposes_source_project_artifacts(tmp_path):
+    runtime, mission, graph = _fixture(tmp_path)
+    _, _, data = _dispatch("GET", "/api/workbench/graphs/graph-si-1", runtime)
+    paths = {a["path"] for a in data["artifacts"]}
+    assert not any(path.casefold().endswith((".aedt", ".aedb", ".edb", ".brd")) for path in paths)
+    assert "approvals" not in data
+
+
+def test_workbench_model_inventory_is_projected_as_real_data(tmp_path):
+    runtime, mission, graph = _fixture(tmp_path, inventory={"vias": [{"name": "via_1", "layer": "L2_GND"}], "provenance": "aedb_read"})
+    _, _, data = _dispatch("GET", "/api/workbench/graphs/graph-si-1", runtime)
+    assert data["model"]["available"] is True
+    assert data["model"]["inventory"]["vias"][0]["name"] == "via_1"
+
+
+def test_workbench_source_integrity_is_reported_not_verified(tmp_path):
+    runtime, mission, graph = _fixture(tmp_path)
+    _, _, data = _dispatch("GET", "/api/workbench/graphs/graph-si-1", runtime)
+    assert data["source"]["source_integrity"] == "reported_not_reverified"
+    assert data["source"]["source_sha256_verified"] is False

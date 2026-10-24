@@ -46,13 +46,12 @@ def workbench_snapshot(runtime: AgentRuntime, graph_run_id: str) -> dict[str, An
         "schema": "si-forge-workbench/v1", "mode": "mission_readonly", "read_only": True, "demo": False,
         "mission": {"mission_id": mission_id, "goal": mission.user_goal, "state": mission.state.value},
         "graph": {"graph_run_id": graph_run_id, "template_id": status.get("template_id"), "status": status.get("status"), "current_node_id": graph_run.get("current_node_id"), "step_count": graph_run.get("step_count"), "max_steps": graph_run.get("max_steps")},
-        "source": {"source_project_path": context.get("source_project_path") or context.get("project_path"), "working_project_path": context.get("working_project_path") or context.get("latest_project_path"), "source_sha256": context.get("source_project_sha256") or context.get("source_sha256"), "source_read_only": True, "working_isolated": bool(context.get("working_project_path")), "report_dir": context.get("report_dir"), "run_root": context.get("run_root"), "setup_name": context.get("setup_name"), "sweep_name": context.get("sweep_name")},
+        "source": {"source_integrity": "reported_not_reverified", "source_sha256_verified": False, "source_read_only": None, "source_read_only_verified": False, "source_project_path": context.get("source_project_path") or context.get("project_path"), "working_project_path": context.get("working_project_path") or context.get("latest_project_path"), "source_sha256": context.get("source_project_sha256") or context.get("source_sha256"), "source_read_only": True, "working_isolated": bool(context.get("working_project_path")), "report_dir": context.get("report_dir"), "run_root": context.get("run_root"), "setup_name": context.get("setup_name"), "sweep_name": context.get("sweep_name")},
         "metrics": _metrics(latest),
         "rounds": [_round_summary(row) for row in rounds],
         "model": _model(context, latest),
         "constraints": _constraints(context, latest),
-        "approvals": [a.to_json_dict() for a in runtime.store.list_approvals(mission_id)],
-        "artifacts": _artifacts(runtime, mission_id),
+        "artifacts": _safe_artifacts(_artifacts(runtime, mission_id)),
         "nodes": [{"node_id": r.get("node_id"), "status": r.get("status"), "edge_decision": r.get("edge_decision"), "error": r.get("error")} for r in node_runs],
         "capabilities": {"geometry_preview": False, "workflow_start": False, "workflow_advance": False, "human_gate_approve": False, "artifact_read": True, "production_write": False},
     }
@@ -123,6 +122,25 @@ def _model(context: dict[str, Any], metrics: dict[str, Any]) -> dict[str, Any]:
 def _round_summary(row: dict[str, Any]) -> dict[str, Any]:
     edit = row.get("edit_digest") or {}
     return {"round_index": row.get("round_index"), "status": row.get("status") or row.get("round_status"), "action_type": row.get("action_type") or edit.get("action_type"), "layers": row.get("layers") or edit.get("layers"), "target_radius": row.get("target_radius") or edit.get("target_radius"), "objective_total_cost": row.get("objective_total_cost"), "rl_worst_db": row.get("rl_worst_db"), "tdr_peak_deviation_ohm": row.get("tdr_peak_deviation_ohm"), "solve_status": row.get("solve_status"), "score_status": row.get("score_status"), "continue_recommendation": row.get("continue_recommendation"), "evidence_path": row.get("evidence_path") or row.get("score_evidence_path")}
+
+
+_SAFE_ARTIFACT_KINDS = {"report_html", "history_csv", "score_evidence", "plot", "plot_tdr", "plot_sdd11", "plot_sdd21"}
+_DENIED_SUFFIXES = {".aedt", ".aedb", ".edb", ".brd", ".aedtz", ".tgz", ".zip"}
+
+
+def _safe_artifacts(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    safe = []
+    for record in records:
+        kind = str(record.get("kind") or "")
+        path = Path(str(record.get("path") or ""))
+        if kind not in _SAFE_ARTIFACT_KINDS:
+            continue
+        if path.suffix.casefold() in _DENIED_SUFFIXES:
+            continue
+        if path.suffix.casefold() not in {".html", ".csv", ".json", ".svg", ".png", ".jpg", ".jpeg", ".txt"}:
+            continue
+        safe.append(record)
+    return safe
 
 
 def _artifacts(runtime: AgentRuntime, mission_id: str) -> list[dict[str, Any]]:

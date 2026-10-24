@@ -754,3 +754,6 @@ kbd { color: #6f879b; background: #f3f7fa; border-color: #d7e1e9; }
 .real-plots figure { flex:1 0 260px; margin:0; }
 .real-plots figcaption { margin-bottom:6px; color:#7892a8; font-family:var(--mono); font-size:8px; }
 .real-plots img { width:100%; border:1px solid var(--line); border-radius:3px; background:#fff; }
+
+.model-unavailable.real-model { align-content:start; text-align:left; overflow:auto; }
+.model-unavailable.real-model pre { white-space:pre-wrap; word-break:break-word; max-height:420px; overflow:auto; padding:10px; border:1px solid #dfe8f0; border-radius:3px; background:#fff; color:#617f96; font-family:var(--mono); font-size:8px; }
