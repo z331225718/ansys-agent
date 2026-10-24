@@ -13,7 +13,8 @@ from aedt_agent.agent.workers.brd_progress_report import (
     run_brd_optimization_progress_worker,
     run_brd_optimization_report_worker,
 )
-from aedt_agent.agent.workers.registry import WorkerContext, WorkerReportedError
+from aedt_agent.agent.mission import JobStatus
+from aedt_agent.agent.workers.registry import InMemoryWorkerRegistry, WorkerContext, WorkerReportedError
 
 
 def _job(capability: str, input_payload: dict) -> JobRecord:
@@ -199,3 +200,30 @@ def test_final_report_worker_fails_closed_without_source_baseline(tmp_path):
             WorkerContext("worker-1", artifacts_dir=str(tmp_path / "artifacts")),
         )
     assert exc.value.details["code"] == "source_integrity_unavailable"
+
+
+def test_report_worker_error_becomes_failed_job_with_diagnostic_details(tmp_path):
+    evidence_path = _score_evidence(tmp_path / "score" / "evidence.json")
+    source = tmp_path / "source" / "reviewed.aedt"
+    source.parent.mkdir(parents=True)
+    source.write_text("changed", encoding="utf-8")
+    payload = {
+        "decision": "complete",
+        "loop_context": {
+            "round_index": 1,
+            "report_dir": str(tmp_path / "progress"),
+            "score_evidence_paths": [evidence_path],
+            "source_project_path": str(source),
+            "source_project_sha256": hashlib.sha256(b"original").hexdigest(),
+        },
+    }
+    registry = InMemoryWorkerRegistry()
+    registry.register(BRD_OPTIMIZATION_REPORT_CAPABILITY, run_brd_optimization_report_worker)
+    result = registry.execute(
+        _job(BRD_OPTIMIZATION_REPORT_CAPABILITY, payload),
+        WorkerContext("worker-1", artifacts_dir=str(tmp_path / "artifacts")),
+    )
+    assert result.status == JobStatus.FAILED
+    assert result.error is not None
+    assert result.error.details["code"] == "source_project_modified"
+    assert Path(result.error.details["artifact_refs"][0]).is_file()
