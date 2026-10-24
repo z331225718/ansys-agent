@@ -152,6 +152,7 @@ def test_final_report_worker_returns_scorecard_report(tmp_path):
         output["optimization_history_csv"],
         output["report_json"],
         output["report_html"],
+        output["artifact_manifest"],
     ]
 
 

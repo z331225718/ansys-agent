@@ -10,6 +10,7 @@ from aedt_agent.agent.workers.registry import WorkerContext, WorkerReportedError
 from aedt_agent.reporting.brd_optimization_report import (
     build_brd_optimization_summary,
     render_brd_optimization_report_html,
+    write_brd_optimization_artifact_manifest,
     write_brd_optimization_history_csv,
 )
 
@@ -47,6 +48,7 @@ def run_brd_optimization_progress_worker(
                 report["optimization_history_csv"],
                 report["report_json"],
                 report["report_html"],
+                report["artifact_manifest"],
                 *list((report.get("best_project") or {}).get("artifact_refs") or []),
             ]
         ),
@@ -80,6 +82,11 @@ def run_brd_optimization_report_worker(
             "message": str(report.get("report_html") or ""),
         },
         {
+            "id": "artifact_manifest",
+            "status": "passed" if report.get("artifact_manifest") else "failed",
+            "message": str(report.get("artifact_manifest") or ""),
+        },
+        {
             "id": "required_plots",
             "status": "passed" if _has_required_plots(final_score) else "failed",
             "message": "final report must include TDR plus SDD11/SDD21 plot artifacts",
@@ -97,6 +104,7 @@ def run_brd_optimization_report_worker(
                 report["optimization_history_csv"],
                 report["report_json"],
                 report["report_html"],
+                report["artifact_manifest"],
                 *list((report.get("best_project") or {}).get("artifact_refs") or []),
             ]
         ),
@@ -112,6 +120,7 @@ def run_brd_optimization_report_worker(
                 report["optimization_history_csv"],
                 report["report_json"],
                 report["report_html"],
+                report["artifact_manifest"],
                 *list((report.get("best_project") or {}).get("artifact_refs") or []),
             ],
         },
@@ -138,7 +147,14 @@ def _write_progress_artifacts(
     )
     report_html = report_dir / "optimization_progress.html"
     report_json = report_dir / "optimization_progress.json"
+    manifest_path = report_dir / "optimization_artifacts.json"
     summary["optimization_history_csv"] = str(history_csv)
+    write_brd_optimization_artifact_manifest(
+        summary,
+        manifest_path,
+        run_root=loop_context.get("run_root"),
+    )
+    summary["optimization_artifact_manifest"] = str(manifest_path)
     report_html.write_text(
         render_brd_optimization_report_html(summary),
         encoding="utf-8",
@@ -150,11 +166,13 @@ def _write_progress_artifacts(
     loop_context["optimization_history_csv"] = str(history_csv)
     loop_context["report_html"] = str(report_html)
     loop_context["report_json"] = str(report_json)
+    loop_context["optimization_artifact_manifest"] = str(manifest_path)
     return {
         "optimization_history_csv": str(history_csv),
         "optimization_history_rows": list(summary.get("history_rows") or []),
         "report_html": str(report_html),
         "report_json": str(report_json),
+        "artifact_manifest": str(manifest_path),
         "final_score": summary.get("final_score") or {},
         "best_project": summary.get("best_project") or {},
     }

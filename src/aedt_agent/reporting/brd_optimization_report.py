@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import html
 import json
 from pathlib import Path
@@ -32,6 +33,7 @@ OPTIMIZATION_HISTORY_COLUMNS = [
     "rl_worst_frequency_ghz",
     "insertion_worst_db_in_band",
     "tdr_observation_port",
+    "tdr_orientation_confirmed",
     "tdr_peak_deviation_ohm",
     "tdr_peak_time_ps",
     "tdr_proximity_mse_ohm2",
@@ -154,6 +156,104 @@ def build_brd_optimization_summary(
             str(Path(path)) for path in solve_manifest_paths
         ],
     }
+
+
+def build_brd_optimization_artifact_manifest(
+    summary: Mapping[str, Any],
+    *,
+    run_root: str | Path | None = None,
+) -> dict[str, Any]:
+    root = Path(run_root).resolve() if run_root else None
+    paths: list[str] = []
+
+    def add(value: Any) -> None:
+        if isinstance(value, str):
+            text = value.strip()
+            if text:
+                paths.append(text)
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                add(item)
+
+    for round_item in summary.get("rounds") or []:
+        if isinstance(round_item, Mapping):
+            for key in (
+                "touchstone_path",
+                "tdr_path",
+                "edit_manifest_path",
+                "solve_result_path",
+                "solve_manifest_path",
+                "score_evidence_path",
+                "artifact_refs",
+            ):
+                add(round_item.get(key))
+    for change in summary.get("changes") or []:
+        if isinstance(change, Mapping):
+            add(change.get("manifest_path"))
+    for key in (
+        "score_evidence_paths",
+        "model_edit_manifest_paths",
+        "solve_result_paths",
+        "solve_manifest_paths",
+    ):
+        add(summary.get(key))
+
+    artifacts = []
+    for raw in sorted(set(paths)):
+        path = Path(raw)
+        exists = path.is_file()
+        resolved = path.resolve() if exists else path.resolve(strict=False)
+        artifacts.append(
+            {
+                "path": str(path),
+                "resolved_path": str(resolved),
+                "exists": exists,
+                "size_bytes": resolved.stat().st_size if exists else None,
+                "sha256": _sha256_file(resolved) if exists else None,
+                "within_run_root": _path_is_within(resolved, root) if root else None,
+            }
+        )
+    return {
+        "version": 1,
+        "run_root": str(root) if root else None,
+        "artifact_count": len(artifacts),
+        "all_exist": all(item["exists"] for item in artifacts),
+        "all_within_run_root": (
+            all(item["within_run_root"] for item in artifacts) if root else None
+        ),
+        "artifacts": artifacts,
+    }
+
+
+def write_brd_optimization_artifact_manifest(
+    summary: Mapping[str, Any],
+    output_path: str | Path,
+    *,
+    run_root: str | Path | None = None,
+) -> Path:
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    manifest = build_brd_optimization_artifact_manifest(summary, run_root=run_root)
+    output.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return output
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _path_is_within(path: Path, root: Path) -> bool:
+    try:
+        return path == root or root in path.parents
+    except OSError:
+        return False
 
 
 def write_brd_optimization_history_csv(
@@ -466,6 +566,9 @@ def _round_summary(
         "tdr_observation_port": score.get("tdr_observation_port")
         or evidence_summary.get("tdr_observation_port")
         or solve_summary.get("tdr_observation_port"),
+        "tdr_orientation_confirmed": score.get("tdr_orientation_confirmed")
+        if "tdr_orientation_confirmed" in score
+        else evidence_summary.get("tdr_orientation_confirmed"),
         "tdr_peak_deviation_ohm": score.get("tdr_peak_deviation_ohm")
         or evidence_summary.get("tdr_peak_deviation_ohm"),
         "tdr_peak_time_ps": score.get("tdr_peak_time_ps")
@@ -581,6 +684,7 @@ def _history_row(round_item: Mapping[str, Any], zero_index: int) -> dict[str, An
         "rl_worst_frequency_ghz": round_item.get("rl_worst_frequency_ghz"),
         "insertion_worst_db_in_band": round_item.get("insertion_worst_db_in_band"),
         "tdr_observation_port": round_item.get("tdr_observation_port"),
+        "tdr_orientation_confirmed": round_item.get("tdr_orientation_confirmed"),
         "tdr_peak_deviation_ohm": round_item.get("tdr_peak_deviation_ohm"),
         "tdr_peak_time_ps": round_item.get("tdr_peak_time_ps"),
         "tdr_proximity_mse_ohm2": round_item.get("tdr_proximity_mse_ohm2"),

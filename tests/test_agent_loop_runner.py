@@ -202,3 +202,29 @@ def test_validate_loop_config_rejects_single_ended_contract():
     assert "differential_traces" in report["failed_checks"]
     assert "tdr_diff1" in report["failed_checks"]
     assert "differential_reference_impedance" in report["failed_checks"]
+
+
+def test_validate_reviewed_loop_with_machine_paths(tmp_path):
+    source = tmp_path / "run" / "source" / "reviewed.aedt"
+    source.parent.mkdir(parents=True)
+    source.write_text("source", encoding="utf-8")
+    working = tmp_path / "run" / "working" / "reviewed.aedt"
+    working.parent.mkdir(parents=True)
+    report = tmp_path / "run" / "progress"
+    config = loop_runner.load_loop_config(
+        "config/optimization_loops/reviewed_brd_remote.example.json"
+    )
+    config.update(
+        {
+            "run_root": str(tmp_path / "run"),
+            "source_project_path": str(source),
+            "working_project_path": str(working),
+            "report_dir": str(report),
+        }
+    )
+    report_result = loop_runner.validate_loop_config_for_run(config, check_paths=True)
+    assert report_result["status"] == "passed"
+    assert report_result["failed_checks"] == []
+    status = {item["id"]: item["status"] for item in report_result["checks"]}
+    assert status["source_project_exists"] == "passed"
+    assert status["working_project_parent_ready"] == "passed"

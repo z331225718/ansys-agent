@@ -25,6 +25,7 @@ docs/evidence/
 ## 当前状态
 
 - M1 离线部分（T0-T3）已完成；**真实 AEDT 闭环尚未启动**，第 9 节人工启动门待用户完成。
+- T3 记录见 [t3-offline-acceptance.md](t3-offline-acceptance.md)；真实 path config 校验因本机缺少 `reviewed_brd_remote.json` / `local_real_aedt.json` 尚未执行，未冒充通过。
 - 因此本索引目前只记录离线测试基线，不得据此声明“真实闭环通过”。
 
 ## T0 离线测试基线（2026-10-24）

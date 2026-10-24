@@ -250,3 +250,38 @@ optimization_progress.json
 Each row records the round, model edit, solve and score status, SDD11/SDD21/TDR
 metrics, objective cost, artifact refs, and next recommendation. Raw S-parameter
 and TDR files remain artifact-only.
+
+## 4.1 DSH is observation, not the production controller
+
+The installed DSH mode is the single **Ansys 工程优化模式**. It can use the
+official PyAEDT-MCP, the domain tools, shell/filesystem, and PTC, but its
+`production-guard.mjs` denies these four production lifecycle tools:
+
+- `preview_ansys_workflow_start`
+- `apply_ansys_workflow_start`
+- `preview_ansys_workflow_advance`
+- `apply_ansys_workflow_advance`
+
+Mission creation, advance, resume, and human_gate approval remain in the local
+CLI/dashboard. DSH observes the same Mission DB through `AssistantWorkflowManager.status()`;
+that call is read-only. The dashboard and `run-loop` must receive the same
+`--db` value; the CLI must receive
+`--profile config\execution_profiles\local_real_aedt.json` on the AEDT machine.
+
+## 4.2 Resume and approval after restart
+
+Resume by `graph_run_id` in the loop config, never by chat context. After a
+CLI/Assistant restart:
+
+1. rebuild the runtime against the same SQLite DB;
+2. call only `AssistantWorkflowManager.status(graph_run_id)` to inspect
+   mission/graph/node/handoff state;
+3. do not reuse Assistant preview IDs or approval tokens across processes;
+4. approve the persisted human gate through the existing CLI
+   `ApprovalService`/dashboard, then advance or resume through the CLI.
+
+The approved report directory contains `optimization_history.csv`,
+`optimization_progress.html`, `optimization_progress.json`, and
+`optimization_artifacts.json`. The manifest records SHA256, size, existence,
+and run-root ownership for every referenced artifact; it does not embed raw
+S-parameter or TDR curves.
