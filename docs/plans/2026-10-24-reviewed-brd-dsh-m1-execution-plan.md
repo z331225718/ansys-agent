@@ -1,9 +1,11 @@
-# M1 实施计划：DSH 驱动的 Reviewed BRD 差分 Via 优化闭环
+# M1 实施计划：Reviewed BRD 差分 Via 优化闭环与 DSH 观察入口
 
 - 日期：2026-10-24
 - 执行对象：可独立阅读本文件的低成本编码 Agent
 - 基线分支：codex/pi-operator-poc
-- 基线提交：bf2f4f1e6296f91ada78665e41510475dbb95429
+- 初始基线提交：bf2f4f1e6296f91ada78665e41510475dbb95429
+- 计划文档提交：9c3989eec6fed7028d0a413f1400617d691df76d
+- 当前实施基线：本计划最新提交（执行时以 `git rev-parse HEAD` 实测记录，不机械假定固定 SHA）
 - 目标分支：feature/reviewed-brd-dsh-loop
 - 计划状态：可执行；真实 AEDT 运行必须先通过第 9 节人工启动门
 
@@ -64,7 +66,7 @@ M1 的产品结论是：**一个真实工程能否稳定、可审计地完成优
 
 ### 3.3 已知风险
 
-- prepare_working_project() 当前在 working_project_path 为空时会回退到 source_project，且相同路径时不会触发复制保护。M1-0 必须在执行层 fail closed。
+- prepare_working_project() 当前在 working_project_path 为空时会回退到 source_project，且相同路径时不会触发复制保护。**T1** 必须在执行层 fail closed；T0 不改业务代码。
 - DSH preset 目录不是模式选择器的数据源；GUI 需要 Cordis dsh-agent-preset 声明。
 - DSH patch 启动时读取；修改 preset/MCP 后需重启或重载对应 profile。
 - config/*.local.json 不能假定覆盖所有文档中的本机配置名；本计划显式保护真实 local config。
@@ -88,12 +90,16 @@ M1 的产品结论是：**一个真实工程能否稳定、可审计地完成优
 
 ### 步骤
 
-1. 当前未提交的只有本计划文档；先提交本计划（或明确保留为计划变更），再创建目标分支。不得把工作树中的未审阅改动带入实施。
-2. 确认 git status --short 干净，HEAD 等于基线提交或仅比基线多本计划提交。
+1. 确认当前只包含已审阅的计划文档提交，先提交计划修订；不得把未审阅改动带入实施。
+2. 确认 git status --short 干净，并用 `git rev-parse HEAD` 记录实际实施基线；允许 HEAD 是上述计划提交的后续文档修订，不要求机械等于旧 SHA。
 3. 创建 feature/reviewed-brd-dsh-loop；不要直接 push/merge main。
-4. 运行完整测试，保存汇总，不粘贴长日志：
+4. 先清除所有已知真实测试开关，确认没有 AEDT solve/job 在运行，再运行完整离线测试并保存汇总，不粘贴长日志。不得只依赖 pytest 的 skip 默认值：
 
 ~~~powershell
+$env:RUN_REAL_LIVE_AEDT = '0'
+$env:RUN_REAL_AEDT = '0'
+$env:RUN_REAL_PYEDB = '0'
+$env:ANSYS_AGENT_RUN_REAL_AEDT = '0'
 .\.venv\Scripts\python.exe -m pytest tests -q --no-header
 ~~~
 
@@ -111,7 +117,7 @@ docs/evidence/*/
 ### 验收
 
 - 分支正确，工作树只包含预期变更。
-- 有完整测试基线；没有未经说明的测试删除。
+- 有完整离线测试基线；没有未经说明的测试删除。real-AEDT acceptance 在本阶段只能记录为未启用/未运行，不得声称已验收。
 - git check-ignore 能识别本机配置，不能忽略 *.example.json。
 
 ## 6. T1：working project 与源工程完整性的 fail-closed 修复
@@ -119,10 +125,14 @@ docs/evidence/*/
 ### 修改范围
 
 - src/aedt_agent/agent/optimization_handlers.py
-- src/aedt_agent/agent/loop_runner.py（仅确有需要）
+- src/aedt_agent/agent/loop_runner.py（仅确有需要，包括 graph_run_id 校验提前返回问题）
+- src/aedt_agent/agent/workers/brd_progress_report.py（真实最终报告 worker）
+- src/aedt_agent/reporting/（仅需要持久化完整性证据时）
 - tests/test_agent_optimization_handlers.py
 - tests/test_agent_loop_runner.py
-- 可新增一个小型、明确命名的测试辅助模块；不得改 AEDT worker 语义。
+- tests/test_agent_brd_progress_report_worker.py
+- tests/test_agent_graph_runner_dag.py（仅用于验证 graph failed 传播时）
+- 可新增一个小型、明确命名的测试辅助模块；不得改 AEDT worker 语义。现有 WorkerReportedError.details 已能保存到 job error 与事件日志，失败证据优先使用该通道，不为它修改正常 worker 结果契约。
 
 ### 必做行为
 
@@ -132,25 +142,29 @@ docs/evidence/*/
    - working 必须位于 run_root 下；
    - report_dir 必须位于 run_root 下；
    - source 必须存在且为 .aedt 文件。
-3. 删除 working_project_path 缺省时回退 source 的行为。
+3. 删除 working_project_path 缺省时回退 source 的行为。路径比较必须使用 `resolve()`/canonical 与 `os.path.normcase()` 的 Windows 大小写语义，覆盖相对路径别名以及现存 junction/symlink 父目录；不能只做字符串前缀比较。working/report_dir 尚不存在时也必须从最近的现存父目录逐层解析父链中的 junction/symlink，再拼接剩余部分；不能只解析已存在的目标本身。
 4. 同路径、空 working、working 越界时返回明确错误或既有结构化失败，不得产生文件副作用。
 5. 首次准备时记录源工程身份到 bounded run evidence：
    - source .aedt SHA256；
    - source/working 路径（仅本机 artifact，不进 LLM 长上下文）；
    - sidecar .aedb 是否存在及既有 bundle digest（若实现提供）；结果 sidecar 是否存在；
    - 如已有 bundle digest 工具则复用，不新写昂贵的全 AEDB 重复遍历。
-6. 在 write_optimization_report() 和 fail_optimization() 共用的终结路径复核 source .aedt SHA256，并写入 evidence/report。不要只在成功分支检查。若不一致，覆盖为明确失败状态 source_project_modified，不得仍报告成功；无需修改图的拓扑。.aedt hash 只证明主文件未变；完整 AEDB 完整性要在报告中单列检查范围，不得用主文件 hash 冒充全 bundle 证明。
-7. 保持 reset_working_project=false 的复用语义；不得每轮复制新 bundle。
+6. **成功终结必须覆盖真实 worker**：在 `run_brd_optimization_report_worker()`（capability `brd.optimization.report`）返回前复核 source `.aedt` SHA256。不能只改 `write_optimization_report()`，因为 reviewed graph 实际走该 worker。
+7. hash 不一致或无法读取时，在**已经写出诊断报告之后**抛 `WorkerReportedError(error_class='invalid_model', retryable=False, details={'code':'source_project_modified', 'artifact_refs':[...诊断路径...]})`，使 JobStatus.FAILED 经 `_execute_worker` 传播为 graph failed。注意：当前普通异常路径会丢弃 output_payload/artifact_refs，因此必须把诊断路径保留在 JobError.details 和事件/日志中；不能只把路径放进抛错前的返回字典就宣称保留。禁止只返回 `status='failed'` 字符串后仍让 graph succeeded。用 graph/worker 测试证明最终状态与证据位置，不只测字符串。
+8. 失败/取消路径由 `fail_optimization()` 或其实际失败收敛处记录同样的完整性检查； waiting_approval 是暂停，不得做最终成功声明。恢复时必须沿用第一次保存的 baseline hash，不得重新记录后覆盖旧基线。若当前失败路径不能可靠保留报告，先停止报告此缺口，不能编造证据。
+9. `.aedt` hash 只证明主文件未变；完整 AEDB/结果 sidecar 完整性要在报告中单列检查范围，不得用主文件 hash 冒充全 bundle 证明。
+10. 保持 reset_working_project=false 的复用语义；不得每轮复制新 bundle。
 
 ### 必加负向测试
 
-- source == working 被拒绝，source 内容和 source lock 均未改变。
+- source == working（含 Windows 大小写/相对路径别名）被拒绝，source 内容和 source lock 均未改变。
+- 若平台支持，junction/symlink 指向 source 或 run_root 外也被拒绝；额外覆盖“working/report_dir 尚不存在，但其现存父目录或更高层父目录是 junction”的情况。若无法创建链接，明确标记未验证而不是假称通过。
 - working 缺省被拒绝。
 - working 在 run_root 外被拒绝。
 - source 不存在被拒绝。
 - 正常 copy-once 测试继续通过。
 - 第二次准备不会新建另一套 bundle。
-- source digest 发生变化时最终验收状态为失败（用 fixture 模拟，不触碰真实 AEDT）。
+- source digest 发生变化时真实 report worker 返回/传播 JobStatus.FAILED，graph 最终为 failed；诊断 artifact 路径能从 JobError.details/事件中读取；若实际修改了 artifact 传递，再从 artifact 清单交叉核对（用 fixture 模拟，不触碰真实 AEDT）。
 
 ### 验收命令
 
@@ -162,37 +176,43 @@ docs/evidence/*/
 
 ### 安全设计（按此实现，不改成共享全开 preset）
 
-| 项目 | ansys-reviewed | ansys-explore |
+| 项目 | ansys-reviewed（M1 只读观察） | ansys-explore |
 |---|---|---|
-| 用途 | 真实工程与生产优化 | API 查询、临时探索、非生产试验 |
-| ansys-assistant MCP | 开启受控 workflow/Harness | 开启 |
+| 用途 | 观察真实工程 Mission、报告与人工审批材料 | API 查询、临时探索、非生产试验 |
+| ansys-assistant MCP | **独立 reviewed 配置，仅允许只读 workflow catalog/status** | 开启受控工具 |
 | ansys-api-memory | 开启 | 开启 |
 | 官方 PyAEDT-MCP | **不注册** | 注册 |
 | 裸 run_python_code/script | 无入口 | 允许，结果标记非生产证据 |
 | shell / 任意文件写 / 任意 PTC | 不开放 | 按 DSH 沙箱策略开放 |
-| 生产 Mission/Graph | 允许 preview/approve/advance | 不作为生产入口 |
+| 生产 Mission/Graph | 本地 CLI/dashboard 启动、advance、human_gate 审批；DSH 仅查看 | 不作为生产入口 |
 
-说明：reviewed 若需要启动或恢复 graph，使用 ansys-assistant 已有的 list/inspect/preview/apply workflow 与 get_ansys_workflow_status，不要为绕过限制重新开放 shell。长循环 worker 由本地 CLI/受控服务运行，DSH 只发起、审批和查看。
+**M1 明确不让 DSH 直接启动/advance/批准 reviewed BRD graph。** 当前 `apply_start` 总会新建 mission、workflow 需要 live_session_id，且 BRD human_gate 没有对应的 MCP 批准工具。不得让执行者临时补一套不完整协议来代替这些边界。启动、advance、恢复与 human_gate 批准继续使用已有受控本地 CLI/dashboard；DSH reviewed 只读观察。这一限制取消“DSH 驱动执行”的未完成部分，不影响真实闭环验收。
 
 ### 修改范围
 
 - integrations/dsh/agent-presets/
 - integrations/dsh/ 下安装说明和模板
+- src/aedt_agent/interactive/server.py 及紧邻的配置模块（仅实现 reviewed 只读 allowlist，不新增 workflow/审批协议）
 - scripts/dsh/（新增安装/检查脚本）
 - tests/dsh/（新增）
+- tests/test_interactive_ansys_assistant.py 或 tests/test_assistant_workflows.py（对应只读 allowlist）
 - .mcp.json 与 config/harness/dual_pyaedt_ansys_agent_mcp.json：只移除机器绝对路径，改为安装时生成/替换的参数或文档变量，不删除现有能力。
 
 ### 实现要求
 
 1. 新增 ansys-reviewed preset 和 ansys-explore preset；现有 ansys-engineering 明确标记为 explore 或迁移到 ansys-explore，不得保留一个含义不清的全权限生产模式。
-2. reviewed preset 使用直接工具调用，不启用任意 PTC；显式禁用 shell、文件写和任意代码执行相关工具。可用 DSH ctx.tools.restrict() 时按官方接口实现；无法限制的 MCP 入口通过“不注册”消除。
+2. reviewed 必须使用**独立的 ansys-assistant MCP 配置/工具 allowlist**，不能仅不注册官方 MCP 就认为工具面闭合。最小正向集合为：
+   - list_ansys_workflows
+   - inspect_ansys_workflow
+   - get_ansys_workflow_status
+   以及确有必要时的只读 list_ansys_capabilities_v2。
+   不允许 preview/apply workflow、直接几何/材料/Via 修改、exploration execute、capability promotion、任意 shell/文件写/PTC。优先在服务端 MCP 配置层实现 allowlist；若用 DSH scoped filter，必须提供准确的 agent-scoped 插件和工具名，不能用 persona 或普通 preset 文本冒充。
 3. explore preset 可保留 PTC、官方 MCP 和探索技能；其 persona 必须声明“探索结果不是生产审批证据”。
-4. 验证并补齐 reviewed workflow 的真实运行配置，不能只做出 GUI preset 就宣称完成：
+4. reviewed 只读观察的运行配置必须与生产 CLI 一致：
    - ansys-assistant 的 brd_reviewed_model_optimize_loop 使用 mission_process_harness，并非 live-session workflow；
    - MCP 的 AEDT_AGENT_WORKFLOW_DB 必须与 CLI/dashboard 的 $db 完全一致；
-   - AEDT_AGENT_WORKFLOW_PROFILE 必须解析到 config/execution_profiles/local_real_aedt.json，而不能误用 safe-recorded；
-   - MCP workflow start 仍要求 live_session_id 与 preview/approval；BRD 图的 live_session_id 只是宿主绑定，不代表 worker 改成 live backend；
-   - 新增 workflow 恢复测试时，覆盖进程重启后持久化 mission/graph/DB 的状态，不假定内存中的 live-session binding 能跨重启保存。
+   - 本地 CLI 生产执行的 --profile 必须解析到 config/execution_profiles/local_real_aedt.json，而不能误用 safe-recorded；只读 status MCP 不启动 worker，不以加载真实 solve profile 作为其验收条件；
+   - 不把 live_session_id 当成 reviewed 的启动/恢复凭据；M1 不暴露 start/advance/approve。
 5. 新增可重复执行的安装器，例如 scripts/dsh/install_ansys_dsh.py。
 6. 安装器接口至少支持：
 
@@ -202,17 +222,17 @@ python scripts/dsh/install_ansys_dsh.py apply --repo-root <repo> --dsh-profile <
 ~~~
 
 7. check 只读；apply 必须先备份，并且幂等。不得覆盖其他 MCP、preset、模型或 UI 配置。
-8. 对 cordis.patch.yml 只管理带明确 begin/end marker 的 ansys-agent block；若发现我们之前手工添加的重复条目，先报告，不重复插入。YAML 中含 !!js 时不得用普通 YAML parser 重写整个文件。
+8. 对 cordis.patch.yml 只管理带明确 begin/end marker 的 ansys-agent block。遇到**不属于本安装器的同 id/冲突条目或未标记旧条目**：check 必须失败，apply 必须在任何写入前退出；不是“报告后继续插入”。只有完成备份、且能明确证明条目属于本安装器旧版本时才可迁移。YAML 中含 !!js 时不得用普通 YAML parser 重写整个文件。
 9. 本机绝对路径只允许由安装参数生成到本机 DSH profile；仓库模板中不得再写死 C:\Users\z3312。
 10. 安装后输出缺少的 Python 模块、版本、MCP 入口、preset 声明及“需重启 DSH”提示。不得自动关闭用户 AEDT 或 DSH。
-11. 添加临时目录测试：首次安装、重复安装、已有用户配置保留、check 无副作用、错误路径失败、reviewed 不含官方裸代码 MCP、模板无本机用户名。
+11. 添加临时目录测试：首次安装、重复安装、已有用户配置保留、check 无副作用、错误路径失败、未标记冲突条目在写入前失败、reviewed 不含官方裸代码 MCP、模板无本机用户名。
 
 ### 验收
 
 - 在临时 profile 完成两次 apply，第二次内容不增加重复项。
-- 用临时 SQLite DB 和 fake worker 证明 reviewed workflow 的 DB/profile 指向正确，不能落到默认 safe-recorded DB；真实 solve 留到 T4。
+- 用临时 SQLite DB 和 fake worker 证明 reviewed 只读观察的 DB 指向正确；另验证 CLI 生产配置加载 local_real_aedt.json 而非 safe-recorded，真实 solve 留到 T4。
 - 在真实 DSH profile 先运行 check；只有用户明确要求安装时才 apply。
-- 重启后 GUI 同时出现 reviewed/explore；reviewed 的工具清单中没有官方 run_python_code、shell 和任意写入入口。
+- 重启后 GUI 同时出现 reviewed/explore；从**实际模型可见工具清单**验证 reviewed 只有第 2 条的只读工具，无 preview/apply/直接修改/探索执行/run_python_code/shell/任意写入入口。
 - 记录验收证据；不以 persona 中存在“禁止”字样代替工具面检查。
 
 ## 8. T3：离线验收、恢复语义与报告证据
@@ -220,7 +240,9 @@ python scripts/dsh/install_ansys_dsh.py apply --repo-root <repo> --dsh-profile <
 ### 修改范围
 
 - src/aedt_agent/agent/、src/aedt_agent/reporting/（仅限恢复/证据缺口）
+- src/aedt_agent/interactive/workflows.py（仅在确需只读 status/DB 配置时，禁止新增 start/advance/approve 协议）
 - tests/test_agent_loop_runner.py
+- tests/test_assistant_workflows.py
 - tests/test_agent_brd_progress_report_worker.py
 - tests/test_brd_optimization_report.py
 - tests/test_agent_optimization_handlers.py
@@ -232,6 +254,10 @@ python scripts/dsh/install_ansys_dsh.py apply --repo-root <repo> --dsh-profile <
 1. 全量测试：
 
 ~~~powershell
+$env:RUN_REAL_LIVE_AEDT = '0'
+$env:RUN_REAL_AEDT = '0'
+$env:RUN_REAL_PYEDB = '0'
+$env:ANSYS_AGENT_RUN_REAL_AEDT = '0'
 .\.venv\Scripts\python.exe -m pytest tests -q --no-header
 ~~~
 
@@ -246,17 +272,19 @@ python scripts/dsh/install_ansys_dsh.py apply --repo-root <repo> --dsh-profile <
 3. 用已有测试/fixture 证明（先读现有测试，已有的只补充证据，不重复造测试）：
    - 配置中已有 graph_run_id 时不创建新 mission；
    - waiting_approval 保留 run 与 handoffs；
-   - 关闭第一个 runtime，再用同一 SQLite DB 新建 runtime，恢复 graph 后不创建新 mission，也不重新执行 prepare_working_project/copy；
-   - 同一 graph 的 DB 路径必须一致；dashboard 与 runner 使用同一个 $db；
-   - MCP workflow 使用同一 AEDT_AGENT_WORKFLOW_DB，恢复状态与 CLI 一致。
-4. 报告验证：
-   - optimization_history.csv 包含每轮（含 partial/failed round）；
-   - optimization_progress.html 与 optimization_progress.json 存在且结构可读；
-   - 有 SDD11/SDD21 最差值和频率、TDR 峰值偏差、观察端口、orientation 是否已证实、objective cost、动作与审批/失败原因；
-   - 有 artifact 路径和 SHA256；
-   - 不把全曲线写进报告摘要或 LLM payload。
+   - 用 fixture 推进到安全停止点（如 waiting_approval）后，销毁第一个 CLI runtime 和 AssistantWorkflowManager；使用同一临时 SQLite DB 分别重建，调用同一 graph_run_id；
+   - 断言 mission/graph/node/handoff 状态一致、mission 数量不增加、prepare_working_project/copy 仍只执行一次、working bundle 不新增；批准 fixture 门后只前进一步；
+   - 错误 DB/未知 graph_run_id 必须失败；preview/binding 属进程内存，重启后必须重新生成，不得复用旧 token；
+   - 断言只读 workflow runtime_factory 收到的 DB 精确等于安装值；dashboard、runner、MCP 使用同一个 $db；CLI runtime 的 profile 则精确等于 local_real_aedt.json；
+   - graph_run_id 恢复配置的校验不得绕过 working separate/s4p/Diff1 等关键约束（loop_runner.py 56-59 当前有提前返回，T1/T3 必须处理并测试）。
+4. 报告验证（使用小型 fixture，不允许只检查字段存在）：
+   - 逐行核对 optimization_history.csv 的完整/partial/failed round、关键数值和状态；
+   - optimization_progress.html 与 optimization_progress.json 必须可读且字段值与 fixture 一致；
+   - 核对 SDD11/SDD21 最差值和频率、TDR 峰值偏差、观察端口、orientation 是否已证实、objective cost、动作与审批/失败原因；
+   - **重算每个被引用 artifact 的 SHA256** 与 manifest 对比，并验证引用路径属于该 run；
+   - 不把全曲线写进报告摘要或 LLM payload。无需为通过验收新增报告功能。
 5. 恢复测试只使用 fixture/mock 或安全停止点；不得为测试强行 kill AEDT 求解进程或中断 geometry write。
-6. 更新文档：DSH 是对话/审批入口；CLI worker 与 SQLite 才持有工程运行状态；恢复使用 graph_run_id，不是依赖聊天上下文。
+6. 更新文档：DSH 是对话/只读观察与材料展示入口；本地 CLI/dashboard 才负责启动、advance、human_gate 审批，CLI worker 与 SQLite 持有工程运行状态；恢复使用 graph_run_id，不是依赖聊天上下文。
 
 ### 完成定义
 
