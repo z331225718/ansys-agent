@@ -127,10 +127,12 @@ docs/evidence/*/
 - src/aedt_agent/agent/optimization_handlers.py
 - src/aedt_agent/agent/loop_runner.py（仅确有需要，包括 graph_run_id 校验提前返回问题）
 - src/aedt_agent/agent/workers/brd_progress_report.py（真实最终报告 worker）
+- src/aedt_agent/infrastructure/harness/child_main.py 与同目录 local_process.py（仅在进程外失败 artifact 保留确有需要时做最小修改）
 - src/aedt_agent/reporting/（仅需要持久化完整性证据时）
 - tests/test_agent_optimization_handlers.py
 - tests/test_agent_loop_runner.py
 - tests/test_agent_brd_progress_report_worker.py
+- tests/test_agent_harness_child.py 与 tests/test_agent_local_process_harness.py（对应进程外失败证据）
 - tests/test_agent_graph_runner_dag.py（仅用于验证 graph failed 传播时）
 - 可新增一个小型、明确命名的测试辅助模块；不得改 AEDT worker 语义。现有 WorkerReportedError.details 已能保存到 job error 与事件日志，失败证据优先使用该通道，不为它修改正常 worker 结果契约。
 
@@ -150,8 +152,8 @@ docs/evidence/*/
    - sidecar .aedb 是否存在及既有 bundle digest（若实现提供）；结果 sidecar 是否存在；
    - 如已有 bundle digest 工具则复用，不新写昂贵的全 AEDB 重复遍历。
 6. **成功终结必须覆盖真实 worker**：在 `run_brd_optimization_report_worker()`（capability `brd.optimization.report`）返回前复核 source `.aedt` SHA256。不能只改 `write_optimization_report()`，因为 reviewed graph 实际走该 worker。
-7. hash 不一致或无法读取时，在**已经写出诊断报告之后**抛 `WorkerReportedError(error_class='invalid_model', retryable=False, details={'code':'source_project_modified', 'artifact_refs':[...诊断路径...]})`，使 JobStatus.FAILED 经 `_execute_worker` 传播为 graph failed。注意：当前普通异常路径会丢弃 output_payload/artifact_refs，因此必须把诊断路径保留在 JobError.details 和事件/日志中；不能只把路径放进抛错前的返回字典就宣称保留。禁止只返回 `status='failed'` 字符串后仍让 graph succeeded。用 graph/worker 测试证明最终状态与证据位置，不只测字符串。
-8. 失败/取消路径由 `fail_optimization()` 或其实际失败收敛处记录同样的完整性检查； waiting_approval 是暂停，不得做最终成功声明。恢复时必须沿用第一次保存的 baseline hash，不得重新记录后覆盖旧基线。若当前失败路径不能可靠保留报告，先停止报告此缺口，不能编造证据。
+7. hash 不一致或无法读取时，在**已经写出诊断报告之后**抛 `WorkerReportedError('invalid_model', '<source_project_modified 诊断消息>', retryable=False, details={'code':'source_project_modified', 'artifact_refs':[...诊断路径...]})`。注意第二个位置参数 message 必填，不能照抄成无 message 的调用。真实 report worker 注册为 local_process，需使该异常经 child_main/HarnessResult/JobStatus.FAILED/`_execute_worker` 传播为 graph failed。JobError.details 与事件日志保存诊断路径；若验收要求 artifact 清单也保留，允许 child_main.py 的失败分支最小透传 artifact_refs。禁止只返回 `status='failed'` 字符串后仍让 graph succeeded。用进程外 worker 与 graph 测试证明最终状态和证据位置，不只测字符串。
+8. **区分 worker 与 program handler 的失败语义**：真实 report worker 按上一条抛 WorkerReportedError；`fail_optimization()` 等 program handler 保持结构化 FAILED，在返回前记录完整性检查、诊断 payload 和 artifact_refs，不抛异常触发 `_failed_result()` 清空诊断。waiting_approval 是暂停，不做最终成功声明。恢复时必须沿用第一次保存的 baseline hash，不得重新记录后覆盖旧基线。若 graph executor 必须修改才能保留失败诊断，先报告缺口，不擅自扩大范围；不得编造证据。
 9. `.aedt` hash 只证明主文件未变；完整 AEDB/结果 sidecar 完整性要在报告中单列检查范围，不得用主文件 hash 冒充全 bundle 证明。
 10. 保持 reset_working_project=false 的复用语义；不得每轮复制新 bundle。
 
@@ -164,7 +166,7 @@ docs/evidence/*/
 - source 不存在被拒绝。
 - 正常 copy-once 测试继续通过。
 - 第二次准备不会新建另一套 bundle。
-- source digest 发生变化时真实 report worker 返回/传播 JobStatus.FAILED，graph 最终为 failed；诊断 artifact 路径能从 JobError.details/事件中读取；若实际修改了 artifact 传递，再从 artifact 清单交叉核对（用 fixture 模拟，不触碰真实 AEDT）。
+- source digest 发生变化时真实 report worker 经 local_process 传播 JobStatus.FAILED，graph 最终为 failed；诊断 artifact 路径能从 JobError.details/事件中读取；child_main 透传后再从 artifact 清单交叉核对。program handler 的 fail_optimization 保持结构化 FAILED 且原 payload/artifacts 保留（用 fixture 模拟，不触碰真实 AEDT）。
 
 ### 验收命令
 
@@ -273,7 +275,8 @@ $env:ANSYS_AGENT_RUN_REAL_AEDT = '0'
    - 配置中已有 graph_run_id 时不创建新 mission；
    - waiting_approval 保留 run 与 handoffs；
    - 用 fixture 推进到安全停止点（如 waiting_approval）后，销毁第一个 CLI runtime 和 AssistantWorkflowManager；使用同一临时 SQLite DB 分别重建，调用同一 graph_run_id；
-   - 断言 mission/graph/node/handoff 状态一致、mission 数量不增加、prepare_working_project/copy 仍只执行一次、working bundle 不新增；批准 fixture 门后只前进一步；
+   - 重建后先只用 AssistantWorkflowManager.status() 验证 mission/graph/node/handoff/DB 一致、mission 数量不增加、prepare_working_project/copy 仍只执行一次、working bundle 不新增；**status() 不得推进 graph**；
+   - 持久化 human_gate 只能由已有 CLI ApprovalService/CLI 批准，再由 CLI advance_graph/resume_graph 推进一步；不得要求新 Assistant preview/token 作为恢复凭据，也不得要求它隐式批准或推进；
    - 错误 DB/未知 graph_run_id 必须失败；preview/binding 属进程内存，重启后必须重新生成，不得复用旧 token；
    - 断言只读 workflow runtime_factory 收到的 DB 精确等于安装值；dashboard、runner、MCP 使用同一个 $db；CLI runtime 的 profile 则精确等于 local_real_aedt.json；
    - graph_run_id 恢复配置的校验不得绕过 working separate/s4p/Diff1 等关键约束（loop_runner.py 56-59 当前有提前返回，T1/T3 必须处理并测试）。
