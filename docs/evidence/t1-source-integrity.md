@@ -8,7 +8,7 @@
 ## Offline baseline
 
 - 1432 passed, 31 skipped (T0, excluding tests/test_offline_release_scripts.py)
-- 1443 passed, 31 skipped (after T1, same exclusion)
+- 1445 passed, 31 skipped (after T1, same exclusion)
 
 ## T1 guarantees
 
@@ -20,7 +20,8 @@
 - final report worker re-hashes source and raises non-retryable WorkerReportedError on mismatch or missing baseline.
 - diagnosis artifact paths are carried in WorkerReportedError.details.
 - fail_optimization keeps structured FAILED output, original artifact refs, and source_integrity status.
-- graph_run_id resume validation no longer returns early; safety checks still run.
+- graph_run_id resume validation no longer returns early; valid resume configs pass, incomplete resume configs fail closed.
+- report worker integrity errors are asserted as JobStatus.FAILED with diagnostic artifact paths in JobError.details.
 
 ## Known boundaries
 
