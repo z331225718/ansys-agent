@@ -61,3 +61,21 @@
 ~~~
 
 截图与测试结果默认输出到系统临时测试目录，不纳入生产证据。
+
+
+## 连接真实 Mission（只读）
+
+工作台已挂到现有 dashboard 的同一服务与 Mission DB：
+
+~~~powershell
+.\.venv\Scripts\python.exe -m aedt_agent.agent --db <missions.db> mission web --host 127.0.0.1 --port 8766 --profile config\execution_profiles\local_real_aedt.json
+~~~
+
+打开 http://127.0.0.1:8766/workbench ，点击「连接项目」，选择 Mission / Graph。
+
+- 读取真实 Mission、Graph 状态、worker SDD/TDR/objective、约束、历史和已注册 artifact。
+- 不启动求解、不推进 graph、不批准 human_gate、不写 AEDT。
+- 真实数据标记 LIVE；无几何 inventory 时显示「几何预览未接入」，无 plot artifact 时显示「真实曲线 artifact 未注册」，不混入演示值。
+- 文件访问沿用 dashboard 的 mission/path 权限校验。
+
+验证记录：后端 5 项集成测试通过；真实连接浏览器 19 项检查通过；独立演示浏览器 26 项检查通过。此接入仍不包含 AEDB inventory 模型渲染和生产写入，二者不得由前端自行补造。

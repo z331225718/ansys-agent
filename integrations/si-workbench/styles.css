@@ -730,3 +730,27 @@ kbd { color: #6f879b; background: #f3f7fa; border-color: #d7e1e9; }
   .geometry-panel .geometry-stage { height: 390px; }
 }
 
+
+
+.live-badge { color:#3f8b73 !important; background:#edf7f2 !important; border-color:#b8d9c9 !important; }
+.project-connected .model-thumb:disabled { opacity:.55; cursor:not-allowed; }
+.mission-choice { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; padding:12px 10px; border-bottom:1px solid var(--line-soft); text-align:left; color:#5f7e98; }
+.mission-choice:hover { background:#f2f7fb; }
+.mission-choice strong { display:block; color:#4b6b87; font-size:10px; font-weight:550; }
+.mission-choice small { display:block; margin-top:4px; color:#96a8b7; font-family:var(--mono); font-size:7px; }
+.mission-choice > span:last-child { color:#5887b6; font-size:8px; white-space:nowrap; }
+.model-unavailable,.chart-unavailable { display:grid; place-content:center; min-height:240px; padding:30px; text-align:center; color:#8b9fb0; background:#f5f8fc; }
+.model-unavailable > span,.chart-unavailable > span { color:#82a6bd; font-size:28px; }
+.model-unavailable h3,.chart-unavailable h3 { margin:9px 0 6px; color:#69869e; font-size:13px; font-weight:550; }
+.model-unavailable p,.chart-unavailable p { max-width:360px; margin:4px auto; font-size:9px; line-height:1.8; }
+.model-unavailable small,.chart-unavailable small { max-width:380px; margin:7px auto; color:#a1b1bd; font-size:8px; line-height:1.8; }
+.artifact-links { display:flex; flex-direction:column; gap:6px; margin-top:10px; }
+.artifact-links a { display:block; padding:7px 8px; border:1px solid #dfe8f0; border-radius:3px; color:#5983aa; background:#f7fafc; font-size:8px; }
+.artifact-links a:hover { border-color:#a6c4dc; background:#eef5fa; }
+.large-links a { display:grid; grid-template-columns:110px 1fr auto; align-items:center; gap:12px; padding:10px; }
+.large-links a span { overflow:hidden; color:#8fa3b2; font-family:var(--mono); font-size:8px; text-overflow:ellipsis; white-space:nowrap; }
+.large-links a b { color:#5b8cb8; font-size:8px; font-weight:400; }
+.real-plots { display:flex; overflow-x:auto; gap:12px; padding:14px; }
+.real-plots figure { flex:1 0 260px; margin:0; }
+.real-plots figcaption { margin-bottom:6px; color:#7892a8; font-family:var(--mono); font-size:8px; }
+.real-plots img { width:100%; border:1px solid var(--line); border-radius:3px; background:#fff; }
