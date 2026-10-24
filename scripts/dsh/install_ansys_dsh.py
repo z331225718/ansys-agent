@@ -99,6 +99,8 @@ def _explore_plugins(repo_root: Path) -> str:
             name: '@deepseek-ai/dsh-tool-skill'
           - id: tool-todo
             name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
           - id: tool-web
             name: '@deepseek-ai/dsh-tool-web'
             config:
