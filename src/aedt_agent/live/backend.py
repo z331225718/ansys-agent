@@ -18,6 +18,12 @@ from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
 
+from aedt_agent.harness import (
+    HfssGeometryHarness,
+    HfssMaterialHarness,
+    LayoutAntipadHarness,
+    LayoutViaHarness,
+)
 from aedt_agent.live.target import AedtTarget
 from aedt_agent.live.versioning import (
     DEFAULT_AEDT_VERSION,
@@ -48,8 +54,7 @@ _LAYOUT_NONPERSISTENT_READ_COMMANDS = frozenset(
 )
 
 
-class LiveBackendError(RuntimeError):
-    code = "backend_error"
+from aedt_agent.harness.common import LiveBackendError
 
 
 class InvalidCommandError(LiveBackendError):
@@ -138,21 +143,21 @@ class LiveAedtBackend:
             if command == "hfss_material_inventory":
                 return self._hfss_material_inventory(target, arguments)
             if command == "hfss_material_create_preview":
-                return self._hfss_material_create_preview(target, arguments)
+                return HfssMaterialHarness.preview_create(self, target, arguments)
             if command == "hfss_material_create_apply":
-                return self._hfss_material_create_apply(target, arguments)
+                return HfssMaterialHarness.apply_create(self, target, arguments)
             if command == "hfss_material_update_preview":
-                return self._hfss_material_update_preview(target, arguments)
+                return HfssMaterialHarness.preview_update(self, target, arguments)
             if command == "hfss_material_update_apply":
-                return self._hfss_material_update_apply(target, arguments)
+                return HfssMaterialHarness.apply_update(self, target, arguments)
             if command == "hfss_material_delete_preview":
-                return self._hfss_material_delete_preview(target, arguments)
+                return HfssMaterialHarness.preview_delete(self, target, arguments)
             if command == "hfss_material_delete_apply":
-                return self._hfss_material_delete_apply(target, arguments)
+                return HfssMaterialHarness.apply_delete(self, target, arguments)
             if command == "hfss_material_assign_preview":
-                return self._hfss_material_assign_preview(target, arguments)
+                return HfssMaterialHarness.preview_assign(self, target, arguments)
             if command == "hfss_material_assign_apply":
-                return self._hfss_material_assign_apply(target, arguments)
+                return HfssMaterialHarness.apply_assign(self, target, arguments)
             if command == "hfss_mesh_inventory":
                 return self._hfss_mesh_inventory(target, arguments)
             if command == "hfss_length_mesh_create_preview":
@@ -178,25 +183,25 @@ class LiveAedtBackend:
             if command == "hfss_coordinate_system_create_apply":
                 return self._hfss_coordinate_system_create_apply(target, arguments)
             if command == "hfss_geometry_create_preview":
-                return self._hfss_geometry_create_preview(target, arguments)
+                return HfssGeometryHarness.preview_create(self, target, arguments)
             if command == "hfss_geometry_create_apply":
-                return self._hfss_geometry_create_apply(target, arguments)
+                return HfssGeometryHarness.apply_create(self, target, arguments)
             if command == "hfss_geometry_move_preview":
-                return self._hfss_geometry_move_preview(target, arguments)
+                return HfssGeometryHarness.preview_move(self, target, arguments)
             if command == "hfss_geometry_move_apply":
-                return self._hfss_geometry_move_apply(target, arguments)
+                return HfssGeometryHarness.apply_move(self, target, arguments)
             if command == "hfss_geometry_rotate_preview":
-                return self._hfss_geometry_rotate_preview(target, arguments)
+                return HfssGeometryHarness.preview_rotate(self, target, arguments)
             if command == "hfss_geometry_rotate_apply":
-                return self._hfss_geometry_rotate_apply(target, arguments)
+                return HfssGeometryHarness.apply_rotate(self, target, arguments)
             if command == "hfss_antipad_subtract_preview":
-                return self._hfss_antipad_subtract_preview(target, arguments)
+                return HfssGeometryHarness.preview_antipad_subtract(self, target, arguments)
             if command == "hfss_antipad_subtract_apply":
-                return self._hfss_antipad_subtract_apply(target, arguments)
+                return HfssGeometryHarness.apply_antipad_subtract(self, target, arguments)
             if command == "hfss_geometry_boundary_create_preview":
-                return self._hfss_geometry_boundary_create_preview(target, arguments)
+                return HfssGeometryHarness.preview_boundary_create(self, target, arguments)
             if command == "hfss_geometry_boundary_create_apply":
-                return self._hfss_geometry_boundary_create_apply(target, arguments)
+                return HfssGeometryHarness.apply_boundary_create(self, target, arguments)
             if command == "hfss_setup_preview":
                 return self._hfss_setup_preview(target, arguments)
             if command == "hfss_setup_apply":
@@ -250,21 +255,21 @@ class LiveAedtBackend:
             if command == "layout_material_create_assign_apply":
                 return self._layout_material_create_assign_apply(target, arguments)
             if command == "layout_via_create_preview":
-                return self._layout_via_create_preview(target, arguments)
+                return LayoutViaHarness.create_preview(self, target, arguments)
             if command == "layout_via_create_apply":
-                return self._layout_via_create_apply(target, arguments)
+                return LayoutViaHarness.create_apply(self, target, arguments)
             if command == "layout_via_update_preview":
-                return self._layout_via_update_preview(target, arguments)
+                return LayoutViaHarness.update_preview(self, target, arguments)
             if command == "layout_via_update_apply":
-                return self._layout_via_update_apply(target, arguments)
+                return LayoutViaHarness.update_apply(self, target, arguments)
             if command == "layout_via_delete_preview":
-                return self._layout_via_delete_preview(target, arguments)
+                return LayoutViaHarness.delete_preview(self, target, arguments)
             if command == "layout_via_delete_apply":
-                return self._layout_via_delete_apply(target, arguments)
+                return LayoutViaHarness.delete_apply(self, target, arguments)
             if command == "layout_antipad_circle_create_preview":
-                return self._layout_antipad_circle_create_preview(target, arguments)
+                return LayoutAntipadHarness.create_preview(self, target, arguments)
             if command == "layout_antipad_circle_create_apply":
-                return self._layout_antipad_circle_create_apply(target, arguments)
+                return LayoutAntipadHarness.create_apply(self, target, arguments)
             if command == "layout_connectivity_inventory":
                 return self._layout_connectivity_inventory(target, arguments)
             if command == "layout_signal_via_inventory":
@@ -6842,356 +6847,23 @@ def _design_display_name(desktop: Any, design: Any) -> str | None:
     return _canonical_design_name(raw_name) if raw_name else None
 
 
-def _normalized_expression(value: str) -> str:
-    return re.sub(r"\s+", "", value).casefold()
-
-
-def _variable_product(arguments: dict[str, Any]) -> str:
-    product = str(arguments.get("product") or "").strip().casefold()
-    if product not in {"hfss", "layout"}:
-        raise LiveBackendError("product must be hfss or layout")
-    return product
-
-
-def _variable_name(arguments: dict[str, Any]) -> str:
-    name = _required(arguments, "variable_name")
-    if not re.fullmatch(r"\$?[A-Za-z_][A-Za-z0-9_]*", name):
-        raise LiveBackendError("variable_name must be a valid AEDT identifier")
-    return name
-
-
-def _variable_expression_input(value: Any, field: str) -> str:
-    if not isinstance(value, str):
-        raise LiveBackendError(f"{field} must be an AEDT expression string")
-    expression = value.strip()
-    if not expression:
-        raise LiveBackendError(f"{field} must not be empty")
-    if len(expression) > 512:
-        raise LiveBackendError(f"{field} exceeds the maximum length of 512 characters")
-    if re.search(r"[\x00-\x1f\x7f]", expression):
-        raise LiveBackendError(f"{field} must not contain control characters")
-    return expression
-
-
-def _normalize_variable_batch(value: Any, max_variables: int) -> list[dict[str, str]]:
-    if not isinstance(value, list) or not value:
-        raise LiveBackendError("variables must be a non-empty list")
-    if len(value) > max_variables:
-        raise LiveBackendError(f"variables exceeds max_variables={max_variables}")
-    normalized = []
-    seen: dict[str, str] = {}
-    for index, raw in enumerate(value):
-        if not isinstance(raw, dict):
-            raise LiveBackendError(f"variables[{index}] must be an object")
-        unsupported = sorted(set(raw).difference({"name", "expression"}))
-        if unsupported:
-            raise LiveBackendError(
-                f"variables[{index}] contains unsupported field: {unsupported[0]}"
-            )
-        name = _variable_name({"variable_name": raw.get("name")})
-        folded = name.casefold()
-        if folded in seen:
-            raise LiveBackendError(
-                f"variables contains duplicate case-insensitive name: {name}"
-            )
-        seen[folded] = name
-        normalized.append(
-            {
-                "name": name,
-                "expression": _variable_expression_input(
-                    raw.get("expression"),
-                    f"variables[{index}].expression",
-                ),
-            }
-        )
-    return normalized
-
-
-def _variable_expression(value: Any) -> str:
-    expression = getattr(value, "expression", None)
-    if expression is None:
-        expression = getattr(value, "value", value)
-    return str(expression)
-
-
-def _variable_records(app: Any) -> list[dict[str, str]]:
-    return [
-        {
-            "name": str(name),
-            "expression": _variable_expression(value),
-            "scope": "project" if str(name).startswith("$") else "design",
-        }
-        for name, value in sorted(
-            dict(getattr(app.variable_manager, "variables", {}) or {}).items(),
-            key=lambda item: str(item[0]),
-        )
-    ]
-
-
-def _variable_state(app: Any, product: str) -> dict[str, Any]:
-    if _simulation_running(app):
-        raise LiveBackendError("cannot change AEDT variables while a simulation is running")
-    design_type = str(_safe_attribute(app, "design_type") or "").strip()
-    normalized_type = re.sub(r"[\s_-]+", "", design_type).casefold()
-    expected = "hfss" if product == "hfss" else "hfss3dlayoutdesign"
-    if normalized_type != expected:
-        raise LiveBackendError(
-            f"product {product} does not match active design type: {design_type or 'unavailable'}"
-        )
-    return {
-        "design_type": design_type,
-        "solution_type": str(_safe_attribute(app, "solution_type") or "").strip(),
-        "variables": _variable_records(app),
-    }
-
-
-def _variable_changes(
-    before_records: list[dict[str, str]],
-    requested: list[dict[str, str]],
-) -> list[dict[str, Any]]:
-    by_name = {item["name"]: item for item in before_records}
-    by_folded = {item["name"].casefold(): item["name"] for item in before_records}
-    changes = []
-    for spec in requested:
-        name = spec["name"]
-        conflicting = by_folded.get(name.casefold())
-        if conflicting is not None and conflicting != name:
-            raise LiveBackendError(
-                f"AEDT variable name differs only by case from existing variable: {conflicting}"
-            )
-        before = by_name.get(name)
-        existed = before is not None
-        before_expression = before["expression"] if before else None
-        if existed and _variable_expressions_equal(before_expression, spec["expression"]):
-            action = "noop"
-        else:
-            action = "update" if existed else "create"
-        changes.append(
-            {
-                "name": name,
-                "scope": "project" if name.startswith("$") else "design",
-                "action": action,
-                "existed": existed,
-                "before_expression": before_expression,
-                "after_expression": spec["expression"],
-            }
-        )
-    return changes
-
-
-def _variable_expressions_equal(actual: Any, expected: Any) -> bool:
-    actual_text = str(actual).strip()
-    expected_text = str(expected).strip()
-    if _normalized_expression(actual_text) == _normalized_expression(expected_text):
-        return True
-    quantity_pattern = re.compile(
-        r"([+\-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+\-]?\d+)?)\s*([A-Za-z]*)"
-    )
-    actual_match = quantity_pattern.fullmatch(actual_text)
-    expected_match = quantity_pattern.fullmatch(expected_text)
-    if not actual_match or not expected_match:
-        return False
-    if actual_match.group(2).casefold() != expected_match.group(2).casefold():
-        return False
-    return math.isclose(
-        float(actual_match.group(1)),
-        float(expected_match.group(1)),
-        rel_tol=1e-12,
-        abs_tol=1e-15,
-    )
-
-
-def _apply_variable_changes(
-    app: Any,
-    *,
-    changes: list[dict[str, Any]],
-    before_records: list[dict[str, str]],
-) -> dict[str, Any]:
-    attempted: list[dict[str, Any]] = []
-    try:
-        for change in changes:
-            if change["action"] == "noop":
-                continue
-            attempted.append(change)
-            if change["existed"]:
-                _change_existing_variable_expression(
-                    app,
-                    change["name"],
-                    change["after_expression"],
-                )
-            else:
-                updated = app.variable_manager.set_variable(
-                    change["name"],
-                    change["after_expression"],
-                    sweep=True,
-                )
-                if updated is False:
-                    raise LiveBackendError(
-                        f"failed to create AEDT variable: {change['name']}"
-                    )
-            current_by_name = {item["name"]: item for item in _variable_records(app)}
-            readback = current_by_name.get(change["name"])
-            if readback is None or not _variable_expressions_equal(
-                readback["expression"],
-                change["after_expression"],
-            ):
-                raise LiveBackendError(
-                    f"AEDT variable readback verification failed: {change['name']}"
-                )
-        after_records = _variable_records(app)
-        _verify_variable_batch_readback(before_records, after_records, changes)
-    except Exception as exc:
-        rollback = _rollback_variable_changes(
-            app,
-            attempted=attempted,
-            before_records=before_records,
-        )
-        if not rollback["complete"]:
-            raise LiveBackendError(
-                f"AEDT variable update failed and rollback is incomplete: {rollback}"
-            ) from exc
-        if isinstance(exc, LiveBackendError):
-            raise
-        raise LiveBackendError(
-            f"AEDT variable update failed: {type(exc).__name__}: {exc}"
-        ) from exc
-    after_by_name = {item["name"]: item for item in after_records}
-    readback_changes = []
-    for change in changes:
-        record = after_by_name[change["name"]]
-        readback_changes.append(
-            {
-                **change,
-                "readback_expression": record["expression"],
-            }
-        )
-    return {"changes": readback_changes, "variables": after_records}
-
-
-def _change_existing_variable_expression(app: Any, name: str, expression: str) -> None:
-    variables = dict(getattr(app.variable_manager, "variables", {}) or {})
-    variable = variables.get(name)
-    if variable is None:
-        raise LiveBackendError(f"AEDT variable disappeared before update: {name}")
-    design_type = str(_safe_attribute(app, "design_type") or "").strip()
-    is_layout = re.sub(r"[\s_-]+", "", design_type).casefold() == "hfss3dlayoutdesign"
-    if name.startswith("$"):
-        target = getattr(app, "oproject", None) or getattr(app, "_oproject", None)
-        tab_name = "ProjectVariableTab"
-        prop_server = "ProjectVariables"
-    else:
-        target = getattr(app, "odesign", None) or getattr(app, "_odesign", None)
-        circuit_parameter = False
-        try:
-            circuit_parameter = bool(variable.is_circuit_parameter)
-        except Exception:
-            circuit_parameter = False
-        if is_layout and circuit_parameter:
-            tab_name = "DefinitionParameterTab"
-        else:
-            tab_name = "LocalVariableTab"
-        if is_layout:
-            get_name = getattr(target, "GetName", None)
-            if not callable(get_name):
-                raise LiveBackendError("AEDT layout design identifier is unavailable")
-            prop_server = "Instance:" + str(get_name())
-        else:
-            prop_server = "LocalVariables"
-    change_property = getattr(target, "ChangeProperty", None)
-    if not callable(change_property):
-        updated = app.variable_manager.set_variable(name, expression, sweep=True)
-        if updated is False:
-            raise LiveBackendError(f"failed to update AEDT variable: {name}")
-        return
-    change_property(
-        [
-            "NAME:AllTabs",
-            [
-                f"NAME:{tab_name}",
-                ["NAME:PropServers", prop_server],
-                ["NAME:ChangedProps", [f"NAME:{name}", "Value:=", expression]],
-            ],
-        ]
-    )
-
-
-def _verify_variable_batch_readback(
-    before_records: list[dict[str, str]],
-    after_records: list[dict[str, str]],
-    changes: list[dict[str, Any]],
-) -> None:
-    before_by_name = {item["name"]: item for item in before_records}
-    after_by_name = {item["name"]: item for item in after_records}
-    change_by_name = {item["name"]: item for item in changes}
-    expected_names = set(before_by_name) | {
-        item["name"] for item in changes if item["action"] == "create"
-    }
-    if set(after_by_name) != expected_names:
-        raise LiveBackendError("unexpected AEDT variable inventory change")
-    for name, record in after_by_name.items():
-        change = change_by_name.get(name)
-        expected_expression = (
-            change["after_expression"] if change else before_by_name[name]["expression"]
-        )
-        if not _variable_expressions_equal(record["expression"], expected_expression):
-            raise LiveBackendError(f"AEDT variable batch readback failed: {name}")
-
-
-def _rollback_variable_changes(
-    app: Any,
-    *,
-    attempted: list[dict[str, Any]],
-    before_records: list[dict[str, str]],
-) -> dict[str, Any]:
-    errors = []
-    for change in reversed(attempted):
-        if not change["existed"]:
-            continue
-        try:
-            _change_existing_variable_expression(
-                app,
-                change["name"],
-                change["before_expression"],
-            )
-        except Exception as exc:
-            errors.append(f"restore {change['name']}: {type(exc).__name__}: {exc}")
-    for change in reversed(attempted):
-        if change["existed"]:
-            continue
-        try:
-            current_names = {item["name"] for item in _variable_records(app)}
-            if change["name"] in current_names:
-                app.variable_manager.delete_variable(change["name"])
-        except Exception as exc:
-            errors.append(f"delete {change['name']}: {type(exc).__name__}: {exc}")
-    try:
-        after_records = _variable_records(app)
-    except Exception as exc:
-        after_records = []
-        errors.append(f"readback: {type(exc).__name__}: {exc}")
-    complete = _variable_record_sets_equal(after_records, before_records)
-    return {
-        "complete": complete,
-        "attempted_names": [item["name"] for item in attempted],
-        "remaining_variables": [item["name"] for item in after_records],
-        "errors": errors,
-    }
-
-
-def _variable_record_sets_equal(
-    actual: list[dict[str, str]],
-    expected: list[dict[str, str]],
-) -> bool:
-    actual_by_name = {item["name"]: item for item in actual}
-    expected_by_name = {item["name"]: item for item in expected}
-    return set(actual_by_name) == set(expected_by_name) and all(
-        actual_by_name[name].get("scope") == record.get("scope")
-        and _variable_expressions_equal(
-            actual_by_name[name].get("expression"),
-            record.get("expression"),
-        )
-        for name, record in expected_by_name.items()
-    )
+from aedt_agent.harness.variables import (
+    apply_variable_changes as _apply_variable_changes,
+    change_existing_variable_expression as _change_existing_variable_expression,
+    normalize_variable_batch as _normalize_variable_batch,
+    normalized_expression as _normalized_expression,
+    rollback_variable_changes as _rollback_variable_changes,
+    variable_changes as _variable_changes,
+    variable_expression as _variable_expression,
+    variable_expression_input as _variable_expression_input,
+    variable_expressions_equal as _variable_expressions_equal,
+    variable_name as _variable_name,
+    variable_product as _variable_product,
+    variable_record_sets_equal as _variable_record_sets_equal,
+    variable_records as _variable_records,
+    variable_state as _variable_state,
+    verify_variable_batch_readback as _verify_variable_batch_readback,
+)
 
 
 def _desktop_aedt_version(desktop: Any) -> str | None:
