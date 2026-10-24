@@ -8,6 +8,7 @@ const ctx = {
   effect: () => {},
   on: (name, fn) => { if (name === 'system-prompt/assemble') assembler = fn },
 }
+assert.deepEqual(mod.inject, ['tools'])
 mod.apply(ctx)
 assert.ok(guard, 'execution guard must be registered')
 assert.equal(guard({ name: 'mcp__ansys_assistant_reviewed__list_ansys_workflows' }), undefined)

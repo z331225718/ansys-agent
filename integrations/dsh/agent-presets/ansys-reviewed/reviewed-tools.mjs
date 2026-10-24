@@ -1,4 +1,5 @@
 export const name = 'ansys-reviewed-tools'
+export const inject = ['tools']
 
 const REVIEWED_TOOLS = new Set([
   'ask_user_question',

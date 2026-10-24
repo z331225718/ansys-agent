@@ -72,6 +72,16 @@ User explicitly confirmed migration. Before any write:
 
 DSH was not restarted by the installer.
 
+## 2026-10-24 activation failure and fix
+
+The first DSH restart failed because the reviewed catalog plugin used `ctx.tools` without declaring the Cordis dependency. The DSH loader reported:
+
+~~~text
+cannot get property "tools" without inject
+~~~
+
+Fix: `export const inject = ['tools']` in `reviewed-tools.mjs`. The plugin was reloaded through the real DSH headless loader and now only stops at the expected missing-credential check, with no plugin activation error.
+
 ## Not yet verified
 
 - GUI selector showing both reviewed and explore after restart (profile is installed; DSH restart is still required).
