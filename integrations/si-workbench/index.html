@@ -41,11 +41,12 @@
 
     <main class="main-content">
       <header class="topbar">
-        <div class="breadcrumb"><span>SerDes Lab</span><b>/</b><span>通道优化</span><b>/</b><strong>TX0 → RX0</strong><span class="tag demo-tag">DEMO</span></div>
+        <div class="breadcrumb"><span>SerDes Lab</span><b>/</b><span>通道优化</span><b>/</b><strong>TX0 → RX0</strong><span class="tag demo-tag" id="connection-badge">DEMO</span></div>
         <div class="top-actions">
           <span class="save-state"><span class="tiny-dot"></span><span id="save-state-text">所有更改已保存</span></span>
           <button class="icon-button" id="shortcuts-button" aria-label="键盘快捷键" title="键盘快捷键">?</button>
           <button class="icon-button" id="notification-button" aria-label="通知" title="通知"><span class="bell-icon">♢</span><i></i></button>
+          <button class="button secondary compact" id="connect-button"><span>⇄</span>连接项目</button>
           <button class="button secondary compact" id="export-button"><span>↓</span>导出报告</button>
           <button class="button primary compact" id="run-button"><span>▶</span>运行优化</button>
         </div>
@@ -197,7 +198,7 @@
                 <div class="observation-row"><span>参考阻抗</span><strong>90 Ω <span>差分</span></strong></div>
                 <div class="observation-row"><span>扫频范围</span><strong>0 – 28 GHz</strong></div>
               </div>
-              <div class="inspector-action">
+              <div class="inspector-action" id="production-actions">
                 <div class="preview-status" id="preview-status"><span class="tiny-dot"></span><span>参数未修改，可预览当前基线</span></div>
                 <button class="button primary full" id="preview-button"><span>◇</span>生成修改预览</button>
                 <p class="action-caption">Preview → 人工审批 → Apply → Readback</p>
@@ -215,7 +216,7 @@
           </aside>
           <aside class="assistant-panel" aria-label="AI 设计助手">
             <header class="assistant-header"><div><span class="assistant-spark">✦</span><strong>AI 设计助手</strong><span class="assistant-model">SI Copilot</span></div><button class="icon-button small" id="assistant-collapse" aria-label="收起助手">×</button></header>
-            <div class="assistant-context"><span class="status-dot"></span><span>已理解当前工程</span><button id="assistant-context-button">TX0 → RX0 ⌄</button></div>
+            <div class="assistant-context"><span class="status-dot"></span><span id="assistant-context-status">已理解当前工程</span><button id="assistant-context-button">TX0 → RX0 ⌄</button></div>
             <div class="assistant-messages" id="assistant-messages">
               <article class="assistant-message assistant-note"><span class="message-label">工程分析</span><p>当前差分过孔在 <strong>20 ps</strong> 附近产生 <strong>11.0 Ω</strong> 阻抗下冲，SDD11 在 <strong>18 GHz</strong> 处最差，为 <strong>−14.2 dB</strong>。</p><p>建议先扩大 L2/L4/L6 参考层的反焊盘，降低过孔寄生电容；保持 Diff1 的 TX 侧观察方向。</p><div class="assistant-actions"><button data-assistant-action="preview">生成候选预览</button><button data-assistant-action="explain">解释优化依据</button></div></article>
               <article class="assistant-message assistant-step"><span class="step-check">✓</span><div><strong>已核对几何约束</strong><p>anti-pad ≤ 22 mil · NFP 7.875–10 mil</p></div></article>
