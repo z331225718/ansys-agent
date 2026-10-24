@@ -56,9 +56,25 @@ Verified in temporary profiles:
 
 This is intentional: unmarked user/legacy entries are never overwritten. Migration requires a human decision to rename/remove the legacy preset, then re-run apply.
 
+## Real-profile activation (2026-10-24)
+
+User explicitly confirmed migration. Before any write:
+
+- backed up `cordis.patch.yml`;
+- archived `profiles/desktop/presets/ansys-engineering.patch.yml` as `.legacy-*`;
+- removed the single unmarked `preset-ansys-engineering` insert block;
+- initialized `D:\aedt-agent-runs\reviewed-loop\missions.db` with the mission schema;
+- installer check passed, then apply succeeded and created its own backup;
+- second apply returned `applied=false, unchanged=true`;
+- the full profile parses as YAML after replacing `!!js` placeholders and contains exactly:
+  `mcp-ansys-assistant-reviewed`, `preset-ansys-reviewed`, `preset-ansys-explore`;
+- the managed block parses with `dsh --profile headless --patch ... --dump-config`.
+
+DSH was not restarted by the installer.
+
 ## Not yet verified
 
-- GUI selector showing both reviewed and explore after restart (requires real-profile apply and DSH restart).
+- GUI selector showing both reviewed and explore after restart (profile is installed; DSH restart is still required).
 - Real preset activation and loader behavior for the absolute plugin path (requires an explicit real-profile apply; no activation was claimed).
 - Real reviewed status read against the production Mission DB (requires real graph run).
 
