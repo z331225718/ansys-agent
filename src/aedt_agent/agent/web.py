@@ -768,6 +768,31 @@ def dispatch_agent_request(
         if method == "GET" and route == "/":
             return _html(AGENT_PAGE)
 
+        if method == "GET" and route == "/workbench":
+            from aedt_agent.agent.workbench import workbench_static
+
+            if not parsed.path.endswith("/"):
+                return 302, {"location": "/workbench/"}, b""
+            return workbench_static("/")
+
+        if method == "GET" and route.startswith("/workbench/"):
+            from aedt_agent.agent.workbench import workbench_static
+
+            return workbench_static(route.removeprefix("/workbench"))
+
+        if method == "GET" and route == "/api/workbench/missions":
+            from aedt_agent.agent.workbench import workbench_missions
+
+            return _json(workbench_missions(runtime))
+
+        if method == "GET" and route.startswith("/api/workbench/graphs/"):
+            from aedt_agent.agent.workbench import workbench_snapshot
+
+            graph_run_id = route.rsplit("/", 1)[-1]
+            if not graph_run_id:
+                return _json({"error": "graph_run_id is required"}, status=400)
+            return _json(workbench_snapshot(runtime, graph_run_id))
+
         if method == "GET" and route == "/api/artifacts/file":
             return _artifact_file_response(runtime, parsed.query)
 

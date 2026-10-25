@@ -140,6 +140,39 @@ def test_validate_reviewed_loop_example_without_machine_paths():
     assert "l02_void_r" not in config_text
 
 
+def test_valid_resume_config_still_passes_safety_validation():
+    config_path = Path("config/optimization_loops/reviewed_brd_remote.example.json")
+    config = loop_runner.load_loop_config(config_path)
+    config["graph_run_id"] = "graph-existing"
+
+    report = loop_runner.validate_loop_config_for_run(config, check_paths=False)
+
+    assert report["status"] == "passed"
+    check_status = {item["id"]: item["status"] for item in report["checks"]}
+    assert check_status["resume_graph_run_id"] == "passed"
+    assert check_status["working_project_is_separate"] == "passed"
+    assert check_status["touchstone_is_s4p"] == "passed"
+    assert check_status["tdr_diff1"] == "passed"
+
+
+def test_resume_graph_id_does_not_bypass_safety_validation():
+    config = {
+        "goal": "resume loop",
+        "template_id": "brd_reviewed_model_optimize_loop",
+        "graph_run_id": "graph-existing",
+        "poll_interval_seconds": 30,
+    }
+
+    report = loop_runner.validate_loop_config_for_run(config, check_paths=False)
+
+    assert report["status"] == "failed"
+    assert "resume_graph_run_id" not in report["failed_checks"]
+    assert "source_project_path_present" in report["failed_checks"]
+    assert "working_project_path_present" in report["failed_checks"]
+    assert "run_root_present" in report["failed_checks"]
+    assert "report_dir_present" in report["failed_checks"]
+
+
 def test_validate_loop_config_rejects_single_ended_contract():
     config = {
         "goal": "bad loop",
@@ -169,3 +202,29 @@ def test_validate_loop_config_rejects_single_ended_contract():
     assert "differential_traces" in report["failed_checks"]
     assert "tdr_diff1" in report["failed_checks"]
     assert "differential_reference_impedance" in report["failed_checks"]
+
+
+def test_validate_reviewed_loop_with_machine_paths(tmp_path):
+    source = tmp_path / "run" / "source" / "reviewed.aedt"
+    source.parent.mkdir(parents=True)
+    source.write_text("source", encoding="utf-8")
+    working = tmp_path / "run" / "working" / "reviewed.aedt"
+    working.parent.mkdir(parents=True)
+    report = tmp_path / "run" / "progress"
+    config = loop_runner.load_loop_config(
+        "config/optimization_loops/reviewed_brd_remote.example.json"
+    )
+    config.update(
+        {
+            "run_root": str(tmp_path / "run"),
+            "source_project_path": str(source),
+            "working_project_path": str(working),
+            "report_dir": str(report),
+        }
+    )
+    report_result = loop_runner.validate_loop_config_for_run(config, check_paths=True)
+    assert report_result["status"] == "passed"
+    assert report_result["failed_checks"] == []
+    status = {item["id"]: item["status"] for item in report_result["checks"]}
+    assert status["source_project_exists"] == "passed"
+    assert status["working_project_parent_ready"] == "passed"

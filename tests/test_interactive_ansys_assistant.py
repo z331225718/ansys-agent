@@ -385,12 +385,11 @@ def test_capabilities_v2_is_additive_and_keeps_v1_unchanged(capsys):
     assert payload["compatibility"]["v1_unchanged"] is True
     by_name = {item["name"]: item for item in payload["capabilities"]}
     assert by_name["layout.paths.list"]["modes"] == ["artifact", "live"]
-    assert by_name["aedt.projects.save"]["approval"] == "external_host_token"
-    assert by_name["aedt.open_python.execute"]["tools"] == [
-        "preview_live_open_aedt_python",
-        "apply_live_open_aedt_python",
+    assert by_name["layout.vias.create"]["approval"] == "external_host_token"
+    assert by_name["layout.vias.create"]["tools"] == [
+        "preview_live_layout_via_create",
+        "apply_live_layout_via_create",
     ]
-    assert payload["defaults"]["code_fallback_policy"] == "open_with_approval"
     assert CapabilityCatalog().to_dict()["version"] == "1"
 
 
@@ -571,3 +570,5 @@ def test_dimension_parser(value, expected):
 def test_selector_rejects_unknown_units():
     with pytest.raises(ValueError, match="unsupported dimension unit"):
         selector_from_payload({"target_width": "1inch"})
+
+

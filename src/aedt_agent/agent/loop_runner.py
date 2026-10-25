@@ -56,7 +56,9 @@ def validate_loop_config_for_run(
     graph_run_id = str(config.get("graph_run_id") or "").strip()
     if graph_run_id:
         check("resume_graph_run_id", True, f"will resume graph_run_id={graph_run_id}")
-        return _validation_report(checks)
+        # Resume must not bypass the reviewed-loop safety checks below. A
+        # resume config still has to point at a separate working project,
+        # report directory, and the same differential/TDR contract.
 
     source_project = str(config.get("source_project_path") or config.get("project_path") or "").strip()
     working_project = str(config.get("working_project_path") or "").strip()

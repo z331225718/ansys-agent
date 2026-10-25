@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#f3f6fa">
+  <title>SI Forge · 高速通道优化工作台</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="主导航">
+      <a class="brand" href="#" aria-label="SI Forge 首页">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span class="brand-name">SI<span>FORGE</span></span>
+      </a>
+      <div class="workspace-switch">
+        <span class="eyebrow">工作空间</span>
+        <button id="workspace-button" class="workspace-button" type="button">
+          <span class="workspace-icon">S</span>
+          <span><strong>SerDes Lab</strong><small>本地 AEDT 工作站</small></span>
+          <span class="chevron">⌄</span>
+        </button>
+      </div>
+      <nav class="main-nav">
+        <p class="nav-label">工程</p>
+        <button class="nav-item active" data-view="workbench"><span class="nav-icon">⌘</span>通道优化<span class="nav-count">01</span></button>
+        <button class="nav-item" data-view="models"><span class="nav-icon">▱</span>模型库<span class="nav-count">04</span></button>
+        <button class="nav-item" data-view="patterns"><span class="nav-icon">⌗</span>Via 模式库<span class="nav-count">16</span></button>
+        <p class="nav-label">分析</p>
+        <button class="nav-item" data-view="history"><span class="nav-icon">↗</span>优化历史</button>
+        <button class="nav-item" data-view="evidence"><span class="nav-icon">✓</span>证据与报告<span class="status-dot"></span></button>
+        <p class="nav-label">系统</p>
+        <button class="nav-item" data-view="settings"><span class="nav-icon">⚙</span>工作站设置</button>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="local-status"><span class="status-dot"></span><span>本地执行环境<small>AEDT 2026.1 · 演示连接状态</small></span><span class="live-label">LIVE</span></div>
+        <button class="user-card" id="user-card"><span class="avatar">ZL</span><span><strong>Z. Lin</strong><small>SI / PI Engineer</small></span><span>•••</span></button>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div class="breadcrumb"><span>SerDes Lab</span><b>/</b><span>通道优化</span><b>/</b><strong>TX0 → RX0</strong><span class="tag demo-tag" id="connection-badge">DEMO</span></div>
+        <div class="top-actions">
+          <span class="save-state"><span class="tiny-dot"></span><span id="save-state-text">所有更改已保存</span></span>
+          <button class="icon-button" id="shortcuts-button" aria-label="键盘快捷键" title="键盘快捷键">?</button>
+          <button class="icon-button" id="notification-button" aria-label="通知" title="通知"><span class="bell-icon">♢</span><i></i></button>
+          <button class="button secondary compact" id="connect-button"><span>⇄</span>连接项目</button>
+          <button class="button secondary compact" id="export-button"><span>↓</span>导出报告</button>
+          <button class="button primary compact" id="run-button"><span>▶</span>运行优化</button>
+        </div>
+      </header>
+
+      <div class="page-body">
+        <section class="page-heading reveal">
+          <div>
+            <div class="heading-kicker"><span class="tiny-dot"></span>REVIEWED CHANNEL / 112G PAM4</div>
+            <h1>差分通道优化<span class="title-divider">/</span><span>TX0 → RX0</span></h1>
+            <p>从物理过孔结构到可验证的信号完整性。每一次修改，都留下证据。</p>
+          </div>
+          <div class="heading-actions">
+            <span class="review-badge"><span>✓</span>源模型已人工审查</span>
+            <button class="more-button" id="heading-more" aria-label="更多项目操作">•••</button>
+          </div>
+        </section>
+
+        <section class="metrics reveal delay-1" aria-label="关键指标">
+          <article class="metric-card">
+            <div class="metric-top"><span>SDD11 <small>回波损耗</small></span><span class="metric-icon blue">↗</span></div>
+            <div class="metric-value" id="metric-sdd11">−14.2 <small>dB</small></div>
+            <div class="metric-foot"><span class="delta bad">↑ 需改善</span><span>最差 @ <b id="metric-rl-frequency">18.0</b> GHz</span></div>
+            <div class="metric-target"><span>目标 ≤ −17 dB</span><span id="rl-target-caption">差距 2.8 dB</span></div>
+          </article>
+          <article class="metric-card">
+            <div class="metric-top"><span>SDD21 <small>插入损耗</small></span><span class="metric-icon teal">↘</span></div>
+            <div class="metric-value" id="metric-sdd21">−2.10 <small>dB</small></div>
+            <div class="metric-foot"><span class="delta good">✓ 在预算内</span><span>最差 @ <b id="metric-il-frequency">26.5</b> GHz</span></div>
+            <div class="metric-target"><span>通道预算 ≤ −3.0 dB</span><span>裕量 0.90 dB</span></div>
+          </article>
+          <article class="metric-card">
+            <div class="metric-top"><span>TDR <small>差分阻抗偏差</small></span><span class="metric-icon amber">∿</span></div>
+            <div class="metric-value" id="metric-tdr">±11.0 <small>Ω</small></div>
+            <div class="metric-foot"><span class="delta warn">↑ 过孔突变</span><span>峰值 @ <b id="metric-tdr-time">20.0</b> ps</span></div>
+            <div class="metric-target"><span>目标 90 ± 9 Ω</span><span>观察端 Diff1</span></div>
+          </article>
+          <article class="metric-card objective-card">
+            <div class="metric-top"><span>Objective <small>综合优化成本</small></span><span class="metric-icon violet">◎</span></div>
+            <div class="metric-value" id="metric-cost">14.5 <small>cost</small></div>
+            <div class="metric-foot"><span class="delta good" id="round-label">第 01 轮</span><span>目标越低越好</span></div>
+            <div class="metric-target"><span>最大 03 轮</span><span>确定性评分</span></div>
+          </article>
+        </section>
+
+        <section class="workbench-grid reveal delay-2">
+          <div class="model-workspace">
+            <div class="model-views" aria-label="模型多视角">
+              <button class="model-thumb active" data-model-view="cutaway"><span class="thumb-visual cutaway-thumb"><i></i><b></b><em></em></span><span>过孔剖面</span></button>
+              <button class="model-thumb" data-model-view="layout"><span class="thumb-visual layout-thumb"><i></i><b></b><em></em></span><span>顶层版图</span></button>
+              <button class="model-thumb" data-model-view="stackup"><span class="thumb-visual stackup-thumb"><i></i><b></b><em></em></span><span>层叠结构</span></button>
+            </div>
+            <div class="panel geometry-panel">
+            <div class="panel-header geometry-header">
+              <div class="panel-title"><span class="panel-symbol">⌗</span><h2>物理结构</h2><span class="subtle-badge">HFSS 3D Layout</span></div>
+              <div class="segmented-control" role="tablist" aria-label="结构视图">
+                <button class="segment active" data-geometry-view="cutaway" role="tab">剖面</button>
+                <button class="segment" data-geometry-view="layout" role="tab">版图</button>
+                <button class="segment" data-geometry-view="stackup" role="tab">层叠</button>
+              </div>
+              <button class="icon-button small" id="geometry-expand" title="展开结构视图" aria-label="展开结构视图">⛶</button>
+            </div>
+            <div class="geometry-toolbar">
+              <div class="structure-path"><span class="tiny-dot blue-dot"></span><span id="structure-caption">Via transition · X-ray cutaway</span></div>
+              <div class="geometry-tools"><button class="tool-button active" data-tool="select" title="选择结构">⌖</button><button class="tool-button" data-tool="measure" title="测量">↔</button><span class="tool-separator"></span><button class="tool-button" id="fit-view" title="适配视图">⊙</button><button class="tool-button" id="reset-geometry" title="还原视图">↺</button></div>
+            </div>
+            <div class="geometry-stage" id="geometry-stage">
+              <svg id="via-geometry" viewBox="0 0 780 410" role="img" aria-label="差分过孔与反焊盘剖面示意图">
+                <defs>
+                  <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M 24 0 L 0 0 0 24" fill="none" stroke="#263440" stroke-width="0.55"/></pattern>
+                  <pattern id="copper-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(35)"><line x1="0" y1="0" x2="0" y2="6" stroke="#d19a59" stroke-opacity=".34" stroke-width="1"/></pattern>
+                  <linearGradient id="via-copper" x1="0" x2="1"><stop offset="0" stop-color="#926d46"/><stop offset=".45" stop-color="#f4c17e"/><stop offset="1" stop-color="#a87a4b"/></linearGradient>
+                  <linearGradient id="substrate" x1="0" x2="0" y1="0" y2="1"><stop stop-color="#1c303a" stop-opacity=".4"/><stop offset="1" stop-color="#0b161d" stop-opacity=".8"/></linearGradient>
+                  <filter id="signal-glow"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+                  <marker id="arrow" markerWidth="5" markerHeight="5" refX="2.5" refY="2.5" orient="auto"><path d="M0,0 L5,2.5 L0,5 z" fill="#728c9c"/></marker>
+                </defs>
+                <rect width="780" height="410" fill="url(#grid)" opacity=".52"/>
+                <g class="stage-axis"><path d="M46 357v-34m0 34h34" stroke="#67808f" fill="none"/><text x="41" y="315" fill="#67808f">Z</text><text x="85" y="361" fill="#67808f">X</text></g>
+                <g class="layer-stack">
+                  <rect x="108" y="90" width="564" height="254" fill="url(#substrate)" stroke="#32434d" stroke-dasharray="3 4"/>
+                  <g class="copper-layer" data-layer="L1"><rect x="108" y="100" width="564" height="5" fill="#778c93"/><rect x="108" y="100" width="564" height="5" fill="url(#copper-hatch)"/><text x="119" y="98">L1 · TOP</text></g>
+                  <g class="copper-layer" data-layer="L2"><rect x="108" y="134" width="564" height="7" fill="#547482"/><rect x="108" y="134" width="564" height="7" fill="url(#copper-hatch)"/><text x="119" y="132">L2 · GND</text></g>
+                  <g class="copper-layer" data-layer="L3"><rect x="108" y="170" width="564" height="5" fill="#7c8c94"/><rect x="108" y="170" width="564" height="5" fill="url(#copper-hatch)"/><text x="119" y="168">L3 · SIG</text></g>
+                  <g class="copper-layer" data-layer="L4"><rect x="108" y="206" width="564" height="7" fill="#547482"/><rect x="108" y="206" width="564" height="7" fill="url(#copper-hatch)"/><text x="119" y="204">L4 · GND</text></g>
+                  <g class="copper-layer" data-layer="L5"><rect x="108" y="242" width="564" height="5" fill="#7c8c94"/><rect x="108" y="242" width="564" height="5" fill="url(#copper-hatch)"/><text x="119" y="240">L5 · SIG</text></g>
+                  <g class="copper-layer" data-layer="L6"><rect x="108" y="278" width="564" height="7" fill="#547482"/><rect x="108" y="278" width="564" height="7" fill="url(#copper-hatch)"/><text x="119" y="276">L6 · GND</text></g>
+                  <g class="copper-layer" data-layer="L7"><rect x="108" y="314" width="564" height="5" fill="#7c8c94"/><rect x="108" y="314" width="564" height="5" fill="url(#copper-hatch)"/><text x="119" y="312">L7 · BOTTOM</text></g>
+                </g>
+                <g class="antipad-voids" id="antipad-voids">
+                  <rect x="242" y="131" width="68" height="13" rx="6" fill="#0b151d" stroke="#50a5bc" stroke-dasharray="2 3"/>
+                  <rect x="330" y="131" width="68" height="13" rx="6" fill="#0b151d" stroke="#50a5bc" stroke-dasharray="2 3"/>
+                  <rect x="242" y="203" width="68" height="13" rx="6" fill="#0b151d" stroke="#50a5bc" stroke-dasharray="2 3"/>
+                  <rect x="330" y="203" width="68" height="13" rx="6" fill="#0b151d" stroke="#50a5bc" stroke-dasharray="2 3"/>
+                  <rect x="242" y="275" width="68" height="13" rx="6" fill="#0b151d" stroke="#50a5bc" stroke-dasharray="2 3"/>
+                  <rect x="330" y="275" width="68" height="13" rx="6" fill="#0b151d" stroke="#50a5bc" stroke-dasharray="2 3"/>
+                </g>
+                <g class="differential-vias">
+                  <path d="M258 84v242" stroke="#59d5d1" stroke-width="3" filter="url(#signal-glow)"/><path d="M258 84v242" stroke="#b7ffec" stroke-width="1"/>
+                  <path d="M346 84v242" stroke="#59d5d1" stroke-width="3" filter="url(#signal-glow)"/><path d="M346 84v242" stroke="#b7ffec" stroke-width="1"/>
+                  <path d="M237 101h126" stroke="#b6c8cd" stroke-width="3"/>
+                  <path d="M237 316h126" stroke="#b6c8cd" stroke-width="3"/>
+                  <rect x="249" y="96" width="18" height="10" rx="2" fill="url(#via-copper)"/><rect x="337" y="96" width="18" height="10" rx="2" fill="url(#via-copper)"/>
+                  <rect x="249" y="310" width="18" height="10" rx="2" fill="url(#via-copper)"/><rect x="337" y="310" width="18" height="10" rx="2" fill="url(#via-copper)"/>
+                  <g class="nfp-pads" id="nfp-pads"><rect x="250" y="168" width="16" height="8" rx="3" fill="url(#via-copper)"/><rect x="338" y="168" width="16" height="8" rx="3" fill="url(#via-copper)"/><rect x="250" y="240" width="16" height="8" rx="3" fill="url(#via-copper)"/><rect x="338" y="240" width="16" height="8" rx="3" fill="url(#via-copper)"/></g>
+                </g>
+                <g class="port-labels"><path d="M258 83V53h-58" fill="none" stroke="#55c5c7"/><path d="M346 83V53h58" fill="none" stroke="#55c5c7"/><circle cx="258" cy="82" r="4" fill="#7ce2d4"/><circle cx="346" cy="82" r="4" fill="#7ce2d4"/><text x="129" y="57" fill="#8ad6d3">P1 · TX_P</text><text x="416" y="57" fill="#8ad6d3">P2 · TX_N</text><text x="238" y="350" fill="#8197a6">DIFFERENTIAL VIA PAIR</text></g>
+                <g class="dimension" id="radius-dimension"><path d="M277 137h33" stroke="#7f9eae" marker-start="url(#arrow)" marker-end="url(#arrow)"/><path d="M277 124v26m33-26v26" stroke="#526b7a" stroke-dasharray="2 3"/><rect x="270" y="112" width="78" height="17" rx="3" fill="#16232c"/><text id="radius-caption" x="278" y="124" fill="#9bb5c2">r = 18.0 mil</text></g>
+                <g class="selected-via"><rect x="244" y="119" width="28" height="29" rx="3" fill="none" stroke="#68cbd0" stroke-dasharray="3 3"/><path d="M270 127l51-27h64" stroke="#62b9c8" fill="none"/><rect x="385" y="82" width="148" height="33" rx="4" fill="#162832" stroke="#305766"/><text x="395" y="95" fill="#6d97aa">SELECTED STRUCTURE</text><text x="395" y="107" fill="#d1e5e8">via_149632 · L2_GND</text></g>
+                <g class="orientation-mark"><path d="M650 342h30v-30" fill="none" stroke="#506b79"/><text x="638" y="365" fill="#637d8d">Diff1 observation</text></g>
+              </svg>
+              <div class="layout-overlay" id="layout-overlay" hidden>
+                <svg viewBox="0 0 780 410" role="img" aria-label="差分通道顶层版图"><defs><pattern id="small-grid" width="16" height="16" patternUnits="userSpaceOnUse"><path d="M16 0H0V16" fill="none" stroke="#24333d" stroke-width=".6"/></pattern></defs><rect width="780" height="410" fill="url(#small-grid)"/><path d="M40 80H240Q270 80 290 110L360 205Q380 235 415 235H720" fill="none" stroke="#6dbcb8" stroke-width="13" opacity=".16"/><path d="M40 105H225Q252 105 275 135L335 220Q355 260 415 260H720" fill="none" stroke="#6dbcb8" stroke-width="13" opacity=".16"/><path d="M40 80H240Q270 80 290 110L360 205Q380 235 415 235H720" fill="none" stroke="#84c9c5" stroke-width="3"/><path d="M40 105H225Q252 105 275 135L335 220Q355 260 415 260H720" fill="none" stroke="#84c9c5" stroke-width="3"/><g fill="#d1a369" stroke="#f2c68e"><circle cx="385" cy="237" r="11"/><circle cx="385" cy="260" r="11"/><circle cx="510" cy="237" r="11"/><circle cx="510" cy="260" r="11"/></g><g fill="none" stroke="#4b92a2" stroke-dasharray="3 4"><circle cx="385" cy="237" r="24"/><circle cx="385" cy="260" r="24"/><circle cx="510" cy="237" r="24"/><circle cx="510" cy="260" r="24"/></g><g fill="#243f4b" stroke="#6b8995"><rect x="580" y="170" width="105" height="145" rx="3"/><rect x="35" y="50" width="80" height="85" rx="3"/></g><g stroke="#7696a5" stroke-width="2"><path d="M580 188h-22m22 22h-22m22 22h-22m22 22h-22m22 22h-22m22 22h-22M115 70h20m-20 22h20m-20 22h20"/></g><text x="52" y="160" fill="#8099a7">TX0</text><text x="611" y="335" fill="#8099a7">RX0</text><path d="M394 310h98" stroke="#819ba9"/><text x="397" y="330" fill="#819ba9">2.50 mm</text></svg>
+              </div>
+              <div class="stackup-overlay" id="stackup-overlay" hidden></div>
+              <div class="canvas-note"><span class="tiny-dot"></span><span id="canvas-note-text">选中反焊盘以调整几何约束</span></div>
+              <div class="zoom-control"><button id="zoom-out" aria-label="缩小">−</button><span id="zoom-label">100%</span><button id="zoom-in" aria-label="放大">＋</button></div>
+            </div>
+            <div class="geometry-footer"><div class="legend"><span><i class="legend-line signal"></i>差分信号</span><span><i class="legend-box copper"></i>铜皮 / 焊盘</span><span><i class="legend-box void"></i>反焊盘</span><span><i class="legend-box reference"></i>参考平面</span></div><span class="model-units">mm · top view / cutaway</span></div>
+          </div>
+          </div>
+
+          <aside class="panel inspector-panel">
+            <div class="inspector-tabs" role="tablist"><button class="inspector-tab active" data-inspector="parameters">参数与约束</button><button class="inspector-tab" data-inspector="review">审查记录<span class="count-badge">3</span></button></div>
+            <div id="parameters-pane">
+              <div class="inspector-section selected-object">
+                <div class="section-label">当前选中 <span>OBJECT 01 / 02</span></div>
+                <div class="object-title"><span class="object-icon">◎</span><div><strong>差分过孔对</strong><small>via_149632 + via_149633</small></div><span class="tiny-dot"></span></div>
+                <div class="object-meta"><span>TX0 → RX0</span><span>Through via · L1–L7</span></div>
+              </div>
+              <div class="inspector-section">
+                <div class="section-heading"><h3>反焊盘 <span>ANTI-PAD</span></h3><button class="text-button" id="reset-antipad">重置</button></div>
+                <label class="field-label" for="antipad-layer">参考层</label>
+                <div class="select-wrap"><select id="antipad-layer"><option value="L2_GND">L2_GND · 参考平面</option><option value="L4_GND">L4_GND · 参考平面</option><option value="L6_GND">L6_GND · 参考平面</option></select></div>
+                <div class="field-label range-label"><label for="antipad-radius">圆形反焊盘半径</label><span class="constraint-label">≤ 22 mil</span></div>
+                <div class="range-input"><input type="range" id="antipad-radius" min="12" max="22" step="0.5" value="18"><div class="number-unit"><input type="number" id="antipad-radius-number" min="12" max="22" step="0.5" value="18" aria-label="反焊盘半径数值"><span>mil</span></div></div>
+                <div class="range-scale"><span>12</span><span>17</span><span>22 mil</span></div>
+                <div class="parameter-evidence"><span>⌖</span><span>圆心来自 padstack 实例<small>via_149632 · native readback</small></span><span class="evidence-check">✓</span></div>
+              </div>
+              <div class="inspector-section">
+                <div class="section-heading"><h3>非功能焊盘 <span>NFP</span></h3><label class="switch"><input type="checkbox" id="nfp-toggle" checked><span></span></label></div>
+                <div class="field-label range-label"><label for="nfp-radius">信号网络圆半径</label><span class="constraint-label">7.875–10 mil</span></div>
+                <div class="range-input"><input type="range" id="nfp-radius" min="7.875" max="10" step="0.125" value="8.5"><div class="number-unit"><input type="number" id="nfp-radius-number" min="7.875" max="10" step="0.125" value="8.5" aria-label="非功能焊盘半径数值"><span>mil</span></div></div>
+                <div class="range-scale"><span>7.875</span><span>8.94</span><span>10 mil</span></div>
+                <div class="layer-chips"><span>L3_SIG</span><span>L5_SIG</span><span class="chip-more">+1</span></div>
+              </div>
+              <div class="inspector-section observation-section">
+                <div class="section-heading"><h3>观测与验证</h3><span class="verified-label">✓ 已定向</span></div>
+                <div class="observation-row"><span>TDR 观察端</span><strong>Diff1 <span>→ TX 侧</span></strong></div>
+                <div class="observation-row"><span>参考阻抗</span><strong>90 Ω <span>差分</span></strong></div>
+                <div class="observation-row"><span>扫频范围</span><strong>0 – 28 GHz</strong></div>
+              </div>
+              <div class="inspector-action" id="production-actions">
+                <div class="preview-status" id="preview-status"><span class="tiny-dot"></span><span>参数未修改，可预览当前基线</span></div>
+                <button class="button primary full" id="preview-button"><span>◇</span>生成修改预览</button>
+                <p class="action-caption">Preview → 人工审批 → Apply → Readback</p>
+              </div>
+            </div>
+            <div id="review-pane" hidden>
+              <div class="review-intro"><span class="review-badge">✓ 人工审查门</span><h3>源模型审查记录</h3><p>每次生产性修改都需要绑定明确的物理证据，不接受无约束的脚本修改。</p></div>
+              <div class="review-timeline">
+                <article><span class="review-avatar">ZL</span><div><strong>初始模型审查通过</strong><time>今天 16:42</time><p>确认四端口差分模型、叠层、端口位置及 L2/L4/L6 参考平面。工作副本与源工程隔离。</p><div class="review-tags"><span>stackup</span><span>ports</span><span>working-copy</span></div></div></article>
+                <article><span class="review-avatar">ZL</span><div><strong>Diff1 观察端定向</strong><time>今天 16:48</time><p>依据端口位置确认 Diff1 观察 TX 侧。早期 TDR 特征可用于近端过孔分析。</p><div class="review-tags"><span>Diff1</span><span>orientation</span></div></div></article>
+                <article><span class="review-avatar">SYS</span><div><strong>工艺约束已加载</strong><time>今天 16:51</time><p>反焊盘半径 ≤ 22 mil；NFP 半径范围 7.875–10 mil。候选动作由 AEDB 实际 shape 证据生成。</p><div class="review-tags"><span>geometry</span><span>guardrails</span></div></div></article>
+              </div>
+              <button class="button secondary full" id="review-evidence-button">查看完整审查证据 ↗</button>
+            </div>
+          </aside>
+          <aside class="assistant-panel" aria-label="AI 设计助手">
+            <header class="assistant-header"><div><span class="assistant-spark">✦</span><strong>AI 设计助手</strong><span class="assistant-model">SI Copilot</span></div><button class="icon-button small" id="assistant-collapse" aria-label="收起助手">×</button></header>
+            <div class="assistant-context"><span class="status-dot"></span><span id="assistant-context-status">已理解当前工程</span><button id="assistant-context-button">TX0 → RX0 ⌄</button></div>
+            <div class="assistant-messages" id="assistant-messages">
+              <article class="assistant-message assistant-note"><span class="message-label">工程分析</span><p>当前差分过孔在 <strong>20 ps</strong> 附近产生 <strong>11.0 Ω</strong> 阻抗下冲，SDD11 在 <strong>18 GHz</strong> 处最差，为 <strong>−14.2 dB</strong>。</p><p>建议先扩大 L2/L4/L6 参考层的反焊盘，降低过孔寄生电容；保持 Diff1 的 TX 侧观察方向。</p><div class="assistant-actions"><button data-assistant-action="preview">生成候选预览</button><button data-assistant-action="explain">解释优化依据</button></div></article>
+              <article class="assistant-message assistant-step"><span class="step-check">✓</span><div><strong>已核对几何约束</strong><p>anti-pad ≤ 22 mil · NFP 7.875–10 mil</p></div></article>
+              <article class="assistant-message assistant-step"><span class="step-check">✓</span><div><strong>已确认源工程只读</strong><p>候选仅写入隔离的 working project</p></div></article>
+            </div>
+            <div class="assistant-composer"><div class="composer-suggestions"><button data-prompt="建议下一轮反焊盘半径">下一轮建议</button><button data-prompt="解释 TDR 峰值">TDR 分析</button></div><form id="assistant-form"><textarea id="assistant-input" rows="2" placeholder="询问结构、指标或下一步优化…" aria-label="向 AI 设计助手提问"></textarea><div><span>Enter 发送 · 演示助手</span><button type="submit" aria-label="发送">↑</button></div></form></div>
+          </aside>
+        </section>
+
+        <section class="analysis-grid reveal delay-3">
+          <div class="panel chart-panel">
+            <div class="panel-header chart-header">
+              <div class="panel-title"><span class="panel-symbol">∿</span><h2>通道响应</h2><span class="subtle-badge">Diff1 · 90 Ω</span></div>
+              <div class="chart-controls"><div class="segmented-control" role="tablist"><button class="segment active" data-chart="tdr">TDR</button><button class="segment" data-chart="sdd11">SDD11</button><button class="segment" data-chart="sdd21">SDD21</button></div><button class="icon-button small" id="chart-expand" aria-label="展开曲线" title="展开曲线">⛶</button></div>
+            </div>
+            <div class="chart-summary"><div><strong id="chart-title">差分阻抗 / TDR</strong><span id="chart-subtitle">近端过孔不连续性是主要优化对象</span></div><div class="chart-legend"><span><i class="line baseline"></i>当前结构</span><span id="candidate-legend" hidden><i class="line candidate"></i>候选结构</span><span><i class="line target"></i>目标阻抗</span></div></div>
+            <div class="chart-wrap"><svg id="response-chart" viewBox="0 0 680 250" role="img" aria-label="TDR 差分阻抗曲线"><defs><linearGradient id="curve-fill" x1="0" x2="0" y1="0" y2="1"><stop stop-color="#56c9c2" stop-opacity=".16"/><stop offset="1" stop-color="#56c9c2" stop-opacity="0"/></linearGradient></defs><g id="chart-grid"></g><g id="chart-thresholds"></g><path id="chart-area" fill="url(#curve-fill)"/><path id="chart-candidate" fill="none" stroke="#d5aa68" stroke-width="1.8" stroke-dasharray="5 4" opacity="0"/><path id="chart-line" fill="none" stroke="#66d2cb" stroke-width="2" stroke-linejoin="round"/><g id="chart-annotation"></g><g id="chart-crosshair" opacity="0"><line stroke="#8196a5" stroke-dasharray="3 3"/><circle r="4" fill="#0e1820" stroke="#a5e8df" stroke-width="2"/><rect width="91" height="35" x="9" y="-43" rx="4" fill="#1a2933" stroke="#39515e"/><text x="17" y="-28" fill="#bed6da" id="crosshair-value"></text><text x="17" y="-16" fill="#748e9e" id="crosshair-x"></text></g><rect id="chart-hit-area" width="680" height="250" fill="transparent" tabindex="0" aria-label="移动鼠标查看曲线采样值"/></svg></div>
+            <div class="chart-footer"><span><i class="tiny-dot amber-dot"></i><span id="chart-insight">过孔阻抗下冲 · 11.0 Ω @ 20.0 ps</span></span><button class="text-button" id="chart-data-button">查看有界指标 ↗</button></div>
+          </div>
+
+          <div class="panel history-panel">
+            <div class="panel-header"><div class="panel-title"><span class="panel-symbol">↗</span><h2>优化轨迹</h2><span class="subtle-badge">03 rounds max</span></div><button class="text-button" id="history-button">全部记录 ↗</button></div>
+            <div class="history-list" id="history-list">
+              <article class="history-item current"><div class="round-marker"><span>01</span><i></i></div><div class="history-content"><div><strong>基线结构</strong><span class="history-status baseline">BASELINE</span></div><p>初始反焊盘 r = 18.0 mil · NFP 8.5 mil</p><div class="history-metrics"><span>Cost <b>14.5</b></span><span>SDD11 <b>−14.2 dB</b></span></div><small>已求解 · 证据已固化</small></div></article>
+              <article class="history-item next"><div class="round-marker"><span>02</span><i></i></div><div class="history-content"><div><strong>候选结构</strong><span class="history-status pending">PREVIEW</span></div><p id="candidate-summary">反焊盘 r = 20.0 mil · 减小寄生电容</p><div class="history-metrics"><span>状态 <b>待审批</b></span><span>预计 <b>−1.8 dB</b></span></div><small>尚未写入 working project</small></div></article>
+              <article class="history-item muted"><div class="round-marker"><span>03</span></div><div class="history-content"><div><strong>验证与收敛</strong><span class="history-status">PENDING</span></div><p>根据第 02 轮评分决定是否继续</p><small>等待前序证据</small></div></article>
+            </div>
+            <div class="history-footer"><span class="tiny-dot"></span><span>工作副本隔离 · 失败自动回滚</span></div>
+          </div>
+        </section>
+
+        <footer class="page-footer"><span><b>SI FORGE</b> · Engineering evidence, not assumptions.</span><span>Source SHA256 <code>a91c…7e42</code><i></i>Working project isolated<i></i><span id="footer-round">Round 01 / 03</span></span></footer>
+      </div>
+    </main>
+  </div>
+
+  <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
+  <div class="modal-backdrop" id="modal-backdrop" hidden>
+    <section class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <header class="modal-header"><div><span class="eyebrow" id="modal-kicker">CHANGE PREVIEW</span><h2 id="modal-title">修改预览</h2></div><button class="icon-button" id="modal-close" aria-label="关闭">×</button></header>
+      <div class="modal-content" id="modal-content"></div>
+      <footer class="modal-footer" id="modal-footer"></footer>
+    </section>
+  </div>
+  <script src="./app.js"></script>
+</body>
+</html>

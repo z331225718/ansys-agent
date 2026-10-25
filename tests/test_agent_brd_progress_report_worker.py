@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
+
+import pytest
 
 from aedt_agent.agent.mission import JobRecord
 from aedt_agent.agent.workers.brd_progress_report import (
@@ -10,7 +13,8 @@ from aedt_agent.agent.workers.brd_progress_report import (
     run_brd_optimization_progress_worker,
     run_brd_optimization_report_worker,
 )
-from aedt_agent.agent.workers.registry import WorkerContext
+from aedt_agent.agent.mission import JobStatus
+from aedt_agent.agent.workers.registry import InMemoryWorkerRegistry, WorkerContext, WorkerReportedError
 
 
 def _job(capability: str, input_payload: dict) -> JobRecord:
@@ -116,6 +120,9 @@ def test_progress_worker_writes_history_and_report_artifacts(tmp_path):
 
 def test_final_report_worker_returns_scorecard_report(tmp_path):
     evidence_path = _score_evidence(tmp_path / "score" / "evidence.json")
+    source = tmp_path / "source" / "reviewed.aedt"
+    source.parent.mkdir(parents=True)
+    source.write_text("reviewed project", encoding="utf-8")
     payload = {
         "decision": "complete",
         "reason": "max rounds reached",
@@ -123,6 +130,8 @@ def test_final_report_worker_returns_scorecard_report(tmp_path):
             "round_index": 1,
             "report_dir": str(tmp_path / "progress"),
             "score_evidence_paths": [evidence_path],
+            "source_project_path": str(source),
+            "source_project_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
         },
     }
 
@@ -132,7 +141,8 @@ def test_final_report_worker_returns_scorecard_report(tmp_path):
     )
 
     assert output["status"] == "passed"
-    assert output["checks"][0]["id"] == "raw_trace_policy"
+    assert next(check for check in output["checks"] if check["id"] == "source_project_integrity")["status"] == "passed"
+    assert next(check for check in output["checks"] if check["id"] == "raw_trace_policy")["status"] == "passed"
     assert next(check for check in output["checks"] if check["id"] == "required_plots")[
         "status"
     ] == "passed"
@@ -142,4 +152,79 @@ def test_final_report_worker_returns_scorecard_report(tmp_path):
         output["optimization_history_csv"],
         output["report_json"],
         output["report_html"],
+        output["artifact_manifest"],
     ]
+
+
+
+def test_final_report_worker_fails_closed_when_source_changed(tmp_path):
+    evidence_path = _score_evidence(tmp_path / "score" / "evidence.json")
+    source = tmp_path / "source" / "reviewed.aedt"
+    source.parent.mkdir(parents=True)
+    source.write_text("original", encoding="utf-8")
+    payload = {
+        "decision": "complete",
+        "reason": "max rounds reached",
+        "loop_context": {
+            "round_index": 1,
+            "report_dir": str(tmp_path / "progress"),
+            "score_evidence_paths": [evidence_path],
+            "source_project_path": str(source),
+            "source_project_sha256": hashlib.sha256(b"original").hexdigest(),
+        },
+    }
+    source.write_text("modified during loop", encoding="utf-8")
+    with pytest.raises(WorkerReportedError) as exc:
+        run_brd_optimization_report_worker(
+            _job(BRD_OPTIMIZATION_REPORT_CAPABILITY, payload),
+            WorkerContext("worker-1", artifacts_dir=str(tmp_path / "artifacts")),
+        )
+    assert exc.value.error_class == "invalid_model"
+    assert exc.value.retryable is False
+    assert exc.value.details["code"] == "source_project_modified"
+    assert Path(exc.value.details["artifact_refs"][0]).is_file()
+
+
+def test_final_report_worker_fails_closed_without_source_baseline(tmp_path):
+    evidence_path = _score_evidence(tmp_path / "score" / "evidence.json")
+    payload = {
+        "decision": "complete",
+        "loop_context": {
+            "round_index": 1,
+            "report_dir": str(tmp_path / "progress"),
+            "score_evidence_paths": [evidence_path],
+        },
+    }
+    with pytest.raises(WorkerReportedError) as exc:
+        run_brd_optimization_report_worker(
+            _job(BRD_OPTIMIZATION_REPORT_CAPABILITY, payload),
+            WorkerContext("worker-1", artifacts_dir=str(tmp_path / "artifacts")),
+        )
+    assert exc.value.details["code"] == "source_integrity_unavailable"
+
+
+def test_report_worker_error_becomes_failed_job_with_diagnostic_details(tmp_path):
+    evidence_path = _score_evidence(tmp_path / "score" / "evidence.json")
+    source = tmp_path / "source" / "reviewed.aedt"
+    source.parent.mkdir(parents=True)
+    source.write_text("changed", encoding="utf-8")
+    payload = {
+        "decision": "complete",
+        "loop_context": {
+            "round_index": 1,
+            "report_dir": str(tmp_path / "progress"),
+            "score_evidence_paths": [evidence_path],
+            "source_project_path": str(source),
+            "source_project_sha256": hashlib.sha256(b"original").hexdigest(),
+        },
+    }
+    registry = InMemoryWorkerRegistry()
+    registry.register(BRD_OPTIMIZATION_REPORT_CAPABILITY, run_brd_optimization_report_worker)
+    result = registry.execute(
+        _job(BRD_OPTIMIZATION_REPORT_CAPABILITY, payload),
+        WorkerContext("worker-1", artifacts_dir=str(tmp_path / "artifacts")),
+    )
+    assert result.status == JobStatus.FAILED
+    assert result.error is not None
+    assert result.error.details["code"] == "source_project_modified"
+    assert Path(result.error.details["artifact_refs"][0]).is_file()

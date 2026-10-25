@@ -168,8 +168,7 @@ def test_launcher_generates_session_scoped_mcp_and_visible_git_bash(
     assert "Never call `wait_for_live_approval`" in system_context
     assert "typed Harness capability" in system_context
     assert "automatic `approval_token`" in system_context
-    assert "preview_live_open_aedt_python" in system_context
-    assert "apply_live_open_aedt_python" in system_context
+    assert "run_python_code" in system_context
     assert "not the entire AEDT session" in system_context
     assert "native-oEditor fallback" in system_context
     assert "AEDT COM" in system_context

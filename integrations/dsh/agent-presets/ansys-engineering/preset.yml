@@ -1,0 +1,2 @@
+name: Ansys Engineering（legacy，请迁移到 ansys-explore）
+description: 已弃用的旧全权限模式，不再作为生产审批模式。安装器会把它视为未标记冲突并拒绝写入；请人工迁移到 ansys-explore（非生产探索）或删除旧条目。

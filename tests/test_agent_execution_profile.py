@@ -168,3 +168,17 @@ def test_execution_profile_rejects_invalid_allowed_env_names(name):
 
     with pytest.raises(ExecutionProfileError, match="allowed_env"):
         ExecutionProfile.from_json_dict(payload)
+
+
+def test_local_real_aedt_profile_is_production_capable_not_safe_recorded():
+    payload = json.loads(
+        Path("config/execution_profiles/local_real_aedt.example.json").read_text(encoding="utf-8")
+    )
+    profile = ExecutionProfile.from_json_dict(payload)
+
+    assert profile.profile_id == "local-real-aedt"
+    assert profile.profile_id != "safe-recorded"
+    assert profile.allow_real_aedt is True
+    assert profile.execution_mode == "local"
+    assert profile.simulation_runner == "local_cli"
+    assert profile.max_concurrent_aedt == 1

@@ -1,9 +1,16 @@
 # Pi 集成 PoC 技术规格
 
+> [!WARNING]
+> 本文是历史草案，已被
+> [ADR 0002: 采用 DeepSeek Harness 替代 Pi Operator](../../adr/0002-replace-pi-operator-with-deepseek-harness.md)
+> 取代。草案中的“Pi 安全沙箱”和 Python `@tool` 示例都不能作为实现依据：
+> Pi 官方明确说明其运行时没有内建沙箱，官方 SDK 为 TypeScript。新的规格采用
+> `pi-agent-core + pi-ai`、白名单工具和由 Python 持有权威状态的本机桥接架构。
+
 ## 状态
 
 - 日期: 2026-06-16
-- 状态: 提案 / PoC 阶段
+- 状态: 已取代，仅供历史追溯
 - 范围: 将 Pi (earendil-works/pi) 作为 ansys-agent 的外层会话与交互适配层
 
 ## 背景
@@ -13,7 +20,7 @@ Pi 是一个本地 Agent 框架，提供：
 - 多会话管理
 - 流式交互（streaming）
 - 多 provider 支持
-- 安全沙箱
+- 工具策略钩子（不是安全沙箱）
 
 ## 集成策略
 
@@ -61,9 +68,9 @@ Pi 检测到 `WAITING_APPROVAL` 状态后，提示用户选择 approve/reject。
 
 ### 4. 安全边界
 
-- Pi 的沙箱限制 ansys-agent 的文件系统访问
+- Pi 本身不提供沙箱；不得向 Agent 注册任意文件、shell 或 worker 工具
 - ansys-agent 的环境 profile 控制 AEDT 版本、license、超时
-- 两层安全：Pi session-level + ansys-agent mission-level
+- 权威安全边界位于 ansys-agent 服务端校验、审批、execution profile 与操作系统账户
 
 ## 不做什么
 

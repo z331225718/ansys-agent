@@ -26,3 +26,17 @@ user_input/
 geometry_validation_manifest.json
 nul
 skills-lock.json
+
+# scratch scripts
+scripts/screenshot_demo.py
+scripts/test_quick_line.py
+scripts/test_solve.py
+
+# machine-local reviewed BRD loop configuration (examples stay tracked)
+config/execution_profiles/local_real_aedt.json
+config/optimization_loops/reviewed_brd_remote.json
+config/optimization_loops/*_input.local.json
+
+# per-run evidence bodies are machine-local; the evidence index stays tracked
+docs/evidence/*/
+!docs/evidence/README.md

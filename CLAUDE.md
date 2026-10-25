@@ -229,3 +229,29 @@ You:
 8. If succeeded or max_rounds reached, report final bounded metrics and report
    artifact paths.
 ```
+
+## Dual-MCP Architecture & Tool Routing Rules
+
+This repository integrates with the official Ansys **PyAEDT-MCP** (`aedt`) and provides domain-specific engineering tools via **ansys-assistant** and **ansys-api-memory**:
+
+1. **Official PyAEDT-MCP (`aedt`)**:
+   - Lifecycle: `check_aedt_installed`, `check_aedt_status`, `launch_aedt`, `connect_to_aedt`, `disconnect_from_aedt`, `clear_aedt`.
+   - Projects & Designs: `list_projects`, `list_designs`, `open_project`, `save_project`, `create_design`.
+   - Simulation & Verification: `validate_design`, `analyze_design`, `export_config`.
+   - Results & Telemetry: `export_results`, `screenshot`, `get_model_info`, `get_pyaedt_logs`, `display_html`.
+   - Raw Scripting: `run_python_code`, `run_python_script`.
+
+2. **ansys-agent Domain & Safety MCP (`ansys-assistant` / `ansys-api-memory`)**:
+   - High-speed differential channel & via optimization (BRD local cut, via pattern, anti-pad void, non-functional pad).
+   - Parametric 3D Layout modifications with two-phase commit: `preview` -> token approval -> `apply` -> `readback` -> automatic rollback on failure.
+   - Channel frequency/time-domain scoring (SDD11, SDD21, TDR peak deviation, orientation awareness).
+   - Long-running optimization missions, YAML DAG workflows, and evidence packaging.
+   - API Memory query and capability learning / promoter.
+
+### Decision Rules for Agents:
+- **AEDT connection & project lifecycle**: MUST use official `aedt` tools (`check_aedt_status`, `connect_to_aedt`, `open_project`, `save_project`).
+- **Solving & full design validation**: Use official `aedt` tools (`validate_design`, `analyze_design`) or ansys-agent's standardized graph workers.
+- **Parametric 3D Layout & HFSS geometry edits (vias, anti-pads, line width, boundary, materials)**: MUST use `ansys-assistant` preview/apply tools.
+- **Multi-round Channel Optimization**: MUST use ansys-agent YAML graph loop (`mission run-loop` / `advance-graph`).
+- **Arbitrary Python code**: Use official `run_python_code` only for ad-hoc inspection/exploration. Production optimization must strictly use guarded workers and approved harness tools.
+

@@ -137,3 +137,56 @@ def test_child_main_writes_heartbeat_with_process_identity(tmp_path):
     assert heartbeat["job_id"] == "job-1"
     assert isinstance(heartbeat["pid"], int)
     assert heartbeat["updated_at"]
+
+
+def test_child_main_preserves_report_worker_source_integrity_failure(tmp_path):
+    evidence = tmp_path / "score" / "evidence.json"
+    evidence.parent.mkdir()
+    evidence.write_text(json.dumps({
+        "score": {
+            "status": "fail",
+            "touchstone_kind": "s4p",
+            "sparameter_mode": "differential",
+            "return_loss_trace": "SDD11",
+            "insertion_loss_trace": "SDD21",
+            "rl_worst_db": -14.2,
+            "rl_worst_frequency_ghz": 18.0,
+            "insertion_worst_db_in_band": -2.1,
+            "tdr_observation_port": "Diff1",
+            "tdr_peak_deviation_ohm": 11.0,
+            "tdr_peak_time_ps": 20.0,
+            "optimization_objective": {"total_cost": 14.5},
+            "plot_artifacts": {"tdr": "tdr.svg", "sdd11": "sdd11.svg", "sdd21": "sdd21.svg"},
+        },
+        "evidence_summary": {"status": "fail", "raw_sparameters": "artifact_only", "raw_tdr": "artifact_only"},
+    }), encoding="utf-8")
+    source = tmp_path / "reviewed.aedt"
+    source.write_text("original", encoding="utf-8")
+    import hashlib
+    payload = {
+        "decision": "complete",
+        "loop_context": {
+            "round_index": 1,
+            "report_dir": str(tmp_path / "progress"),
+            "score_evidence_paths": [str(evidence)],
+            "source_project_path": str(source),
+            "source_project_sha256": hashlib.sha256(b"original").hexdigest(),
+        },
+    }
+    source.write_text("modified", encoding="utf-8")
+    request = _request(
+        tmp_path,
+        "aedt_agent.agent.workers.brd_progress_report:run_brd_optimization_report_worker",
+        payload,
+    )
+
+    exit_code = child_main.run(_write_request(tmp_path, request))
+
+    result = _read_result(tmp_path)
+    assert exit_code == 1
+    assert result.status == HarnessStatus.FAILED
+    assert result.error is not None
+    assert result.error.error_class == "invalid_model"
+    assert result.error.retryable is False
+    assert result.error.details["code"] == "source_project_modified"
+    assert Path(result.error.details["artifact_refs"][0]).is_file()
