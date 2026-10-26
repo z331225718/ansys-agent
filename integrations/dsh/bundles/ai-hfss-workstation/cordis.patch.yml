@@ -1,0 +1,13 @@
+# AI-HFSS Workstation bundle patch.
+#
+# Mounts ONE host loader row naming this package. The runtime client-modules
+# service scans Loader entries, finds this package's `dsh.client` declaration and
+# its `./client` export, and serves the browser half through the /plugins route,
+# where it registers the sidebar panel + main page (parity with 插件 / 自动化任务).
+#
+# The host half itself is inert (see index.js): the surface is the browser panel.
+# The `name` resolves from the profile node_modules, where the installer creates
+# the node_modules/@local/dsh-ai-hfss-workstation junction.
+- insert:
+    - id: ai-hfss-workstation
+      name: "@local/dsh-ai-hfss-workstation"

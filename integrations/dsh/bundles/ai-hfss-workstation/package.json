@@ -1,0 +1,33 @@
+{
+  "name": "@local/dsh-ai-hfss-workstation",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "AI-HFSS workstation surface for DSH: a top-level sidebar panel and main page (parity with 插件 / 自动化任务) embedding the read-only SI/AEDT Mission workbench.",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [],
+      "external": [
+        "react"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.0.5"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    }
+  }
+}
