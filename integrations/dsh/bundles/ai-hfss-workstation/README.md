@@ -4,6 +4,10 @@
 **插件**（plugin-manager）和 **自动化任务**（schedule）平级；页面里
 **点一下就启动/停止** Mission 工作台，不用先手动起服务。
 
+> **当前状态**：导航入口、启停面板、控制接口、一键回滚都已打通；面板起的
+> dashboard 默认读空库，所以嵌入的工作台**还没有项目数据**。
+> **下一步主线：把工作台接到真实项目**（见下方「现状 vs 下一步」）。
+
 | 位置 | 注册点 | 效果 |
 |------|--------|------|
 | 左侧主导航 | `ctx.slots` → `sidebar.panellist` | 「AI-HFSS 工作站」面板图标（order 30） |
@@ -28,6 +32,47 @@
 跨 DSH 重启也认得：host 用 `dashboard.pid` 记住自己起过的进程，
 重启后面板显示为运行中（标记"不是由本面板启动"），仍可点「停止服务」把它杀掉
 （会先校验命令行里确实含 `aedt_agent.agent mission web`，不是就不杀）。
+
+## 现状 vs 下一步
+
+### 已完成（本插件负责的部分）
+
+| 能力 | 状态 |
+|------|------|
+| 与「插件 / 自动化任务」平级的导航入口 + 主页面 | ✅ |
+| 面板内**一键启停** dashboard（状态机 / 轮询 / 日志 / 超时处理） | ✅ |
+| 控制接口 `/api/ai-hfss/*` + loopback、同源、命令行校验护栏 | ✅ |
+| 安装 / 校验 / **字节级回滚** | ✅ |
+| 嵌入工作台页面本身 | ✅（但读的是**空库**） |
+
+### 下一步（唯一未完成的主线）：工作台接真实项目
+
+现在面板起的 dashboard 用的是默认空库
+`~/.dsh/ai-hfss-workstation/missions.db`，所以 `/workbench` 打开后 Mission
+列表是空的——**链路通了，数据还没接**。接下来按这个顺序做：
+
+1. **指向真实 Mission 库**（必须是真实 reviewed-loop 运行写入的那个 SQLite）：
+
+   ~~~powershell
+   .\scripts\dsh\ai_hfss_workstation.ps1 apply -MissionsDb D:\aedt-agent-runs\reviewed-loop\missions.db
+   ~~~
+
+2. 重启 DSH → 面板点「启动服务」。
+3. 工作台里点 **「连接项目」** → 选真实的 Mission / Graph。
+4. **验收标准**：
+   - Mission 列表出现真实运行，不再是空列表；
+   - 指标区显示 worker 上报的 SDD11 / SDD21 最差值、TDR 峰值偏差、objective
+     cost，并标记为 **LIVE**；
+   - 历史轮次与审批（human_gate）状态可读；
+   - 没有几何 inventory 时明确显示「几何预览未接入」，没有 plot artifact 时
+     明确显示「真实曲线 artifact 未注册」——**不混入演示值**。
+
+### 明确不在这一步之内
+
+- AEDB / native inventory 的 3D 几何渲染；
+- 从面板触发 mission create / advance / human_gate 审批（按守卫，仍走受控
+  CLI / dashboard）；
+- 任何 AEDT 写操作。
 
 ## 边界
 
@@ -175,6 +220,7 @@ dashboard 日志尾部，并以非 0 退出。
 | 启动立即失败（退出码非 0） | 面板会直接显示 `服务启动后立即退出（code=N）`，日志里有 traceback |
 | 停止报 409 | 该进程不是本面板/本机服务拉起（命令行不含 `aedt_agent.agent mission web`），按提示手动处理 |
 | 页面显示"控制接口不可用" | host 半边没加载：确认已 apply 并重启 DSH |
+| 服务已运行，但工作台里 **Mission 列表是空的** | 这是预期：默认空库。按「现状 vs 下一步」第 1 步指向真实 Mission 库，再点「连接项目」 |
 | 重启后 DSH 停在 "Failed to load plugins" | 执行一键回滚再重启 |
 
 ## 测试
