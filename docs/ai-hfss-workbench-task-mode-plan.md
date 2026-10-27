@@ -1,6 +1,6 @@
 # AI-HFSS：工作台任务化 + AEDT 内嵌轻对话
 
-状态：**待批准（施工前计划）**
+状态：**已批准；P0 已完成**（见 [docs/spikes/ai-hfss-p0.md](spikes/ai-hfss-p0.md)）
 日期：2026-10-28
 相关代码：`src/aedt_agent/agent/web.py`、`src/aedt_agent/agent/workbench.py`、
 `src/aedt_agent/agent/cli.py`、`src/aedt_agent/infrastructure/sqlite_mission_store.py`、
@@ -173,7 +173,7 @@ max_rounds / max_steps）。工作台表单只需要收集"工程、网络、bbo
 | 审批 | 现有 `approvals` 表 + `decide` 逻辑（`web.py` 已有实现可提炼） |
 | 自动循环 | 后台线程 `run_loop_from_config(runtime, config, worker_id, max_workers)`；单任务单线程；可暂停（`stop_event`） |
 | 状态投影 | 复用 `workbench_snapshot`，但签名改为 `(task_runtime, graph_run_id)` |
-| 并发 | 每个任务独立 DB → 天然隔离；工作区内写操作加 per-task 锁 |
+| 并发 | 每个任务独立 DB → 天然隔离；**每任务必须单驱动**：P0 实测同库并发 advance 会抛 `sqlite3.IntegrityError: UNIQUE constraint failed: node_runs.graph_run_id, node_runs.sequence`（见 `scripts/spikes/p0_samedb.py`）。实现：per-task 锁 + `driver.lock` advisory 文件（防工作台与 CLI 同时驱动）+ 只读侧用 `open_read_only` |
 
 ### 5.1 API 契约（挂同一 web 服务）
 
@@ -253,7 +253,12 @@ max_rounds / max_steps）。工作台表单只需要收集"工程、网络、bbo
 - **未发现**客户端可调用的"发送第一条消息"接口
   （chat/workspace 包里没有 submit/sendMessage 之外露 API）。
 
-因此采用**宿主侧先行**方案（Phase 0 探针确认可行性）：
+**P0 结论（已确认，代码级）**：宿主侧 `sessionController` 服务提供
+`create({cwd|workspaceId, agentPreset})` 与 `prompt({sessionId, requestId, content}, {kind:"user", rpcId})`，
+可直接程序化建会话并提交首条消息 → **主方案成立**，无需依赖模型自觉。
+（`dsh-api-session-controller/lib/index.js:755, 925, 2952`；P1 首日做 30 分钟真机复核。）
+
+因此采用**宿主侧先行**方案：
 
 ```text
 AEDT 脚本按钮
@@ -327,7 +332,10 @@ Tools → Run Script；AEDT 2024+ 用 CPython 3）：
 
 ## 9. 分阶段实施（每阶段可独立验收、可回滚）
 
-### P0 探针（0.5–1 天）— 只回答 3 个问题，不写生产代码
+### P0 探针 ✅ 已完成（见 [spikes/ai-hfss-p0.md](spikes/ai-hfss-p0.md)）
+结论：Q1 可行（宿主 `sessionController`）、Q2 可行（`toggleSidebar` + DOM 判定）、
+Q3 稳定（两库并发 0.09–0.13s 零串扰）、N1 同库并发必冲突（→ 每任务单驱动）。
+以下保留原始问题描述：
 1. 宿主能否**程序化提交首条用户消息**（决定 §7.2 用主方案还是兜底）。
 2. focus 模式能否稳定收起侧栏（`toggleSidebar` 在 Web/桌面两端行为）。
 3. 一个进程内**多个 AgentRuntime/DB** 是否稳定（建 2 个任务、并发推进、观察 SQLite 与线程）。
