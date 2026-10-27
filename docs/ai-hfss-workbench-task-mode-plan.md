@@ -1,6 +1,6 @@
 # AI-HFSS：工作台任务化 + AEDT 内嵌轻对话
 
-状态：**已批准；P0 ✅ / P1 ✅ / P2 ✅ / P3 ✅**（P4 收尾进行中）（P0 见 [docs/spikes/ai-hfss-p0.md](spikes/ai-hfss-p0.md)）
+状态：**P0 ✅ / P1 ✅ / P2 ✅ / P3 ✅ / P4 ✅（本轮交付完成）**（P0 见 [docs/spikes/ai-hfss-p0.md](spikes/ai-hfss-p0.md)）
 
 P1 已交付：`workbench_tasks.py`（工作区/任务/每任务库/锁/自动驾驶）、`/api/workbench/*` 新接口、
 `tests/test_agent_workbench_tasks.py`。
@@ -420,3 +420,17 @@ P0 探针（3 个问题）
 
 先 P1/P2（重的一侧先落地，工作台能独立用起来），P3 只依赖 P0 结论 + 现成
 DSH 契约，可并行或紧随其后。
+P4 已交付（收尾与验收证据）：
+
+- 文档：根 README / bundle README / si-workbench README / 本计划同步为"任务化 + focus 页"口径；
+  明确 `service.json.missionsDb` 是 legacy 字段（只服务旧只读投影，任务各用各的库）；
+- 回滚演练（干净基线）：`apply → rollback` 后 `package.json` **字节完全一致**、
+  `cordis.patch.yml` 未变、bundle/链接/清单全部移除；
+- 浏览器验收（真实工程）：Playwright 打开 `/workbench` → 工作区 `E:/ai-hfss-test` →
+  任务 `1GHz single-point smoke`，状态条 `任务 succeeded · graph succeeded · step 1/64`，
+  徽标 LIVE，无 JS 错误；几何与产物区如实显示"未接入/未注册"；
+- 已知边界（不阻塞）：focus 页需要用户重启 DSH 后点验；浏览器鉴权依赖同源已登录会话；
+  AEDT 脚本只上报工程/设计（pid/grpc 待补）；prompt 失败会留下已建会话。
+
+**真机仿真记录**：1 GHz 单点共执行 2 次（一次 API 探路 42.4 s、一次工作台驱动 38.3 s），
+未执行任何宽频扫描。

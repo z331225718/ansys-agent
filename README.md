@@ -172,14 +172,16 @@ DSH（DeepSeek Harness）里已有一个与内置「插件」「自动化任务�
 integrations/dsh/bundles/ai-hfss-workstation/
 ```
 
-- 面板内**一键启停** Mission dashboard，启动完成后只读嵌入 `/workbench`；
+- 面板内**一键启停** Mission dashboard，启动完成后嵌入 `/workbench`；
 - 安装 / 校验 / 回滚：`scripts/dsh/ai_hfss_workstation.ps1 check|apply|rollback`
-  （回滚是 `package.json` 的字节级还原）；
-- **当前状态**：导航、启停、嵌入链路都已打通，但面板起的 dashboard 默认读空库，
-  工作台里还没有项目数据；
-- **下一步主线**：把工作台接到**真实项目**——把 `MissionsDb` 指向真实
-  reviewed-loop 的 Mission 库，重启后在面板里「启动服务」，工作台点「连接项目」
-  选 Mission / Graph，验收指标标记为 LIVE。
+  （回滚是 `package.json` 的字节级还原，P4 演练已验证）；
+- **工作台任务化已完成**：左侧「工作区 / 优化任务」面板，工作区 = 用户选定的工程目录，
+  每个任务在自己的目录下生成独立 `missions.db`；任务状态条支持推进 / 自动 / 批准 / 拒绝；
+- **AEDT 内嵌轻对话已完成**：AEDT 脚本按钮 → `?aihfss=focus` 页面（无侧栏、顶部 AEDT
+  状态条），宿主用 `sessionController` 建会话（`ansys-embedded` 预设）并提交首条消息；
+- **真机验收**：`E:\ai-hfss-test` 工程 → 工作区 → 任务 → 1 GHz 单点求解 38.3 s →
+  `channel_1ghz.s1p`（1347 B）回读；浏览器验收无 JS 错误，状态条显示
+  `succeeded · graph succeeded · step 1/64`。
 
 完整步骤、验收标准与明确不在范围内的事项，见
 [integrations/dsh/bundles/ai-hfss-workstation/README.md](integrations/dsh/bundles/ai-hfss-workstation/README.md)
