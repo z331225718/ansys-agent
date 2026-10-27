@@ -761,3 +761,17 @@ kbd { color: #6f879b; background: #f3f7fa; border-color: #d7e1e9; }
 .model-stage svg[hidden] { display: none; }
 .model-axis-label { fill: #7f95a3; font-family: var(--mono); font-size: 9px; }
 .model-legend { color: var(--faint); font-family: var(--mono); font-size: 8.5px; }
+/* ── model preview: legibility fixes ──────────────────────────────────── */
+.model-label { fill: #f4e6c8; paint-order: stroke fill; stroke: #0b1218; stroke-width: 2.8px; font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: .2px; }
+.model-dim { fill: #d8e8f2; paint-order: stroke fill; stroke: #0b1218; stroke-width: 2.2px; font-family: var(--mono); font-size: 9px; }
+.model-axis-label { fill: #d8e8f2; paint-order: stroke fill; stroke: #0b1218; stroke-width: 2.2px; font-family: var(--mono); font-size: 9px; }
+.model-source { color: #b7cbd8; }
+.model-legend { color: #a9bdc9; }
+.model-meta { color: #b7cbd8; }
+/* ── model preview: explicit colours (page tokens are too dark on this panel) ── */
+.model-chip { color: #c3d3de; background: #16232c; border-color: #2c404c; }
+.model-chip.active { color: #eaf4f9; background: #1c313c; border-color: #3b5a68; }
+.model-chip.off { opacity: .32; text-decoration: line-through; }
+.model-tab { color: #b9ccd8; }
+.model-tab.active { color: #eaf4f9; border-color: #3b5a68; background: #1c313c; }
+.model-tab:hover { color: #eaf4f9; background: #18262f; }

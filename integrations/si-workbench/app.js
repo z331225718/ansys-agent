@@ -519,38 +519,79 @@
     return parts.join(' ');
   }
 
-  function padBounds(bounds) {
+  function modelBounds(bounds) {
     const b = bounds || {};
-    const minX = Number(b.min_x || 0), minY = Number(b.min_y || 0);
-    const maxX = Number(b.max_x || 0), maxY = Number(b.max_y || 0);
-    const w = Math.max(maxX - minX, 0.001), h = Math.max(maxY - minY, 0.001);
-    const pad = Math.max(w, h) * 0.06;
-    return { minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad, w: w + pad * 2, h: h + pad * 2 };
+    return {
+      minX: Number(b.min_x || 0), minY: Number(b.min_y || 0),
+      maxX: Number(b.max_x || 0), maxY: Number(b.max_y || 0),
+    };
+  }
+
+  function padBounds(bounds) {
+    const raw = modelBounds(bounds);
+    const w = Math.max(raw.maxX - raw.minX, 0.001), h = Math.max(raw.maxY - raw.minY, 0.001);
+    const pad = Math.max(w, h) * 0.07;
+    return { minX: raw.minX - pad, minY: raw.minY - pad, maxX: raw.maxX + pad, maxY: raw.maxY + pad, w: w + pad * 2, h: h + pad * 2, rawW: w, rawH: h };
+  }
+
+  function niceScale(widthMm) {
+    const target = widthMm / 4;
+    const candidates = [0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10];
+    let pick = candidates[0];
+    for (const value of candidates) { if (value <= target) pick = value; }
+    return pick;
   }
 
   function topViewSvg(inv) {
     const b = padBounds(inv.bounds);
+    const flip = b.minY + b.maxY;
     const parts = ['<svg viewBox="' + b.minX.toFixed(3) + ' ' + b.minY.toFixed(3) + ' ' + b.w.toFixed(3) + ' ' + b.h.toFixed(3) + '" role="img" aria-label="layout top view">'];
-    parts.push('<g transform="translate(0 ' + (b.minY + b.maxY).toFixed(4) + ') scale(1 -1)">');
+    parts.push('<g transform="translate(0 ' + flip.toFixed(4) + ') scale(1 -1)">');
+    const u = b.w * 0.028;  // mm-sized font/stroke units: the viewBox is in millimetres
     (inv.polygons || []).forEach(function (poly) {
       const path = segmentsToPath(poly.segments);
       if (!path) return;
-      const fill = poly.is_void ? 'rgba(0,0,0,0.35)' : (/GND|VSS/i.test(poly.net || '') ? 'rgba(147,167,180,0.28)' : 'rgba(201,139,75,0.30)');
+      const fill = poly.is_void ? 'rgba(0,0,0,0.35)' : (/GND|VSS/i.test(poly.net || '') ? 'rgba(147,167,180,0.22)' : 'rgba(201,139,75,0.26)');
       parts.push('<path d="' + path + '" fill="' + fill + '" stroke="' + modelNetColor(poly.net) + '" stroke-width="0.006" data-layer="' + esc(poly.layer) + '"><title>' + esc(poly.name + ' · ' + (poly.net || 'no net') + ' · ' + poly.layer) + '</title></path>');
     });
     (inv.traces || []).forEach(function (trace) {
       const path = segmentsToPath(trace.segments);
       if (!path) return;
       const width = Math.max(Number(trace.width_mm || 0.05), 0.03);
-      parts.push('<path d="' + path + '" fill="none" stroke="' + modelNetColor(trace.net) + '" stroke-width="' + width.toFixed(3) + '" stroke-linecap="round" data-layer="' + esc(trace.layer) + '"><title>' + esc(trace.name + ' · ' + (trace.net || '') + ' · ' + trace.layer) + '</title></path>');
+      parts.push('<path d="' + path + '" fill="none" stroke="' + modelNetColor(trace.net) + '" stroke-width="' + width.toFixed(3) + '" stroke-linecap="round" data-layer="' + esc(trace.layer) + '"><title>' + esc(trace.name + ' · ' + (trace.net || '') + ' · ' + trace.layer + ' · ' + (trace.width_mm === null ? '?' : trace.width_mm) + ' mm') + '</title></path>');
     });
     (inv.vias || []).forEach(function (via) {
       if (typeof via.x_mm !== 'number' || typeof via.y_mm !== 'number') return;
       const hole = typeof via.hole_diameter_mm === 'number' ? via.hole_diameter_mm : 0.1;
-      const radius = Math.max(hole / 2, 0.035);
-      parts.push('<circle cx="' + via.x_mm + '" cy="' + via.y_mm + '" r="' + radius.toFixed(3) + '" fill="' + modelNetColor(via.net) + '" fill-opacity="0.85" stroke="#0c1117" stroke-width="0.006" data-layer="' + esc(via.start_layer) + '"><title>' + esc(via.name + ' · ' + (via.net || 'no net') + ' · ' + via.start_layer + ' → ' + via.stop_layer) + '</title></circle>');
+      const radius = Math.max(hole / 2, 0.045);
+      parts.push('<circle cx="' + via.x_mm + '" cy="' + via.y_mm + '" r="' + radius.toFixed(3) + '" fill="#0c1117" stroke="' + modelNetColor(via.net) + '" stroke-width="' + Math.max(hole * 0.5, 0.02).toFixed(3) + '" data-layer="' + esc(via.start_layer) + '"><title>' + esc(via.name + ' · ' + (via.net || 'no net') + ' · ' + via.start_layer + ' → ' + via.stop_layer + ' · 孔径 ' + (via.hole_diameter_mm === null ? '?' : via.hole_diameter_mm) + ' mm') + '</title></circle>');
     });
-    parts.push('</g></svg>');
+    (inv.components || []).forEach(function (comp) {
+      const box = comp.bbox;
+      if (!box || typeof box.x1 !== 'number') return;
+      const w = Math.abs(box.x2 - box.x1), h = Math.abs(box.y2 - box.y1);
+      parts.push('<rect x="' + box.x1 + '" y="' + Math.min(box.y1, box.y2) + '" width="' + w + '" height="' + h + '" fill="rgba(226,192,138,0.07)" stroke="#e2c08a" stroke-width="' + Math.max(w * 0.004, 0.01).toFixed(3) + '" stroke-dasharray="' + (w * 0.03).toFixed(3) + ' ' + (w * 0.02).toFixed(3) + '" data-layer="' + esc(comp.layer) + '"><title>' + esc(comp.name + ' · ' + (comp.part || '') + ' · ' + (comp.layer || '') + ' · ' + w.toFixed(2) + ' × ' + h.toFixed(2) + ' mm') + '</title></rect>');
+      (comp.pins || []).forEach(function (pin) {
+        if (typeof pin.x_mm !== 'number' || typeof pin.y_mm !== 'number') return;
+        const r = Math.max(Number(pin.hole_diameter_mm || 0.12), 0.1) / 2;
+        parts.push('<circle cx="' + pin.x_mm + '" cy="' + pin.y_mm + '" r="' + r.toFixed(3) + '" fill="' + modelNetColor(pin.net) + '" stroke="#0c1117" stroke-width="0.006" data-layer="' + esc(pin.layer || comp.layer) + '"><title>' + esc(pin.name + ' · ' + (pin.net || 'no net')) + '</title></circle>');
+      });
+    });
+    parts.push('</g>');
+    (inv.components || []).forEach(function (comp) {
+      const box = comp.bbox;
+      if (!box || typeof box.x1 !== 'number') return;
+      const cx = (box.x1 + box.x2) / 2, cy = (box.y1 + box.y2) / 2;
+      parts.push('<text x="' + cx.toFixed(3) + '" y="' + (flip - cy).toFixed(3) + '" text-anchor="middle" font-size="' + u.toFixed(4) + '" font-family="monospace" font-weight="600" fill="#f4e6c8" stroke="#0b1218" stroke-width="' + (u * 0.26).toFixed(4) + '" paint-order="stroke">' + esc(comp.name) + '</text>');
+    });
+    const scale = niceScale(b.rawW);
+    const sbx = b.minX + b.w * 0.04, sby = b.maxY + b.h * 0.035;
+    parts.push('<line x1="' + sbx.toFixed(3) + '" y1="' + sby.toFixed(3) + '" x2="' + (sbx + scale).toFixed(3) + '" y2="' + sby.toFixed(3) + '" stroke="#d6e4ec" stroke-width="' + (b.w * 0.008).toFixed(3) + '" />');
+    parts.push('<line x1="' + sbx.toFixed(3) + '" y1="' + (sby - b.h * 0.012).toFixed(3) + '" x2="' + sbx.toFixed(3) + '" y2="' + (sby + b.h * 0.012).toFixed(3) + '" stroke="#d6e4ec" stroke-width="' + (b.w * 0.006).toFixed(3) + '" />');
+    parts.push('<line x1="' + (sbx + scale).toFixed(3) + '" y1="' + (sby - b.h * 0.012).toFixed(3) + '" x2="' + (sbx + scale).toFixed(3) + '" y2="' + (sby + b.h * 0.012).toFixed(3) + '" stroke="#d6e4ec" stroke-width="' + (b.w * 0.006).toFixed(3) + '" />');
+    parts.push('<text x="' + sbx.toFixed(3) + '" y="' + (sby + b.h * 0.06).toFixed(3) + '" font-size="' + (u * 0.85).toFixed(4) + '" font-family="monospace" fill="#d8e8f2" stroke="#0b1218" stroke-width="' + (u * 0.2).toFixed(4) + '" paint-order="stroke">' + (scale * 1000).toFixed(0) + ' um</text>');
+    parts.push('<text x="' + (b.maxX - b.w * 0.01).toFixed(3) + '" y="' + (b.maxY + b.h * 0.06).toFixed(3) + '" text-anchor="end" font-size="' + (u * 0.85).toFixed(4) + '" font-family="monospace" fill="#d8e8f2" stroke="#0b1218" stroke-width="' + (u * 0.2).toFixed(4) + '" paint-order="stroke">' + b.rawW.toFixed(2) + ' × ' + b.rawH.toFixed(2) + ' mm</text>');
+    parts.push('</svg>');
     return parts.join('');
   }
 
@@ -560,38 +601,66 @@
     const top = Math.max.apply(null, layers.map(function (l) { return l.elevation_mm + l.thickness_mm; }));
     const bottom = Math.min.apply(null, layers.map(function (l) { return l.elevation_mm; }));
     const total = Math.max(top - bottom, 0.0001);
-    const H = 260, W = 620, L = 92, R = 18, inner = W - L - R;
-    const yOf = function (value) { return ((top - value) / total) * (H - 24) + 12; };
+    const W = 620, L = 104, R = 16, inner = W - L - R;
+    const bx = padBounds(inv.bounds);
+    const scale = inner / bx.w;
+    const bodyH = total * scale;
+    const H = Math.max(Math.min(bodyH + 54, 300), 150);
+    const topMargin = 26;
+    const yOf = function (value) { return topMargin + (top - value) * scale; };
+    const xOf = function (mm) { return L + ((mm - bx.minX) / bx.w) * inner; };
     const parts = ['<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="stackup cross section">'];
     layers.forEach(function (layer) {
       const y0 = yOf(layer.elevation_mm + layer.thickness_mm), y1 = yOf(layer.elevation_mm);
       const fill = layer.type === 'signal' ? '#c98b4b' : '#1b2b34';
       const stroke = layer.type === 'signal' ? '#e0a768' : '#324b5a';
-      parts.push('<rect x="' + L + '" y="' + y0.toFixed(2) + '" width="' + inner + '" height="' + Math.max(y1 - y0, 1.2).toFixed(2) + '" fill="' + fill + '" fill-opacity="0.55" stroke="' + stroke + '" stroke-width="0.6"><title>' + esc(layer.name + ' · ' + layer.material + ' · ' + (layer.thickness_mm === null ? '?' : layer.thickness_mm) + ' mm') + '</title></rect>');
-      parts.push('<text x="' + (L - 6) + '" y="' + ((y0 + y1) / 2 + 3).toFixed(2) + '" text-anchor="end" class="model-axis-label">' + esc(layer.name) + '</text>');
+      parts.push('<rect x="' + L + '" y="' + y0.toFixed(2) + '" width="' + inner + '" height="' + Math.max(y1 - y0, 1.1).toFixed(2) + '" fill="' + fill + '" fill-opacity="0.6" stroke="' + stroke + '" stroke-width="0.6"><title>' + esc(layer.name + ' · ' + layer.material + ' · ' + (layer.thickness_mm === null ? '?' : layer.thickness_mm) + ' mm') + '</title></rect>');
+      parts.push('<text x="' + (L - 7) + '" y="' + ((y0 + y1) / 2 + 3).toFixed(2) + '" text-anchor="end" class="model-axis-label">' + esc(layer.name) + '</text>');
     });
     const elevationOf = function (name) {
       const layer = layers.find(function (item) { return item.name === name; });
       return layer ? layer.elevation_mm + layer.thickness_mm / 2 : null;
     };
-    const bx = padBounds(inv.bounds);
-    const xOf = function (mm) { return L + ((mm - bx.minX) / Math.max(bx.w, 0.001)) * inner; };
-    (inv.vias || []).forEach(function (via) {
-      if (typeof via.x_mm !== 'number') return;
-      const yTop = elevationOf(via.start_layer), yBottom = elevationOf(via.stop_layer);
-      if (yTop === null || yBottom === null) return;
-      parts.push('<line x1="' + xOf(via.x_mm).toFixed(2) + '" y1="' + yOf(yTop).toFixed(2) + '" x2="' + xOf(via.x_mm).toFixed(2) + '" y2="' + yOf(yBottom).toFixed(2) + '" stroke="' + modelNetColor(via.net) + '" stroke-width="2.2" stroke-linecap="round"><title>' + esc(via.name + ' · ' + (via.net || '') + ' · ' + via.start_layer + ' → ' + via.stop_layer) + '</title></line>');
+    (inv.components || []).forEach(function (comp) {
+      const y = elevationOf(comp.layer);
+      if (y === null || !comp.bbox) return;
+      const x0 = xOf(comp.bbox.x1), x1 = xOf(comp.bbox.x2);
+      const h = Math.max(total * scale * 0.06, 4);
+      parts.push('<rect x="' + Math.min(x0, x1).toFixed(2) + '" y="' + (yOf(y) - h).toFixed(2) + '" width="' + Math.abs(x1 - x0).toFixed(2) + '" height="' + h.toFixed(2) + '" fill="rgba(226,192,138,0.18)" stroke="#e2c08a" stroke-width="0.8" stroke-dasharray="3 2"><title>' + esc(comp.name + ' · ' + (comp.part || '')) + '</title></rect>');
+      parts.push('<text x="' + ((x0 + x1) / 2).toFixed(2) + '" y="' + (yOf(y) - h - 3).toFixed(2) + '" text-anchor="middle" class="model-label">' + esc(comp.name) + '</text>');
+    });
+    (inv.polygons || []).forEach(function (poly) {
+      const y = elevationOf(poly.layer);
+      if (y === null || !poly.segments || !poly.segments.length) return;
+      const xs = poly.segments.flatMap(function (seg) { return [seg[0][0], seg[1][0]]; });
+      const x0 = xOf(Math.min.apply(null, xs)), x1 = xOf(Math.max.apply(null, xs));
+      if (Math.abs(x1 - x0) < 1) return;
+      parts.push('<rect x="' + Math.min(x0, x1).toFixed(2) + '" y="' + (yOf(y) - 1.2).toFixed(2) + '" width="' + Math.abs(x1 - x0).toFixed(2) + '" height="2.4" fill="' + modelNetColor(poly.net) + '" fill-opacity="0.55" class="model-plane"><title>' + esc('plane ' + poly.name + ' · ' + (poly.net || '') + ' · ' + poly.layer) + '</title></rect>');
     });
     (inv.traces || []).forEach(function (trace) {
       const y = elevationOf(trace.layer);
       if (y === null || !trace.segments || !trace.segments.length) return;
       const xs = trace.segments.flatMap(function (seg) { return [seg[0][0], seg[1][0]]; });
-      const lo = Math.min.apply(null, xs), hi = Math.max.apply(null, xs);
-      parts.push('<line x1="' + xOf(lo).toFixed(2) + '" y1="' + yOf(y).toFixed(2) + '" x2="' + xOf(hi).toFixed(2) + '" y2="' + yOf(y).toFixed(2) + '" stroke="' + modelNetColor(trace.net) + '" stroke-width="2.4"><title>' + esc(trace.name + ' · ' + trace.layer + ' · ' + (trace.net || '')) + '</title></line>');
+      const cx = (Math.min.apply(null, xs) + Math.max.apply(null, xs)) / 2;
+      const w = Math.max((trace.width_mm || 0.1) * scale, 1.6);
+      parts.push('<rect x="' + (xOf(cx) - w / 2).toFixed(2) + '" y="' + (yOf(y) - 1.6).toFixed(2) + '" width="' + w.toFixed(2) + '" height="3.2" fill="' + modelNetColor(trace.net) + '"><title>' + esc(trace.name + ' · ' + trace.layer + ' · ' + (trace.net || '') + ' · ' + (trace.width_mm === null ? '?' : trace.width_mm) + ' mm') + '</title></rect>');
     });
-    parts.push('<text x="' + L + '" y="' + (H - 3) + '" class="model-axis-label">' + esc('bottom ' + bottom.toFixed(2) + ' mm · top ' + top.toFixed(2) + ' mm') + '</text>');
+    (inv.vias || []).forEach(function (via) {
+      if (typeof via.x_mm !== 'number') return;
+      const yTop = elevationOf(via.start_layer), yBottom = elevationOf(via.stop_layer);
+      if (yTop === null || yBottom === null) return;
+      const barrel = Math.max((via.hole_diameter_mm || 0.1) * scale, 1.4);
+      parts.push('<line x1="' + xOf(via.x_mm).toFixed(2) + '" y1="' + yOf(yTop).toFixed(2) + '" x2="' + xOf(via.x_mm).toFixed(2) + '" y2="' + yOf(yBottom).toFixed(2) + '" stroke="' + modelNetColor(via.net) + '" stroke-width="' + barrel.toFixed(2) + '" stroke-linecap="round"><title>' + esc(via.name + ' · ' + (via.net || '') + ' · ' + via.start_layer + ' → ' + via.stop_layer + ' · 孔径 ' + (via.hole_diameter_mm === null ? '?' : via.hole_diameter_mm) + ' mm') + '</title></line>');
+    });
+    parts.push('<text x="' + L + '" y="' + (H - 5) + '" class="model-dim">1:1 比例 · board ' + total.toFixed(2) + ' mm · ' + b_width_label(inv) + '</text>');
+    parts.push('<text x="' + (W - R) + '" y="' + (H - 5) + '" text-anchor="end" class="model-dim">bottom ' + bottom.toFixed(2) + ' / top ' + top.toFixed(2) + ' mm</text>');
     parts.push('</svg>');
     return parts.join('');
+  }
+
+  function b_width_label(inv) {
+    const raw = modelBounds(inv.bounds);
+    return (raw.maxX - raw.minX).toFixed(2) + ' × ' + (raw.maxY - raw.minY).toFixed(2) + ' mm';
   }
 
   function renderInventoryModel(inv, stage) {
@@ -600,7 +669,7 @@
     const parts = ['<div class="model-viewer">', '<div class="model-toolbar"><div class="model-tabs">'];
     parts.push('<button type="button" class="model-tab active" data-model-view="top">俯视</button>');
     parts.push('<button type="button" class="model-tab" data-model-view="section">剖面</button></div>');
-    parts.push('<span class="model-meta">' + [counts.stackup_layers + ' 层', counts.vias + ' 过孔', counts.traces + ' 走线', counts.polygons + ' 铺铜'].join(' · ') + '</span>');
+    parts.push('<span class="model-meta">' + [counts.components + ' 器件', counts.stackup_layers + ' 层', counts.vias + ' 过孔', counts.traces + ' 走线', counts.polygons + ' 铺铜'].join(' · ') + '</span>');
     parts.push('<span class="model-source">' + esc(inv.design || '') + '</span></div>');
     if (layers.length) {
       parts.push('<div class="model-layers">');
@@ -608,7 +677,7 @@
       parts.push('</div>');
     }
     parts.push('<div class="model-stage">' + topViewSvg(inv) + sectionViewSvg(inv).replace('<svg ', '<svg hidden ') + '</div>');
-    parts.push('<div class="model-legend">真实 inventory · 坐标单位 mm · 悬停查看对象名/网络/层</div>');
+    parts.push('<div class="model-legend">真实 inventory · 单位 mm · 虚线框=器件 footprint · 过孔=孔径 · 悬停查看名称/网络/层</div>');
     parts.push('</div>');
     stage.innerHTML = parts.join('');
     const tabs = stage.querySelectorAll('[data-model-view]');
@@ -631,7 +700,7 @@
     const stage = $('#geometry-stage');
     if (!stage) return;
     const inv = (m && m.inventory) || null;
-    if (inv && inv.schema === 'aihfss-model-inventory/v1' && inv.counts && ((inv.counts.stackup_layers || 0) + (inv.counts.vias || 0) + (inv.counts.traces || 0)) > 0) {
+    if (inv && inv.schema === 'aihfss-model-inventory/v1' && inv.counts && ((inv.counts.stackup_layers || 0) + (inv.counts.vias || 0) + (inv.counts.traces || 0) + (inv.counts.components || 0)) > 0) {
       renderInventoryModel(inv, stage);
       return;
     }

@@ -93,6 +93,7 @@ def test_inventory_normalizes_geometry_and_reports_missing_sections():
     assert inventory["counts"]["traces"] == 1
     assert inventory["counts"]["vias"] == 1
     assert inventory["counts"]["polygons"] == 1
+    assert inventory["counts"]["components"] == 0
     via = inventory["vias"][0]
     assert via["x_mm"] == pytest.approx(44.2819, abs=1e-3)
     assert via["hole_diameter_mm"] == pytest.approx(0.125, abs=1e-4)
@@ -101,7 +102,8 @@ def test_inventory_normalizes_geometry_and_reports_missing_sections():
     assert trace["width_mm"] == pytest.approx(0.1905)
     assert trace["segments"][0][0] == [43.33, 365.76]
     # The fake app has no stackup reader, so the section must be reported, not faked.
-    assert any(item["section"] == "stackup" for item in inventory["unavailable_sections"])
+    reported = {item["section"] for item in inventory["unavailable_sections"]}
+    assert "stackup" in reported and "components" in reported
     assert inventory["read_only"] is True and inventory["design_unchanged"] is True
 
 

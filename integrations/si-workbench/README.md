@@ -95,6 +95,15 @@
 - **剖面**：真实层叠（标高 + 厚度，来自 AEDT stackup）、过孔贯穿其 start/stop 层、
   走线所在层；悬停同样有对象信息。
 
+渲染细节（v2）：
+
+- **器件**：component 的 footprint 用虚线框画出（名字 + part），pin 用网络色圆点；
+- **尺寸**：俯视左下角有比例尺 + 右下角显示真实范围（如 2.37 × 2.85 mm）；
+- **剖面 1:1**：横纵同比例（mm/px 一致），层带按真实厚度/标高画，器件画在 placement 层，
+  走线按真实线宽画成小方块，过孔按孔径画成贯穿筒；
+- **文字**：所有标注加深色描边（`paint-order: stroke`）并按图幅换算字号，
+  避免在 mm 单位的 viewBox 里被 CSS `px` 字号放大到覆盖整张图；
+
 数据来源是只读抽取（`src/aedt_agent/agent/aihfss_inventory.py`）：
 层叠 / 走线 / 过孔 / 铺铜统一换算成 **mm**，段落级失败会写进
 `unavailable_sections`，不会伪造缺失结构。生成方式：用模板

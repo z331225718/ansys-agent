@@ -212,6 +212,66 @@ def _polygon_records(app: Any, max_items: int) -> tuple[list[dict[str, Any]], st
     return records, ""
 
 
+def _component_records(app: Any, max_items: int) -> tuple[list[dict[str, Any]], str]:
+    """Components with their footprint box, placement and pins (mm)."""
+    records: list[dict[str, Any]] = []
+    try:
+        components = app.modeler.components
+        names = list(components.keys())
+    except Exception as exc:  # noqa: BLE001
+        return [], f"{type(exc).__name__}: {exc}"[:240]
+    for name in names[:max_items]:
+        try:
+            component = components[name]
+            units = _units_of(component)
+            location = getattr(component, "location", None) or []
+            bbox = getattr(component, "bounding_box", None) or []
+            x = _to_mm(location[0], units) if len(location) >= 2 else None
+            y = _to_mm(location[1], units) if len(location) >= 2 else None
+            box = None
+            if len(bbox) >= 4:
+                values = [_to_mm(value, units) for value in bbox[:4]]
+                if all(value is not None for value in values):
+                    box = {
+                        "x1": round(values[0], 4), "y1": round(values[1], 4),
+                        "x2": round(values[2], 4), "y2": round(values[3], 4),
+                        "width": round(abs(values[2] - values[0]), 4),
+                        "height": round(abs(values[3] - values[1]), 4),
+                    }
+            pins: list[dict[str, Any]] = []
+            try:
+                component_pins = getattr(component, "pins", None) or {}
+                pin_items = component_pins.items() if hasattr(component_pins, "items") else []
+                for pin_name, pin in list(pin_items)[:200]:
+                    pin_units = _units_of(pin)
+                    pin_location = getattr(pin, "location", None) or []
+                    pin_x = _to_mm(pin_location[0], pin_units) if len(pin_location) >= 2 else None
+                    pin_y = _to_mm(pin_location[1], pin_units) if len(pin_location) >= 2 else None
+                    pins.append({
+                        "name": str(pin_name),
+                        "net": str(getattr(pin, "net_name", "") or ""),
+                        "x_mm": round(pin_x, 4) if pin_x is not None else None,
+                        "y_mm": round(pin_y, 4) if pin_y is not None else None,
+                        "hole_diameter_mm": _length_expression_mm(getattr(pin, "holediam", None)),
+                        "layer": str(getattr(pin, "placement_layer", "") or ""),
+                    })
+            except Exception:  # noqa: BLE001 - pins are optional detail
+                pass
+            records.append({
+                "name": str(name),
+                "part": str(getattr(component, "part", "") or ""),
+                "layer": str(getattr(component, "placement_layer", "") or ""),
+                "angle": str(getattr(component, "angle", "") or ""),
+                "x_mm": round(x, 4) if x is not None else None,
+                "y_mm": round(y, 4) if y is not None else None,
+                "bbox": box,
+                "pin_count": len(pins),
+                "pins": pins,
+            })
+        except Exception:  # noqa: BLE001
+            continue
+    return records, ""
+
 def _bounds(traces: list[dict[str, Any]], vias: list[dict[str, Any]], polygons: list[dict[str, Any]]) -> dict[str, float]:
     xs: list[float] = []
     ys: list[float] = []
@@ -243,6 +303,7 @@ def build_layout_model_inventory(app: Any, *, max_items: int = DEFAULT_MAX_ITEMS
     traces, trace_error = _trace_records(app, max_items)
     vias, via_error = _via_records(app, max_items)
     polygons, polygon_error = _polygon_records(app, max_items)
+    components, component_error = _component_records(app, max_items)
     unavailable = [
         {"section": section, "reason": reason}
         for section, reason in (
@@ -250,10 +311,16 @@ def build_layout_model_inventory(app: Any, *, max_items: int = DEFAULT_MAX_ITEMS
             ("traces", trace_error),
             ("vias", via_error),
             ("polygons", polygon_error),
+            ("components", component_error),
         )
         if reason
     ]
     bounds = _bounds(traces, vias, polygons)
+    for component in components:
+        box = component.get("bbox") or {}
+        if isinstance(box.get("x1"), (int, float)):
+            for key, value in (("min_x", box["x1"]), ("min_y", box["y1"]), ("max_x", box["x2"]), ("max_y", box["y2"])):
+                bounds[key] = round(min(bounds[key], value) if key.startswith("min") else max(bounds[key], value), 4)
     return {
         "schema": SCHEMA,
         "provenance": "aedt_live_inventory",
@@ -264,12 +331,14 @@ def build_layout_model_inventory(app: Any, *, max_items: int = DEFAULT_MAX_ITEMS
         "traces": traces,
         "vias": vias,
         "polygons": polygons,
+        "components": components,
         "bounds": bounds,
         "counts": {
             "stackup_layers": len(stackup),
             "traces": len(traces),
             "vias": len(vias),
             "polygons": len(polygons),
+            "components": len(components),
         },
         "unavailable_sections": unavailable,
         "max_items": max_items,

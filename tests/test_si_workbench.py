@@ -273,6 +273,8 @@ def test_workbench_page_carries_the_structured_model_preview(tmp_path):
         "data-model-view",
         "data-model-layer",
         "stackup cross section",
+        "1:1 比例",
+        "model-label",
     ):
         assert marker in script, marker
     status, ct, css = _dispatch("GET", "/workbench/styles.css", runtime)
