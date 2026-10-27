@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 import sqlite3
 import threading as _threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -793,6 +795,10 @@ def dispatch_agent_request(
                 return _json({"error": "graph_run_id is required"}, status=400)
             return _json(workbench_snapshot(runtime, graph_run_id))
 
+        # --- Workbench workspaces / tasks (one mission database per task) ---
+        if route.startswith("/api/workbench/workspaces") or route.startswith("/api/workbench/tasks/"):
+            return _handle_workbench_tasks(method, route, body)
+
         if method == "GET" and route == "/api/artifacts/file":
             return _artifact_file_response(runtime, parsed.query)
 
@@ -1145,6 +1151,102 @@ def _dashboard_startup_message(host: str, port: int, db_path: str | Path | None 
     if db_path is not None:
         message += f" db={Path(db_path)}"
     return message.encode("ascii", errors="replace").decode("ascii")
+
+
+_workbench_task_service: Any = None
+
+
+def _task_service() -> Any:
+    """Lazily build the workspace/task service.
+
+    The execution profile decides whether real AEDT work is allowed; point
+    AIHFSS_EXECUTION_PROFILE at a machine-local profile to enable it.
+    """
+    global _workbench_task_service
+    if _workbench_task_service is None:
+        from aedt_agent.agent.workbench_tasks import TaskService
+
+        profile = None
+        profile_path = os.environ.get("AIHFSS_EXECUTION_PROFILE", "").strip()
+        if profile_path:
+            from aedt_agent.agent.cli import _load_execution_profile
+
+            profile = _load_execution_profile(Path(profile_path))
+        _workbench_task_service = TaskService(profile=profile)
+    return _workbench_task_service
+
+
+def _handle_workbench_tasks(method: str, route: str, body: bytes) -> tuple[int, dict[str, str], bytes]:
+    """Serve the workspace/task API; each task owns its own mission database."""
+    from aedt_agent.agent.workbench_tasks import TaskError
+
+    service = _task_service()
+    parts = [part for part in route.split("/") if part]
+    try:
+        # /api/workbench/workspaces
+        if len(parts) == 3 and parts[2] == "workspaces":
+            if method == "GET":
+                return _json({"workspaces": service.list_workspaces()})
+            if method == "POST":
+                req = _json_body(body)
+                workspace = service.open_workspace(str(req.get("root") or ""), req.get("name"))
+                return _json({"workspace": workspace}, status=201)
+
+        # /api/workbench/workspaces/forget
+        if len(parts) == 4 and parts[2] == "workspaces" and parts[3] == "forget" and method == "POST":
+            req = _json_body(body)
+            removed = service.forget_workspace(str(req.get("workspace_id") or ""))
+            return _json({"ok": True, "forgotten": removed})
+
+        # /api/workbench/workspaces/<id>/tasks
+        if len(parts) == 5 and parts[2] == "workspaces" and parts[4] == "tasks":
+            workspace_id = parts[3]
+            if method == "GET":
+                return _json({"tasks": service.list_tasks(workspace_id)})
+            if method == "POST":
+                task = service.create_task(workspace_id, _json_body(body))
+                return _json({"task": task}, status=201)
+
+        # /api/workbench/tasks/<id>
+        if len(parts) == 4 and parts[2] == "tasks" and method == "GET":
+            return _json(service.snapshot(parts[3]))
+
+        # /api/workbench/tasks/<id>/<action>
+        if len(parts) >= 5 and parts[2] == "tasks":
+            task_id = parts[3]
+            action = parts[4]
+            if action == "advance" and method == "POST":
+                return _json(service.advance(task_id))
+            if action == "auto" and method == "POST":
+                req = _json_body(body)
+                enabled = bool(req.get("enabled", True))
+                if enabled:
+                    return _json(
+                        service.start_auto(
+                            task_id,
+                            poll_seconds=int(req.get("poll_seconds") or 5),
+                        )
+                    )
+                return _json(service.stop_auto(task_id))
+            if action == "approvals" and method == "GET":
+                return _json({"approvals": service.list_approvals(task_id)})
+            if action == "decide" and method == "POST" and len(parts) == 6:
+                req = _json_body(body)
+                return _json(
+                    service.decide(
+                        task_id,
+                        parts[5],
+                        str(req.get("decision") or ""),
+                        req.get("comment"),
+                    )
+                )
+
+        return _json({"ok": False, "error": "unknown workbench task route", "route": route}, status=404)
+    except TaskError as exc:
+        status = 404 if "not-found" in exc.code else 409 if "locked" in exc.code else 400
+        return _json(exc.to_json(), status=status)
+    except ValueError as exc:
+        return _json({"ok": False, "error": str(exc)}, status=400)
 
 
 def _json(data, *, status=200):
@@ -1571,7 +1673,8 @@ def _artifact_descriptor(mission_id: str, path: str) -> dict[str, Any]:
 def _artifact_kind(path: str) -> str:
     name = Path(path).name.casefold()
     suffix = Path(path).suffix.casefold()
-    if suffix in {".s4p", ".s2p", ".snp"}:
+    # Single-point smoke runs export .s1p; multiport runs export .s2p..sNp.
+    if suffix == ".snp" or re.fullmatch(r"\.s[1-9]\d*p", suffix):
         return "touchstone"
     if suffix == ".html":
         return "report_html"

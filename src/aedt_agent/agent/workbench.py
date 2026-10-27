@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -124,7 +125,18 @@ def _round_summary(row: dict[str, Any]) -> dict[str, Any]:
     return {"round_index": row.get("round_index"), "status": row.get("status") or row.get("round_status"), "action_type": row.get("action_type") or edit.get("action_type"), "layers": row.get("layers") or edit.get("layers"), "target_radius": row.get("target_radius") or edit.get("target_radius"), "objective_total_cost": row.get("objective_total_cost"), "rl_worst_db": row.get("rl_worst_db"), "tdr_peak_deviation_ohm": row.get("tdr_peak_deviation_ohm"), "solve_status": row.get("solve_status"), "score_status": row.get("score_status"), "continue_recommendation": row.get("continue_recommendation"), "evidence_path": row.get("evidence_path") or row.get("score_evidence_path")}
 
 
-_SAFE_ARTIFACT_KINDS = {"report_html", "history_csv", "score_evidence", "plot", "plot_tdr", "plot_sdd11", "plot_sdd21"}
+_SAFE_ARTIFACT_KINDS = {
+    "report_html",
+    "history_csv",
+    "score_evidence",
+    "plot",
+    "plot_tdr",
+    "plot_sdd11",
+    "plot_sdd21",
+    # The workbench's own smoke solve exports a raw touchstone; it is a
+    # read-only artifact, never a project file, so it stays visible.
+    "touchstone",
+}
 _DENIED_SUFFIXES = {".aedt", ".aedb", ".edb", ".brd", ".aedtz", ".tgz", ".zip"}
 
 
@@ -137,7 +149,12 @@ def _safe_artifacts(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
             continue
         if path.suffix.casefold() in _DENIED_SUFFIXES:
             continue
-        if path.suffix.casefold() not in {".html", ".csv", ".json", ".svg", ".png", ".jpg", ".jpeg", ".txt"}:
+        suffix = path.suffix.casefold()
+        allowed = {".html", ".csv", ".json", ".svg", ".png", ".jpg", ".jpeg", ".txt"}
+        # Touchstones are read-only artifacts too (.s1p from a single-point
+        # smoke run, .s2p..sNp from a channel export).
+        touchstone = bool(re.fullmatch(r"\.s[1-9]\d*p", suffix))
+        if suffix not in allowed and not touchstone:
             continue
         safe.append(record)
     return safe

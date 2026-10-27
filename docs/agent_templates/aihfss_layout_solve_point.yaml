@@ -1,0 +1,11 @@
+id: aihfss_layout_solve_point
+version: 1
+description: "Bounded AEDT smoke: one single-point HFSS 3D Layout solve on a copy of the reviewed project, exporting a touchstone into the task artifacts."
+nodes:
+  - id: solve_point
+    role: solver
+    kind: program
+    handler: aihfss.smoke.layout_solve_point
+    max_runs: 1
+edges: []
+handoffs: {}
