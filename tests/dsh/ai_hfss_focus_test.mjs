@@ -144,6 +144,8 @@ function makeCtx(options = {}) {
     effects: [],
     toggles: 0,
     layoutDeps: [],
+    workspaceDeps: [],
+    openedSessions: [],
     locale: null
   };
   const translate = (key) => DICT[key] ?? key;
@@ -177,11 +179,26 @@ function makeCtx(options = {}) {
       }
     }
   };
+  const workspace = {
+    openSession: (sessionId) => {
+      record.openedSessions.push(sessionId);
+    }
+  };
   if (options.layout === true) ctx.layout = layout;
+  if (options.workspace === true) ctx.uiWorkspace = workspace;
   if (options.injectLayout === true) {
     ctx.inject = (dependencies, callback) => {
       record.layoutDeps.push(dependencies);
       callback({ layout });
+    };
+  }
+  if (options.injectWorkspace === true) {
+    const inner = ctx.inject;
+    ctx.inject = (dependencies, callback) => {
+      record.workspaceDeps.push(dependencies);
+      if (dependencies.includes("uiWorkspace")) return callback({ uiWorkspace: workspace });
+      if (typeof inner === "function") return inner(dependencies, callback);
+      return undefined;
     };
   }
   return { ctx, record };
@@ -378,6 +395,55 @@ try {
     assert.equal(bar.className, "aihfss-focusbar warn");
     assert.ok(bar.children[1].textContent.includes("AEDT 工程已上报"), bar.children[1].textContent);
     assert.ok(bar.children[1].textContent.includes("C:\\proj\\demo.aedt"), bar.children[1].textContent);
+  }
+
+  // ---- 9. focus selects the handed-off session -------------------------
+  {
+    resetTimers();
+    installDom({ collapsed: false });
+    setLocation("?aihfss=focus&session=sess-42", "");
+    stubFetch(AEDT_STATUS);
+    const mod = materialize();
+    const { ctx, record } = makeCtx({ layout: true, workspace: true });
+    mod.apply(ctx);
+    assert.deepEqual(record.openedSessions, ["sess-42"], "the focus page opens the session from the URL");
+  }
+
+  // ---- 10. workspace service hidden: fall back to ctx.inject -----------
+  {
+    resetTimers();
+    installDom({ collapsed: false });
+    setLocation("?aihfss=focus&session=sess-43", "");
+    stubFetch(AEDT_STATUS);
+    const mod = materialize();
+    const { ctx, record } = makeCtx({ layout: true, injectWorkspace: true });
+    mod.apply(ctx);
+    assert.deepEqual(record.workspaceDeps, [["uiWorkspace"]], "the plugin asks for the workspace service explicitly");
+    assert.deepEqual(record.openedSessions, ["sess-43"]);
+  }
+
+  // ---- 11. no session parameter: nothing is selected -------------------
+  {
+    resetTimers();
+    installDom({ collapsed: false });
+    setLocation("?aihfss=focus", "");
+    stubFetch(AEDT_STATUS);
+    const mod = materialize();
+    const { ctx, record } = makeCtx({ layout: true, workspace: true });
+    mod.apply(ctx);
+    assert.deepEqual(record.openedSessions, [], "a focus URL without a session leaves the current one alone");
+  }
+
+  // ---- 12. normal mode never hijacks the session -----------------------
+  {
+    resetTimers();
+    installDom({ collapsed: false });
+    setLocation("?session=sess-44", "");
+    stubFetch(AEDT_STATUS);
+    const mod = materialize();
+    const { ctx, record } = makeCtx({ layout: true, workspace: true });
+    mod.apply(ctx);
+    assert.deepEqual(record.openedSessions, [], "non-focus sessions are never switched by this plugin");
   }
 
   console.log("ai-hfss focus test passed");

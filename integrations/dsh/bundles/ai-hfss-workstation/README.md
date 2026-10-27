@@ -4,9 +4,16 @@
 **插件**（plugin-manager）和 **自动化任务**（schedule）平级；页面里
 **点一下就启动/停止** Mission 工作台，不用先手动起服务。
 
-> **当前状态**：导航入口、启停面板、控制接口、一键回滚都已打通；面板起的
-> dashboard 默认读空库，所以嵌入的工作台**还没有项目数据**。
-> **下一步主线：把工作台接到真实项目**（见下方「现状 vs 下一步」）。
+本 bundle 现在承载**两个面**：
+
+| 面 | 入口 | 形态 |
+|----|------|------|
+| 工作台面板 | 左侧导航「AI-HFSS 工作站」 | 一键启停 dashboard + 嵌入 workbench |
+| AEDT 内嵌对话 | AEDT 里点脚本按钮 → `/?aihfss=focus&session=…` | 无侧栏、只有对话、顶部 AEDT 状态条、默认连当前工程 |
+
+> **当前状态**：两个面都已实现并有测试（`tests/dsh` 36 项）。工作台后端的
+> **任务化**（工作区 + 每任务独立 `missions.db`）已在 `src/` 落地并有真机验收；
+> 工作台**前端 UI（工作区树/任务表单）尚未做**，这是下一步主线。
 
 | 位置 | 注册点 | 效果 |
 |------|--------|------|
@@ -35,7 +42,15 @@
 
 ## 现状 vs 下一步
 
-### 已完成（本插件负责的部分）
+### 已完成
+
+| 能力 | 状态 |
+|------|------|
+| 工作台任务化后端（工作区 = 工程目录；每任务独立 `missions.db`；推进/审批/自动驾驶；`/api/workbench/*`） | ✅ 真机验收：E:\ai-hfss-test 建任务 → 1 GHz 单点求解 38.3 s → touchstone 回读 |
+| 每任务单驱动（P0 实测同库并发会 `UNIQUE constraint` 崩溃） | ✅ 锁 + `driver.lock` |
+| AEDT focus 页 + `ansys-embedded` 预设 + 脚本按钮 | ✅ 有测试，待重启真机点验 |
+
+### 本插件负责的部分（历史）
 
 | 能力 | 状态 |
 |------|------|
@@ -73,6 +88,35 @@
 - 从面板触发 mission create / advance / human_gate 审批（按守卫，仍走受控
   CLI / dashboard）；
 - 任何 AEDT 写操作。
+
+## AEDT 内嵌（focus 模式）
+
+AEDT 里点脚本按钮（`integrations/aedt/ai_hfss_chat.py`）后：
+
+1. 脚本把当前工程/设计 POST 到 `/api/ai-hfss/aedt/context`；
+2. 再 POST `/api/ai-hfss/aedt/open`：宿主用 `sessionController` 建会话
+   （预设 `ansys-embedded`）并**程序化提交首条消息**（要求先
+   `check_aedt_status → connect_to_aedt` 再报告求解设置）；
+3. 返回 `focus_url`，脚本用默认浏览器/应用打开。
+
+打开后客户端（`client.js` focus 分支）：
+
+- 收一次侧栏（`data-sidebar-collapsed` 判定，不重复收）；
+- **读取 URL 的 `session` 参数并选中该会话**（壳本身不读这个参数，所以由插件调
+  `ctx.uiWorkspace.openSession(id)` 完成）；
+- 不注册 `main` / `sidebar.panellist`，对话独占主区域；
+- 顶部 26px 状态条每 3 秒轮询 `/aedt/status`，显示工程/设计与连接状态。
+
+预设 `ansys-embedded`（`integrations/dsh/bundles/ansys-engineering/cordis.patch.yml`）
+只挂 AEDT MCP + 优化 skill + shell/fs/web，**不含** DAG、goal、workflow、production-guard。
+
+### 已知边界（真机待验）
+
+| 事项 | 现状 |
+|------|------|
+| 浏览器鉴权 | focus_url 不带 launch token。若同一浏览器已打开过 DSH GUI（同源 cookie），可直接进入；否则可能看到认证提示——先用浏览器打开一次 DSH 即可。 |
+| pid / grpc_port | AEDT 脚本只上报工程与设计，状态条会显示「工程已上报（未探测进程/端口）」；需要时通过 `/aedt/context` 补报。 |
+| prompt 失败 | 会话已建但首条消息失败时，会话会留在列表里（暂无删除接口），日志里有错误码。 |
 
 ## 边界
 

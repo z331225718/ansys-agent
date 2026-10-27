@@ -1,14 +1,25 @@
 # DSH Ansys 模式
 
-## 单一模式
+## 两个模式
 
-只有一个 **ansys-engineering（Ansys 工程优化模式）**：
+### ansys-engineering（Ansys 工程优化模式，主模式）
+
+- 官方 PyAEDT-MCP + ansys-assistant + ansys-api-memory；
 - 官方 PyAEDT-MCP + ansys-assistant + ansys-api-memory；
 - shell、文件系统、PTC；
 - 两阶段 preview/apply/readback 领域修改；
 - 生产 Mission 的 start/advance/approval 由 `production-guard.mjs` 在执行级拒绝，仍走本地 CLI/dashboard。
 
-reviewed / explore 两个模式已废弃：Ans​​ys 操作只保留一个入口，避免反复切换。
+reviewed / explore 两个模式已废弃：Ansys 操作只保留一个入口，避免反复切换。
+
+### ansys-embedded（AEDT 内嵌助手，轻模式）
+
+给 AEDT 脚本按钮打开的 focus 页面用：
+- 只挂 AEDT MCP（mcp__aedt__*）、ansys-api-memory、ansys-engineering-rules skill；
+- 有 shell / 文件系统 / web，便于查日志与文档；
+- **不挂** workflow/DAG、goal、plan-mode、production-guard —— 严格流程属于工作台，不在这里；
+- persona 规定会话第一动作：`check_aedt_status` → `connect_to_aedt` → 报告工程/设计/求解设置；
+- 写操作一律先 preview 并由用户确认；指标只报有界结论，不贴全曲线。
 
 ## 安装
 

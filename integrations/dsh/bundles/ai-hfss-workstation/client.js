@@ -597,9 +597,72 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /** The host-created session id carried by the focus URL (?session= / #session=). */
+    function focusSessionId() {
+      const location = globalThis.location;
+      if (location === undefined || location === null) return "";
+      try {
+        const search = typeof location.search === "string" ? location.search : "";
+        const fromSearch = new URLSearchParams(search).get("session");
+        if (fromSearch) return fromSearch;
+        const rawHash = String(location.hash || "").replace(/^#/, "");
+        if (rawHash.includes("=")) {
+          const fromHash = new URLSearchParams(rawHash).get("session");
+          if (fromHash) return fromHash;
+        }
+      } catch (error) {
+        console.warn("[ai-hfss] focus mode: cannot read the session parameter", error);
+      }
+      return "";
+    }
+
+    /**
+     * Select the session the AEDT hand-off created.
+     *
+     * The shell itself reads no `session` query parameter (the P0 follow-up
+     * grep over the client output found no URL-search handling), so the focus
+     * page opens the session through the workspace service instead. Without
+     * this the page would land on whatever conversation was last open.
+     */
+    function openFocusSession(ctx) {
+      const sessionId = focusSessionId();
+      if (sessionId === "") return false;
+      const select = (workspace) => {
+        if (workspace === undefined || workspace === null || typeof workspace.openSession !== "function") return false;
+        try {
+          workspace.openSession(sessionId);
+          return true;
+        } catch (error) {
+          console.warn("[ai-hfss] focus mode: opening the handed-off session failed", error);
+          return false;
+        }
+      };
+      let workspace;
+      try {
+        workspace = ctx.uiWorkspace;
+        if (workspace === undefined && typeof ctx.get === "function") workspace = ctx.get("uiWorkspace");
+      } catch {
+        workspace = undefined;
+      }
+      if (select(workspace)) return true;
+      if (typeof ctx.inject === "function") {
+        try {
+          ctx.inject(["uiWorkspace"], (workspaceCtx) => {
+            select(workspaceCtx?.uiWorkspace ?? workspaceCtx);
+          });
+          return true;
+        } catch (error) {
+          console.warn("[ai-hfss] focus mode: the workspace service is unavailable", error);
+        }
+      }
+      console.warn("[ai-hfss] focus mode: cannot select session", sessionId);
+      return false;
+    }
+
     function mountFocus(ctx, t) {
       ctx.effect(() => {
         collapseSidebarOnce(ctx);
+        openFocusSession(ctx);
         const statusBar = createFocusStatusBar(t);
         if (statusBar === null) return () => {};
         let disposed = false;
