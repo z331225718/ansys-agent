@@ -537,6 +537,16 @@ class TaskService:
         payload = workbench_snapshot(runtime, str(task["graph_run_id"]))
         payload["task"] = task
         payload["driver"] = self.driver_state(task_id)
+        # The legacy read-only projection reports workflow_* false; this task
+        # surface is where those actions ARE allowed (the workbench owns the
+        # strict workflow), so state it explicitly instead of overloading it.
+        payload["task_capabilities"] = {
+            "task_advance": True,
+            "task_auto": True,
+            "approval_decide": True,
+            "task_create": True,
+            "aedt_write": True,
+        }
         return payload
 
     def list_approvals(self, task_id: str) -> list[dict[str, Any]]:

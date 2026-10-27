@@ -22,6 +22,19 @@
           <span class="chevron">⌄</span>
         </button>
       </div>
+      <div class="workspace-panel" id="workspace-panel">
+        <div class="workspace-panel-head">
+          <span class="eyebrow">工作区</span>
+          <button id="new-workspace-button" class="icon-button small" type="button" title="新建工作区（选择一个工程目录）" aria-label="新建工作区">＋</button>
+        </div>
+        <div id="workspace-list" class="workspace-list" role="list"></div>
+        <p id="workspace-hint" class="workspace-hint">还没有工作区。点 ＋ 选择一个工程目录。</p>
+        <div class="workspace-panel-head task-panel-head">
+          <span class="eyebrow">优化任务</span>
+          <button id="new-task-button" class="icon-button small" type="button" title="新建优化任务" aria-label="新建优化任务" disabled>＋</button>
+        </div>
+        <div id="task-list" class="task-list" role="list"></div>
+      </div>
       <nav class="main-nav">
         <p class="nav-label">工程</p>
         <button class="nav-item active" data-view="workbench"><span class="nav-icon">⌘</span>通道优化<span class="nav-count">01</span></button>
@@ -51,6 +64,19 @@
           <button class="button primary compact" id="run-button"><span>▶</span>运行优化</button>
         </div>
       </header>
+
+      <div class="task-statusbar" id="task-statusbar" hidden>
+        <span class="task-status-dot" id="task-status-dot"></span>
+        <strong id="task-status-title">未选择任务</strong>
+        <span class="task-status-meta" id="task-status-meta"></span>
+        <span class="task-status-spacer"></span>
+        <button class="button secondary compact" id="task-refresh" type="button">刷新</button>
+        <button class="button secondary compact" id="task-advance" type="button" title="推进一个 graph 节点">推进</button>
+        <button class="button secondary compact" id="task-auto" type="button" title="自动推进到结束或等待审批">自动</button>
+        <button class="button secondary compact" id="task-stop-auto" type="button" hidden>停止自动</button>
+        <button class="button primary compact" id="task-approve" type="button" hidden>批准</button>
+        <button class="button secondary compact" id="task-reject" type="button" hidden>拒绝</button>
+      </div>
 
       <div class="page-body">
         <section class="page-heading reveal">

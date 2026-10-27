@@ -513,7 +513,331 @@
   document.addEventListener('click',e=>{if(!connection.connected)return;const t=e.target.closest('#export-button,#history-button,#run-button,[data-prompt]');if(!t)return;e.preventDefault();e.stopImmediatePropagation();if(t.id==='run-button')connectGraph(connection.graphRunId);else if(t.id==='export-button'||t.id==='history-button')showLiveReport();else if(t.dataset.prompt)liveAsk(t.dataset.prompt);},true);
   $('#connect-button').addEventListener('click',showConnectionDialog);
 
+
+
+  // ── workspace / task management (P2) ───────────────────────────────────
+  // A workspace is one project directory; every optimization task created in
+  // it owns its own missions.db. This block is additive: the legacy demo and
+  // the read-only "connect project" path above keep working unchanged.
+  const wf = { workspaces: [], workspaceId: "", tasks: [], taskId: "", snapshot: null, approvals: [], busy: false, timer: null };
+
+  async function wfJson(path, options) {
+    const opts = Object.assign({}, options || {});
+    const headers = Object.assign({ Accept: "application/json" }, opts.headers || {});
+    if (opts.json !== undefined) {
+      headers["Content-Type"] = "application/json";
+      opts.body = JSON.stringify(opts.json);
+      delete opts.json;
+    }
+    opts.headers = headers;
+    const response = await fetch(apiBase() + path, opts);
+    let payload = null;
+    try { payload = await response.json(); } catch (error) { payload = null; }
+    if (!response.ok) {
+      const detail = payload && (payload.error || payload.code) ? (payload.error || payload.code) : ("HTTP " + response.status);
+      const failure = new Error(detail);
+      failure.payload = payload;
+      throw failure;
+    }
+    return payload || {};
+  }
+
+  function wfHint(text, kind) {
+    const el = $("#workspace-hint");
+    if (!el) return;
+    el.textContent = text;
+    el.className = "workspace-hint" + (kind ? " " + kind : "");
+    el.hidden = text === "";
+  }
+
+  function workspaceById(id) { return wf.workspaces.find(function (item) { return item.workspace_id === id; }) || null; }
+  function taskById(id) { return wf.tasks.find(function (item) { return item.task_id === id; }) || null; }
+
+  function taskBadge(status) {
+    const table = { succeeded: ["ok", "完成"], failed: ["bad", "失败"], running: ["live", "运行中"], waiting_approval: ["warn", "待审批"], canceled: ["idle", "已取消"], created: ["idle", "已创建"] };
+    return table[status] || ["idle", status || "未知"];
+  }
+
+  function renderWorkspaces() {
+    const list = $("#workspace-list");
+    if (!list) return;
+    if (!wf.workspaces.length) list.innerHTML = "";
+    else {
+      list.innerHTML = wf.workspaces.map(function (item) {
+        const active = item.workspace_id === wf.workspaceId ? " active" : "";
+        return "<button type=\"button\" class=\"workspace-item" + active + "\" data-workspace-id=\"" + esc(item.workspace_id) + "\" title=\"" + esc(item.root || "") + "\">" +
+          "<strong>" + esc(item.name || item.root || item.workspace_id) + "</strong>" +
+          "<small>" + esc(item.root || "") + "</small></button>";
+      }).join("");
+      $$("[data-workspace-id]").forEach(function (button) {
+        button.addEventListener("click", function () { selectWorkspace(button.dataset.workspaceId); });
+      });
+    }
+    const toggle = $("#new-task-button");
+    if (toggle) toggle.disabled = wf.workspaceId === "";
+    if (!wf.workspaces.length) wfHint("还没有工作区。点 ＋ 选择一个工程目录。");
+    else if (wf.workspaceId === "") wfHint("选择一个工作区查看它的优化任务。");
+    else wfHint("");
+  }
+
+  function renderTasks() {
+    const list = $("#task-list");
+    if (!list) return;
+    if (!wf.workspaceId) { list.innerHTML = ""; return; }
+    if (!wf.tasks.length) { list.innerHTML = "<p class=\"task-empty\">该工作区还没有任务。点 ＋ 新建。</p>"; return; }
+    list.innerHTML = wf.tasks.map(function (item) {
+      const badge = taskBadge(item.status);
+      const active = item.task_id === wf.taskId ? " active" : "";
+      return "<button type=\"button\" class=\"task-item" + active + "\" data-task-id=\"" + esc(item.task_id) + "\">" +
+        "<span class=\"task-badge " + badge[0] + "\">" + esc(badge[1]) + "</span>" +
+        "<strong>" + esc(item.name || item.goal || item.task_id) + "</strong>" +
+        "<small>" + esc(item.template_id || "") + "</small></button>";
+    }).join("");
+    $$("[data-task-id]").forEach(function (button) {
+      button.addEventListener("click", function () { selectTask(button.dataset.taskId); });
+    });
+  }
+
+  function renderStatusbar() {
+    const bar = $("#task-statusbar");
+    if (!bar) return;
+    const task = wf.taskId ? taskById(wf.taskId) : null;
+    if (!task) { bar.hidden = true; return; }
+    bar.hidden = false;
+    const snapshot = wf.snapshot || {};
+    const graph = snapshot.graph || {};
+    const driver = snapshot.driver || {};
+    const badge = taskBadge(task.status);
+    const dot = $("#task-status-dot");
+    if (dot) dot.className = "task-status-dot " + badge[0];
+    const title = $("#task-status-title");
+    if (title) title.textContent = task.name || task.task_id;
+    const meta = $("#task-status-meta");
+    if (meta) {
+      const parts = [];
+      parts.push("任务 " + (task.status || "未知"));
+      if (graph.status) parts.push("graph " + graph.status);
+      if (graph.step_count !== undefined) parts.push("step " + graph.step_count + "/" + (graph.max_steps === undefined ? "—" : graph.max_steps));
+      if (driver.running) parts.push("自动推进中");
+      parts.push(task.task_id);
+      meta.textContent = parts.join("  ·  ");
+    }
+    const pending = wf.approvals.filter(function (item) { return item.decision === "pending" || item.decision === null || item.decision === undefined; });
+    const advance = $("#task-advance");
+    if (advance) advance.disabled = Boolean(wf.busy) || Boolean(driver.running);
+    const auto = $("#task-auto");
+    if (auto) auto.hidden = Boolean(driver.running);
+    const stopAuto = $("#task-stop-auto");
+    if (stopAuto) stopAuto.hidden = !driver.running;
+    const approve = $("#task-approve");
+    if (approve) approve.hidden = pending.length === 0;
+    const reject = $("#task-reject");
+    if (reject) reject.hidden = pending.length === 0;
+  }
+
+  async function refreshWorkspaces() {
+    try {
+      const payload = await wfJson("/api/workbench/workspaces");
+      wf.workspaces = payload.workspaces || [];
+      if (wf.workspaceId && !workspaceById(wf.workspaceId)) wf.workspaceId = "";
+      renderWorkspaces();
+      if (wf.workspaceId) await refreshTasks();
+    } catch (error) {
+      wf.workspaces = [];
+      renderWorkspaces();
+      wfHint("无法连接工作台服务：" + error.message + "（静态预览或 dashboard 未启动）", "warn");
+    }
+  }
+
+  async function selectWorkspace(workspaceId) {
+    wf.workspaceId = workspaceId;
+    wf.taskId = "";
+    wf.snapshot = null;
+    wf.approvals = [];
+    stopTaskPolling();
+    renderWorkspaces();
+    renderStatusbar();
+    await refreshTasks();
+  }
+
+  async function refreshTasks() {
+    if (!wf.workspaceId) { wf.tasks = []; renderTasks(); return; }
+    try {
+      const payload = await wfJson("/api/workbench/workspaces/" + encodeURIComponent(wf.workspaceId) + "/tasks");
+      wf.tasks = payload.tasks || [];
+      renderTasks();
+      if (wf.taskId && !taskById(wf.taskId)) { wf.taskId = ""; wf.snapshot = null; wf.approvals = []; }
+      renderStatusbar();
+    } catch (error) {
+      wf.tasks = [];
+      renderTasks();
+      notify("读取任务失败：" + error.message, "error", 5000);
+    }
+  }
+
+  async function selectTask(taskId) {
+    wf.taskId = taskId;
+    wf.approvals = [];
+    renderTasks();
+    await refreshSnapshot();
+    await refreshApprovals();
+    startTaskPolling();
+  }
+
+  async function refreshSnapshot() {
+    if (!wf.taskId) return;
+    try {
+      const snapshot = await wfJson("/api/workbench/tasks/" + encodeURIComponent(wf.taskId));
+      wf.snapshot = snapshot;
+      if (snapshot.task) {
+        const index = wf.tasks.findIndex(function (item) { return item.task_id === snapshot.task.task_id; });
+        if (index >= 0) wf.tasks[index] = snapshot.task; else wf.tasks.push(snapshot.task);
+        renderTasks();
+      }
+      applySnapshot(snapshot);
+      renderStatusbar();
+    } catch (error) {
+      notify("读取任务失败：" + error.message, "error", 5000);
+    }
+  }
+
+  async function refreshApprovals() {
+    if (!wf.taskId) return;
+    try {
+      const payload = await wfJson("/api/workbench/tasks/" + encodeURIComponent(wf.taskId) + "/approvals");
+      wf.approvals = payload.approvals || [];
+    } catch (error) {
+      wf.approvals = [];
+    }
+    renderStatusbar();
+  }
+
+  async function withBusy(action, label) {
+    if (wf.busy) return;
+    wf.busy = true;
+    renderStatusbar();
+    try { await action(); notify(label, "success"); }
+    catch (error) { notify(label + "失败：" + error.message, "error", 6000); }
+    finally { wf.busy = false; renderStatusbar(); }
+  }
+
+  function advanceTask() {
+    if (!wf.taskId) return;
+    withBusy(async function () {
+      await wfJson("/api/workbench/tasks/" + encodeURIComponent(wf.taskId) + "/advance", { method: "POST", json: {} });
+      await refreshSnapshot();
+      await refreshApprovals();
+      await refreshTasks();
+    }, "已推进一个节点");
+  }
+
+  function setAuto(enabled) {
+    if (!wf.taskId) return;
+    withBusy(async function () {
+      await wfJson("/api/workbench/tasks/" + encodeURIComponent(wf.taskId) + "/auto", { method: "POST", json: { enabled: enabled ? true : false, poll_seconds: 5 } });
+      await refreshSnapshot();
+    }, enabled ? "已启动自动推进" : "已请求停止自动推进");
+  }
+
+  function decideTask(decision) {
+    if (!wf.taskId) return;
+    const pending = wf.approvals.filter(function (item) { return item.decision === "pending" || item.decision === null || item.decision === undefined; });
+    if (!pending.length) { notify("当前没有待审批项。", "warning"); return; }
+    const approvalId = pending[pending.length - 1].approval_id;
+    withBusy(async function () {
+      await wfJson("/api/workbench/tasks/" + encodeURIComponent(wf.taskId) + "/decide/" + encodeURIComponent(approvalId), { method: "POST", json: { decision: decision } });
+      await refreshSnapshot();
+      await refreshApprovals();
+      await refreshTasks();
+    }, decision === "approved" ? "已批准" : "已拒绝");
+  }
+
+  function openNewWorkspaceDialog() {
+    openModal({
+      title: "新建工作区",
+      kicker: "WORKSPACE · 一个工程目录",
+      content: "<p>工作区就是一个工程目录。任务数据库生成在该目录的 <code>.ai-hfss/tasks/&lt;task_id&gt;/missions.db</code>，不会改动工程文件。</p>" +
+        "<label class=\"form-field\"><span>目录路径</span><input id=\"wf-root\" type=\"text\" placeholder=\"例如 E:\\ai-hfss-test\"></label>" +
+        "<label class=\"form-field\"><span>名称（可选）</span><input id=\"wf-name\" type=\"text\" placeholder=\"默认取目录名\"></label>",
+      buttons: [
+        { label: "取消", onClick: closeModal },
+        { label: "创建", primary: true, onClick: function () {
+            const root = ($("#wf-root").value || "").trim();
+            const name = ($("#wf-name").value || "").trim();
+            if (!root) { notify("请填写工作区目录。", "warning"); return; }
+            wfJson("/api/workbench/workspaces", { method: "POST", json: { root: root, name: name || undefined } })
+              .then(function (payload) {
+                closeModal();
+                notify("工作区已创建。");
+                return refreshWorkspaces().then(function () { return selectWorkspace(payload.workspace.workspace_id); });
+              })
+              .catch(function (error) { notify("创建工作区失败：" + error.message, "error", 6000); });
+          } }
+      ]
+    });
+  }
+
+  function openNewTaskDialog() {
+    if (!wf.workspaceId) { notify("请先选择或新建一个工作区。", "warning"); return; }
+    openModal({
+      title: "新建优化任务",
+      kicker: "TASK · 每任务独立 MISSION 库",
+      content: "<p>任务创建后立刻生成自己的 <code>missions.db</code> 与运行目录；推进与审批都在这个工作台里完成。</p>" +
+        "<label class=\"form-field\"><span>目标（goal）</span><input id=\"task-goal\" type=\"text\" placeholder=\"例如 1GHz 单点冒烟\"></label>" +
+        "<label class=\"form-field\"><span>源工程（.aedt 绝对路径）</span><input id=\"task-source\" type=\"text\" placeholder=\"E:\\ai-hfss-test\\xxx.aedt\"></label>" +
+        "<label class=\"form-field\"><span>模板</span><select id=\"task-template\"><option value=\"aihfss_layout_solve_point\">1GHz 单点求解（冒烟）</option><option value=\"brd_reviewed_model_optimize_loop\">reviewed BRD 优化循环</option></select></label>" +
+        "<label class=\"form-field\"><span>设计名（可选）</span><input id=\"task-design\" type=\"text\" placeholder=\"留空则用默认设计\"></label>" +
+        "<label class=\"form-field\"><span>Setup / 频率点（GHz）</span><span class=\"form-inline\"><input id=\"task-setup\" type=\"text\" value=\"Setup1\"><input id=\"task-frequency\" type=\"number\" step=\"0.1\" value=\"1\"></span></label>" +
+        "<label class=\"form-field\"><span>最大轮次</span><input id=\"task-rounds\" type=\"number\" min=\"1\" value=\"1\"></label>",
+      buttons: [
+        { label: "取消", onClick: closeModal },
+        { label: "创建任务", primary: true, onClick: function () {
+            const goal = ($("#task-goal").value || "").trim();
+            const source = ($("#task-source").value || "").trim();
+            const templateId = $("#task-template").value;
+            if (!goal) { notify("请填写任务目标。", "warning"); return; }
+            if (!source) { notify("请填写源工程路径。", "warning"); return; }
+            const params = {
+              goal: goal,
+              template_id: templateId,
+              source_project_path: source,
+              design_name: ($("#task-design").value || "").trim() || undefined,
+              setup_name: ($("#task-setup").value || "").trim() || "Setup1",
+              frequency_ghz: Number($("#task-frequency").value || 1),
+              max_rounds: Number($("#task-rounds").value || 1)
+            };
+            wfJson("/api/workbench/workspaces/" + encodeURIComponent(wf.workspaceId) + "/tasks", { method: "POST", json: params })
+              .then(function (payload) {
+                closeModal();
+                notify("任务已创建。");
+                return refreshTasks().then(function () { return selectTask(payload.task.task_id); });
+              })
+              .catch(function (error) { notify("创建任务失败：" + error.message, "error", 6000); });
+          } }
+      ]
+    });
+  }
+
+  function startTaskPolling() {
+    stopTaskPolling();
+    wf.timer = setInterval(function () {
+      if (!wf.taskId || wf.busy) return;
+      refreshSnapshot().then(refreshApprovals).catch(function () {});
+    }, 4000);
+  }
+  function stopTaskPolling() { if (wf.timer) { clearInterval(wf.timer); wf.timer = null; } }
+
+  if ($("#new-workspace-button")) $("#new-workspace-button").addEventListener("click", openNewWorkspaceDialog);
+  if ($("#new-task-button")) $("#new-task-button").addEventListener("click", openNewTaskDialog);
+  if ($("#task-refresh")) $("#task-refresh").addEventListener("click", function () { refreshSnapshot().then(refreshApprovals); });
+  if ($("#task-advance")) $("#task-advance").addEventListener("click", advanceTask);
+  if ($("#task-auto")) $("#task-auto").addEventListener("click", function () { setAuto(true); });
+  if ($("#task-stop-auto")) $("#task-stop-auto").addEventListener("click", function () { setAuto(false); });
+  if ($("#task-approve")) $("#task-approve").addEventListener("click", function () { decideTask("approved"); });
+  if ($("#task-reject")) $("#task-reject").addEventListener("click", function () { decideTask("rejected"); });
+
+  refreshWorkspaces();
+
   renderChart();
   updateCandidateSummary();
 })();
-

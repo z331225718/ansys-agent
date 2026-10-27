@@ -1164,7 +1164,7 @@ def _task_service() -> Any:
     """
     global _workbench_task_service
     if _workbench_task_service is None:
-        from aedt_agent.agent.workbench_tasks import TaskService
+        from aedt_agent.agent.workbench_tasks import TaskService, WorkspaceRegistry
 
         profile = None
         profile_path = os.environ.get("AIHFSS_EXECUTION_PROFILE", "").strip()
@@ -1172,7 +1172,11 @@ def _task_service() -> Any:
             from aedt_agent.agent.cli import _load_execution_profile
 
             profile = _load_execution_profile(Path(profile_path))
-        _workbench_task_service = TaskService(profile=profile)
+        # A deployment (or a test) may keep its workspace registry somewhere
+        # other than the per-user default.
+        registry_path = os.environ.get("AIHFSS_WORKSPACES_FILE", "").strip()
+        registry = WorkspaceRegistry(Path(registry_path)) if registry_path else None
+        _workbench_task_service = TaskService(registry, profile=profile)
     return _workbench_task_service
 
 

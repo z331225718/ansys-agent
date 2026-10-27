@@ -1,6 +1,6 @@
 # AI-HFSS：工作台任务化 + AEDT 内嵌轻对话
 
-状态：**已批准；P0 ✅ / P1 ✅ / P3 ✅ / P2 待做**（P0 见 [docs/spikes/ai-hfss-p0.md](spikes/ai-hfss-p0.md)）
+状态：**已批准；P0 ✅ / P1 ✅ / P2 ✅ / P3 ✅**（P4 收尾进行中）（P0 见 [docs/spikes/ai-hfss-p0.md](spikes/ai-hfss-p0.md)）
 
 P1 已交付：`workbench_tasks.py`（工作区/任务/每任务库/锁/自动驾驶）、`/api/workbench/*` 新接口、
 `tests/test_agent_workbench_tasks.py`。

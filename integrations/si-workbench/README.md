@@ -63,6 +63,28 @@
 截图与测试结果默认输出到系统临时测试目录，不纳入生产证据。
 
 
+## 工作区 / 任务模式（P2，可写）
+
+左侧新增「工作区 / 优化任务」面板，这是工作台**唯一**能下令的地方：
+
+- **工作区** = 一个工程目录（点 ＋ 选择）。任务数据写在
+  `<工作区>/.ai-hfss/tasks/<task_id>/missions.db`，不碰工程文件；
+- **新建任务**：填目标、源 `.aedt`、模板（1GHz 单点冒烟 / reviewed BRD 循环）、
+  Setup 与频率点；创建后立即生成独立 Mission 库与运行目录；
+- 顶部任务状态条：任务状态、graph 状态、step、自动推进标记；
+- 操作：刷新 / **推进** / **自动**（可停）/ **批准**、**拒绝**（有待审批时出现）。
+
+接口（同一 dashboard）：`/api/workbench/workspaces`、`/api/workbench/workspaces/<id>/tasks`、
+`/api/workbench/tasks/<id>`、`.../advance`、`.../auto`、`.../approvals`、
+`.../decide/<approval_id>`。
+
+环境变量：`AIHFSS_WORKSPACES_FILE` 可覆盖工作区注册表路径（默认
+`~/.dsh/ai-hfss-workstation/workspaces.json`）；`AIHFSS_EXECUTION_PROFILE`
+指定执行 profile（决定是否允许真实 AEDT 作业）。
+
+> 旧的三栏只读展示仍保留：未选任务时显示演示/只读数据；选中任务后指标、
+> 轮次、产物切换到该任务真实数据。
+
 ## 连接真实 Mission（只读）
 
 工作台已挂到现有 dashboard 的同一服务与 Mission DB：

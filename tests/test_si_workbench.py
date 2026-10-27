@@ -131,3 +131,134 @@ def test_workbench_source_integrity_is_reported_not_verified(tmp_path):
     _, _, data = _dispatch("GET", "/api/workbench/graphs/graph-si-1", runtime)
     assert data["source"]["source_integrity"] == "reported_not_reverified"
     assert data["source"]["source_sha256_verified"] is False
+
+# ── P2: workspace / task management surface ────────────────────────────────
+
+
+def test_workbench_page_carries_the_task_management_surface(tmp_path):
+    runtime = _runtime(tmp_path)
+    status, ct, body = _dispatch("GET", "/workbench/", runtime)
+    assert status == 200 and "text/html" in ct
+    for element_id in (
+        "workspace-panel",
+        "workspace-list",
+        "workspace-hint",
+        "new-workspace-button",
+        "task-list",
+        "new-task-button",
+        "task-statusbar",
+        "task-advance",
+        "task-auto",
+        "task-approve",
+    ):
+        assert 'id="' + element_id + '"' in body, element_id
+    status, ct, script = _dispatch("GET", "/workbench/app.js", runtime)
+    assert status == 200 and "javascript" in ct
+    for call in (
+        "/api/workbench/workspaces",
+        "/api/workbench/tasks/",
+        "/advance",
+        "/auto",
+        "/approvals",
+        "/decide/",
+    ):
+        assert call in script, call
+    assert "openNewWorkspaceDialog" in script
+    assert "openNewTaskDialog" in script
+    status, ct, css = _dispatch("GET", "/workbench/styles.css", runtime)
+    assert status == 200 and "css" in ct
+    assert ".task-statusbar" in css and ".workspace-item" in css
+
+
+def _task_service(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """A task service whose graph templates are stubbed for the whole test.
+
+    workbench_tasks imports the template helpers inside create_task, so the
+    module attributes must stay patched while the task is created (monkeypatch
+    restores them at teardown).
+    """
+    from aedt_agent.agent.graph_template import graph_template_from_mapping
+    from aedt_agent.agent.workbench_tasks import TaskService, WorkspaceRegistry
+
+    template = graph_template_from_mapping(
+        {
+            "id": "p2_probe",
+            "version": 1,
+            "nodes": [
+                {"id": "source", "role": "planner", "kind": "program"},
+                {"id": "validator", "role": "validator", "kind": "program"},
+            ],
+            "edges": [{"id": "s-v", "from": "source", "to": "validator", "on": "succeeded"}],
+            "handoffs": {},
+        }
+    )
+    monkeypatch.setattr("aedt_agent.agent.graph_template.load_graph_template", lambda _id: template)
+    monkeypatch.setattr("aedt_agent.agent.graph_template.resolve_template_path", lambda _id: Path("unused.yaml"))
+    return TaskService(
+        WorkspaceRegistry(tmp_path / "workspaces.json"),
+        runtime_factory=lambda db, profile: AgentRuntime(SQLiteMissionStore(db)),
+    )
+
+
+def test_dispatch_exposes_the_workspace_and_task_api(tmp_path, monkeypatch):
+    import aedt_agent.agent.web as web_module
+    from aedt_agent.agent.workbench_tasks import TaskService
+
+    service = _task_service(tmp_path, monkeypatch)
+    monkeypatch.setattr(web_module, "_workbench_task_service", service)
+    runtime = _runtime(tmp_path)
+
+    # _dispatch already decodes JSON responses to Python objects.
+    status, ct, body = _dispatch("GET", "/api/workbench/workspaces", runtime)
+    assert status == 200 and body["workspaces"] == []
+
+    root = tmp_path / "proj"
+    payload = json.dumps({"root": str(root), "name": "proj"}).encode("utf-8")
+    status, headers, body = dispatch_agent_request("POST", "/api/workbench/workspaces", payload, runtime)
+    assert status == 201
+    workspace_id = json.loads(body)["workspace"]["workspace_id"]
+
+    created = json.dumps({"goal": "p2 goal", "template_id": "p2_probe"}).encode("utf-8")
+    status, headers, body = dispatch_agent_request(
+        "POST", "/api/workbench/workspaces/" + workspace_id + "/tasks", created, runtime
+    )
+    assert status == 201
+    task_id = json.loads(body)["task"]["task_id"]
+    task_dir = root / ".ai-hfss" / "tasks" / task_id
+    assert (task_dir / "missions.db").is_file()
+    assert (task_dir / "task.json").is_file()
+
+    status, headers, body = dispatch_agent_request(
+        "GET", "/api/workbench/workspaces/" + workspace_id + "/tasks", b"", runtime
+    )
+    assert status == 200 and len(json.loads(body)["tasks"]) == 1
+
+    status, headers, body = _dispatch("GET", "/api/workbench/tasks/" + task_id, runtime)
+    assert status == 200
+    snapshot = body
+    assert snapshot["task"]["task_id"] == task_id
+    assert snapshot["task_capabilities"]["task_advance"] is True
+    assert snapshot["graph"]["graph_run_id"] == snapshot["task"]["graph_run_id"]
+
+    status, headers, body = dispatch_agent_request(
+        "POST", "/api/workbench/tasks/" + task_id + "/advance", b"", runtime
+    )
+    assert status == 200 and json.loads(body)["status"] in {"running", "succeeded"}
+
+
+def test_dispatch_task_errors_map_to_http_codes(tmp_path, monkeypatch):
+    import aedt_agent.agent.web as web_module
+
+    service = _task_service(tmp_path, monkeypatch)
+    monkeypatch.setattr(web_module, "_workbench_task_service", service)
+    runtime = _runtime(tmp_path)
+
+    status, headers, body = dispatch_agent_request(
+        "GET", "/api/workbench/tasks/T-20261027-000000-ffff", b"", runtime
+    )
+    assert status == 404 and json.loads(body)["code"] == "task/not-found"
+
+    status, headers, body = dispatch_agent_request(
+        "GET", "/api/workbench/workspaces/ws-nope/tasks", b"", runtime
+    )
+    assert status == 404 and json.loads(body)["code"] == "workspace/not-found"
