@@ -1,6 +1,16 @@
 # AI-HFSS：工作台任务化 + AEDT 内嵌轻对话
 
-状态：**已批准；P0 已完成**（见 [docs/spikes/ai-hfss-p0.md](spikes/ai-hfss-p0.md)）
+状态：**已批准；P0 ✅ / P1 ✅ / P3 ✅ / P2 待做**（P0 见 [docs/spikes/ai-hfss-p0.md](spikes/ai-hfss-p0.md)）
+
+P1 已交付：`workbench_tasks.py`（工作区/任务/每任务库/锁/自动驾驶）、`/api/workbench/*` 新接口、
+`tests/test_agent_workbench_tasks.py`。
+真机验证：E:\ai-hfss-test 建工作区 → 建任务 → 推进 → AEDT 1 GHz 单点求解 38.3 s →
+`channel_1ghz.s1p`(1347 B) 回读，节点 succeeded（一次求解）。
+
+P3 已交付：focus 页（无侧栏 + AEDT 状态条）、`/api/ai-hfss/aedt/*`、
+`ansys-embedded` 预设、AEDT 脚本 `integrations/aedt/ai_hfss_chat.py`。
+
+P2（工作台 UI：工作区树/任务表单/推进审批控制）未开始。
 日期：2026-10-28
 相关代码：`src/aedt_agent/agent/web.py`、`src/aedt_agent/agent/workbench.py`、
 `src/aedt_agent/agent/cli.py`、`src/aedt_agent/infrastructure/sqlite_mission_store.py`、
