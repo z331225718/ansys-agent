@@ -503,7 +503,146 @@
     const note=$('.assistant-note');if(note)note.innerHTML='<span class="message-label">真实工程分析 · READ ONLY</span><p>Mission <strong>'+esc(s.mission.mission_id)+'</strong> 当前状态为 <strong>'+esc(g.status)+'</strong>。读取的是 worker 与 artifact 的真实结果，不使用演示指标。</p><p>SDD11：'+esc(textOr(m.rl_worst_db,'暂无'))+' dB；TDR 峰值偏差：'+esc(textOr(m.tdr_peak_deviation_ohm,'暂无'))+' Ω；观察端：'+esc(textOr(m.tdr_observation_port,'未提供'))+'。</p><p>此界面只读，不启动/advance graph，不批准人工门。</p>';
   }
   function renderRounds(rs){const c=$('#history-list');c.innerHTML=rs.length?rs.map((r,i)=>'<article class="history-item"><div class="round-marker"><span>'+String(r.round_index||i+1).padStart(2,'0')+'</span><i></i></div><div class="history-content"><div><strong>'+esc(r.action_type||'通道评分')+'</strong><span class="history-status baseline">'+esc(r.status||'recorded')+'</span></div><p>'+esc(r.layers||'worker evidence')+'</p><div class="history-metrics"><span>Cost <b>'+esc(textOr(r.objective_total_cost,'—'))+'</b></span><span>SDD11 <b>'+esc(textOr(r.rl_worst_db,'—'))+' dB</b></span></div><small>'+esc(r.solve_status||'')+' · '+esc(r.score_status||'')+'</small></div></article>').join(''):'<div class="callout warning">该 graph 尚无优化历史 artifact。</div>';}
-  function renderModel(m){const stage=$('#geometry-stage');if(m.available){stage.innerHTML='<div class="model-unavailable real-model"><h3>真实模型 inventory</h3><p>以下数据来自当前 Mission 的 model_inventory，不是演示几何。</p><pre>'+esc(JSON.stringify(m.inventory,null,2).slice(0,7000))+'</pre></div>';$$('.model-thumb').forEach(b=>{b.disabled=true;});return;}stage.innerHTML='<div class="model-unavailable"><span>◇</span><h3>几何预览未接入</h3><p>'+esc(m.notice||'当前 graph/report 未提供几何 inventory。')+'</p><small>仅显示真实 graph、评分和 artifact，不使用演示几何冒充实际模型。</small></div>';$$('.model-thumb').forEach(b=>{b.disabled=true;});}
+  // ---- structured model preview (aihfss-model-inventory/v1) --------------
+  function modelNetColor(net) {
+    const name = String(net || '');
+    if (/GND|VSS/i.test(name)) return '#93a7b4';
+    if (/(_P|DP|P)$/i.test(name) && !/N$/i.test(name)) return '#6fd3c8';
+    if (/(_N|DN|N)$/i.test(name)) return '#7fb6d8';
+    return '#d8ac68';
+  }
+
+  function segmentsToPath(segments) {
+    if (!Array.isArray(segments) || segments.length === 0) return '';
+    const parts = ['M ' + segments[0][0][0] + ' ' + segments[0][0][1]];
+    for (const seg of segments) parts.push('L ' + seg[1][0] + ' ' + seg[1][1]);
+    return parts.join(' ');
+  }
+
+  function padBounds(bounds) {
+    const b = bounds || {};
+    const minX = Number(b.min_x || 0), minY = Number(b.min_y || 0);
+    const maxX = Number(b.max_x || 0), maxY = Number(b.max_y || 0);
+    const w = Math.max(maxX - minX, 0.001), h = Math.max(maxY - minY, 0.001);
+    const pad = Math.max(w, h) * 0.06;
+    return { minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad, w: w + pad * 2, h: h + pad * 2 };
+  }
+
+  function topViewSvg(inv) {
+    const b = padBounds(inv.bounds);
+    const parts = ['<svg viewBox="' + b.minX.toFixed(3) + ' ' + b.minY.toFixed(3) + ' ' + b.w.toFixed(3) + ' ' + b.h.toFixed(3) + '" role="img" aria-label="layout top view">'];
+    parts.push('<g transform="translate(0 ' + (b.minY + b.maxY).toFixed(4) + ') scale(1 -1)">');
+    (inv.polygons || []).forEach(function (poly) {
+      const path = segmentsToPath(poly.segments);
+      if (!path) return;
+      const fill = poly.is_void ? 'rgba(0,0,0,0.35)' : (/GND|VSS/i.test(poly.net || '') ? 'rgba(147,167,180,0.28)' : 'rgba(201,139,75,0.30)');
+      parts.push('<path d="' + path + '" fill="' + fill + '" stroke="' + modelNetColor(poly.net) + '" stroke-width="0.006" data-layer="' + esc(poly.layer) + '"><title>' + esc(poly.name + ' · ' + (poly.net || 'no net') + ' · ' + poly.layer) + '</title></path>');
+    });
+    (inv.traces || []).forEach(function (trace) {
+      const path = segmentsToPath(trace.segments);
+      if (!path) return;
+      const width = Math.max(Number(trace.width_mm || 0.05), 0.03);
+      parts.push('<path d="' + path + '" fill="none" stroke="' + modelNetColor(trace.net) + '" stroke-width="' + width.toFixed(3) + '" stroke-linecap="round" data-layer="' + esc(trace.layer) + '"><title>' + esc(trace.name + ' · ' + (trace.net || '') + ' · ' + trace.layer) + '</title></path>');
+    });
+    (inv.vias || []).forEach(function (via) {
+      if (typeof via.x_mm !== 'number' || typeof via.y_mm !== 'number') return;
+      const hole = typeof via.hole_diameter_mm === 'number' ? via.hole_diameter_mm : 0.1;
+      const radius = Math.max(hole / 2, 0.035);
+      parts.push('<circle cx="' + via.x_mm + '" cy="' + via.y_mm + '" r="' + radius.toFixed(3) + '" fill="' + modelNetColor(via.net) + '" fill-opacity="0.85" stroke="#0c1117" stroke-width="0.006" data-layer="' + esc(via.start_layer) + '"><title>' + esc(via.name + ' · ' + (via.net || 'no net') + ' · ' + via.start_layer + ' → ' + via.stop_layer) + '</title></circle>');
+    });
+    parts.push('</g></svg>');
+    return parts.join('');
+  }
+
+  function sectionViewSvg(inv) {
+    const layers = (inv.stackup || []).filter(function (layer) { return typeof layer.elevation_mm === 'number' && typeof layer.thickness_mm === 'number'; });
+    if (!layers.length) return '';
+    const top = Math.max.apply(null, layers.map(function (l) { return l.elevation_mm + l.thickness_mm; }));
+    const bottom = Math.min.apply(null, layers.map(function (l) { return l.elevation_mm; }));
+    const total = Math.max(top - bottom, 0.0001);
+    const H = 260, W = 620, L = 92, R = 18, inner = W - L - R;
+    const yOf = function (value) { return ((top - value) / total) * (H - 24) + 12; };
+    const parts = ['<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="stackup cross section">'];
+    layers.forEach(function (layer) {
+      const y0 = yOf(layer.elevation_mm + layer.thickness_mm), y1 = yOf(layer.elevation_mm);
+      const fill = layer.type === 'signal' ? '#c98b4b' : '#1b2b34';
+      const stroke = layer.type === 'signal' ? '#e0a768' : '#324b5a';
+      parts.push('<rect x="' + L + '" y="' + y0.toFixed(2) + '" width="' + inner + '" height="' + Math.max(y1 - y0, 1.2).toFixed(2) + '" fill="' + fill + '" fill-opacity="0.55" stroke="' + stroke + '" stroke-width="0.6"><title>' + esc(layer.name + ' · ' + layer.material + ' · ' + (layer.thickness_mm === null ? '?' : layer.thickness_mm) + ' mm') + '</title></rect>');
+      parts.push('<text x="' + (L - 6) + '" y="' + ((y0 + y1) / 2 + 3).toFixed(2) + '" text-anchor="end" class="model-axis-label">' + esc(layer.name) + '</text>');
+    });
+    const elevationOf = function (name) {
+      const layer = layers.find(function (item) { return item.name === name; });
+      return layer ? layer.elevation_mm + layer.thickness_mm / 2 : null;
+    };
+    const bx = padBounds(inv.bounds);
+    const xOf = function (mm) { return L + ((mm - bx.minX) / Math.max(bx.w, 0.001)) * inner; };
+    (inv.vias || []).forEach(function (via) {
+      if (typeof via.x_mm !== 'number') return;
+      const yTop = elevationOf(via.start_layer), yBottom = elevationOf(via.stop_layer);
+      if (yTop === null || yBottom === null) return;
+      parts.push('<line x1="' + xOf(via.x_mm).toFixed(2) + '" y1="' + yOf(yTop).toFixed(2) + '" x2="' + xOf(via.x_mm).toFixed(2) + '" y2="' + yOf(yBottom).toFixed(2) + '" stroke="' + modelNetColor(via.net) + '" stroke-width="2.2" stroke-linecap="round"><title>' + esc(via.name + ' · ' + (via.net || '') + ' · ' + via.start_layer + ' → ' + via.stop_layer) + '</title></line>');
+    });
+    (inv.traces || []).forEach(function (trace) {
+      const y = elevationOf(trace.layer);
+      if (y === null || !trace.segments || !trace.segments.length) return;
+      const xs = trace.segments.flatMap(function (seg) { return [seg[0][0], seg[1][0]]; });
+      const lo = Math.min.apply(null, xs), hi = Math.max.apply(null, xs);
+      parts.push('<line x1="' + xOf(lo).toFixed(2) + '" y1="' + yOf(y).toFixed(2) + '" x2="' + xOf(hi).toFixed(2) + '" y2="' + yOf(y).toFixed(2) + '" stroke="' + modelNetColor(trace.net) + '" stroke-width="2.4"><title>' + esc(trace.name + ' · ' + trace.layer + ' · ' + (trace.net || '')) + '</title></line>');
+    });
+    parts.push('<text x="' + L + '" y="' + (H - 3) + '" class="model-axis-label">' + esc('bottom ' + bottom.toFixed(2) + ' mm · top ' + top.toFixed(2) + ' mm') + '</text>');
+    parts.push('</svg>');
+    return parts.join('');
+  }
+
+  function renderInventoryModel(inv, stage) {
+    const counts = inv.counts || {};
+    const layers = Array.from(new Set((inv.stackup || []).map(function (layer) { return layer.name; }).filter(Boolean)));
+    const parts = ['<div class="model-viewer">', '<div class="model-toolbar"><div class="model-tabs">'];
+    parts.push('<button type="button" class="model-tab active" data-model-view="top">俯视</button>');
+    parts.push('<button type="button" class="model-tab" data-model-view="section">剖面</button></div>');
+    parts.push('<span class="model-meta">' + [counts.stackup_layers + ' 层', counts.vias + ' 过孔', counts.traces + ' 走线', counts.polygons + ' 铺铜'].join(' · ') + '</span>');
+    parts.push('<span class="model-source">' + esc(inv.design || '') + '</span></div>');
+    if (layers.length) {
+      parts.push('<div class="model-layers">');
+      layers.forEach(function (layer) { parts.push('<button type="button" class="model-chip active" data-model-layer="' + esc(layer) + '">' + esc(layer) + '</button>'); });
+      parts.push('</div>');
+    }
+    parts.push('<div class="model-stage">' + topViewSvg(inv) + sectionViewSvg(inv).replace('<svg ', '<svg hidden ') + '</div>');
+    parts.push('<div class="model-legend">真实 inventory · 坐标单位 mm · 悬停查看对象名/网络/层</div>');
+    parts.push('</div>');
+    stage.innerHTML = parts.join('');
+    const tabs = stage.querySelectorAll('[data-model-view]');
+    const svgs = stage.querySelectorAll('.model-stage svg');
+    tabs.forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        tabs.forEach(function (item) { item.classList.toggle('active', item === tab); });
+        svgs.forEach(function (svg, index) { const show = tab.dataset.modelView === 'top' ? index === 0 : index === 1; svg.toggleAttribute('hidden', !show); });
+      });
+    });
+    stage.querySelectorAll('[data-model-layer]').forEach(function (chip) {
+      chip.addEventListener('click', function () {
+        const hidden = chip.classList.toggle('off');
+        stage.querySelectorAll('[data-layer="' + chip.dataset.modelLayer.replace(/"/g, '\\"') + '"]').forEach(function (node) { node.style.display = hidden ? 'none' : ''; });
+      });
+    });
+  }
+
+  function renderModel(m) {
+    const stage = $('#geometry-stage');
+    if (!stage) return;
+    const inv = (m && m.inventory) || null;
+    if (inv && inv.schema === 'aihfss-model-inventory/v1' && inv.counts && ((inv.counts.stackup_layers || 0) + (inv.counts.vias || 0) + (inv.counts.traces || 0)) > 0) {
+      renderInventoryModel(inv, stage);
+      return;
+    }
+    if (m && m.available) {
+      stage.innerHTML = '<div class="model-unavailable real-model"><h3>真实模型 inventory</h3><p>' + esc(m.notice || '以下数据来自当前 Mission 的 model_inventory。') + '</p><pre>' + esc(JSON.stringify(m.inventory, null, 2).slice(0, 7000)) + '</pre></div>';
+      $$('.model-thumb').forEach(function (b) { b.disabled = true; });
+      return;
+    }
+    stage.innerHTML = '<div class="model-unavailable"><span>◇</span><h3>几何预览未接入</h3><p>' + esc((m && m.notice) || '当前 graph/report 未提供几何 inventory。') + '</p><small>仅显示真实 graph、评分和 artifact，不使用演示几何冒充实际模型。</small></div>';
+    $$('.model-thumb').forEach(function (b) { b.disabled = true; });
+  }
   function renderConstraints(c){$('#parameters-pane').innerHTML='<div class="inspector-section"><div class="section-label">真实运行约束 <span>READ ONLY</span></div><div class="observation-row"><span>TDR 观察端</span><strong>'+esc(textOr(c.tdr_observation_port,'未提供'))+'</strong></div><div class="observation-row"><span>参考阻抗</span><strong>'+esc(textOr(c.reference_impedance_ohm,'—'))+' Ω</strong></div><div class="observation-row"><span>频率范围</span><strong>'+esc(textOr(c.frequency_start_ghz,'0'))+'–'+esc(textOr(c.frequency_stop_ghz,'—'))+' GHz</strong></div><div class="observation-row"><span>反焊盘半径上限</span><strong>'+esc(textOr(c.anti_pad_max_radius_mil,'—'))+' mil</strong></div><div class="observation-row"><span>NFP 半径范围</span><strong>'+esc(textOr(c.nfp_min_radius_mil,'—'))+'–'+esc(textOr(c.nfp_max_radius_mil,'—'))+' mil</strong></div></div><div class="inspector-section"><h3>证据与报告</h3><div id="evidence-artifact-links" class="artifact-links"></div><div class="callout">写入、preview/apply 和 human_gate 审批仍由受控本地 CLI/dashboard 完成。</div></div>';renderArtifacts((connection.snapshot||{}).artifacts||[]);}
   function renderArtifacts(as){as=Array.isArray(as)?as:[];const c=$('#evidence-artifact-links');if(!c)return;const rs=as.filter(a=>['report_html','history_csv','score_evidence','plot','plot_tdr','plot_sdd11','plot_sdd21','touchstone'].includes(a.kind));c.innerHTML=rs.length?rs.map(a=>'<a href="'+esc(a.view_url)+'" target="_blank" rel="noopener">'+esc(a.kind)+' · '+esc(a.path.split(/[\\/]/).pop())+' ↗</a>').join(''):'<span>未注册可查看的报告 artifact</span>';}
   function showLiveReport(){const as=((connection.snapshot||{}).artifacts||[]).filter(a=>a.view_url);openModal({title:'真实工程证据与报告',kicker:'MISSION ARTIFACTS · READ ONLY',content:'<p>链接沿用 dashboard 的 mission/path 权限检查。</p><div class="artifact-links large-links">'+(as.length?as.map(a=>'<a href="'+esc(a.view_url)+'" target="_blank" rel="noopener"><strong>'+esc(a.kind)+'</strong><span>'+esc(a.path)+'</span><b>打开 ↗</b></a>').join(''):'<div class="callout warning">当前没有可读取的 artifact。</div>')+'</div>',buttons:[{label:'关闭',primary:true,onClick:closeModal}]});}

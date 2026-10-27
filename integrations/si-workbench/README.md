@@ -85,6 +85,24 @@
 > 旧的三栏只读展示仍保留：未选任务时显示演示/只读数据；选中任务后指标、
 > 轮次、产物切换到该任务真实数据。
 
+## 模型预览（结构化几何）
+
+选中一个任务后，若它的 loop context 携带 `model_inventory`（由图节点
+`aihfss.inventory.layout_model` 生成），几何面板会从"未接入"变成可交互视图：
+
+- **俯视**：按层过滤（chips）、铺铜多边形、走线（按网络着色，线宽取真实 width）、
+  过孔圆点（半径取真实孔径）；悬停显示对象名 / 网络 / 层；
+- **剖面**：真实层叠（标高 + 厚度，来自 AEDT stackup）、过孔贯穿其 start/stop 层、
+  走线所在层；悬停同样有对象信息。
+
+数据来源是只读抽取（`src/aedt_agent/agent/aihfss_inventory.py`）：
+层叠 / 走线 / 过孔 / 铺铜统一换算成 **mm**，段落级失败会写进
+`unavailable_sections`，不会伪造缺失结构。生成方式：用模板
+`aihfss_layout_inventory` 建一个任务并推进（附着到已打开的 AEDT 会话，**不求解**）。
+
+实测样本（E:\ai-hfss-test 工程）：9 层、42 过孔、4 走线、4 铺铜，
+局部范围 2.37 × 2.84 mm。
+
 ## 连接真实 Mission（只读）
 
 工作台已挂到现有 dashboard 的同一服务与 Mission DB：

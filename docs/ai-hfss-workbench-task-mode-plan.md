@@ -439,3 +439,18 @@ P4 已交付（收尾与验收证据）：
 
 **真机仿真记录**：1 GHz 单点共执行 2 次（一次 API 探路 42.4 s、一次工作台驱动 38.3 s），
 未执行任何宽频扫描。
+## P5（计划外，用户追加）：工作台模型预览
+
+结论：**B 档已落地**——结构化几何 + 自己渲染，不是贴图。
+
+- 抽取模块 `src/aedt_agent/agent/aihfss_inventory.py`：层叠 / 走线 / 过孔 / 铺铜，
+  统一 mm；实测该工程 9 层、42 过孔、4 走线、4 铺铜，范围 2.37 × 2.84 mm；
+- 图节点 `aihfss.inventory.layout_model`（只读、附着已打开会话、不求解）+ 模板
+  `aihfss_layout_inventory`；
+- 前端：`renderModel` 支持 `aihfss-model-inventory/v1`，俯视（层过滤/网络配色/悬停）与
+  剖面（真实层叠 + 过孔贯穿 + 走线层）双视图；
+- 验收：Playwright 无 JS 错误，俯视图 101 个 SVG 节点、9 个层 chips，剖面切换正常；
+  截图 tmp/p5-ui/model-top.png、tmp/p5-ui/model-section.png。
+
+实测限制：3D Layout 的 `export_3d_model` 不产出 GLB/STL（接口返回路径但无文件），
+所以交互式 3D 需要后续从 inventory 几何重建（C 档），当前不做。

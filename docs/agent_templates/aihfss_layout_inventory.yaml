@@ -1,0 +1,11 @@
+id: aihfss_layout_inventory
+version: 1
+description: "Read-only geometry inventory for the workbench model preview: stackup layers, traces, vias and polygons from the open HFSS 3D Layout design."
+nodes:
+  - id: layout_inventory
+    role: observer
+    kind: program
+    handler: aihfss.inventory.layout_model
+    max_runs: 1
+edges: []
+handoffs: {}

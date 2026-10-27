@@ -638,6 +638,7 @@ class TaskService:
             "frequency_ghz",
             "smoke_sweep_name",
             "solve_timeout_seconds",
+            "aedt_port",
         ):
             if key in params and params[key] is not None:
                 config[key] = params[key]

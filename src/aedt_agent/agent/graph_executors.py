@@ -72,9 +72,11 @@ def default_graph_executor_registry() -> GraphNodeExecutorRegistry:
         )
 
         register_optimization_handlers(registry)
+        from aedt_agent.agent.aihfss_inventory import register_aihfss_inventory_handlers
         from aedt_agent.agent.aihfss_smoke import register_aihfss_handlers
 
         register_aihfss_handlers(registry)
+        register_aihfss_inventory_handlers(registry)
         _DEFAULT_EXECUTOR_REGISTRY = registry
     return _DEFAULT_EXECUTOR_REGISTRY
 

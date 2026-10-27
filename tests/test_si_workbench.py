@@ -262,3 +262,20 @@ def test_dispatch_task_errors_map_to_http_codes(tmp_path, monkeypatch):
         "GET", "/api/workbench/workspaces/ws-nope/tasks", b"", runtime
     )
     assert status == 404 and json.loads(body)["code"] == "workspace/not-found"
+
+def test_workbench_page_carries_the_structured_model_preview(tmp_path):
+    runtime = _runtime(tmp_path)
+    status, ct, script = _dispatch("GET", "/workbench/app.js", runtime)
+    assert status == 200 and "javascript" in ct
+    for marker in (
+        "aihfss-model-inventory/v1",
+        "renderInventoryModel",
+        "data-model-view",
+        "data-model-layer",
+        "stackup cross section",
+    ):
+        assert marker in script, marker
+    status, ct, css = _dispatch("GET", "/workbench/styles.css", runtime)
+    assert status == 200 and "css" in ct
+    for marker in (".model-viewer", ".model-stage", ".model-chip"):
+        assert marker in css, marker
