@@ -28,6 +28,12 @@ window.__ModuleLoader__.load({
     const FALLBACK_WORKBENCH_URL = "__WORKBENCH_URL__";
     const POLL_INTERVAL_MS = 1200;
     const DEFAULT_STARTUP_TIMEOUT_MS = 45000;
+    // Focus mode (?aihfss=focus or #aihfss=focus): the AEDT script button opens
+    // this page with the sidebar collapsed and only a thin AEDT status bar on
+    // top, so the conversation is the whole surface.
+    const FOCUS_PARAM = "aihfss";
+    const FOCUS_VALUE = "focus";
+    const FOCUS_STATUS_INTERVAL_MS = 3000;
 
     const zh = {
       panel: "AI-HFSS 工作站",
@@ -56,7 +62,16 @@ window.__ModuleLoader__.load({
       "meta.log": "日志",
       "meta.pid": "进程",
       "meta.port": "端口",
-      "meta.external": "该服务不是由本面板启动的"
+      "meta.external": "该服务不是由本面板启动的",
+      "focus.checking": "正在读取 AEDT 状态…",
+      "focus.connected": "AEDT 已连接",
+      "focus.partial": "AEDT 状态不完整（PID 与端口只探测到一个）",
+      "focus.pidDown": "AEDT 未连接",
+      "focus.noContext": "尚未上报 AEDT 工程",
+      "focus.unprobed": "AEDT 工程已上报（未探测进程/端口）",
+      "focus.statusError": "无法读取 AEDT 状态",
+      "focus.project": "工程",
+      "focus.design": "设计"
     };
     const en = {
       panel: "AI-HFSS Workstation",
@@ -85,7 +100,16 @@ window.__ModuleLoader__.load({
       "meta.log": "Log",
       "meta.pid": "Process",
       "meta.port": "Port",
-      "meta.external": "This service was not started by this panel"
+      "meta.external": "This service was not started by this panel",
+      "focus.checking": "Reading AEDT status…",
+      "focus.connected": "AEDT connected",
+      "focus.partial": "AEDT status is partial (only one of pid / port answered)",
+      "focus.pidDown": "AEDT is not connected",
+      "focus.noContext": "No AEDT project has been reported yet",
+      "focus.unprobed": "AEDT project reported (no pid/port probe available)",
+      "focus.statusError": "Cannot read the AEDT status",
+      "focus.project": "Project",
+      "focus.design": "Design"
     };
 
     function injectStyles() {
@@ -121,6 +145,15 @@ window.__ModuleLoader__.load({
         ".aihfss-meta{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--dsw-alias-label-tertiary,inherit);word-break:break-all;line-height:1.7}",
         ".aihfss-spin{display:inline-block;width:12px;height:12px;border:1.6px solid var(--dsw-alias-border-l3,rgba(128,128,128,.35));border-top-color:currentColor;border-radius:50%;margin-right:8px;animation:aihfss-spin .9s linear infinite;vertical-align:-2px}",
         "@keyframes aihfss-spin{to{transform:rotate(360deg)}}",
+        // Focus mode: a thin, informational AEDT strip pinned above the shell.
+        // pointer-events:none keeps it from stealing clicks from the title bar
+        // it overlaps; colours stay on the platform semantic tokens.
+        ".aihfss-focusbar{position:fixed;top:0;left:0;right:0;z-index:2147483000;display:flex;align-items:center;gap:8px;height:26px;padding:0 12px;font:inherit;font-size:12px;line-height:1;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-secondary,inherit);border-bottom:.5px solid var(--dsw-alias-border-l2,rgba(128,128,128,.28));pointer-events:none}",
+        ".aihfss-focusbar-dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto;background:var(--dsw-alias-label-tertiary,#8a8f98)}",
+        ".aihfss-focusbar.ok .aihfss-focusbar-dot{background:var(--dsw-alias-state-business-primary,#2d6eeb)}",
+        ".aihfss-focusbar.warn .aihfss-focusbar-dot{background:var(--dsw-alias-label-tertiary,#b7791f)}",
+        ".aihfss-focusbar.error .aihfss-focusbar-dot{background:var(--dsw-alias-label-secondary,#c0392b)}",
+        ".aihfss-focusbar-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
         ".aihfss-log{margin:10px 0 0;padding:10px 12px;border-radius:var(--dsw-radius-sm,6px);border:.5px solid var(--dsw-alias-border-l2,rgba(128,128,128,.35));background:var(--dsw-alias-bg-layer-2,rgba(128,128,128,.08));color:var(--dsw-alias-label-secondary,inherit);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.55;white-space:pre-wrap;max-height:260px;overflow:auto}"
       ].join("\n");
       document.head.appendChild(tag);
@@ -409,10 +442,197 @@ window.__ModuleLoader__.load({
       );
     }
 
+    // ---- focus mode (?aihfss=focus) -------------------------------------
+    // The AEDT script button opens /?aihfss=focus&session=<id>. In focus mode
+    // the conversation is the whole page: no panel glyph, no main-area page
+    // (registering "main" would take the main area over), the sidebar is
+    // collapsed once, and a thin strip reports the AEDT project/design.
+
+    /** True when the page was opened by the AEDT hand-off (query or hash). */
+    function focusRequested() {
+      const location = globalThis.location;
+      if (location === undefined || location === null) return false;
+      const search = typeof location.search === "string" ? location.search : "";
+      const hash = typeof location.hash === "string" ? location.hash : "";
+      try {
+        if (new URLSearchParams(search).get(FOCUS_PARAM) === FOCUS_VALUE) return true;
+        const rawHash = hash.startsWith("#") ? hash.slice(1) : hash;
+        if (rawHash === "") return false;
+        if (!rawHash.includes("=")) return decodeURIComponent(rawHash) === FOCUS_VALUE;
+        return new URLSearchParams(rawHash).get(FOCUS_PARAM) === FOCUS_VALUE;
+      } catch {
+        return false;
+      }
+    }
+
+    /** The renderer's data-sidebar-collapsed attribute is the only state read. */
+    function sidebarCollapsed() {
+      try {
+        return document.querySelector("[data-sidebar-collapsed]") !== null;
+      } catch (error) {
+        console.warn("[ai-hfss] focus mode: cannot inspect the sidebar state", error);
+        return false;
+      }
+    }
+
+    function layoutService(ctx) {
+      let layout = ctx.layout;
+      if (layout === undefined && typeof ctx.get === "function") {
+        try {
+          layout = ctx.get("layout");
+        } catch {
+          /* not mounted in this profile */
+        }
+      }
+      return layout;
+    }
+
+    function toggleSidebar(layout) {
+      if (layout === undefined || layout === null || typeof layout.toggleSidebar !== "function") return false;
+      layout.toggleSidebar();
+      return true;
+    }
+
+    /**
+     * Collapse the sidebar once, at focus mount. There is no read API for the
+     * layout state, so the rendered data-sidebar-collapsed attribute decides
+     * whether a toggle is still needed (see docs/spikes/ai-hfss-p0.md, Q2).
+     */
+    function collapseSidebarOnce(ctx) {
+      if (sidebarCollapsed()) return false;
+      try {
+        if (toggleSidebar(layoutService(ctx))) return true;
+      } catch (error) {
+        console.warn("[ai-hfss] focus mode: collapsing the sidebar failed", error);
+        return false;
+      }
+      // Cordis can hide a service this plugin did not declare in exports.inject;
+      // request it explicitly (still once, still non-blocking).
+      if (typeof ctx.inject === "function") {
+        try {
+          ctx.inject(["layout"], (layoutCtx) => {
+            try {
+              if (!sidebarCollapsed()) toggleSidebar(layoutCtx?.layout ?? layoutCtx);
+            } catch (error) {
+              console.warn("[ai-hfss] focus mode: collapsing the sidebar failed", error);
+            }
+          });
+          return true;
+        } catch (error) {
+          console.warn("[ai-hfss] focus mode: the layout service is unavailable", error);
+        }
+      } else {
+        console.warn("[ai-hfss] focus mode: the layout service is unavailable; the sidebar stays as it is");
+      }
+      return false;
+    }
+
+    function createFocusStatusBar(t) {
+      const body = document.body;
+      if (body === undefined || body === null || typeof body.insertBefore !== "function") {
+        console.warn("[ai-hfss] focus mode: document.body is unavailable; the AEDT status bar is skipped");
+        return null;
+      }
+      const bar = document.createElement("div");
+      bar.className = "aihfss-focusbar";
+      bar.setAttribute("role", "status");
+      bar.setAttribute("aria-live", "polite");
+      const dot = document.createElement("span");
+      dot.className = "aihfss-focusbar-dot";
+      const text = document.createElement("span");
+      text.className = "aihfss-focusbar-text";
+      text.textContent = t("focus.checking");
+      bar.appendChild(dot);
+      bar.appendChild(text);
+      body.insertBefore(bar, body.firstChild ?? null);
+      return { bar, text };
+    }
+
+    function renderFocusStatus(statusBar, t, payload, failed) {
+      if (statusBar === null || statusBar === undefined) return;
+      const context =
+        payload !== null && typeof payload === "object" && payload.context !== null && typeof payload.context === "object"
+          ? payload.context
+          : null;
+      const project = context !== null && typeof context.project_path === "string" ? context.project_path : "";
+      const design = context !== null && typeof context.design_name === "string" ? context.design_name : "";
+      const alive = Boolean(payload !== null && typeof payload === "object" && payload.pid_alive);
+      const reachable = Boolean(payload !== null && typeof payload === "object" && payload.port_reachable);
+      // The AEDT script reports only project/design; pid and gRPC port are
+      // optional probes. Without them the honest state is "reported, unprobed"
+      // rather than a false "AEDT is not connected".
+      const probed = context !== null && (typeof context.pid === "number" || typeof context.grpc_port === "number");
+      const parts = [];
+      let state = "warn";
+      if (failed) {
+        state = "error";
+        parts.push(t("focus.statusError"));
+      } else if (project === "") {
+        state = "warn";
+        parts.push(t("focus.noContext"));
+      } else if (!probed) {
+        state = "warn";
+        parts.push(t("focus.unprobed"));
+        parts.push(t("focus.project") + ": " + project);
+        if (design !== "") parts.push(t("focus.design") + ": " + design);
+      } else {
+        const both = alive && reachable;
+        state = both ? "ok" : alive || reachable ? "warn" : "error";
+        parts.push(t(both ? "focus.connected" : alive || reachable ? "focus.partial" : "focus.pidDown"));
+        parts.push(t("focus.project") + ": " + project);
+        if (design !== "") parts.push(t("focus.design") + ": " + design);
+      }
+      statusBar.bar.className = "aihfss-focusbar " + state;
+      statusBar.bar.title = project;
+      statusBar.text.textContent = parts.join("  ·  ");
+    }
+
+    function removeFocusStatusBar(statusBar) {
+      if (statusBar === null || statusBar === undefined) return;
+      try {
+        if (typeof statusBar.bar.remove === "function") statusBar.bar.remove();
+        else if (statusBar.bar.parentNode) statusBar.bar.parentNode.removeChild(statusBar.bar);
+      } catch {
+        /* the shell is going away anyway */
+      }
+    }
+
+    function mountFocus(ctx, t) {
+      ctx.effect(() => {
+        collapseSidebarOnce(ctx);
+        const statusBar = createFocusStatusBar(t);
+        if (statusBar === null) return () => {};
+        let disposed = false;
+        const refresh = () => {
+          api("/aedt/status")
+            .then((payload) => {
+              if (!disposed) renderFocusStatus(statusBar, t, payload, false);
+            })
+            .catch(() => {
+              if (!disposed) renderFocusStatus(statusBar, t, null, true);
+            });
+        };
+        refresh();
+        const timer = setInterval(refresh, FOCUS_STATUS_INTERVAL_MS);
+        return () => {
+          disposed = true;
+          clearInterval(timer);
+          removeFocusStatusBar(statusBar);
+        };
+      }, "ai-hfss-workstation: focus AEDT status bar");
+    }
+
     function apply(ctx) {
       injectStyles();
       ctx.effect(() => ctx.locale.register(NS, { zh: zh, en: en }), "ai-hfss-workstation: dictionaries");
       const t = ctx.locale.bind(NS);
+
+      if (focusRequested()) {
+        // Focus leaves the main area to the conversation: neither the sidebar
+        // entry nor the workbench page is registered in this mode.
+        mountFocus(ctx, t);
+        return;
+      }
 
       ctx.slots.inject("main", () =>
         ctx.slots.register(

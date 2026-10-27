@@ -146,3 +146,86 @@
           - id: tool-plugin-market
             name: '@deepseek-ai/dsh-plugin-market/tools'
             disabled: true
+
+    # AEDT 内嵌轻对话（P3）：只做"连上当前工程 + 有界问答 + preview 前确认"。
+    # 刻意不加载：任何 workflow/DAG 工具、tool-goal、production-guard、plan-mode。
+    - id: preset-ansys-embedded
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: ansys-embedded
+        name: AEDT 内嵌助手
+        description: AEDT 内嵌轻对话：MCP 工具 + 优化 skill，不加载 DAG/审批链
+        order: 20
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |-
+                你是由 {{model}} 驱动的 AEDT 内嵌助手，当前工作目录是 {{cwd}}。这个会话由 AEDT 里的脚本按钮打开，对象是用户正在编辑的 AEDT 工程。
+
+                开场动作（按顺序，不要跳步）：① 先调用 mcp__aedt__check_aedt_status 查看本机 AEDT 会话；② 再用 mcp__aedt__connect_to_aedt 连接首条消息里给出的工程（已有会话就复用，绝不新建工程、绝不启动求解）；③ 有界报告工程路径、设计名、求解类型/Setup/Sweep 等求解设置，然后等待用户提问。
+
+                报告纪律：只给有界指标（最差 SDD11/SDD21、TDR 峰值偏差与观察端）和 artifact 路径；原始 S 参数 / TDR 曲线只留在 artifact 里，不要贴进对话。需要 PyAEDT/PyEDB API 细节时先查 mcp__ansys_api_memory__*，不要凭记忆编 API。写操作（几何、材料、变量、边界、端口）必须先用 ansys-assistant 的 preview 工具给出方案，等用户明确确认后才能 apply；证据不足就停下来说明缺什么，不要猜。
+
+                本模式不加载 DAG/工作流、不启动 Mission、不做 human_gate 审批。用户要做多轮通道优化时，引导其转到 AI-HFSS 工作台或 CLI。
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-jobs
+            name: '@deepseek-ai/dsh-tool-jobs'
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+            config:
+              customSkillDirs:
+                - !!js "'__REPO_ROOT__/integrations/dsh/agent-presets/ansys-engineering/skills'"
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              fetch: true
+              searchTimeoutMs: 60000
+          - id: tool-presentation
+            name: '@deepseek-ai/dsh-agent-tool-presentation'
+            config:
+              mode: ptc
+          - id: present
+            name: '@deepseek-ai/dsh-tool-present'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
