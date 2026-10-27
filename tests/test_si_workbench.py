@@ -275,9 +275,12 @@ def test_workbench_page_carries_the_structured_model_preview(tmp_path):
         "stackup cross section",
         "1:1 比例",
         "model-label",
+        "drawModel3D",
+        "chainSegments",
+        "Z 放大",
     ):
         assert marker in script, marker
     status, ct, css = _dispatch("GET", "/workbench/styles.css", runtime)
     assert status == 200 and "css" in ct
-    for marker in (".model-viewer", ".model-stage", ".model-chip"):
+    for marker in (".model-viewer", ".model-stage", ".model-chip", "canvas.model-3d"):
         assert marker in css, marker

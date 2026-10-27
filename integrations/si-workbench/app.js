@@ -585,12 +585,12 @@
       parts.push('<text x="' + cx.toFixed(3) + '" y="' + (flip - cy).toFixed(3) + '" text-anchor="middle" font-size="' + u.toFixed(4) + '" font-family="monospace" font-weight="600" fill="#f4e6c8" stroke="#0b1218" stroke-width="' + (u * 0.26).toFixed(4) + '" paint-order="stroke">' + esc(comp.name) + '</text>');
     });
     const scale = niceScale(b.rawW);
-    const sbx = b.minX + b.w * 0.04, sby = b.maxY + b.h * 0.035;
+    const sbx = b.minX + b.w * 0.04, sby = b.maxY - b.h * 0.045;
     parts.push('<line x1="' + sbx.toFixed(3) + '" y1="' + sby.toFixed(3) + '" x2="' + (sbx + scale).toFixed(3) + '" y2="' + sby.toFixed(3) + '" stroke="#d6e4ec" stroke-width="' + (b.w * 0.008).toFixed(3) + '" />');
     parts.push('<line x1="' + sbx.toFixed(3) + '" y1="' + (sby - b.h * 0.012).toFixed(3) + '" x2="' + sbx.toFixed(3) + '" y2="' + (sby + b.h * 0.012).toFixed(3) + '" stroke="#d6e4ec" stroke-width="' + (b.w * 0.006).toFixed(3) + '" />');
     parts.push('<line x1="' + (sbx + scale).toFixed(3) + '" y1="' + (sby - b.h * 0.012).toFixed(3) + '" x2="' + (sbx + scale).toFixed(3) + '" y2="' + (sby + b.h * 0.012).toFixed(3) + '" stroke="#d6e4ec" stroke-width="' + (b.w * 0.006).toFixed(3) + '" />');
-    parts.push('<text x="' + sbx.toFixed(3) + '" y="' + (sby + b.h * 0.06).toFixed(3) + '" font-size="' + (u * 0.85).toFixed(4) + '" font-family="monospace" fill="#d8e8f2" stroke="#0b1218" stroke-width="' + (u * 0.2).toFixed(4) + '" paint-order="stroke">' + (scale * 1000).toFixed(0) + ' um</text>');
-    parts.push('<text x="' + (b.maxX - b.w * 0.01).toFixed(3) + '" y="' + (b.maxY + b.h * 0.06).toFixed(3) + '" text-anchor="end" font-size="' + (u * 0.85).toFixed(4) + '" font-family="monospace" fill="#d8e8f2" stroke="#0b1218" stroke-width="' + (u * 0.2).toFixed(4) + '" paint-order="stroke">' + b.rawW.toFixed(2) + ' × ' + b.rawH.toFixed(2) + ' mm</text>');
+    parts.push('<text x="' + sbx.toFixed(3) + '" y="' + (sby - b.h * 0.015).toFixed(3) + '" font-size="' + (u * 0.85).toFixed(4) + '" font-family="monospace" fill="#d8e8f2" stroke="#0b1218" stroke-width="' + (u * 0.2).toFixed(4) + '" paint-order="stroke">' + (scale * 1000).toFixed(0) + ' um</text>');
+    parts.push('<text x="' + (b.maxX - b.w * 0.01).toFixed(3) + '" y="' + (sby - b.h * 0.015).toFixed(3) + '" text-anchor="end" font-size="' + (u * 0.85).toFixed(4) + '" font-family="monospace" fill="#d8e8f2" stroke="#0b1218" stroke-width="' + (u * 0.2).toFixed(4) + '" paint-order="stroke">' + b.rawW.toFixed(2) + ' × ' + b.rawH.toFixed(2) + ' mm</text>');
     parts.push('</svg>');
     return parts.join('');
   }
@@ -662,21 +662,213 @@
     const raw = modelBounds(inv.bounds);
     return (raw.maxX - raw.minX).toFixed(2) + ' × ' + (raw.maxY - raw.minY).toFixed(2) + ' mm';
   }
+  // ---- 3D view: extrude the real inventory by the real stackup -------------
+  function chainSegments(segments) {
+    if (!Array.isArray(segments) || segments.length === 0) return [];
+    const chain = [segments[0][0].slice(), segments[0][1].slice()];
+    const used = new Set([0]);
+    for (let guard = 0; guard < segments.length * 2; guard++) {
+      const tail = chain[chain.length - 1];
+      let next = -1;
+      for (let i = 0; i < segments.length; i++) {
+        if (used.has(i)) continue;
+        const a = segments[i][0], b = segments[i][1];
+        if (Math.abs(a[0] - tail[0]) < 1e-6 && Math.abs(a[1] - tail[1]) < 1e-6) { next = i; chain.push(b.slice()); break; }
+        if (Math.abs(b[0] - tail[0]) < 1e-6 && Math.abs(b[1] - tail[1]) < 1e-6) { next = i; chain.push(a.slice()); break; }
+      }
+      if (next < 0) break;
+      used.add(next);
+    }
+    return chain;
+  }
+
+  function drawModel3D(canvas, inv) {
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(canvas.clientWidth || 420, 120), h = Math.max(canvas.clientHeight || 300, 120);
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    const layers = (inv.stackup || []).filter(l => typeof l.elevation_mm === 'number' && typeof l.thickness_mm === 'number');
+    if (!layers.length) { ctx.fillStyle = '#cfe0ea'; ctx.font = '12px monospace'; ctx.fillText('该设计没有可用层叠标高，无法生成 3D', 12, 24); return; }
+    const zOf = {};
+    layers.forEach(l => { zOf[l.name] = { z0: l.elevation_mm, z1: l.elevation_mm + l.thickness_mm, type: l.type }; });
+    const raw = modelBounds(inv.bounds);
+    const cx = (raw.minX + raw.maxX) / 2, cy = (raw.minY + raw.maxY) / 2;
+    const zMin = Math.min.apply(null, layers.map(l => l.elevation_mm));
+    const zMax = Math.max.apply(null, layers.map(l => l.elevation_mm + l.thickness_mm));
+    const zc = (zMin + zMax) / 2;
+    const zEx = 3;
+    const state = canvas.__model3d || (canvas.__model3d = { yaw: -0.62, pitch: 0.5, zoom: 1 });
+    const faces = [];
+    const outlines = [];
+    const addPrism = function (points, z0, z1, color, alpha) {
+      if (!points || points.length < 3) return;
+      const a0 = typeof alpha === 'number' ? alpha : 1;
+      faces.push({ pts: points.map(p => [p[0], p[1], z1]), color: color, top: true, alpha: a0 });
+      faces.push({ pts: points.slice().reverse().map(p => [p[0], p[1], z0]), color: color, top: false, alpha: a0 });
+      for (let i = 0; i < points.length; i++) {
+        const a = points[i], b = points[(i + 1) % points.length];
+        faces.push({ pts: [[a[0], a[1], z1], [b[0], b[1], z1], [b[0], b[1], z0], [a[0], a[1], z0]], color: color, side: true, alpha: a0 });
+      }
+    };
+    (inv.polygons || []).forEach(poly => {
+      const z = zOf[poly.layer];
+      if (!z || z.type !== 'signal') return;
+      const chain = chainSegments(poly.segments);
+      if (chain.length < 3) return;
+      const color = poly.net && /GND|VSS/i.test(poly.net) ? '#9fb2bd' : '#d6a35a';
+      addPrism(chain, z.z0, z.z1, color);
+    });
+    (inv.traces || []).forEach(trace => {
+      const z = zOf[trace.layer];
+      if (!z) return;
+      const half = Math.max(Number(trace.width_mm || 0.15), 0.05) / 2;
+      const chain = chainSegments(trace.segments);
+      for (let i = 0; i + 1 < chain.length; i++) {
+        const a = chain[i], b = chain[i + 1];
+        const dx = b[0] - a[0], dy = b[1] - a[1];
+        const len = Math.hypot(dx, dy);
+        if (len < 1e-6) continue;
+        const nx = -dy / len * half, ny = dx / len * half;
+        addPrism([[a[0] + nx, a[1] + ny], [b[0] + nx, b[1] + ny], [b[0] - nx, b[1] - ny], [a[0] - nx, a[1] - ny]], z.z0, z.z1, '#e0b478');
+      }
+    });
+    (inv.vias || []).forEach(via => {
+      if (typeof via.x_mm !== 'number' || typeof via.y_mm !== 'number') return;
+      const zs = zOf[via.start_layer], ze = zOf[via.stop_layer];
+      if (!zs || !ze) return;
+      const top = Math.max(zs.z1, ze.z1), bottom = Math.min(zs.z0, ze.z0);
+      const r = Math.max(Number(via.hole_diameter_mm || 0.12), 0.06) / 2;
+      const ring = [];
+      for (let i = 0; i < 12; i++) {
+        const ang = (i / 12) * Math.PI * 2;
+        ring.push([via.x_mm + Math.cos(ang) * r, via.y_mm + Math.sin(ang) * r]);
+      }
+      addPrism(ring, bottom, top, /GND|VSS/i.test(via.net || '') ? '#8ea4b0' : '#6fd3c8');
+    });
+    (inv.components || []).forEach(comp => {
+      const z = zOf[comp.layer];
+      if (!z || !comp.bbox) return;
+      const box = comp.bbox;
+      const h = Math.max((zMax - zMin) * 0.12, 0.04);
+      outlines.push([[box.x1, box.y1, z.z1 + 0.02], [box.x2, box.y1, z.z1 + 0.02], [box.x2, box.y2, z.z1 + 0.02], [box.x1, box.y2, z.z1 + 0.02], [box.x1, box.y1, z.z1 + 0.02]]);
+      outlines.push([[box.x1, box.y1, z.z1 + 0.02 + h], [box.x2, box.y1, z.z1 + 0.02 + h], [box.x2, box.y2, z.z1 + 0.02 + h], [box.x1, box.y2, z.z1 + 0.02 + h], [box.x1, box.y1, z.z1 + 0.02 + h]]);
+      [[box.x1, box.y1], [box.x2, box.y1], [box.x2, box.y2], [box.x1, box.y2]].forEach(function (corner) { outlines.push([[corner[0], corner[1], z.z1 + 0.02], [corner[0], corner[1], z.z1 + 0.02 + h]]); });
+    });
+    (layers || []).forEach(layer => {
+      if (layer.type === 'signal') return;
+      addPrism([[raw.minX, raw.minY], [raw.maxX, raw.minY], [raw.maxX, raw.maxY], [raw.minX, raw.maxY]], layer.elevation_mm, layer.elevation_mm + Math.max(layer.thickness_mm, 0.0002), '#33505e', 0.16);
+    });
+    const spanX = Math.max(raw.maxX - raw.minX, 1e-3), spanY = Math.max(raw.maxY - raw.minY, 1e-3), spanZ = Math.max((zMax - zMin) * zEx, 1e-3);
+    const radius = Math.max(spanX, spanY, spanZ) * 0.62;
+    const scale = Math.min(w, h) * 0.42 / radius * state.zoom;
+    const cosY = Math.cos(state.yaw), sinY = Math.sin(state.yaw);
+    const cosP = Math.cos(state.pitch), sinP = Math.sin(state.pitch);
+    const rotate = function (p) {
+      const x = (p[0] - cx), y = (p[1] - cy), z = (p[2] - zc) * zEx;
+      const x1 = x * cosY - y * sinY;
+      const y1 = x * sinY + y * cosY;
+      const y2 = y1 * cosP - z * sinP;
+      const z2 = y1 * sinP + z * cosP;
+      return [x1, y2, z2];
+    };
+    const project = function (p) {
+      const r = rotate(p);
+      return [w / 2 + r[0] * scale, h / 2 - r[1] * scale, r[2]];
+    };
+    const light = [0.42, 0.62, 0.66];
+    const prepared = faces.map(face => {
+      const rotated = face.pts.map(rotate);
+      const projected = rotated.map(q => [w / 2 + q[0] * scale, h / 2 - q[1] * scale]);
+      const depth = rotated.reduce((sum, q) => sum + q[2], 0) / rotated.length;
+      let nx = 0, ny = 0, nz = 0;
+      if (rotated.length >= 3) {
+        const a = rotated[0], b = rotated[1], c = rotated[2];
+        const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+        const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+        nx = uy * vz - uz * vy; ny = uz * vx - ux * vz; nz = ux * vy - uy * vx;
+        const norm = Math.hypot(nx, ny, nz) || 1; nx /= norm; ny /= norm; nz /= norm;
+      }
+      const shade = Math.max(0.22, Math.min(1, Math.abs(nx * light[0] + ny * light[1] + nz * light[2]) * 0.85 + 0.18));
+      return { projected: projected, depth: depth, shade: shade, color: face.color, top: face.top };
+    });
+    const opaque = prepared.filter(face => !face.alpha || face.alpha >= 1).sort((a, b) => a.depth - b.depth);
+    const glass = prepared.filter(face => face.alpha && face.alpha < 1).sort((a, b) => a.depth - b.depth);
+    const toRgb = function (hex) {
+      const value = parseInt(hex.replace('#', ''), 16);
+      return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
+    };
+    const paint = function (face) {
+      const rgb = toRgb(face.color);
+      ctx.beginPath();
+      face.projected.forEach((point, index) => { if (index === 0) ctx.moveTo(point[0], point[1]); else ctx.lineTo(point[0], point[1]); });
+      ctx.closePath();
+      ctx.globalAlpha = typeof face.alpha === 'number' ? face.alpha : 1;
+      ctx.fillStyle = 'rgb(' + Math.round(rgb[0] * face.shade) + ',' + Math.round(rgb[1] * face.shade) + ',' + Math.round(rgb[2] * face.shade) + ')';
+      ctx.fill();
+      if (face.top && ctx.globalAlpha === 1) { ctx.strokeStyle = 'rgba(10,16,22,0.45)'; ctx.lineWidth = 0.4; ctx.stroke(); }
+      ctx.globalAlpha = 1;
+    };
+    opaque.forEach(paint);
+    glass.forEach(paint);
+    ctx.strokeStyle = 'rgba(240,220,170,0.9)';
+    ctx.lineWidth = 1;
+    outlines.forEach(function (line) {
+      ctx.beginPath();
+      line.forEach(function (point, index) { const q = project(point); if (index === 0) ctx.moveTo(q[0], q[1]); else ctx.lineTo(q[0], q[1]); });
+      ctx.stroke();
+    });
+    ctx.fillStyle = '#cfe0ea';
+    ctx.font = '10px monospace';
+    ctx.fillText('3D 拉伸 · Z 放大 ' + zEx + '× · 拖拽旋转 / 滚轮缩放', 10, h - 8);
+  }
+
+  function bindModel3D(canvas, inv) {
+    const redraw = function () { drawModel3D(canvas, inv); };
+    canvas.addEventListener('pointerdown', function (event) {
+      const state = canvas.__model3d || (canvas.__model3d = { yaw: -0.62, pitch: 0.5, zoom: 1 });
+      const start = { x: event.clientX, y: event.clientY, yaw: state.yaw, pitch: state.pitch };
+      canvas.setPointerCapture(event.pointerId);
+      const move = function (moveEvent) {
+        state.yaw = start.yaw + (moveEvent.clientX - start.x) * 0.01;
+        state.pitch = Math.max(-1.35, Math.min(1.35, start.pitch + (moveEvent.clientY - start.y) * 0.01));
+        redraw();
+      };
+      const up = function () {
+        canvas.removeEventListener('pointermove', move);
+        canvas.removeEventListener('pointerup', up);
+      };
+      canvas.addEventListener('pointermove', move);
+      canvas.addEventListener('pointerup', up);
+    });
+    canvas.addEventListener('wheel', function (event) {
+      event.preventDefault();
+      const state = canvas.__model3d || (canvas.__model3d = { yaw: -0.62, pitch: 0.5, zoom: 1 });
+      state.zoom = Math.max(0.35, Math.min(4, state.zoom * (event.deltaY > 0 ? 0.92 : 1.08)));
+      redraw();
+    }, { passive: false });
+  }
+
 
   function renderInventoryModel(inv, stage) {
     const counts = inv.counts || {};
     const layers = Array.from(new Set((inv.stackup || []).map(function (layer) { return layer.name; }).filter(Boolean)));
     const parts = ['<div class="model-viewer">', '<div class="model-toolbar"><div class="model-tabs">'];
-    parts.push('<button type="button" class="model-tab active" data-model-view="top">俯视</button>');
-    parts.push('<button type="button" class="model-tab" data-model-view="section">剖面</button></div>');
+    [["top", "俯视"], ["section", "剖面"], ["model3d", "3D"]].forEach(function (item, index) {
+      parts.push('<button type="button" class="model-tab' + (index === 0 ? ' active' : '') + '" data-model-view="' + item[0] + '">' + item[1] + '</button>');
+    });
+    parts.push('</div>');
     parts.push('<span class="model-meta">' + [counts.components + ' 器件', counts.stackup_layers + ' 层', counts.vias + ' 过孔', counts.traces + ' 走线', counts.polygons + ' 铺铜'].join(' · ') + '</span>');
-    parts.push('<span class="model-source">' + esc(inv.design || '') + '</span></div>');
+    parts.push('<span class="model-source">' + esc(inv.design || '') + '</span>');
+    parts.push('</div>');
     if (layers.length) {
       parts.push('<div class="model-layers">');
       layers.forEach(function (layer) { parts.push('<button type="button" class="model-chip active" data-model-layer="' + esc(layer) + '">' + esc(layer) + '</button>'); });
       parts.push('</div>');
     }
-    parts.push('<div class="model-stage">' + topViewSvg(inv) + sectionViewSvg(inv).replace('<svg ', '<svg hidden ') + '</div>');
+    parts.push('<div class="model-stage">' + topViewSvg(inv) + sectionViewSvg(inv).replace('<svg ', '<svg hidden ') + '<canvas class="model-3d" hidden></canvas></div>');
     parts.push('<div class="model-legend">真实 inventory · 单位 mm · 虚线框=器件 footprint · 过孔=孔径 · 悬停查看名称/网络/层</div>');
     parts.push('</div>');
     stage.innerHTML = parts.join('');
@@ -685,7 +877,14 @@
     tabs.forEach(function (tab) {
       tab.addEventListener('click', function () {
         tabs.forEach(function (item) { item.classList.toggle('active', item === tab); });
-        svgs.forEach(function (svg, index) { const show = tab.dataset.modelView === 'top' ? index === 0 : index === 1; svg.toggleAttribute('hidden', !show); });
+        const view = tab.dataset.modelView;
+        svgs.forEach(function (svg, index) { const show = (view === 'top' && index === 0) || (view === 'section' && index === 1); svg.toggleAttribute('hidden', !show); });
+        const canvas = stage.querySelector('canvas.model-3d');
+        if (canvas) {
+          const showCanvas = view === 'model3d';
+          canvas.toggleAttribute('hidden', !showCanvas);
+          if (showCanvas) { if (!canvas.__bound) { bindModel3D(canvas, inv); canvas.__bound = true; } drawModel3D(canvas, inv); }
+        }
       });
     });
     stage.querySelectorAll('[data-model-layer]').forEach(function (chip) {

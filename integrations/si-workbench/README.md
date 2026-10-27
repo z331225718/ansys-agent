@@ -109,6 +109,15 @@
 `unavailable_sections`，不会伪造缺失结构。生成方式：用模板
 `aihfss_layout_inventory` 建一个任务并推进（附着到已打开的 AEDT 会话，**不求解**）。
 
+- **3D 视图（第三档）**：按真实 stackup 标高把铺铜/走线/过孔拉伸成 3D，
+  器件画成线框；可拖拽旋转、滚轮缩放；Z 轴放大 3× 并明确标注（真实板厚 0.49mm，
+  不放大几乎看不见）；纯 Canvas 2D 画家算法，不依赖 three.js 等外部库。
+
+> 为什么不用 PyAEDT 官方 PyVista 渲染：`get_model_plotter_geometries` / `plot_model_obj`
+> 源码里明确排除 `HFSS3DLayout`（`post_common_3d.py` 里 `solution_type not in [...]`），
+> 对 3D Layout 返回空；`export_3d_model` 只导 Parasolid `.x_t`/`.sat`（B-rep，浏览器无法直接渲染）；
+> 原生可用的只有 `export_model_picture` 静态截图。所以 3D 视图是从 inventory 自行拉伸的真实几何。
+
 实测样本（E:\ai-hfss-test 工程）：9 层、42 过孔、4 走线、4 铺铜，
 局部范围 2.37 × 2.84 mm。
 
