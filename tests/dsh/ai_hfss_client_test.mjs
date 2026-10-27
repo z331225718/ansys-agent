@@ -374,4 +374,35 @@ async function renderPage(handlers) {
 }
 
 assert.ok(styleTags.length >= 1, "styles are injected once");
+
+// ---- theme-token regression --------------------------------------------
+// The primary action must use the platform's own Button pair. Using a brand
+// fill with a hard-coded white label makes the button invisible on dark
+// themes, where brand-primary resolves to a near-white neutral.
+{
+  const css = styleTags.map((tag) => tag.textContent).join("\n");
+  assert.match(
+    css,
+    /\.aihfss-btn\.primary\{[^}]*background:var\(--dsw-alias-button-primary-fill/,
+    "the primary fill must come from --dsw-alias-button-primary-fill"
+  );
+  assert.match(
+    css,
+    /\.aihfss-btn\.primary\{[^}]*color:var\(--dsw-alias-label-primary-foreground/,
+    "the primary label must come from --dsw-alias-label-primary-foreground"
+  );
+  assert.equal(
+    css.includes("--dsw-alias-brand-primary"),
+    false,
+    "brand-primary flips to near-white on dark themes and must not fill a button"
+  );
+  assert.equal(/color:\s*#fff\b/.test(css), false, "no hard-coded white label");
+  assert.match(
+    css,
+    /\.aihfss-btn\{[^}]*color:var\(--dsw-alias-label-primary/,
+    "neutral buttons take the themed label colour"
+  );
+  assert.match(css, /--dsw-alias-label-primary/, "body text uses the themed label token");
+}
+
 console.log("ai-hfss workstation client smoke test passed");

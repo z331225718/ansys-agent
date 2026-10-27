@@ -35,6 +35,26 @@
 start/advance/approval 仍由受控本地 CLI/dashboard 执行（与
 `production-guard.mjs` 的口径一致）。面板**只**负责本机 dashboard 进程的启停。
 
+## 主题配色（踩过的坑）
+
+按钮不要用 `--dsw-alias-brand-primary` 配硬编码白字。默认主题里它是
+`--dsw-static-neutral-bluish-1000`（近黑），**暗色主题里翻转成
+`neutral-bluish-50`（近白）** —— 白底白字，按钮直接"消失"。
+
+正确做法是照抄平台自带 Button 的成对令牌，填充与前景一起翻转：
+
+| 用途 | 令牌 |
+|------|------|
+| 主按钮填充 | `--dsw-alias-button-primary-fill` |
+| 主按钮文字 | `--dsw-alias-label-primary-foreground` |
+| 主按钮悬停 | `--dsw-alias-button-primary-hover` |
+| 正文 / 次要 / 弱化文字 | `--dsw-alias-label-primary` / `-secondary` / `-tertiary` |
+| 描边 | `--dsw-alias-border-l2` / `-l3` |
+| 悬停 / 按下底色 | `--dsw-alias-interactive-bg-hover` / `-active` |
+
+`ai_hfss_client_test.mjs` 里有回归断言：主按钮必须用上面这对令牌，CSS 里
+不得出现 `brand-primary` 或硬编码 `#fff` 文字色。
+
 ## 控制接口（host 半边）
 
 `index.js` 在 DSH web 服务的 `/api/ai-hfss` 前缀下注册：
