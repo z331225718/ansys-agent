@@ -10,7 +10,12 @@ P1 已交付：`workbench_tasks.py`（工作区/任务/每任务库/锁/自动�
 P3 已交付：focus 页（无侧栏 + AEDT 状态条）、`/api/ai-hfss/aedt/*`、
 `ansys-embedded` 预设、AEDT 脚本 `integrations/aedt/ai_hfss_chat.py`。
 
-P2（工作台 UI：工作区树/任务表单/推进审批控制）未开始。
+P2 已交付：左侧「工作区 / 优化任务」面板（新建工作区 = 选目录）、新建任务表单
+（goal/源工程/模板/Setup/频率/轮次）、任务状态条（刷新 / 推进 / 自动 / 批准 / 拒绝），
+并复用 applySnapshot 把指标、轮次、约束、产物切到该任务真实数据。
+浏览器验收：Playwright 无 JS 错误；建工作区 → 建任务 → 状态条 `created · graph running · step 0/64`；
+真实工程复验：工作区 `E:/ai-hfss-test` → 任务 `1GHz single-point smoke` →
+`任务 succeeded · graph succeeded · step 1/64`，徽标 LIVE。
 日期：2026-10-28
 相关代码：`src/aedt_agent/agent/web.py`、`src/aedt_agent/agent/workbench.py`、
 `src/aedt_agent/agent/cli.py`、`src/aedt_agent/infrastructure/sqlite_mission_store.py`、
