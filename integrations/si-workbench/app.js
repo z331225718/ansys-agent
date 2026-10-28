@@ -863,7 +863,9 @@
       parts.push('<button type="button" class="model-tab' + (index === 0 ? ' active' : '') + '" data-model-view="' + item[0] + '">' + item[1] + '</button>');
     });
     parts.push('</div>');
-    parts.push('<span class="model-meta">' + [counts.components + ' 器件', counts.stackup_layers + ' 层', counts.vias + ' 过孔', counts.traces + ' 走线', counts.polygons + ' 铺铜'].join(' · ') + '</span>');
+    const metaParts = [counts.components + ' 器件', counts.stackup_layers + ' 层', counts.vias + ' 过孔', counts.traces + ' 走线', counts.polygons + ' 铺铜'];
+    if (stackupPlot && stackupPlot.available) metaParts.push(stackupPlot.engine === 'pyedb' ? '层叠：PyEDB 官方' : '层叠：仿 PyEDB 风格');
+    parts.push('<span class="model-meta">' + metaParts.join(' · ') + '</span>');
     parts.push('<span class="model-source">' + esc(inv.design || '') + '</span>');
     parts.push('</div>');
     if (layers.length) {
@@ -871,11 +873,8 @@
       layers.forEach(function (layer) { parts.push('<button type="button" class="model-chip active" data-model-layer="' + esc(layer) + '">' + esc(layer) + '</button>'); });
       parts.push('</div>');
     }
-    const stackupNote = stackupPlot && stackupPlot.available
-      ? (stackupPlot.engine === "pyedb" ? "PyEDB 官方层叠图" : "仿 PyEDB 官方风格 · 数据来自 AEDT stackup")
-      : "";
     const stackupImg = (stackupPlot && stackupPlot.available)
-      ? '<div class="model-stackup-wrap" hidden><img class="model-stackup" alt="stackup" src="' + esc(stackupPlot.url || "") + '"><span class="model-stackup-note">' + esc(stackupNote) + '</span></div>'
+      ? '<div class="model-stackup-wrap" hidden><img class="model-stackup" alt="stackup" src="' + esc(stackupPlot.url || "") + '"></div>'
       : "";
     parts.push('<div class="model-stage">' + topViewSvg(inv) + sectionViewSvg(inv).replace('<svg ', '<svg hidden ') + stackupImg + '<canvas class="model-3d" hidden></canvas></div>');
     parts.push('<div class="model-legend">真实 inventory · 单位 mm · 虚线框=器件 footprint · 过孔=孔径 · 悬停查看名称/网络/层</div>');

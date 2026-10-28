@@ -124,7 +124,7 @@
 > 判为非法（`ISSUER="Team SolidSQUAD-SSQ"`，`Invalid license file syntax`），独立 EDB API 拿不到授权，
 > 所以按官方图的样式自绘：白底、居中 `Stackup` 标题、左侧介质层名、右侧铜/过孔层名、
 > **铜条居中、两侧用层内介质 fill 的淡色补满**（图注 `light = dielectric fill`）、
-> 下方双列图例（`name, material, thick: N um, elev: M um`），层厚按官方规则压缩
+> 下方双列图例（**带颜色块** + `name, material, thick: N um, elev: M um`），层厚按官方规则压缩
 > （`max = 3 × min`）以便薄铜可见。图上标注「仿 PyEDB 官方风格 · 数据来自 AEDT stackup」。rge · 高速 SI/PI 通道优化工作台
 
 一个可直接运行的高保真桌面工作台原型，面向**差分过孔 / 反焊盘 / NFP 的信号完整性优化**，而不是天线设计。

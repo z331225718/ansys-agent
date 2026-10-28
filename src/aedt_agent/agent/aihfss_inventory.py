@@ -520,7 +520,7 @@ def render_stackup_plot(
     fig, ax = plt.subplots(figsize=(size[0] / 100, size[1] / 100), dpi=100)
     fig.patch.set_facecolor("white")
     ax.set_facecolor("white")
-    legend_rows: list[str] = []
+    legend_items: list[tuple[str, str]] = []
     cursor = 0.0
     metal_index = 0
     for layer, height in zip(layers, heights):
@@ -551,8 +551,11 @@ def render_stackup_plot(
             ax.text(-0.015, y0 + height / 2, name, ha="right", va="center", color=ink, fontsize=10)
         elevation_mm = float(layer["elevation_mm"])
         thickness_um = float(layer["thickness_mm"]) * 1000.0
-        legend_rows.append(
-            f"{name}, {layer.get('material') or ''}, thick: {thickness_um:.3f}um, elev: {elevation_mm * 1000.0:.3f}um"
+        legend_items.append(
+            (
+                color if is_signal else dielectric_fill,
+                f"{name}, {layer.get('material') or ''}, thick: {thickness_um:.3f}um, elev: {elevation_mm * 1000.0:.3f}um",
+            )
         )
     ax.set_xlim(-0.24, 1.30)
     ax.set_ylim(cursor * 1.02, -cursor * 0.02)  # inverted: first (top) layer at the top
@@ -561,12 +564,47 @@ def render_stackup_plot(
     for spine in ax.spines.values():
         spine.set_visible(False)
     ax.set_title("Stackup", color="#1c1c1c", fontsize=20, pad=16)
-    ax.text(0.80, 1.008, "light = dielectric fill", transform=ax.transAxes, ha="right", va="bottom", color="#6a6a6a", fontsize=8)
-    half = (len(legend_rows) + 1) // 2
-    for column, rows in enumerate((legend_rows[:half], legend_rows[half:])):
+    ax.add_patch(
+        Rectangle(
+            (0.60, 1.006),
+            0.035,
+            0.018,
+            transform=ax.transAxes,
+            facecolor=FILL_TINTS[0],
+            edgecolor="#9a9a9a",
+            linewidth=0.4,
+            clip_on=False,
+        )
+    )
+    ax.text(0.645, 1.012, "light = dielectric fill", transform=ax.transAxes, ha="left", va="bottom", color="#6a6a6a", fontsize=8)
+    half = (len(legend_items) + 1) // 2
+    step = 0.115 / max(half, 1)
+    swatch_w, swatch_h = 0.014, 0.009
+    for column, rows in enumerate((legend_items[:half], legend_items[half:])):
         x = 0.06 if column == 0 else 0.52
-        for row_index, row in enumerate(rows):
-            fig.text(x, 0.155 - row_index * (0.115 / max(half, 1)), row, color="#4a4a4a", fontsize=7.5, family="monospace")
+        for row_index, (color, row) in enumerate(rows):
+            y = 0.155 - row_index * step
+            fig.add_artist(
+                Rectangle(
+                    (x, y - swatch_h / 2),
+                    swatch_w,
+                    swatch_h,
+                    transform=fig.transFigure,
+                    facecolor=color,
+                    edgecolor="#9a9a9a",
+                    linewidth=0.4,
+                    clip_on=False,
+                )
+            )
+            fig.text(
+                x + swatch_w + 0.007,
+                y,
+                row,
+                color="#4a4a4a",
+                fontsize=7.5,
+                family="monospace",
+                va="center",
+            )
     fig.subplots_adjust(left=0.10, right=0.92, top=0.90, bottom=0.30)
     target = Path(output_path)
     target.parent.mkdir(parents=True, exist_ok=True)
