@@ -463,3 +463,10 @@ P4 已交付（收尾与验收证据）：
 - **文字**：根因是俯视 SVG viewBox 单位是 mm（约 2.7 宽），CSS px 字号被当成用户单位放大，
   字形铺满整张图；改为按图幅比例的内联字号 + 深色描边。层 chips 颜色此前继承页面深色 token
   （rgb(39,55,70)）叠深底不可读，改为显式高对比配色。
+### P5 追加：任务删除
+
+- 后端 `TaskService.delete_task(task_id, confirm=task_id)`：确认串不匹配 → `task/confirm-required`；
+  自动推进中 → `task/busy`；删除前清运行时缓存并 `gc.collect()`（否则 Windows 上 SQLite 句柄未释放，
+  `WinError 32`），3 次重试后删除任务目录；
+- 前端状态条「删除任务」+ 二次确认弹窗；
+- 测试：确认串/仅删目标任务/运行中拒绝/API 400+200 路径；浏览器实测任务列表清空、API 404、目录消失。

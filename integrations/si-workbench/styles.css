@@ -785,3 +785,8 @@ kbd { color: #6f879b; background: #f3f7fa; border-color: #d7e1e9; }
 .model-layers { flex: 0 0 auto; max-height: 44px; overflow-y: auto; }
 .model-stage { flex: 1 1 auto; min-height: 150px; }
 .model-legend { flex: 0 0 auto; }
+/* ── destructive action (task delete) ───────────────────────────────────── */
+.button.danger { color: #f0a6a6; border-color: #7a3f3f; }
+.button.danger:hover:not(:disabled) { color: #ffd0d0; background: #3a1f1f; border-color: #a05050; }
+.button.danger:disabled { opacity: .45; }
+.form-hint { margin: 6px 0 0; color: #b7cbd8; font-size: 11px; }

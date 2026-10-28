@@ -1040,6 +1040,8 @@
     if (approve) approve.hidden = pending.length === 0;
     const reject = $("#task-reject");
     if (reject) reject.hidden = pending.length === 0;
+    const remove = $("#task-delete");
+    if (remove) remove.disabled = Boolean(wf.busy) || Boolean(driver.running);
   }
 
   async function refreshWorkspaces() {
@@ -1164,6 +1166,41 @@
     }, decision === "approved" ? "已批准" : "已拒绝");
   }
 
+  function deleteTask() {
+    if (!wf.taskId) return;
+    const task = taskById(wf.taskId);
+    const workspace = workspaceById(wf.workspaceId);
+    const workspaceRoot = (workspace && workspace.root) || "";
+    const taskPath = (workspaceRoot ? workspaceRoot.replace(/[\\/]+$/, "") + "/" : "") + ".ai-hfss/tasks/" + wf.taskId;
+    const name = (task && (task.name || task.goal)) || wf.taskId;
+    openModal({
+      title: "删除任务",
+      kicker: "DELETE · 只删任务目录",
+      content: "<p>将删除任务 <strong>" + esc(name) + "</strong>（" + esc(wf.taskId) + "）的整个数据目录：</p>" +
+        "<p><code>" + esc(taskPath) + "</code></p>" +
+        "<p>包含 <code>missions.db</code>、<code>runs/</code>、<code>artifacts/</code>、<code>logs/</code>。工程文件与源 .aedt 不会被改动，其他任务也不受影响。</p>" +
+        "<p class=\"form-hint\">此操作不可撤销。运行中的任务请先停止自动推进。</p>",
+      buttons: [
+        { label: "取消", onClick: closeModal },
+        { label: "确认删除", primary: true, onClick: function () {
+            const target = wf.taskId;
+            wfJson("/api/workbench/tasks/" + encodeURIComponent(target) + "/delete", { method: "POST", json: { confirm: target } })
+              .then(function () {
+                closeModal();
+                wf.taskId = "";
+                wf.snapshot = null;
+                wf.approvals = [];
+                renderStatusbar();
+                notify("任务已删除（" + target + "）。");
+                return refreshTasks().then(refreshWorkspaces);
+              })
+              .catch(function (error) { notify("删除任务失败：" + error.message, "error", 7000); });
+          } }
+      ]
+    });
+  }
+
+
   function openNewWorkspaceDialog() {
     openModal({
       title: "新建工作区",
@@ -1247,6 +1284,7 @@
   if ($("#task-stop-auto")) $("#task-stop-auto").addEventListener("click", function () { setAuto(false); });
   if ($("#task-approve")) $("#task-approve").addEventListener("click", function () { decideTask("approved"); });
   if ($("#task-reject")) $("#task-reject").addEventListener("click", function () { decideTask("rejected"); });
+  if ($("#task-delete")) $("#task-delete").addEventListener("click", deleteTask);
 
   refreshWorkspaces();
 

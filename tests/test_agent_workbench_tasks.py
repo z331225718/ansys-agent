@@ -293,3 +293,72 @@ def test_api_forget_workspace(api: TaskService, tmp_path: Path) -> None:
     status, payload = _call("POST", "/api/workbench/workspaces/forget", {"workspace_id": workspace_id})
     assert status == 200
     assert payload["forgotten"] is True
+
+def test_delete_task_requires_confirmation_and_removes_only_that_task(service: TaskService, tmp_path: Path) -> None:
+    workspace = _workspace(service, tmp_path)
+    keep = _task(service, workspace["workspace_id"], name="keep me")
+    doomed = _task(service, workspace["workspace_id"], name="delete me")
+    doomed_dir = Path(workspace["root"]) / SYSTEM_DIR_NAME / "tasks" / doomed["task_id"]
+    assert (doomed_dir / TASK_DB).is_file()
+
+    with pytest.raises(TaskError) as missing:
+        service.delete_task(doomed["task_id"])
+    assert missing.value.code == "task/confirm-required"
+    with pytest.raises(TaskError) as wrong:
+        service.delete_task(doomed["task_id"], confirm="T-00000000-000000-0000")
+    assert wrong.value.code == "task/confirm-required"
+    assert doomed_dir.is_dir(), "a mismatched confirm must not delete anything"
+
+    result = service.delete_task(doomed["task_id"], confirm=doomed["task_id"])
+    assert result == {
+        "ok": True,
+        "deleted": True,
+        "task_id": doomed["task_id"],
+        "workspace_id": workspace["workspace_id"],
+        "path": str(doomed_dir.resolve()),
+    }
+    assert not doomed_dir.exists()
+    assert [item["task_id"] for item in service.list_tasks(workspace["workspace_id"])] == [keep["task_id"]]
+    with pytest.raises(TaskError) as gone:
+        service.get_task(doomed["task_id"])
+    assert gone.value.code == "task/not-found"
+
+
+def test_delete_task_refuses_while_the_auto_driver_runs(service: TaskService, tmp_path: Path) -> None:
+    workspace = _workspace(service, tmp_path)
+    task = _task(service, workspace["workspace_id"])
+    service.start_auto(task["task_id"], poll_seconds=1)
+    try:
+        with pytest.raises(TaskError) as busy:
+            service.delete_task(task["task_id"], confirm=task["task_id"])
+        assert busy.value.code == "task/busy"
+    finally:
+        service.stop_auto(task["task_id"])
+    # After the driver stops the task can be removed.
+    deadline = time.time() + 5
+    while service.driver_state(task["task_id"])["running"] and time.time() < deadline:
+        time.sleep(0.05)
+    service.delete_task(task["task_id"], confirm=task["task_id"])
+    assert service.list_tasks(workspace["workspace_id"]) == []
+
+
+def test_api_delete_task(api: TaskService, tmp_path: Path) -> None:
+    status, payload = _call("POST", "/api/workbench/workspaces", {"root": str(tmp_path / "del")})
+    workspace_id = payload["workspace"]["workspace_id"]
+    status, payload = _call(
+        "POST",
+        f"/api/workbench/workspaces/{workspace_id}/tasks",
+        {"goal": "delete me", "template_id": "test_program_graph"},
+    )
+    task_id = payload["task"]["task_id"]
+
+    status, payload = _call("POST", f"/api/workbench/tasks/{task_id}/delete", {})
+    assert status == 400 and payload["code"] == "task/confirm-required"
+
+    status, payload = _call("POST", f"/api/workbench/tasks/{task_id}/delete", {"confirm": task_id})
+    assert status == 200 and payload["deleted"] is True
+
+    status, payload = _call("GET", f"/api/workbench/tasks/{task_id}")
+    assert status == 404 and payload["code"] == "task/not-found"
+    status, payload = _call("GET", f"/api/workbench/workspaces/{workspace_id}/tasks")
+    assert payload["tasks"] == []

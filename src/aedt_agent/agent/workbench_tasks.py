@@ -404,6 +404,63 @@ class TaskService:
         _, _, task = self._resolve_task(task_id)
         return task
 
+    def delete_task(self, task_id: str, *, confirm: str = "") -> dict[str, Any]:
+        """Delete one task directory; never touches the project or other tasks.
+
+        The caller must echo the task id back as ``confirm`` so a stray click
+        cannot destroy a task, and a running auto-driver blocks deletion so it
+        cannot be deleted from under its own SQLite writer.
+        """
+        workspace, task_dir, _task = self._resolve_task(task_id)
+        if str(confirm).strip() != task_id:
+            raise TaskError(
+                "task/confirm-required",
+                "deletion requires confirm == task_id",
+                task_id=task_id,
+            )
+        if self.driver_state(task_id)["running"]:
+            raise TaskError(
+                "task/busy",
+                "task driver is running; stop it before deleting",
+                task_id=task_id,
+            )
+        target = task_dir.resolve()
+        root = workspace.tasks_dir.resolve()
+        if target == root or root not in target.parents:
+            raise TaskError("task/path-escape", f"refusing to delete outside the workspace: {target}")
+        with self._lock(task_id):
+            self._drivers.pop(task_id, None)
+            self._runtimes.pop(task_id, None)
+            try:
+                self._runtime_order.remove(task_id)
+            except ValueError:
+                pass
+            # AgentRuntime<->store references can form a cycle, so dropping the
+            # cache entry alone leaves the SQLite handle open on Windows until
+            # the collector runs; collect before touching the files.
+            import gc
+
+            gc.collect()
+            last_error: OSError | None = None
+            for attempt in range(3):
+                try:
+                    shutil.rmtree(target)
+                    last_error = None
+                    break
+                except OSError as exc:  # Windows may still hold the WAL briefly
+                    last_error = exc
+                    time.sleep(0.15 * (attempt + 1))
+            if last_error is not None:
+                raise TaskError("task/delete-failed", f"could not delete {target}: {last_error}") from last_error
+        return {
+            "ok": True,
+            "deleted": True,
+            "task_id": task_id,
+            "workspace_id": workspace.workspace_id,
+            "path": str(target),
+        }
+
+
     # ── runtime cache ───────────────────────────────────────────────────────
 
     def _runtime_for(self, task_id: str, db_path: Path) -> Any:

@@ -78,6 +78,11 @@
 `/api/workbench/tasks/<id>`、`.../advance`、`.../auto`、`.../approvals`、
 `.../decide/<approval_id>`。
 
+- **删除任务**：状态条最右「删除任务」→ 二次确认弹窗（显示将删除的目录与内容）；
+  只删 `<工作区>/.ai-hfss/tasks/<task_id>/`（`missions.db`、`runs/`、`artifacts/`、`logs/`），
+  不动工程文件、不影响其他任务；自动推进中的任务会被拒绝（先「停止自动」）；
+  接口为 `POST /api/workbench/tasks/<id>/delete`，必须带 `{"confirm":"<task_id>"}`。
+
 环境变量：`AIHFSS_WORKSPACES_FILE` 可覆盖工作区注册表路径（默认
 `~/.dsh/ai-hfss-workstation/workspaces.json`）；`AIHFSS_EXECUTION_PROFILE`
 指定执行 profile（决定是否允许真实 AEDT 作业）。

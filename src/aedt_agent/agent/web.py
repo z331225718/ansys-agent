@@ -1234,6 +1234,9 @@ def _handle_workbench_tasks(method: str, route: str, body: bytes) -> tuple[int, 
                 return _json(service.stop_auto(task_id))
             if action == "approvals" and method == "GET":
                 return _json({"approvals": service.list_approvals(task_id)})
+            if action == "delete" and method == "POST":
+                req = _json_body(body)
+                return _json(service.delete_task(task_id, confirm=str(req.get("confirm") or "")))
             if action == "decide" and method == "POST" and len(parts) == 6:
                 req = _json_body(body)
                 return _json(
@@ -1247,7 +1250,11 @@ def _handle_workbench_tasks(method: str, route: str, body: bytes) -> tuple[int, 
 
         return _json({"ok": False, "error": "unknown workbench task route", "route": route}, status=404)
     except TaskError as exc:
-        status = 404 if "not-found" in exc.code else 409 if "locked" in exc.code else 400
+        status = (
+            404 if "not-found" in exc.code
+            else 409 if ("locked" in exc.code or "busy" in exc.code)
+            else 400
+        )
         return _json(exc.to_json(), status=status)
     except ValueError as exc:
         return _json({"ok": False, "error": str(exc)}, status=400)

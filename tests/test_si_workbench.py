@@ -146,6 +146,7 @@ def test_workbench_page_carries_the_task_management_surface(tmp_path):
         "new-workspace-button",
         "task-list",
         "new-task-button",
+        "task-delete",
         "task-statusbar",
         "task-advance",
         "task-auto",
@@ -165,6 +166,8 @@ def test_workbench_page_carries_the_task_management_surface(tmp_path):
         assert call in script, call
     assert "openNewWorkspaceDialog" in script
     assert "openNewTaskDialog" in script
+    assert "deleteTask" in script and "/delete" in script
+    assert "只删任务目录" in script
     status, ct, css = _dispatch("GET", "/workbench/styles.css", runtime)
     assert status == 200 and "css" in ct
     assert ".task-statusbar" in css and ".workspace-item" in css
