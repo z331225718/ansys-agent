@@ -458,6 +458,17 @@ def _scaled_heights(layers: list[dict[str, Any]]) -> list[float]:
     return [low + (value - low) * (target_high - low) / (high - low) for value in values]
 
 
+FILL_TINTS = ["#eaede8", "#e7ebef", "#efeae4", "#e6ecec", "#eceee6"]
+
+
+def _fill_tint(material: str) -> str:
+    """A very light tint for the dielectric that fills a signal layer."""
+    key = str(material or "").strip().lower()
+    if not key:
+        return FILL_TINTS[0]
+    return FILL_TINTS[sum(ord(char) for char in key) % len(FILL_TINTS)]
+
+
 PALETTE = [
     "#4f9c8f",  # teal
     "#8f7fc4",  # purple
@@ -521,7 +532,19 @@ def render_stackup_plot(
         if is_signal:
             color = PALETTE[metal_index % len(PALETTE)]
             metal_index += 1
-            ax.add_patch(Rectangle((0.30, y0), 0.70, height, facecolor=color, edgecolor="#ffffff", linewidth=0.6))
+            tint = _fill_tint(str(layer.get("fill_material") or ""))
+            # Dielectric fill on both sides keeps the copper strip centred.
+            ax.add_patch(Rectangle((0.0, y0), 1.0, height, facecolor=tint, edgecolor="#ffffff", linewidth=0.6))
+            ax.add_patch(
+                Rectangle(
+                    (0.32, y0),
+                    0.36,
+                    height,
+                    facecolor=color,
+                    edgecolor="#ffffff",
+                    linewidth=0.6,
+                )
+            )
             ax.text(1.015, y0 + height / 2, name, ha="left", va="center", color=ink, fontsize=10)
         else:
             ax.add_patch(Rectangle((0.0, y0), 1.0, height, facecolor=dielectric_fill, edgecolor="#ffffff", linewidth=0.6))
@@ -538,6 +561,7 @@ def render_stackup_plot(
     for spine in ax.spines.values():
         spine.set_visible(False)
     ax.set_title("Stackup", color="#1c1c1c", fontsize=20, pad=16)
+    ax.text(0.80, 1.008, "light = dielectric fill", transform=ax.transAxes, ha="right", va="bottom", color="#6a6a6a", fontsize=8)
     half = (len(legend_rows) + 1) // 2
     for column, rows in enumerate((legend_rows[:half], legend_rows[half:])):
         x = 0.06 if column == 0 else 0.52

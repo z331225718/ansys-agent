@@ -494,3 +494,8 @@ P4 已交付（收尾与验收证据）：
 - `render_stackup_plot()` 重写为官方风格：白底、居中 Stackup 标题、左介质名/右铜与过孔名、
   双列 um 图例、层厚按 `max = 3 × min` 压缩（与官方 `scale_elevation=True` 一致）、上下朝向修正。
 - 前端标注改为「仿 PyEDB 官方风格 · 数据来自 AEDT stackup」。
+### P5 追加：层叠图细节（用户反馈）
+
+- 金属层：铜条居中（0.32–0.68 宽度），两侧用该层 fill_material 对应的淡色填充，
+  图注 light = dielectric fill；介质层仍为整幅灰色。
+- 朝向：顶层在上（y 轴反向）；层厚按 max = 3 x min 压缩。
