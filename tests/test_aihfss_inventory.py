@@ -18,7 +18,6 @@ from aedt_agent.agent.aihfss_inventory import (
     build_layout_model_inventory,
     register_aihfss_inventory_handlers,
     render_stackup_plot,
-    render_stackup_plot_official,
 )
 
 
@@ -165,30 +164,9 @@ def test_render_stackup_plot_draws_a_figure(tmp_path: Path) -> None:
     assert target.is_file() and target.stat().st_size > 2000
     assert target.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
     assert info["layers"] == 3
+    assert info["style"] == "pyedb-like"
 
 
 def test_render_stackup_plot_reports_missing_layers(tmp_path: Path) -> None:
     info = render_stackup_plot({"stackup": []}, tmp_path / STACKUP_PLOT_FILE)
     assert info["ok"] is False and "no stackup layers" in info["reason"]
-
-def test_render_stackup_plot_falls_back_when_pyedb_has_no_aedb(tmp_path: Path) -> None:
-    pytest.importorskip("matplotlib")
-    inventory = {
-        "stackup": [
-            {"name": "TOP", "type": "signal", "material": "COPPER", "thickness_mm": 0.0457, "elevation_mm": 0.4},
-            {"name": "PP_1", "type": "dielectric", "material": "pp", "thickness_mm": 0.076, "elevation_mm": 0.324},
-        ]
-    }
-    info = render_stackup_plot(
-        inventory, tmp_path / STACKUP_PLOT_FILE, size=(400, 300), edb_path=tmp_path / "missing.aedb"
-    )
-    assert info["ok"] is True
-    assert info["engine"] == "matplotlib"
-    assert "no aedb directory" in info["official_error"]
-
-
-def test_official_plot_reports_missing_pyedb_target(tmp_path: Path) -> None:
-    info = render_stackup_plot_official(tmp_path / "missing.aedb", tmp_path / STACKUP_PLOT_FILE)
-    assert info["ok"] is False
-    assert info["engine"] == "pyedb"
-    assert "no aedb directory" in info["reason"]

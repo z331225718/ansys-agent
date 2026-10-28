@@ -872,7 +872,7 @@
       parts.push('</div>');
     }
     const stackupNote = stackupPlot && stackupPlot.available
-      ? (stackupPlot.engine === "pyedb" ? "PyEDB 官方层叠图" : "matplotlib 等价图 · PyEDB: " + String(stackupPlot.reason || "不可用").slice(0, 72))
+      ? (stackupPlot.engine === "pyedb" ? "PyEDB 官方层叠图" : "仿 PyEDB 官方风格 · 数据来自 AEDT stackup")
       : "";
     const stackupImg = (stackupPlot && stackupPlot.available)
       ? '<div class="model-stackup-wrap" hidden><img class="model-stackup" alt="stackup" src="' + esc(stackupPlot.url || "") + '"><span class="model-stackup-note">' + esc(stackupNote) + '</span></div>'

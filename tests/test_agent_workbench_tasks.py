@@ -377,7 +377,7 @@ def test_snapshot_and_artifact_route_expose_the_stackup_plot(api: TaskService, t
     artifacts = tmp_path / "plot" / SYSTEM_DIR_NAME / "tasks" / task_id / "artifacts"
     (artifacts / "stackup_plot.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 32)
     (artifacts / "stackup_plot.meta.json").write_text(
-        '{"ok": true, "engine": "matplotlib", "official_error": "Can''t acquire license"}', encoding="utf-8"
+        '{"ok": true, "engine": "matplotlib", "style": "pyedb-like"}', encoding="utf-8"
     )
 
     status, payload = _call("GET", f"/api/workbench/tasks/{task_id}")
@@ -385,7 +385,6 @@ def test_snapshot_and_artifact_route_expose_the_stackup_plot(api: TaskService, t
     plot = payload["model"]["stackup_plot"]
     assert plot["available"] is True and plot["url"].endswith("/stackup_plot.png")
     assert plot["engine"] == "matplotlib"
-    assert "acquire license" in plot["reason"]
 
     status, headers, body = _handle_workbench_tasks(
         "GET", f"/api/workbench/tasks/{task_id}/artifact/stackup_plot.png", b""

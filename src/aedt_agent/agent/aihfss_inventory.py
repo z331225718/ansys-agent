@@ -400,20 +400,8 @@ def _layout_inventory_node(context: Any) -> dict[str, Any]:
         target.write_text(json.dumps(inventory, ensure_ascii=False, indent=1), encoding="utf-8")
         artifacts = [str(target)]
         plot_info: dict[str, Any] = {"ok": False, "reason": "not attempted"}
-        project_hint = str(
-            payload.get("working_project_path") or payload.get("source_project_path") or ""
-        )
-        aedb_path = None
-        if project_hint:
-            candidate = Path(project_hint).with_suffix(".aedb")
-            if candidate.is_dir():
-                aedb_path = candidate
         try:
-            plot_info = render_stackup_plot(
-                inventory,
-                artifact_dir / STACKUP_PLOT_FILE,
-                edb_path=aedb_path,
-            )
+            plot_info = render_stackup_plot(inventory, artifact_dir / STACKUP_PLOT_FILE)
         except Exception as exc:  # noqa: BLE001 - the figure is optional
             plot_info = {"ok": False, "reason": f"{type(exc).__name__}: {exc}"[:200]}
         if plot_info.get("ok") and plot_info.get("path"):
@@ -455,69 +443,47 @@ STACKUP_PLOT_FILE = "stackup_plot.png"
 STACKUP_PLOT_META_FILE = "stackup_plot.meta.json"
 
 
-def render_stackup_plot_official(
-    edb_path: Path | str,
-    output_path: Path | str,
-    *,
-    size: tuple[int, int] = (1600, 900),
-) -> dict[str, Any]:
-    """Draw the stackup with PyEDB (edb.stackup.plot()), the official renderer.
+def _scaled_heights(layers: list[dict[str, Any]]) -> list[float]:
+    """PyEDB-style thickness scaling: max thickness becomes 3x the min one.
 
-    Uses the DotNet backend (grpc=False) on purpose: the gRPC backend starts a
-    local EDB server, which on a machine without an EDB license retries forever,
-    while DotNet fails fast with "Can't acquire license" and lets the caller fall
-    back to the matplotlib figure.
+    Thin copper (0.03 mm) next to thick dielectric (0.09 mm) is nearly invisible
+    at true scale, so the official plot compresses the range before drawing.
     """
-    try:
-        from pyedb import Edb  # type: ignore
-    except Exception as exc:  # noqa: BLE001 - pyedb is optional
-        return {"ok": False, "engine": "pyedb", "reason": f"pyedb import failed: {type(exc).__name__}: {exc}"[:200]}
-    target = Path(output_path)
-    if not Path(edb_path).is_dir():
-        return {"ok": False, "engine": "pyedb", "reason": f"no aedb directory at {edb_path}"}
-    edb = None
-    try:
-        edb = Edb(edbpath=str(edb_path), isreadonly=True, grpc=False, version="2026.1")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        edb.stackup.plot(save_plot=str(target), show=False, size=size)
-        if not target.is_file():
-            return {"ok": False, "engine": "pyedb", "reason": "pyedb plot produced no file"}
-        return {
-            "ok": True,
-            "engine": "pyedb",
-            "path": str(target),
-            "bytes": target.stat().st_size,
-        }
-    except Exception as exc:  # noqa: BLE001 - license/EDB failures are expected
-        message = str(exc).split("\n")[0].replace("\r", " ").strip()
-        return {"ok": False, "engine": "pyedb", "reason": f"{type(exc).__name__}: {message}"[:300]}
-    finally:
-        if edb is not None:
-            try:
-                edb.close()
-            except Exception:  # noqa: BLE001
-                pass
+    values = [float(layer["thickness_mm"]) for layer in layers]
+    low = min(values)
+    high = max(values)
+    if high <= low:
+        return values
+    target_high = low * 3.0
+    return [low + (value - low) * (target_high - low) / (high - low) for value in values]
+
+
+PALETTE = [
+    "#4f9c8f",  # teal
+    "#8f7fc4",  # purple
+    "#d97a7a",  # red
+    "#d9a45c",  # orange
+    "#b9b06a",  # olive
+    "#7f9fc4",  # blue
+    "#9c8f6a",  # sand
+    "#6a9c7f",  # green
+]
 
 
 def render_stackup_plot(
     inventory: dict[str, Any],
     output_path: Path | str,
     *,
-    size: tuple[int, int] = (1600, 900),
-    edb_path: Path | str | None = None,
+    size: tuple[int, int] = (1400, 1000),
 ) -> dict[str, Any]:
-    """Draw the stackup figure with matplotlib from the extracted records.
+    """Draw the stackup figure in the style of PyEDB edb.stackup.plot().
 
-    PyEDB has the same plot (edb.stackup.plot()) but it needs an EDB session; on
-    a machine where AEDT already holds the license the pyedb gRPC backend cannot
-    start, so this draws the identical content from the layer records we already
-    read out of AEDT: name, type, material, thickness and elevation.
+    The official plot needs an EDB session (and therefore an EDB license); this
+    draws the same content from the layer records we read out of AEDT, matching
+    its look: white canvas, centered title, dielectric names on the left, metal
+    and via names on the right, and a two-column legend with thickness and
+    elevation.
     """
-    official: dict[str, Any] = {"ok": False, "engine": "pyedb", "reason": "no aedb path provided"}
-    if edb_path:
-        official = render_stackup_plot_official(edb_path, output_path, size=size)
-        if official.get("ok"):
-            return {**official, "fallback_reason": ""}
     layers = [
         layer
         for layer in inventory.get("stackup") or []
@@ -537,71 +503,58 @@ def render_stackup_plot(
         return {"ok": False, "reason": f"matplotlib unavailable: {type(exc).__name__}: {exc}"[:200]}
 
     layers.sort(key=lambda layer: layer["elevation_mm"] + layer["thickness_mm"], reverse=True)
-    top = max(layer["elevation_mm"] + layer["thickness_mm"] for layer in layers)
-    bottom = min(layer["elevation_mm"] for layer in layers)
-    total = max(top - bottom, 1e-6)
-    dark = "#0e161d"
-    ink = "#cfe0ea"
+    heights = _scaled_heights(layers)
+    ink = "#2b2b2b"
+    dielectric_fill = "#b9bdb7"
     fig, ax = plt.subplots(figsize=(size[0] / 100, size[1] / 100), dpi=100)
-    fig.patch.set_facecolor(dark)
-    ax.set_facecolor(dark)
-    x0, width = 0.0, 10.0
-    for layer in layers:
-        y0 = layer["elevation_mm"]
-        height = layer["thickness_mm"]
+    fig.patch.set_facecolor("white")
+    ax.set_facecolor("white")
+    legend_rows: list[str] = []
+    cursor = 0.0
+    metal_index = 0
+    for layer, height in zip(layers, heights):
         is_signal = str(layer.get("type") or "") == "signal"
-        color = "#c98b4b" if is_signal else "#1f3a47"
-        ax.add_patch(
-            Rectangle(
-                (x0, y0),
-                width,
-                height,
-                facecolor=color,
-                edgecolor="#e0a768" if is_signal else "#34525f",
-                linewidth=0.8,
-                alpha=0.92 if is_signal else 0.85,
-            )
+        name = str(layer.get("name") or "")
+        y0 = cursor
+        y1 = cursor + height
+        cursor = y1
+        if is_signal:
+            color = PALETTE[metal_index % len(PALETTE)]
+            metal_index += 1
+            ax.add_patch(Rectangle((0.30, y0), 0.70, height, facecolor=color, edgecolor="#ffffff", linewidth=0.6))
+            ax.text(1.015, y0 + height / 2, name, ha="left", va="center", color=ink, fontsize=10)
+        else:
+            ax.add_patch(Rectangle((0.0, y0), 1.0, height, facecolor=dielectric_fill, edgecolor="#ffffff", linewidth=0.6))
+            ax.text(-0.015, y0 + height / 2, name, ha="right", va="center", color=ink, fontsize=10)
+        elevation_mm = float(layer["elevation_mm"])
+        thickness_um = float(layer["thickness_mm"]) * 1000.0
+        legend_rows.append(
+            f"{name}, {layer.get('material') or ''}, thick: {thickness_um:.3f}um, elev: {elevation_mm * 1000.0:.3f}um"
         )
-        label = str(layer.get("name") or "")
-        text_color = ink if is_signal else "#8fa9b7"
-        ax.text(x0 - 0.15, y0 + height / 2, label, ha="right", va="center", color=text_color, fontsize=9, family="monospace")
-        thickness_um = height * 1000.0
-        material = str(layer.get("material") or "")
-        ax.text(
-            x0 + width + 0.15,
-            y0 + height / 2,
-            f"{thickness_um:.1f} um  {material}".strip(),
-            ha="left",
-            va="center",
-            color=text_color,
-            fontsize=9,
-            family="monospace",
-        )
-    ax.set_xlim(x0 - 2.6, x0 + width + 3.4)
-    ax.set_ylim(bottom - total * 0.06, top + total * 0.12)
-    ax.set_title(
-        f"Stackup  |  board {total:.2f} mm  |  {len(layers)} layers",
-        color=ink,
-        fontsize=13,
-        loc="left",
-        pad=14,
-        family="monospace",
-    )
+    ax.set_xlim(-0.24, 1.30)
+    ax.set_ylim(cursor * 1.02, -cursor * 0.02)  # inverted: first (top) layer at the top
     ax.set_xticks([])
     ax.set_yticks([])
     for spine in ax.spines.values():
         spine.set_visible(False)
-    fig.tight_layout()
+    ax.set_title("Stackup", color="#1c1c1c", fontsize=20, pad=16)
+    half = (len(legend_rows) + 1) // 2
+    for column, rows in enumerate((legend_rows[:half], legend_rows[half:])):
+        x = 0.06 if column == 0 else 0.52
+        for row_index, row in enumerate(rows):
+            fig.text(x, 0.155 - row_index * (0.115 / max(half, 1)), row, color="#4a4a4a", fontsize=7.5, family="monospace")
+    fig.subplots_adjust(left=0.10, right=0.92, top=0.90, bottom=0.30)
     target = Path(output_path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(target, facecolor=dark, dpi=110)
+    fig.savefig(target, facecolor="white", dpi=110)
     plt.close(fig)
+    total = sum(float(layer["thickness_mm"]) for layer in layers)
     return {
         "ok": True,
         "engine": "matplotlib",
+        "style": "pyedb-like",
         "path": str(target),
         "bytes": target.stat().st_size if target.is_file() else 0,
         "layers": len(layers),
         "board_mm": round(total, 4),
-        "official_error": str(official.get("reason") or "")[:300],
     }

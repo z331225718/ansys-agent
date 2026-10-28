@@ -487,3 +487,10 @@ P4 已交付（收尾与验收证据）：
 - 代码策略：`render_stackup_plot()` 先试官方（dotnet、快速失败），成功后标注「PyEDB 官方层叠图」；
   失败回退 matplotlib 并在图上标注原因；原因同时写入 `stackup_plot.meta.json`，snapshot 暴露
   `model.stackup_plot.engine / reason`。
+### P5 追加：改为仿官方风格自绘（放弃 pyedb 调用）
+
+- 用户提供官方 `edb.stackup.plot()` 截图后确认：本机无法走官方调用（EDB 授权不可用），不再在
+  inventory 节点里尝试 pyedb（避免每次白等 2–3 秒）；删除 `render_stackup_plot_official`。
+- `render_stackup_plot()` 重写为官方风格：白底、居中 Stackup 标题、左介质名/右铜与过孔名、
+  双列 um 图例、层厚按 `max = 3 × min` 压缩（与官方 `scale_elevation=True` 一致）、上下朝向修正。
+- 前端标注改为「仿 PyEDB 官方风格 · 数据来自 AEDT stackup」。
