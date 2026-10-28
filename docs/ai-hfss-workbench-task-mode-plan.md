@@ -470,3 +470,12 @@ P4 已交付（收尾与验收证据）：
   `WinError 32`），3 次重试后删除任务目录；
 - 前端状态条「删除任务」+ 二次确认弹窗；
 - 测试：确认串/仅删目标任务/运行中拒绝/API 400+200 路径；浏览器实测任务列表清空、API 404、目录消失。
+### P5 追加：层叠图（PyEDB 等价）
+
+- 用户提示可用 `edb.stackup.plot()`；实测 pyedb 0.80 只有 gRPC 后端能起，AEDT 占用 license 时
+  `Edb(edbpath=..., isreadonly=True, isaedtowned=True, oproject=app.oproject)` 仍报
+  `No valid license detected` 并重试到进程挂住（两次实测均超时）。
+- 落地：`render_stackup_plot()`（matplotlib，可选依赖）从 AEDT 层叠记录画标准层叠图 →
+  `artifacts/stackup_plot.png` → snapshot `model.stackup_plot` → 前端第四个视图「层叠」；
+  图片经 `GET /api/workbench/tasks/<id>/artifact/stackup_plot.png` 提供（白名单）。
+- 验证：任务推进后 snapshot `available=true`、路由 200/44007B、浏览器四 tab 正常显示。

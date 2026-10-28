@@ -362,3 +362,37 @@ def test_api_delete_task(api: TaskService, tmp_path: Path) -> None:
     assert status == 404 and payload["code"] == "task/not-found"
     status, payload = _call("GET", f"/api/workbench/workspaces/{workspace_id}/tasks")
     assert payload["tasks"] == []
+
+def test_snapshot_and_artifact_route_expose_the_stackup_plot(api: TaskService, tmp_path: Path) -> None:
+    from aedt_agent.agent.web import _handle_workbench_tasks
+
+    status, payload = _call("POST", "/api/workbench/workspaces", {"root": str(tmp_path / "plot")})
+    workspace_id = payload["workspace"]["workspace_id"]
+    status, payload = _call(
+        "POST",
+        f"/api/workbench/workspaces/{workspace_id}/tasks",
+        {"goal": "plot task", "template_id": "test_program_graph"},
+    )
+    task_id = payload["task"]["task_id"]
+    artifacts = tmp_path / "plot" / SYSTEM_DIR_NAME / "tasks" / task_id / "artifacts"
+    (artifacts / "stackup_plot.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 32)
+
+    status, payload = _call("GET", f"/api/workbench/tasks/{task_id}")
+    assert status == 200
+    plot = payload["model"]["stackup_plot"]
+    assert plot["available"] is True and plot["url"].endswith("/stackup_plot.png")
+
+    status, headers, body = _handle_workbench_tasks(
+        "GET", f"/api/workbench/tasks/{task_id}/artifact/stackup_plot.png", b""
+    )
+    assert status == 200 and headers["content-type"] == "image/png"
+    assert body.startswith(b"\x89PNG")
+
+    status, _headers, body = _handle_workbench_tasks(
+        "GET", f"/api/workbench/tasks/{task_id}/artifact/evil.png", b""
+    )
+    assert status == 400 and json.loads(body.decode("utf-8"))["code"] == "task/artifact-not-allowed"
+    status, _headers, body = _handle_workbench_tasks(
+        "GET", f"/api/workbench/tasks/{task_id}/artifact/other_plot.png", b""
+    )
+    assert status == 400

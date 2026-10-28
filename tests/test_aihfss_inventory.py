@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from aedt_agent.agent.aihfss_inventory import (
+    STACKUP_PLOT_FILE,
     HANDLER_LAYOUT_INVENTORY,
     SCHEMA,
     _bounds,
@@ -16,6 +17,7 @@ from aedt_agent.agent.aihfss_inventory import (
     _to_mm,
     build_layout_model_inventory,
     register_aihfss_inventory_handlers,
+    render_stackup_plot,
 )
 
 
@@ -146,3 +148,24 @@ def test_node_reports_a_failure_instead_of_raising(tmp_path: Path, monkeypatch: 
     assert result["status"] == "failed"
     assert result["error"]["code"] == "aihfss/inventory"
     assert "no live session" in result["output_payload"]["error"]
+
+def test_render_stackup_plot_draws_a_figure(tmp_path: Path) -> None:
+    pytest.importorskip("matplotlib")
+    inventory = {
+        "stackup": [
+            {"name": "TOP", "type": "signal", "material": "COPPER", "thickness_mm": 0.0457, "elevation_mm": 0.4},
+            {"name": "PP_1", "type": "dielectric", "material": "pp", "thickness_mm": 0.076, "elevation_mm": 0.324},
+            {"name": "L2_GND", "type": "signal", "material": "COPPER", "thickness_mm": 0.0305, "elevation_mm": 0.2935},
+        ]
+    }
+    target = tmp_path / STACKUP_PLOT_FILE
+    info = render_stackup_plot(inventory, target, size=(640, 400))
+    assert info["ok"] is True
+    assert target.is_file() and target.stat().st_size > 2000
+    assert target.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+    assert info["layers"] == 3
+
+
+def test_render_stackup_plot_reports_missing_layers(tmp_path: Path) -> None:
+    info = render_stackup_plot({"stackup": []}, tmp_path / STACKUP_PLOT_FILE)
+    assert info["ok"] is False and "no stackup layers" in info["reason"]

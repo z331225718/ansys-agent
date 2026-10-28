@@ -114,6 +114,16 @@
 `unavailable_sections`，不会伪造缺失结构。生成方式：用模板
 `aihfss_layout_inventory` 建一个任务并推进（附着到已打开的 AEDT 会话，**不求解**）。
 
+- **层叠图**：第四个视图显示标准层叠图（层名 / 铜厚 µm / 材料 / 板厚），由
+  `render_stackup_plot()` 用 matplotlib 从 AEDT 抽出的层叠记录绘制；
+  `GET /api/workbench/tasks/<id>/artifact/stackup_plot.png` 提供图片（白名单，只允许这一张）。
+  依赖 `matplotlib`（可选，未安装时该视图不出现，其余视图不受影响）：
+  `pip install matplotlib`。
+
+> 为什么不用 PyEDB 的 `edb.stackup.plot()`：它需要 EDB 会话，pyedb 0.80 默认 gRPC 后端，
+> 在 AEDT 已占用 license 的机器上会 `No valid license detected` 并反复重试（实测卡死）；
+> 内容与我们从 AEDT 读到的层叠记录一致，所以用 matplotlib 画等价图。
+
 - **3D 视图（第三档）**：按真实 stackup 标高把铺铜/走线/过孔拉伸成 3D，
   器件画成线框；可拖拽旋转、滚轮缩放；Z 轴放大 3× 并明确标注（真实板厚 0.49mm，
   不放大几乎看不见）；纯 Canvas 2D 画家算法，不依赖 three.js 等外部库。

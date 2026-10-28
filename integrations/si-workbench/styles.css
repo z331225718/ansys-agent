@@ -790,3 +790,6 @@ kbd { color: #6f879b; background: #f3f7fa; border-color: #d7e1e9; }
 .button.danger:hover:not(:disabled) { color: #ffd0d0; background: #3a1f1f; border-color: #a05050; }
 .button.danger:disabled { opacity: .45; }
 .form-hint { margin: 6px 0 0; color: #b7cbd8; font-size: 11px; }
+/* ── official-style stackup figure ──────────────────────────────────────── */
+.model-stage img.model-stackup { display: block; width: 100%; height: 100%; object-fit: contain; background: #0e161d; }
+.model-stage img.model-stackup[hidden] { display: none; }

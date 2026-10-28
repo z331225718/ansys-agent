@@ -597,6 +597,19 @@ class TaskService:
         # The legacy read-only projection reports workflow_* false; this task
         # surface is where those actions ARE allowed (the workbench owns the
         # strict workflow), so state it explicitly instead of overloading it.
+        from aedt_agent.agent.aihfss_inventory import STACKUP_PLOT_FILE
+
+        plot_path = workspace.tasks_dir / task_id / "artifacts" / STACKUP_PLOT_FILE
+        model = payload.get("model")
+        if isinstance(model, dict):
+            model["stackup_plot"] = {
+                "available": plot_path.is_file(),
+                "url": (
+                    f"/api/workbench/tasks/{task_id}/artifact/{STACKUP_PLOT_FILE}"
+                    if plot_path.is_file()
+                    else ""
+                ),
+            }
         payload["task_capabilities"] = {
             "task_advance": True,
             "task_auto": True,
@@ -605,6 +618,20 @@ class TaskService:
             "aedt_write": True,
         }
         return payload
+
+    def artifact_file(self, task_id: str, name: str) -> Path:
+        """Return one whitelisted artifact file of a task (read-only)."""
+        from aedt_agent.agent.aihfss_inventory import STACKUP_PLOT_FILE
+
+        allowed = {STACKUP_PLOT_FILE}
+        if name not in allowed:
+            raise TaskError("task/artifact-not-allowed", f"artifact {name!r} is not served", task_id=task_id)
+        _, task_dir, _task = self._resolve_task(task_id)
+        artifacts_dir = (task_dir / "artifacts").resolve()
+        target = (artifacts_dir / name).resolve()
+        if target.parent != artifacts_dir or not target.is_file():
+            raise TaskError("task/artifact-not-found", f"artifact {name!r} was not found", task_id=task_id)
+        return target
 
     def list_approvals(self, task_id: str) -> list[dict[str, Any]]:
         _, _, task = self._resolve_task(task_id)

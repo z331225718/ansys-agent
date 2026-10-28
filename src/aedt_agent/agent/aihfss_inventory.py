@@ -18,6 +18,7 @@ Schema: aihfss-model-inventory/v1.
 from __future__ import annotations
 
 import math
+from pathlib import Path
 from typing import Any
 
 SCHEMA = "aihfss-model-inventory/v1"
@@ -397,6 +398,14 @@ def _layout_inventory_node(context: Any) -> dict[str, Any]:
             inventory = build_layout_model_inventory(app)
         target = artifact_dir / INVENTORY_FILE
         target.write_text(json.dumps(inventory, ensure_ascii=False, indent=1), encoding="utf-8")
+        artifacts = [str(target)]
+        plot_info: dict[str, Any] = {"ok": False, "reason": "not attempted"}
+        try:
+            plot_info = render_stackup_plot(inventory, artifact_dir / STACKUP_PLOT_FILE)
+        except Exception as exc:  # noqa: BLE001 - the figure is optional
+            plot_info = {"ok": False, "reason": f"{type(exc).__name__}: {exc}"[:200]}
+        if plot_info.get("ok") and plot_info.get("path"):
+            artifacts.append(str(plot_info["path"]))
         output = {
             "status": "inventoried",
             "design": inventory.get("design"),
@@ -404,6 +413,7 @@ def _layout_inventory_node(context: Any) -> dict[str, Any]:
             "counts": inventory.get("counts"),
             "bounds": inventory.get("bounds"),
             "inventory_path": str(target),
+            "stackup_plot": plot_info,
             "unavailable_sections": inventory.get("unavailable_sections"),
             "loop_context": {
                 "model_inventory": inventory,
@@ -414,7 +424,7 @@ def _layout_inventory_node(context: Any) -> dict[str, Any]:
             "status": NodeRunStatus.SUCCEEDED.value,
             "outcome": "layout_inventory",
             "output_payload": output,
-            "artifact_refs": [str(target)],
+            "artifact_refs": artifacts,
         }
     except Exception as exc:  # noqa: BLE001 - bounded failure for the task view
         message = type(exc).__name__ + ": " + str(exc)[:400]
@@ -425,3 +435,105 @@ def _layout_inventory_node(context: Any) -> dict[str, Any]:
             "artifact_refs": [],
             "error": {"code": "aihfss/inventory", "message": message},
         }
+
+STACKUP_PLOT_FILE = "stackup_plot.png"
+
+
+def render_stackup_plot(
+    inventory: dict[str, Any],
+    output_path: Path | str,
+    *,
+    size: tuple[int, int] = (1600, 900),
+) -> dict[str, Any]:
+    """Draw the stackup figure with matplotlib from the extracted records.
+
+    PyEDB has the same plot (edb.stackup.plot()) but it needs an EDB session; on
+    a machine where AEDT already holds the license the pyedb gRPC backend cannot
+    start, so this draws the identical content from the layer records we already
+    read out of AEDT: name, type, material, thickness and elevation.
+    """
+    layers = [
+        layer
+        for layer in inventory.get("stackup") or []
+        if isinstance(layer.get("elevation_mm"), (int, float))
+        and isinstance(layer.get("thickness_mm"), (int, float))
+        and layer.get("thickness_mm", 0) > 0
+    ]
+    if not layers:
+        return {"ok": False, "reason": "no stackup layers with thickness"}
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from matplotlib.patches import Rectangle
+    except Exception as exc:  # noqa: BLE001 - plotting is optional
+        return {"ok": False, "reason": f"matplotlib unavailable: {type(exc).__name__}: {exc}"[:200]}
+
+    layers.sort(key=lambda layer: layer["elevation_mm"] + layer["thickness_mm"], reverse=True)
+    top = max(layer["elevation_mm"] + layer["thickness_mm"] for layer in layers)
+    bottom = min(layer["elevation_mm"] for layer in layers)
+    total = max(top - bottom, 1e-6)
+    dark = "#0e161d"
+    ink = "#cfe0ea"
+    fig, ax = plt.subplots(figsize=(size[0] / 100, size[1] / 100), dpi=100)
+    fig.patch.set_facecolor(dark)
+    ax.set_facecolor(dark)
+    x0, width = 0.0, 10.0
+    for layer in layers:
+        y0 = layer["elevation_mm"]
+        height = layer["thickness_mm"]
+        is_signal = str(layer.get("type") or "") == "signal"
+        color = "#c98b4b" if is_signal else "#1f3a47"
+        ax.add_patch(
+            Rectangle(
+                (x0, y0),
+                width,
+                height,
+                facecolor=color,
+                edgecolor="#e0a768" if is_signal else "#34525f",
+                linewidth=0.8,
+                alpha=0.92 if is_signal else 0.85,
+            )
+        )
+        label = str(layer.get("name") or "")
+        text_color = ink if is_signal else "#8fa9b7"
+        ax.text(x0 - 0.15, y0 + height / 2, label, ha="right", va="center", color=text_color, fontsize=9, family="monospace")
+        thickness_um = height * 1000.0
+        material = str(layer.get("material") or "")
+        ax.text(
+            x0 + width + 0.15,
+            y0 + height / 2,
+            f"{thickness_um:.1f} um  {material}".strip(),
+            ha="left",
+            va="center",
+            color=text_color,
+            fontsize=9,
+            family="monospace",
+        )
+    ax.set_xlim(x0 - 2.6, x0 + width + 3.4)
+    ax.set_ylim(bottom - total * 0.06, top + total * 0.12)
+    ax.set_title(
+        f"Stackup  |  board {total:.2f} mm  |  {len(layers)} layers",
+        color=ink,
+        fontsize=13,
+        loc="left",
+        pad=14,
+        family="monospace",
+    )
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    fig.tight_layout()
+    target = Path(output_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(target, facecolor=dark, dpi=110)
+    plt.close(fig)
+    return {
+        "ok": True,
+        "path": str(target),
+        "bytes": target.stat().st_size if target.is_file() else 0,
+        "layers": len(layers),
+        "board_mm": round(total, 4),
+    }

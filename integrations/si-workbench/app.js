@@ -852,11 +852,14 @@
   }
 
 
-  function renderInventoryModel(inv, stage) {
+  function renderInventoryModel(inv, stage, stackupPlot) {
     const counts = inv.counts || {};
     const layers = Array.from(new Set((inv.stackup || []).map(function (layer) { return layer.name; }).filter(Boolean)));
     const parts = ['<div class="model-viewer">', '<div class="model-toolbar"><div class="model-tabs">'];
-    [["top", "俯视"], ["section", "剖面"], ["model3d", "3D"]].forEach(function (item, index) {
+    const views = [["top", "俯视"], ["section", "剖面"]];
+    if (stackupPlot && stackupPlot.available) views.push(["stackup", "层叠"]);
+    views.push(["model3d", "3D"]);
+    views.forEach(function (item, index) {
       parts.push('<button type="button" class="model-tab' + (index === 0 ? ' active' : '') + '" data-model-view="' + item[0] + '">' + item[1] + '</button>');
     });
     parts.push('</div>');
@@ -868,7 +871,8 @@
       layers.forEach(function (layer) { parts.push('<button type="button" class="model-chip active" data-model-layer="' + esc(layer) + '">' + esc(layer) + '</button>'); });
       parts.push('</div>');
     }
-    parts.push('<div class="model-stage">' + topViewSvg(inv) + sectionViewSvg(inv).replace('<svg ', '<svg hidden ') + '<canvas class="model-3d" hidden></canvas></div>');
+    const stackupImg = (stackupPlot && stackupPlot.available) ? '<img class="model-stackup" alt="stackup" src="' + esc(stackupPlot.url || "") + '" hidden>' : "";
+    parts.push('<div class="model-stage">' + topViewSvg(inv) + sectionViewSvg(inv).replace('<svg ', '<svg hidden ') + stackupImg + '<canvas class="model-3d" hidden></canvas></div>');
     parts.push('<div class="model-legend">真实 inventory · 单位 mm · 虚线框=器件 footprint · 过孔=孔径 · 悬停查看名称/网络/层</div>');
     parts.push('</div>');
     stage.innerHTML = parts.join('');
@@ -879,6 +883,8 @@
         tabs.forEach(function (item) { item.classList.toggle('active', item === tab); });
         const view = tab.dataset.modelView;
         svgs.forEach(function (svg, index) { const show = (view === 'top' && index === 0) || (view === 'section' && index === 1); svg.toggleAttribute('hidden', !show); });
+        const stackup = stage.querySelector('img.model-stackup');
+        if (stackup) stackup.toggleAttribute('hidden', view !== 'stackup');
         const canvas = stage.querySelector('canvas.model-3d');
         if (canvas) {
           const showCanvas = view === 'model3d';
@@ -900,7 +906,7 @@
     if (!stage) return;
     const inv = (m && m.inventory) || null;
     if (inv && inv.schema === 'aihfss-model-inventory/v1' && inv.counts && ((inv.counts.stackup_layers || 0) + (inv.counts.vias || 0) + (inv.counts.traces || 0) + (inv.counts.components || 0)) > 0) {
-      renderInventoryModel(inv, stage);
+      renderInventoryModel(inv, stage, (m && m.stackup_plot) || null);
       return;
     }
     if (m && m.available) {
