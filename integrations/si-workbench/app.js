@@ -827,6 +827,10 @@
 
   function bindModel3D(canvas, inv) {
     const redraw = function () { drawModel3D(canvas, inv); };
+    if (!canvas.__resizeBound) {
+      canvas.__resizeBound = true;
+      window.addEventListener("resize", function () { if (!canvas.hasAttribute("hidden")) redraw(); });
+    }
     canvas.addEventListener('pointerdown', function (event) {
       const state = canvas.__model3d || (canvas.__model3d = { yaw: -0.62, pitch: 0.5, zoom: 1 });
       const start = { x: event.clientX, y: event.clientY, yaw: state.yaw, pitch: state.pitch };
@@ -863,6 +867,7 @@
       parts.push('<button type="button" class="model-tab' + (index === 0 ? ' active' : '') + '" data-model-view="' + item[0] + '">' + item[1] + '</button>');
     });
     parts.push('</div>');
+    parts.push('<button type="button" class="model-zoom" data-model-zoom title="放大 / 还原（点图同样生效，Esc 退出）">放大</button>');
     const metaParts = [counts.components + ' 器件', counts.stackup_layers + ' 层', counts.vias + ' 过孔', counts.traces + ' 走线', counts.polygons + ' 铺铜'];
     if (stackupPlot && stackupPlot.available) metaParts.push(stackupPlot.engine === 'pyedb' ? '层叠：PyEDB 官方' : '层叠：仿 PyEDB 风格');
     parts.push('<span class="model-meta">' + metaParts.join(' · ') + '</span>');
@@ -886,6 +891,7 @@
       tab.addEventListener('click', function () {
         tabs.forEach(function (item) { item.classList.toggle('active', item === tab); });
         const view = tab.dataset.modelView;
+        currentView = view;
         svgs.forEach(function (svg, index) { const show = (view === 'top' && index === 0) || (view === 'section' && index === 1); svg.toggleAttribute('hidden', !show); });
         const stackup = stage.querySelector('.model-stackup-wrap');
         if (stackup) stackup.toggleAttribute('hidden', view !== 'stackup');
@@ -896,6 +902,44 @@
           if (showCanvas) { if (!canvas.__bound) { bindModel3D(canvas, inv); canvas.__bound = true; } drawModel3D(canvas, inv); }
         }
       });
+    });
+    const canvas3d = stage.querySelector("canvas.model-3d");
+    let currentView = "top";
+    const openZoom = function (view) {
+      let title = "模型预览";
+      let content = "";
+      if (view === "section") {
+        title = "剖面 · 放大";
+        content = '<div class="model-zoom-stage">' + sectionViewSvg(inv) + "</div>";
+      } else if (view === "stackup" && stackupPlot && stackupPlot.available) {
+        title = "层叠 · 放大";
+        content = '<div class="model-zoom-stage"><img class="model-zoom-img" src="' + esc(stackupPlot.url || "") + '"></div>';
+      } else if (view === "model3d") {
+        title = "3D · 放大（拖拽旋转 / 滚轮缩放）";
+        content = '<div class="model-zoom-stage"><canvas class="model-zoom-canvas"></canvas></div>';
+      } else {
+        title = "俯视 · 放大";
+        content = '<div class="model-zoom-stage">' + topViewSvg(inv) + "</div>";
+      }
+      openModal({
+        title: title,
+        kicker: "MODEL · 放大视图",
+        content: content,
+        large: true,
+        buttons: [{ label: "关闭", primary: true, onClick: closeModal }],
+      });
+      if (view === "model3d") {
+        const zoomCanvas = $("#modal-content canvas.model-zoom-canvas");
+        if (zoomCanvas) {
+          bindModel3D(zoomCanvas, inv);
+          requestAnimationFrame(function () { drawModel3D(zoomCanvas, inv); });
+        }
+      }
+    };
+    const zoomButton = stage.querySelector("[data-model-zoom]");
+    if (zoomButton) zoomButton.addEventListener("click", function () { openZoom(currentView); });
+    stage.querySelectorAll("svg, img.model-stackup").forEach(function (node) {
+      node.addEventListener("click", function () { openZoom(currentView); });
     });
     stage.querySelectorAll('[data-model-layer]').forEach(function (chip) {
       chip.addEventListener('click', function () {

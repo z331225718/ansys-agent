@@ -280,6 +280,8 @@ def test_workbench_page_carries_the_structured_model_preview(tmp_path):
         "model-stackup",
         "层叠",
         "stackupPlot",
+        "openZoom",
+        "model-zoom-stage",
         "model-label",
         "drawModel3D",
         "chainSegments",

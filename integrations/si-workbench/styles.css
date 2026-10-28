@@ -796,3 +796,27 @@ kbd { color: #6f879b; background: #f3f7fa; border-color: #d7e1e9; }
 .model-stackup-wrap { position: relative; width: 100%; height: 100%; }
 .model-stackup-wrap[hidden] { display: none; }
 .model-stackup-note { position: absolute; left: 8px; bottom: 6px; padding: 2px 6px; border-radius: 3px; background: rgba(10,16,22,.72); color: #9fb3c0; font-family: var(--mono); font-size: 9px; }.model-stackup-note { display: inline-block; max-width: 92%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── model zoom (expand the geometry panel) ────────────────────────────── */
+.model-zoom { margin-left: auto; padding: 3px 10px; border: 1px solid #2c404c; border-radius: 3px; background: #16232c; color: #c3d3de; font-size: 10px; }
+.model-zoom:hover { color: #eaf4f9; border-color: #3b5a68; background: #1c313c; }
+.model-stage svg, .model-stage img.model-stackup { cursor: zoom-in; }
+.geometry-panel.expanded .model-stage svg, .geometry-panel.expanded .model-stage img.model-stackup { cursor: zoom-out; }
+.geometry-panel.expanded .model-viewer { gap: 10px; }
+.geometry-panel.expanded .model-stage { min-height: 0; }
+
+/* expanded: let the stage fill the whole panel height */
+.geometry-panel.expanded .geometry-stage { display: flex; flex-direction: column; min-height: 0; }
+.geometry-panel.expanded .model-viewer { flex: 1 1 auto; min-height: 0; }
+.geometry-panel.expanded .model-stage { flex: 1 1 auto; min-height: 0; height: auto; }
+.geometry-panel.expanded .model-stage svg { height: 100%; }
+
+/* ── model zoom lightbox ───────────────────────────────────────────────── */
+.model-zoom-stage { display: flex; align-items: center; justify-content: center; width: 100%; height: 70vh; background: #0e161d; border-radius: 4px; }
+.model-zoom-stage svg { width: 100%; height: 100%; }
+.model-zoom-img { max-width: 100%; max-height: 70vh; object-fit: contain; background: #ffffff; }
+.model-zoom-canvas { width: 100%; height: 70vh; display: block; cursor: grab; }
+
+/* bigger lightbox for the model zoom */
+.modal.large:has(.model-zoom-stage) { width: min(1500px, 96vw); max-width: 96vw; }
+.modal.large:has(.model-zoom-stage) .modal-body, .modal.large:has(.model-zoom-stage) #modal-content { padding: 8px; }

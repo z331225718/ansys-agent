@@ -120,6 +120,9 @@
   依赖 `matplotlib`（可选，未安装时该视图不出现，其余视图不受影响）：
   `pip install matplotlib`。
 
+- **放大**：点「放大」按钮或直接点图 → 模态灯箱（宽 96vw、高 70vh），俯视/剖面是矢量 SVG，
+  层叠是原图等比放大，3D 可在灯箱里继续拖拽旋转；Esc 或「关闭」退出。
+
 > **为什么自己画**：PyEDB 的 `edb.stackup.plot()` 必须先打开 EDB 会话，而本机许可被 FlexLM
 > 判为非法（`ISSUER="Team SolidSQUAD-SSQ"`，`Invalid license file syntax`），独立 EDB API 拿不到授权，
 > 所以按官方图的样式自绘：白底、居中 `Stackup` 标题、左侧介质层名、右侧铜/过孔层名、
