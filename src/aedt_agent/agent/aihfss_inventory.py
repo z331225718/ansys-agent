@@ -400,12 +400,27 @@ def _layout_inventory_node(context: Any) -> dict[str, Any]:
         target.write_text(json.dumps(inventory, ensure_ascii=False, indent=1), encoding="utf-8")
         artifacts = [str(target)]
         plot_info: dict[str, Any] = {"ok": False, "reason": "not attempted"}
+        project_hint = str(
+            payload.get("working_project_path") or payload.get("source_project_path") or ""
+        )
+        aedb_path = None
+        if project_hint:
+            candidate = Path(project_hint).with_suffix(".aedb")
+            if candidate.is_dir():
+                aedb_path = candidate
         try:
-            plot_info = render_stackup_plot(inventory, artifact_dir / STACKUP_PLOT_FILE)
+            plot_info = render_stackup_plot(
+                inventory,
+                artifact_dir / STACKUP_PLOT_FILE,
+                edb_path=aedb_path,
+            )
         except Exception as exc:  # noqa: BLE001 - the figure is optional
             plot_info = {"ok": False, "reason": f"{type(exc).__name__}: {exc}"[:200]}
         if plot_info.get("ok") and plot_info.get("path"):
             artifacts.append(str(plot_info["path"]))
+            meta = artifact_dir / STACKUP_PLOT_META_FILE
+            meta.write_text(json.dumps(plot_info, ensure_ascii=False, indent=1), encoding="utf-8")
+            artifacts.append(str(meta))
         output = {
             "status": "inventoried",
             "design": inventory.get("design"),
@@ -437,6 +452,51 @@ def _layout_inventory_node(context: Any) -> dict[str, Any]:
         }
 
 STACKUP_PLOT_FILE = "stackup_plot.png"
+STACKUP_PLOT_META_FILE = "stackup_plot.meta.json"
+
+
+def render_stackup_plot_official(
+    edb_path: Path | str,
+    output_path: Path | str,
+    *,
+    size: tuple[int, int] = (1600, 900),
+) -> dict[str, Any]:
+    """Draw the stackup with PyEDB (edb.stackup.plot()), the official renderer.
+
+    Uses the DotNet backend (grpc=False) on purpose: the gRPC backend starts a
+    local EDB server, which on a machine without an EDB license retries forever,
+    while DotNet fails fast with "Can't acquire license" and lets the caller fall
+    back to the matplotlib figure.
+    """
+    try:
+        from pyedb import Edb  # type: ignore
+    except Exception as exc:  # noqa: BLE001 - pyedb is optional
+        return {"ok": False, "engine": "pyedb", "reason": f"pyedb import failed: {type(exc).__name__}: {exc}"[:200]}
+    target = Path(output_path)
+    if not Path(edb_path).is_dir():
+        return {"ok": False, "engine": "pyedb", "reason": f"no aedb directory at {edb_path}"}
+    edb = None
+    try:
+        edb = Edb(edbpath=str(edb_path), isreadonly=True, grpc=False, version="2026.1")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        edb.stackup.plot(save_plot=str(target), show=False, size=size)
+        if not target.is_file():
+            return {"ok": False, "engine": "pyedb", "reason": "pyedb plot produced no file"}
+        return {
+            "ok": True,
+            "engine": "pyedb",
+            "path": str(target),
+            "bytes": target.stat().st_size,
+        }
+    except Exception as exc:  # noqa: BLE001 - license/EDB failures are expected
+        message = str(exc).split("\n")[0].replace("\r", " ").strip()
+        return {"ok": False, "engine": "pyedb", "reason": f"{type(exc).__name__}: {message}"[:300]}
+    finally:
+        if edb is not None:
+            try:
+                edb.close()
+            except Exception:  # noqa: BLE001
+                pass
 
 
 def render_stackup_plot(
@@ -444,6 +504,7 @@ def render_stackup_plot(
     output_path: Path | str,
     *,
     size: tuple[int, int] = (1600, 900),
+    edb_path: Path | str | None = None,
 ) -> dict[str, Any]:
     """Draw the stackup figure with matplotlib from the extracted records.
 
@@ -452,6 +513,11 @@ def render_stackup_plot(
     start, so this draws the identical content from the layer records we already
     read out of AEDT: name, type, material, thickness and elevation.
     """
+    official: dict[str, Any] = {"ok": False, "engine": "pyedb", "reason": "no aedb path provided"}
+    if edb_path:
+        official = render_stackup_plot_official(edb_path, output_path, size=size)
+        if official.get("ok"):
+            return {**official, "fallback_reason": ""}
     layers = [
         layer
         for layer in inventory.get("stackup") or []
@@ -532,8 +598,10 @@ def render_stackup_plot(
     plt.close(fig)
     return {
         "ok": True,
+        "engine": "matplotlib",
         "path": str(target),
         "bytes": target.stat().st_size if target.is_file() else 0,
         "layers": len(layers),
         "board_mm": round(total, 4),
+        "official_error": str(official.get("reason") or "")[:300],
     }

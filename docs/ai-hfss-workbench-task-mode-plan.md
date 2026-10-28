@@ -479,3 +479,11 @@ P4 已交付（收尾与验收证据）：
   `artifacts/stackup_plot.png` → snapshot `model.stackup_plot` → 前端第四个视图「层叠」；
   图片经 `GET /api/workbench/tasks/<id>/artifact/stackup_plot.png` 提供（白名单）。
 - 验证：任务推进后 snapshot `available=true`、路由 200/44007B、浏览器四 tab 正常显示。
+### P5 追加：官方 PyEDB 优先（license 实测）
+
+- 关掉 AEDT 后复测：`Edb(edbpath=..., isreadonly=True, grpc=False)`（DotNet 后端）能秒级启动，
+  但打开 EDB 报 `EDBErrorException: Can't acquire license`（EDBCWrapper/Database.cpp:128）→
+  本机 license 只覆盖 AEDT，不覆盖 EDB；gRPC 后端则 `No valid license detected` 并重试卡死。
+- 代码策略：`render_stackup_plot()` 先试官方（dotnet、快速失败），成功后标注「PyEDB 官方层叠图」；
+  失败回退 matplotlib 并在图上标注原因；原因同时写入 `stackup_plot.meta.json`，snapshot 暴露
+  `model.stackup_plot.engine / reason`。

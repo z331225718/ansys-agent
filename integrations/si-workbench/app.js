@@ -871,7 +871,12 @@
       layers.forEach(function (layer) { parts.push('<button type="button" class="model-chip active" data-model-layer="' + esc(layer) + '">' + esc(layer) + '</button>'); });
       parts.push('</div>');
     }
-    const stackupImg = (stackupPlot && stackupPlot.available) ? '<img class="model-stackup" alt="stackup" src="' + esc(stackupPlot.url || "") + '" hidden>' : "";
+    const stackupNote = stackupPlot && stackupPlot.available
+      ? (stackupPlot.engine === "pyedb" ? "PyEDB 官方层叠图" : "matplotlib 等价图 · PyEDB: " + String(stackupPlot.reason || "不可用").slice(0, 72))
+      : "";
+    const stackupImg = (stackupPlot && stackupPlot.available)
+      ? '<div class="model-stackup-wrap" hidden><img class="model-stackup" alt="stackup" src="' + esc(stackupPlot.url || "") + '"><span class="model-stackup-note">' + esc(stackupNote) + '</span></div>'
+      : "";
     parts.push('<div class="model-stage">' + topViewSvg(inv) + sectionViewSvg(inv).replace('<svg ', '<svg hidden ') + stackupImg + '<canvas class="model-3d" hidden></canvas></div>');
     parts.push('<div class="model-legend">真实 inventory · 单位 mm · 虚线框=器件 footprint · 过孔=孔径 · 悬停查看名称/网络/层</div>');
     parts.push('</div>');
@@ -883,7 +888,7 @@
         tabs.forEach(function (item) { item.classList.toggle('active', item === tab); });
         const view = tab.dataset.modelView;
         svgs.forEach(function (svg, index) { const show = (view === 'top' && index === 0) || (view === 'section' && index === 1); svg.toggleAttribute('hidden', !show); });
-        const stackup = stage.querySelector('img.model-stackup');
+        const stackup = stage.querySelector('.model-stackup-wrap');
         if (stackup) stackup.toggleAttribute('hidden', view !== 'stackup');
         const canvas = stage.querySelector('canvas.model-3d');
         if (canvas) {

@@ -793,3 +793,6 @@ kbd { color: #6f879b; background: #f3f7fa; border-color: #d7e1e9; }
 /* ── official-style stackup figure ──────────────────────────────────────── */
 .model-stage img.model-stackup { display: block; width: 100%; height: 100%; object-fit: contain; background: #0e161d; }
 .model-stage img.model-stackup[hidden] { display: none; }
+.model-stackup-wrap { position: relative; width: 100%; height: 100%; }
+.model-stackup-wrap[hidden] { display: none; }
+.model-stackup-note { position: absolute; left: 8px; bottom: 6px; padding: 2px 6px; border-radius: 3px; background: rgba(10,16,22,.72); color: #9fb3c0; font-family: var(--mono); font-size: 9px; }.model-stackup-note { display: inline-block; max-width: 92%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

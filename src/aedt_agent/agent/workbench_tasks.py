@@ -597,9 +597,17 @@ class TaskService:
         # The legacy read-only projection reports workflow_* false; this task
         # surface is where those actions ARE allowed (the workbench owns the
         # strict workflow), so state it explicitly instead of overloading it.
-        from aedt_agent.agent.aihfss_inventory import STACKUP_PLOT_FILE
+        from aedt_agent.agent.aihfss_inventory import STACKUP_PLOT_FILE, STACKUP_PLOT_META_FILE
 
-        plot_path = workspace.tasks_dir / task_id / "artifacts" / STACKUP_PLOT_FILE
+        artifacts_dir = workspace.tasks_dir / task_id / "artifacts"
+        plot_path = artifacts_dir / STACKUP_PLOT_FILE
+        plot_info: dict[str, Any] = {}
+        meta_path = artifacts_dir / STACKUP_PLOT_META_FILE
+        if meta_path.is_file():
+            try:
+                plot_info = json.loads(meta_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                plot_info = {}
         model = payload.get("model")
         if isinstance(model, dict):
             model["stackup_plot"] = {
@@ -609,6 +617,8 @@ class TaskService:
                     if plot_path.is_file()
                     else ""
                 ),
+                "engine": str(plot_info.get("engine") or ""),
+                "reason": str(plot_info.get("official_error") or plot_info.get("reason") or "")[:300],
             }
         payload["task_capabilities"] = {
             "task_advance": True,

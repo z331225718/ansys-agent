@@ -120,9 +120,12 @@
   依赖 `matplotlib`（可选，未安装时该视图不出现，其余视图不受影响）：
   `pip install matplotlib`。
 
-> 为什么不用 PyEDB 的 `edb.stackup.plot()`：它需要 EDB 会话，pyedb 0.80 默认 gRPC 后端，
-> 在 AEDT 已占用 license 的机器上会 `No valid license detected` 并反复重试（实测卡死）；
-> 内容与我们从 AEDT 读到的层叠记录一致，所以用 matplotlib 画等价图。
+> **优先用官方 PyEDB**：`render_stackup_plot()` 先调 `edb.stackup.plot()`（DotNet 后端 `grpc=False`，
+> 失败会快速返回而不是卡住），成功则图上标注「PyEDB 官方层叠图」；
+> 若本机没有 EDB feature（`Can't acquire license`），自动回退到 matplotlib 等价图，
+> 并在图上标注原因，例如：`matplotlib 等价图 · PyEDB: EDBErrorException: Can't acquire license`。
+> 想启用官方图：让 `ANSYSLMD_LICENSE_FILE` 指向含 EDB/SIWave feature 的 license（当前是 `1055@localhost`，
+> 只有 AEDT 能起、EDB 拿不到 license），无需改代码。
 
 - **3D 视图（第三档）**：按真实 stackup 标高把铺铜/走线/过孔拉伸成 3D，
   器件画成线框；可拖拽旋转、滚轮缩放；Z 轴放大 3× 并明确标注（真实板厚 0.49mm，
