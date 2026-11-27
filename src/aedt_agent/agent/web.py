@@ -1234,9 +1234,15 @@ def _handle_workbench_tasks(method: str, route: str, body: bytes) -> tuple[int, 
                 return _json(service.stop_auto(task_id))
             if action == "approvals" and method == "GET":
                 return _json({"approvals": service.list_approvals(task_id)})
-            if action == "artifact" and method == "GET" and len(parts) == 6:
-                path = service.artifact_file(task_id, parts[5])
-                return 200, {"content-type": "image/png"}, path.read_bytes()
+            if action == "artifact" and method == "GET" and len(parts) >= 6:
+                # The name is a task-relative path, so it may carry slashes
+                # (`runs/optimization_progress/...`), and it arrives
+                # percent-encoded. Decode it here and let `artifact_file` do
+                # the containment check, so `..` reaches that check as `..`
+                # instead of being resolved away first.
+                name = unquote("/".join(parts[5:]))
+                path = service.artifact_file(task_id, name)
+                return _file_response(path)
             if action == "delete" and method == "POST":
                 req = _json_body(body)
                 return _json(service.delete_task(task_id, confirm=str(req.get("confirm") or "")))

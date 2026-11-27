@@ -25,11 +25,26 @@ def workbench_static(path: str) -> tuple[int, dict[str, str], bytes]:
 
 
 def workbench_missions(runtime: AgentRuntime) -> dict[str, Any]:
+    """List the missions in the MAIN dashboard database.
+
+    Workbench optimization tasks do NOT appear here: each task owns its own
+    ``missions.db`` under ``.ai-hfss/tasks/<task_id>/``, and the task list in the
+    left panel is the surface for those. Say so in the payload rather than
+    leaving the UI to present an empty list as "there is no work".
+    """
     records = []
     for mission in runtime.store.list_missions():
         runs = runtime.store.list_graph_runs(mission.mission_id)
         records.append({"mission_id": mission.mission_id, "goal": mission.user_goal, "state": mission.state.value, "created_at": mission.created_at, "graph_run_id": runs[-1].graph_run_id if runs else "", "graph_status": runs[-1].status.value if runs else ""})
-    return {"missions": records, "mode": "mission_readonly"}
+    return {
+        "missions": records,
+        "mode": "mission_readonly",
+        "scope": "main_database",
+        "note": (
+            "只列出主 dashboard 数据库的 Mission。工作台的优化任务各自拥有独立数据库，"
+            "请在左侧「工作区 / 优化任务」中查看。"
+        ),
+    }
 
 
 def workbench_snapshot(runtime: AgentRuntime, graph_run_id: str) -> dict[str, Any]:
@@ -138,23 +153,32 @@ _SAFE_ARTIFACT_KINDS = {
     "touchstone",
 }
 _DENIED_SUFFIXES = {".aedt", ".aedb", ".edb", ".brd", ".aedtz", ".tgz", ".zip"}
+# Artifacts the workbench may serve read-only. A touchstone is an artifact, not
+# a project file: `.s1p` comes from a single-point smoke run and `.s2p`..`.sNp`
+# from a channel export, so both are allowed.
+_ALLOWED_ARTIFACT_SUFFIXES = {".html", ".csv", ".json", ".svg", ".png", ".jpg", ".jpeg", ".txt"}
+_TOUCHSTONE_SUFFIX = re.compile(r"\.s[1-9]\d*p")
+
+
+def artifact_suffix_allowed(path: str | Path) -> bool:
+    """Whether this path's suffix may be served read-only.
+
+    Shared by the mission projection and the workbench task route so the two
+    surfaces cannot drift into different allowlists.
+    """
+    suffix = Path(str(path)).suffix.casefold()
+    if suffix in _DENIED_SUFFIXES:
+        return False
+    return suffix in _ALLOWED_ARTIFACT_SUFFIXES or bool(_TOUCHSTONE_SUFFIX.fullmatch(suffix))
 
 
 def _safe_artifacts(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     safe = []
     for record in records:
         kind = str(record.get("kind") or "")
-        path = Path(str(record.get("path") or ""))
         if kind not in _SAFE_ARTIFACT_KINDS:
             continue
-        if path.suffix.casefold() in _DENIED_SUFFIXES:
-            continue
-        suffix = path.suffix.casefold()
-        allowed = {".html", ".csv", ".json", ".svg", ".png", ".jpg", ".jpeg", ".txt"}
-        # Touchstones are read-only artifacts too (.s1p from a single-point
-        # smoke run, .s2p..sNp from a channel export).
-        touchstone = bool(re.fullmatch(r"\.s[1-9]\d*p", suffix))
-        if suffix not in allowed and not touchstone:
+        if not artifact_suffix_allowed(str(record.get("path") or "")):
             continue
         safe.append(record)
     return safe
