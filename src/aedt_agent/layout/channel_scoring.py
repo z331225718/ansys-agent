@@ -15,11 +15,15 @@ def parse_touchstone(
     frequency_unit = "GHZ"
     data_format = "MA"
     source_reference_impedance_ohm = 50.0
-    port_count = _touchstone_port_count(path)
+    text = Path(path).read_text(encoding="utf-8", errors="replace")
+    # The width has to be settled BEFORE any slicing: `expected_number_count`
+    # decides where one frequency point ends. Reading the declaration only when
+    # the loop reaches it would slice the earlier points at the wrong width.
+    port_count = touchstone_port_count(path, text=text)
     expected_number_count = 1 + (2 * port_count * port_count)
     pending_numbers: list[float] = []
     samples: list[dict[str, float]] = []
-    for raw_line in Path(path).read_text(encoding="utf-8", errors="replace").splitlines():
+    for raw_line in text.splitlines():
         line = raw_line.split("!", 1)[0].strip()
         if not line:
             continue
@@ -35,10 +39,8 @@ def parse_touchstone(
             )
             continue
         if line.startswith("["):
-            match = re.match(r"\[Number of Ports\]\s+([0-9]+)", line, re.IGNORECASE)
-            if match:
-                port_count = int(match.group(1))
-                expected_number_count = 1 + (2 * port_count * port_count)
+            # Already accounted for by the pre-scan above; re-slicing here would
+            # misalign every point buffered so far.
             continue
         pending_numbers.extend(float(item) for item in line.split())
         while len(pending_numbers) >= expected_number_count:
@@ -102,8 +104,8 @@ def score_channel_result(
     trace_config = _trace_config(sparameters, sparameter_mode)
     rl_key = trace_config["return_loss_key"]
     il_key = trace_config["insertion_loss_key"]
-    touchstone_port_count = int(sparameters[0].get("port_count", 0))
-    touchstone_kind = f"s{touchstone_port_count}p" if touchstone_port_count else "unknown"
+    sample_port_count = int(sparameters[0].get("port_count", 0))
+    touchstone_kind = f"s{sample_port_count}p" if sample_port_count else "unknown"
     tdr_samples = parse_tdr_csv(tdr_path)
     if not tdr_samples:
         raise ValueError("TDR artifact contains no samples")
@@ -219,7 +221,58 @@ def _complex_value(first: float, second: float, data_format: str) -> complex:
     return complex(first * math.cos(angle), first * math.sin(angle))
 
 
-def _touchstone_port_count(path: Path) -> int:
+_PORT_DECLARATION = re.compile(r"^\s*!\s*port\[[^\]]*\]\s*=", re.IGNORECASE)
+_NUMBER_OF_PORTS = re.compile(r"\[\s*number of ports\s*\]\s*([0-9]+)", re.IGNORECASE)
+
+
+def _declared_port_count(text: str) -> int:
+    """The width the file declares about itself, or 0 if it declares none.
+
+    `[Number of Ports] N` is the keyword form; `! Port[n] = ...` lines are what
+    AEDT actually writes, and their count is the width. A file that names itself
+    `.touchstone` has no suffix to read, so these are the only honest sources —
+    guessing from the data would mean inferring the width from the row length.
+    """
+    declared = 0
+    declarations = 0
+    for raw_line in text.splitlines():
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("["):
+            match = _NUMBER_OF_PORTS.match(stripped)
+            if match:
+                declared = int(match.group(1))
+            continue
+        if _PORT_DECLARATION.match(stripped):
+            declarations += 1
+    # A file can carry both; they agree in every export seen. Prefer the
+    # explicit keyword when present, and never let a stray `! Port[..]` line
+    # outvote it.
+    return declared or declarations
+
+
+def touchstone_port_count(path: Path, *, text: str | None = None) -> int:
+    """How many ports the Touchstone at `path` holds.
+
+    Content first: the file's own declaration decides, because the name is
+    metadata a caller can get wrong — an export renamed to `.touchstone` (or
+    `.s1p`) still holds four ports, and slicing it as a two-port file turns S
+    values into frequencies. The `.sNp` suffix is the fallback for files that
+    declare nothing, and 2 remains the last resort so callers that relied on
+    that default keep working.
+
+    `text` lets a caller that already read the file pass it in, so `parse_touchstone`
+    does not read it twice.
+    """
+    if text is None:
+        try:
+            text = Path(path).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            text = ""
+    declared = _declared_port_count(text)
+    if declared:
+        return declared
     match = re.search(r"\.s([1-9][0-9]*)p$", str(path), re.IGNORECASE)
     return int(match.group(1)) if match else 2
 
@@ -321,7 +374,7 @@ def _score_reference_impedance(
     mode = sparameter_mode.strip().casefold()
     if mode in {"differential", "diff", "mixed_mode"}:
         return float(tdr_target_ohm)
-    if mode == "auto" and _touchstone_port_count(touchstone_path) >= 4:
+    if mode == "auto" and touchstone_port_count(touchstone_path) >= 4:
         return float(tdr_target_ohm)
     return None
 

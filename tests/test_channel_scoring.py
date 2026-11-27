@@ -1,9 +1,19 @@
 import json
+import shutil
 import subprocess
 import sys
+from pathlib import Path
 
-from aedt_agent.layout.channel_scoring import compare_channel_scores, parse_tdr_csv, parse_touchstone, score_channel_result
+from aedt_agent.layout.channel_scoring import (
+    compare_channel_scores,
+    parse_tdr_csv,
+    parse_touchstone,
+    score_channel_result,
+    touchstone_port_count,
+)
 from aedt_agent.reporting.channel_scoring_report import render_channel_score_html
+
+REAL_S4P = Path(__file__).resolve().parent / "fixtures" / "touchstone" / "channel_1ghz.s4p"
 
 
 def test_parse_touchstone_reads_s2p_magnitude_angle_samples(tmp_path):
@@ -317,3 +327,109 @@ def test_compare_stage_c_channel_cli_writes_comparison(tmp_path):
 
     assert result.returncode == 0
     assert json.loads(output.read_text(encoding="utf-8"))["status"] == "improved"
+
+
+# ── the file's content decides its width, not its name ──────────────────────
+#
+# A real AEDT export renamed to `.touchstone` (or `.s1p`) still holds four
+# ports. Slicing it as a two-port file does not merely downgrade the mode: it
+# reads S values as frequencies, so `-4.29` becomes -4.29 GHz and every metric
+# downstream is computed from nonsense.
+
+_TDR_CSV = "time_ps,impedance_ohm\n0,100\n10,104\n20,92\n30,101\n"
+
+
+def _copy_fixture(tmp_path: Path, name: str) -> Path:
+    target = tmp_path / name
+    shutil.copyfile(REAL_S4P, target)
+    return target
+
+
+def test_parse_touchstone_reads_four_ports_from_a_touchstone_named_file(tmp_path):
+    path = _copy_fixture(tmp_path, "channel_1ghz.touchstone")
+
+    samples = parse_touchstone(path)
+
+    assert len(samples) == 1
+    assert samples[0]["port_count"] == 4
+    assert "sdd11_db" in samples[0]
+    assert "sdd21_db" in samples[0]
+    assert samples[0]["frequency_ghz"] == 1.0
+
+
+def test_parse_touchstone_reads_four_ports_from_an_s1p_named_file(tmp_path):
+    path = _copy_fixture(tmp_path, "channel_1ghz.s1p")
+
+    samples = parse_touchstone(path)
+
+    assert len(samples) == 1
+    assert samples[0]["port_count"] == 4
+    assert "sdd11_db" in samples[0]
+    assert samples[0]["frequency_ghz"] == 1.0
+
+
+def test_parse_touchstone_still_slices_a_real_s2p_by_two_ports(tmp_path):
+    """No declaration, `.s2p` name: the existing behaviour is unchanged."""
+    path = tmp_path / "case.s2p"
+    path.write_text(
+        "# GHz S MA R 50\n"
+        "1.0 0.10 0 0.80 0 0.80 0 0.10 0\n"
+        "2.0 0.20 0 0.70 0 0.70 0 0.20 0\n",
+        encoding="utf-8",
+    )
+
+    samples = parse_touchstone(path)
+
+    assert [sample["frequency_ghz"] for sample in samples] == [1.0, 2.0]
+    assert samples[0]["port_count"] == 2
+    assert "sdd11_db" not in samples[0]
+
+
+def test_touchstone_port_count_falls_back_to_two_without_a_name_or_declaration(tmp_path):
+    """The last resort stays 2 — it is an existing default, not an error."""
+    path = tmp_path / "exported"
+    path.write_text(
+        "# GHz S MA R 50\n"
+        "1.0 0.10 0 0.80 0 0.80 0 0.10 0\n",
+        encoding="utf-8",
+    )
+
+    assert touchstone_port_count(path) == 2
+
+
+def test_touchstone_port_count_reads_the_number_of_ports_keyword(tmp_path):
+    path = tmp_path / "declared.s2p"
+    path.write_text(
+        "[Number of Ports] 4\n"
+        "# GHz S MA R 50\n"
+        "1.0 " + " ".join(["0.1 0"] * 16) + "\n",
+        encoding="utf-8",
+    )
+
+    assert touchstone_port_count(path) == 4
+    samples = parse_touchstone(path)
+    assert len(samples) == 1
+    assert samples[0]["port_count"] == 4
+
+
+def test_score_channel_result_agrees_across_names_for_the_same_data(tmp_path):
+    """The same bytes under two names must score identically, end to end."""
+    tdr = tmp_path / "tdr.csv"
+    tdr.write_text(_TDR_CSV, encoding="utf-8")
+    as_s4p = _copy_fixture(tmp_path, "channel_1ghz.s4p")
+    as_bare = _copy_fixture(tmp_path, "channel_1ghz.touchstone")
+
+    score_s4p = score_channel_result(as_s4p, tdr, frequency_stop_ghz=28.0, tdr_target_ohm=100)
+    score_bare = score_channel_result(as_bare, tdr, frequency_stop_ghz=28.0, tdr_target_ohm=100)
+
+    assert score_bare["sparameter_mode"] == "differential"
+    assert score_bare["touchstone_kind"] == "s4p"
+    for key in (
+        "sparameter_mode",
+        "touchstone_kind",
+        "rl_worst_db",
+        "insertion_worst_db_in_band",
+        "rl_worst_frequency_ghz",
+        "reference_impedance_ohm",
+    ):
+        assert score_bare[key] == score_s4p[key], key
