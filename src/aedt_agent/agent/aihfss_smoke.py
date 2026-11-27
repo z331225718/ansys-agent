@@ -121,12 +121,24 @@ def _solve_layout_point(context: GraphNodeExecutionContext) -> dict[str, Any]:
         # from the `.sNp` suffix, so leaving a wrong suffix on disk is worse than
         # an honest placeholder.
         design_port_count = _design_port_count(layout)
+        stem = f"channel_{frequency_ghz:g}ghz"
         if requested_touchstone_name:
+            # A user-supplied name is theirs: nothing is cleared on its behalf and
+            # the exact path is reported as found, as it always has been. The
+            # sibling names are still remembered, because the glob fallback below
+            # must not adopt an earlier round's file if AEDT re-extends the name.
             touchstone = artifact_dir / requested_touchstone_name
-        elif design_port_count:
-            touchstone = artifact_dir / f"channel_{frequency_ghz:g}ghz.s{design_port_count}p"
+            stale_names = _sibling_names(touchstone)
         else:
-            touchstone = artifact_dir / f"channel_{frequency_ghz:g}ghz.touchstone"
+            # The artifact directory outlives a round: clear this stem's earlier
+            # export first so whatever lands here afterwards is this run's file.
+            # Only this exact stem is touched; other frequencies stay.
+            _clear_previous_exports(artifact_dir, stem)
+            stale_names = set()
+            if design_port_count:
+                touchstone = artifact_dir / f"{stem}.s{design_port_count}p"
+            else:
+                touchstone = artifact_dir / f"{stem}.touchstone"
         exported = layout.export_touchstone(
             setup=setup_name,
             sweep=sweep_name,
@@ -134,8 +146,9 @@ def _solve_layout_point(context: GraphNodeExecutionContext) -> dict[str, Any]:
         )
         # AEDT may append its own `.sNp` extension to a name it does not
         # recognise, so adopt the file it actually wrote rather than reporting a
-        # path that does not exist.
-        touchstone = _resolve_exported_file(touchstone)
+        # path that does not exist. Files that predate the export are never
+        # adopted: this node reports this round's artifact or nothing.
+        touchstone = _resolve_exported_file(touchstone, stale_names=stale_names)
         # `get_touchstone_data` returns one TouchstoneData per variation, so its
         # `len` is a variation count. Ask the object for its own frequency axis.
         data: Any = None
@@ -146,21 +159,27 @@ def _solve_layout_point(context: GraphNodeExecutionContext) -> dict[str, Any]:
         except Exception:  # noqa: BLE001 - the file itself is the artifact
             points = 0
         parsed = _parse_touchstone(touchstone)
-        if points <= 0:
-            points = parsed["point_count"]
-        port_count = int(
-            parsed["port_count"]
-            or design_port_count
-            or _touchstone_nports_from_data(data)
-            or 0
-        )
-        touchstone_kind = f"s{port_count}p" if port_count else "unknown"
-        warnings = list(parsed["warnings"])
-        if not touchstone.is_file():
-            warnings.append(
-                f"export reported success but no file was found at {touchstone}; "
-                f"the name was not adjusted"
+        if touchstone.is_file():
+            if points <= 0:
+                points = parsed["point_count"]
+            port_count = int(
+                parsed["port_count"]
+                or design_port_count
+                or _touchstone_nports_from_data(data)
+                or 0
             )
+            warnings = list(parsed["warnings"])
+        else:
+            # Nothing was written: report no file-derived fact at all. The
+            # solution data may still know the width, but claiming it here would
+            # hand the caller a `s4p`/`points: 1` for a file that does not exist.
+            points = 0
+            port_count = 0
+            warnings = [
+                f"export reported success but no file was found at {touchstone}; "
+                f"no port count or point count is reported"
+            ]
+        touchstone_kind = f"s{port_count}p" if port_count else "unknown"
         renamed_from = ""
         if not requested_touchstone_name and touchstone.is_file():
             wanted_suffix = f".s{port_count}p" if port_count else ""
@@ -169,8 +188,10 @@ def _solve_layout_point(context: GraphNodeExecutionContext) -> dict[str, Any]:
                     f"channel_{frequency_ghz:g}ghz{wanted_suffix}"
                 )
                 try:
+                    # Only this run's file may occupy the final name; anything
+                    # left there predates the export and was already cleared.
                     if renamed.exists():
-                        renamed.unlink()  # a stale file from an earlier run
+                        renamed.unlink()
                     touchstone.rename(renamed)
                 except OSError as exc:  # noqa: BLE001 - keep the file, say why
                     warnings.append(
@@ -471,17 +492,58 @@ def _touchstone_frequencies(path: Path) -> list[float]:
     return list(_parse_touchstone(path)["frequencies_ghz"])
 
 
-def _resolve_exported_file(path: Path) -> Path:
+def _sibling_names(path: Path) -> set[str]:
+    """Names of the `.sNp` files already beside `path`, before an export."""
+    try:
+        return {item.name for item in path.parent.glob(f"{path.stem}.s*p") if item.is_file()}
+    except OSError:
+        return set()
+
+
+def _clear_previous_exports(artifact_dir: Path, stem: str) -> list[str]:
+    """Delete this stem's earlier exports, returning the names removed.
+
+    The artifact directory is reused across rounds. Clearing the exact stem
+    (`channel_1ghz.s4p`, `channel_1ghz.touchstone`, ...) before exporting means a
+    later `_resolve_exported_file` glob can only find a file this run wrote. Other
+    stems — a different frequency, an unrelated export — are left alone, and a
+    file that cannot be removed is reported rather than silently skipped.
+    """
+    removed: list[str] = []
+    for candidate in sorted(artifact_dir.glob(f"{stem}.*")):
+        if not candidate.is_file():
+            continue
+        if not _TOUCHSTONE_SUFFIX.search(candidate.name) and candidate.suffix.lower() != ".touchstone":
+            continue
+        try:
+            candidate.unlink()
+        except OSError:
+            continue
+        removed.append(candidate.name)
+    return removed
+
+
+def _resolve_exported_file(path: Path, *, stale_names: set[str] | None = None) -> Path:
     """The file AEDT actually wrote for `path`.
 
     AEDT honours a `.sNp` name as given, but may append its own extension when
     the name carries none (our provisional name). Prefer the exact path, then a
     single `.sNp` sibling, and otherwise keep the requested path so the caller
     reports a missing artifact rather than inventing one.
+
+    `stale_names` are files that existed beside `path` before the export. They
+    are never adopted: an artifact directory reused across rounds holds earlier
+    results, and reporting one of those as this round's output would be worse
+    than reporting nothing.
     """
     if path.is_file():
         return path
-    siblings = sorted(path.parent.glob(f"{path.stem}.s*p"))
+    stale = stale_names or set()
+    siblings = [
+        item
+        for item in sorted(path.parent.glob(f"{path.stem}.s*p"))
+        if item.is_file() and item.name not in stale
+    ]
     return siblings[0] if len(siblings) == 1 else path
 
 

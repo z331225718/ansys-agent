@@ -574,9 +574,11 @@ def test_missing_export_file_is_reported_not_disguised(tmp_path: Path):
     assert result["status"] == "succeeded", result
     payload = result["output_payload"]
     assert payload["touchstone_exists"] is False
-    # The solution data still knows the width, so the payload can report it —
-    # but `touchstone_exists: false` keeps the missing artifact visible.
-    assert payload["touchstone_kind"] == "s4p"
+    # No file means no file-derived fact: reporting `s4p`/`points: 1` here would
+    # describe a file this round never wrote.
+    assert payload["touchstone_kind"] == "unknown"
+    assert payload["touchstone_port_count"] == 0
+    assert payload["touchstone_points"] == 0
     assert Path(payload["touchstone_path"]).name == "channel_1ghz.touchstone"
     assert payload["touchstone_renamed_from"] == ""
     assert any(
@@ -610,6 +612,148 @@ def test_missing_export_file_without_solution_data_reports_unknown(tmp_path: Pat
     assert Path(payload["touchstone_path"]).name == "channel_1ghz.touchstone"
     warnings = payload["touchstone_parse_warnings"]
     assert any("no file was found" in warning for warning in warnings)
+
+
+def test_leftover_export_from_an_earlier_round_is_never_adopted(tmp_path: Path):
+    """A reused artifact dir must not hand back the previous round's file.
+
+    Round 1 leaves `channel_1ghz.s4p`. Round 2 cannot report ports and its export
+    writes nothing. Without clearing, the glob would find round 1's file and the
+    node would report `s4p` / `points: 1` for a file it never wrote.
+    """
+
+    class _NoPorts(_FakeLayout):
+        @property
+        def port_list(self) -> list[str]:
+            raise RuntimeError("GetAllPortsList failed")
+
+    class _WritesNothing(_NoPorts):
+        def export_touchstone(self, *, setup: str, sweep: str, output_file: str) -> str:
+            self.exported_to = Path(output_file)
+            return str(output_file)
+
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir(parents=True)
+    leftover = artifacts / "channel_1ghz.s4p"
+    leftover.write_text(REAL_S4P.read_text(encoding="utf-8"), encoding="utf-8")
+
+    layout = _WritesNothing(ports=[], file_port_count=4)
+    result = _run_node(tmp_path, layout, {})
+    assert result["status"] == "succeeded", result
+    payload = result["output_payload"]
+    assert payload["touchstone_exists"] is False
+    assert payload["touchstone_kind"] == "unknown"
+    assert payload["touchstone_port_count"] == 0
+    assert payload["touchstone_points"] == 0
+    assert Path(payload["touchstone_path"]).name == "channel_1ghz.touchstone"
+    assert payload["touchstone_renamed_from"] == ""
+    warnings = payload["touchstone_parse_warnings"]
+    assert any("no file was found" in warning for warning in warnings)
+    # The earlier round's file is cleared before the export, so it cannot be
+    # mistaken for this round's output either.
+    assert not leftover.exists()
+
+
+def test_leftover_is_cleared_then_the_new_export_is_adopted(tmp_path: Path):
+    """Same setup, but AEDT writes this time: the fresh file is claimed cleanly."""
+
+    class _NoPorts(_FakeLayout):
+        @property
+        def port_list(self) -> list[str]:
+            raise RuntimeError("GetAllPortsList failed")
+
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir(parents=True)
+    (artifacts / "channel_1ghz.s4p").write_text("stale round-1 content", encoding="utf-8")
+
+    layout = _NoPorts(ports=[], file_port_count=4)
+    result = _run_node(tmp_path, layout, {})
+    assert result["status"] == "succeeded", result
+    payload = result["output_payload"]
+    assert payload["touchstone_exists"] is True
+    assert payload["touchstone_kind"] == "s4p"
+    assert payload["touchstone_port_count"] == 4
+    assert payload["touchstone_points"] == 1
+    assert payload["touchstone_parse_warnings"] == []
+    assert payload["touchstone_renamed_from"] == "channel_1ghz.touchstone"
+    final = artifacts / "channel_1ghz.s4p"
+    assert final.is_file()
+    assert "stale round-1 content" not in final.read_text(encoding="utf-8")
+    assert "! Port[4]" in final.read_text(encoding="utf-8")
+
+
+def test_clearing_leaves_other_stems_and_files_alone(tmp_path: Path):
+    """Only this frequency's own exports are cleared."""
+
+    class _NoPorts(_FakeLayout):
+        @property
+        def port_list(self) -> list[str]:
+            raise RuntimeError("GetAllPortsList failed")
+
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir(parents=True)
+    neighbours = {
+        "channel_2ghz.s2p": "# GHz S MA R 50\n1 0.1 0 0.2 0 0.3 0 0.4 0\n",
+        "other.s4p": REAL_S4P.read_text(encoding="utf-8"),
+        "channel_1ghz.png": "not a touchstone",
+        "channel_1ghz_notes.txt": "keep me",
+    }
+    for name, text in neighbours.items():
+        (artifacts / name).write_text(text, encoding="utf-8")
+    (artifacts / "channel_1ghz.s1p").write_text("stale", encoding="utf-8")
+
+    layout = _NoPorts(ports=[], file_port_count=4)
+    result = _run_node(tmp_path, layout, {})
+    assert result["status"] == "succeeded", result
+    for name in neighbours:
+        assert (artifacts / name).is_file(), f"{name} must survive the clear"
+    assert not (artifacts / "channel_1ghz.s1p").exists(), "this stem's stale export goes"
+    assert (artifacts / "channel_1ghz.s4p").is_file()
+
+
+def test_explicit_name_is_never_deleted_from_a_reused_directory(tmp_path: Path):
+    """A user-named export is theirs: the clear never runs on its behalf."""
+
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir(parents=True)
+    kept = artifacts / "custom.s4p"
+    kept.write_text("previous round", encoding="utf-8")
+
+    class _WritesNothing(_FakeLayout):
+        def export_touchstone(self, *, setup: str, sweep: str, output_file: str) -> str:
+            self.exported_to = Path(output_file)
+            return str(output_file)
+
+    layout = _WritesNothing(ports=["Port1", "Port2", "Port3", "Port4"], file_port_count=4)
+    result = _run_node(tmp_path, layout, {"touchstone_name": "custom.s4p"})
+    assert result["status"] == "succeeded", result
+    payload = result["output_payload"]
+    assert kept.read_text(encoding="utf-8") == "previous round"
+    assert payload["touchstone_path"].endswith("custom.s4p")
+
+
+def test_explicit_name_glob_fallback_ignores_a_preexisting_sibling(tmp_path: Path):
+    """A user name AEDT re-extends must not resolve to a file that was already there."""
+
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir(parents=True)
+    (artifacts / "custom.s4p").write_text("previous round", encoding="utf-8")
+
+    class _WritesNothing(_FakeLayout):
+        def export_touchstone(self, *, setup: str, sweep: str, output_file: str) -> str:
+            self.exported_to = Path(output_file)
+            return str(output_file)
+
+    layout = _WritesNothing(ports=["Port1", "Port2", "Port3", "Port4"], file_port_count=4)
+    result = _run_node(tmp_path, layout, {"touchstone_name": "custom.touchstone"})
+    assert result["status"] == "succeeded", result
+    payload = result["output_payload"]
+    assert payload["touchstone_exists"] is False
+    assert payload["touchstone_kind"] == "unknown"
+    assert payload["touchstone_points"] == 0
+    assert any(
+        "no file was found" in warning for warning in payload["touchstone_parse_warnings"]
+    )
 
 
 def test_get_touchstone_data_failure_falls_back_to_the_file(tmp_path: Path):
