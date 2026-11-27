@@ -1,6 +1,6 @@
 # The `code` agent preset: the standard coding agent, presented as Code Mode.
 #
-# Everything in `standard` is here unchanged. What is added is the `tool-presentation`
+# Everything in `standard` is here unchanged. What is added is the `tool-executor-ptc`
 # row: instead of one tool call per action, the model writes a TypeScript
 # program against a generated SDK and `run_code` executes it, so a sequence
 # that would be five round trips becomes one.
@@ -267,10 +267,13 @@
 # Code Mode for this agent alone. The row waits for the host's `codeRuntime`
 # rather than assuming it: a deployment that composes no TypeScript runtime
 # fails this preset at mount, naming this id, instead of at the first request.
-- id: tool-presentation
-  name: '@deepseek-ai/dsh-agent-tool-presentation'
-  config:
-    mode: ptc
+#
+# DSH 0.2.2 renamed the module: `dsh-tool-executor-ptc` replaces
+# `dsh-agent-tool-presentation` with `mode: ptc`, which that module no longer
+# offers. Keep this row in step with the same row in
+# `bundles/ansys-engineering/cordis.patch.yml`.
+- id: tool-executor-ptc
+  name: '@deepseek-ai/dsh-tool-executor-ptc'
 
 - id: present
   name: '@deepseek-ai/dsh-tool-present'

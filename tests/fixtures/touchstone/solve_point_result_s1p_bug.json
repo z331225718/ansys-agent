@@ -1,0 +1,23 @@
+{
+  "status": "solved",
+  "design": "102-006060501_R01_0610-3-s19_zzm_L30_test",
+  "setup": "Setup1",
+  "sweep": "AIHFSS_1GHz",
+  "frequency_ghz": 1.0,
+  "solve_seconds": 66.6,
+  "touchstone_path": "E:\\ai-hfss-test\\.ai-hfss\\tasks\\T-20261127-222228-d538\\artifacts\\channel_1ghz.s1p",
+  "touchstone_exists": true,
+  "touchstone_bytes": 1346,
+  "touchstone_points": 1,
+  "touchstone_frequencies_ghz": [
+    1.0,
+    0.008451,
+    0.998905,
+    0.002847
+  ],
+  "export_returned": "E:/ai-hfss-test/.ai-hfss/tasks/T-20261127-222228-d538/artifacts/channel_1ghz.s1p",
+  "working_project_path": "E:\\ai-hfss-test\\.ai-hfss\\tasks\\T-20261127-222228-d538\\runs\\working\\102-006060501_R01_0610-3-s19_zzm_L30_test.aedt",
+  "source_project_path": "E:\\ai-hfss-test\\102-006060501_R01_0610-3-s19_zzm_L30_test.aedt",
+  "source_copied": true,
+  "total_seconds": 78.5
+}
