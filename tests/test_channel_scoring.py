@@ -657,3 +657,109 @@ def test_a_single_point_file_is_decided_by_its_shape_not_by_the_default(tmp_path
         "# GHz S MA R 50\n1.0 0.10 0 0.80 0 0.80 0 0.10 0\n", encoding="utf-8"
     )
     assert touchstone_port_count(ambiguous) == 2
+
+
+# ── a descending sweep is legal, and width 1 costs the most ─────────────────
+#
+# Touchstone does not require an ascending sweep. Requiring one rejected the
+# correct width for every descending file — including correctly named `.s4p`
+# and `.s2p` — and left only a width that read S values as frequencies.
+
+def _descending_sweep(port_count: int, points: int) -> str:
+    """A plausible channel swept from 40 GHz down to 0."""
+    rows = ["# GHz S MA R 50"]
+    for index in range(points):
+        frequency = 40.0 - index * 40.0 / max(1, points - 1)
+        loss = math.exp(-0.02 * frequency)
+        reflection = 0.05 + 0.35 * (frequency / 40.0) ** 2
+        values = [f"{frequency:.9g}"]
+        for row in range(port_count):
+            for column in range(port_count):
+                if row == column:
+                    magnitude, angle = reflection, 10.0
+                elif port_count == 4 and (row, column) in {
+                    (0, 2), (1, 3), (2, 0), (3, 1)
+                }:
+                    magnitude, angle = loss, -frequency * 1.5
+                else:
+                    magnitude, angle = loss if row != column else reflection, -frequency
+                values += [f"{magnitude:.9g}", f"{angle:.9g}"]
+        rows.append(" ".join(values))
+    return "\n".join(rows) + "\n"
+
+
+def test_a_descending_four_port_sweep_reads_four_ports(tmp_path):
+    path = tmp_path / "descending.touchstone"
+    path.write_text(_descending_sweep(4, 81), encoding="utf-8")
+
+    assert touchstone_port_count(path) == 4
+    samples = parse_touchstone(path)
+    assert len(samples) == 81
+    frequencies = [sample["frequency_ghz"] for sample in samples]
+    assert frequencies[0] == 40.0
+    assert frequencies[-1] == 0.0
+    assert all(later <= earlier for earlier, later in zip(frequencies, frequencies[1:]))
+    assert "sdd21_db" in samples[0]
+    assert "sdd11_db" in samples[0]
+
+
+def test_a_descending_sweep_with_the_right_name_agrees(tmp_path):
+    as_bare = tmp_path / "descending.touchstone"
+    as_s4p = tmp_path / "descending.s4p"
+    body = _descending_sweep(4, 81)
+    as_bare.write_text(body, encoding="utf-8")
+    as_s4p.write_text(body, encoding="utf-8")
+
+    for path in (as_bare, as_s4p):
+        assert touchstone_port_count(path) == 4, path.name
+        assert len(parse_touchstone(path)) == 81, path.name
+
+
+def test_a_descending_two_port_sweep_named_s1p_is_not_read_as_one_port(tmp_path):
+    """This used to be 1 port / 99 points: S21 disappeared entirely."""
+    path = tmp_path / "descending.s1p"
+    path.write_text(_descending_sweep(2, 33), encoding="utf-8")
+
+    assert touchstone_port_count(path) == 2
+    samples = parse_touchstone(path)
+    assert len(samples) == 33
+    assert samples[0]["port_count"] == 2
+    assert "s11_db" in samples[0]
+
+
+def test_constant_s_values_do_not_collapse_to_one_port(tmp_path):
+    """`1 + 2*1^2 = 3` divides almost anything; width 1 keeps only S11."""
+    rows = ["# GHz S MA R 50"]
+    for index in range(3):
+        rows.append(
+            " ".join([f"{index * 5.0:.9g}"] + ["0.5 30"] * (4 * 4))
+        )
+    path = tmp_path / "constant_four_port.touchstone"
+    path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+    assert touchstone_port_count(path) == 4
+    samples = parse_touchstone(path)
+    assert len(samples) == 3
+    assert "sdd11_db" in samples[0]
+
+
+def test_a_real_one_port_file_still_reads_one_port(tmp_path):
+    for points in (1, 2, 5, 101):
+        for suffix in (".s1p", ".touchstone"):
+            path = tmp_path / f"one_port_{points}{suffix}"
+            rows = ["# GHz S MA R 50"]
+            for index in range(points):
+                rows.append(f"{index * 0.25:.9g} 0.5 30")
+            path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+            assert touchstone_port_count(path) == 1, path.name
+            assert len(parse_touchstone(path)) == points, path.name
+
+
+def test_one_port_data_under_a_two_port_name_still_reads_one_port(tmp_path):
+    path = tmp_path / "misnamed.s2p"
+    rows = ["# GHz S MA R 50"] + [f"{index * 0.25:.9g} 0.5 30" for index in range(5)]
+    path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+    assert touchstone_port_count(path) == 1
+    assert len(parse_touchstone(path)) == 5

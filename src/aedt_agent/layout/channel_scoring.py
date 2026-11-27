@@ -292,18 +292,25 @@ def _frequency_axis(numbers: list[float], port_count: int) -> list[float]:
 
 
 def _is_plausible_axis(frequencies: list[float]) -> bool:
-    """A frequency sweep is non-negative and never goes backwards.
+    """A frequency sweep is non-negative and runs in one direction.
 
     This is what separates a correct width from a wrong one. At the wrong width
     the "frequencies" are S values, and S values go negative (a dB angle, a
     magnitude of 0.008) — the exact signature of the bug this guards against.
+
+    Either direction counts. Touchstone does not require an ascending sweep, and
+    a descending one (40 GHz down to 0, as ADS and some instruments export, or a
+    hand-reversed sweep) is entirely legal. Requiring ascending rejected the
+    correct width for every descending file and left only a width that read S
+    values as frequencies. A sweep that reverses mid-file is still rejected.
     """
     if any(frequency < -_FREQUENCY_TOLERANCE for frequency in frequencies):
         return False
-    return all(
-        later >= earlier - _step_tolerance(earlier)
-        for earlier, later in zip(frequencies, frequencies[1:])
-    )
+    pairs = list(zip(frequencies, frequencies[1:]))
+    ascending = all(later >= earlier - _step_tolerance(earlier) for earlier, later in pairs)
+    if ascending:
+        return True
+    return all(later <= earlier + _step_tolerance(earlier) for earlier, later in pairs)
 
 
 def _max_candidate_ports(numbers: list[float]) -> int:
@@ -336,7 +343,8 @@ def _choose_port_count(numbers: list[float], declared: int, suffix: int) -> int:
     """The width to slice at, or 0 when the data supports no width at all.
 
     A width counts only if the data agrees: `1 + 2N^2` divides the value count
-    and the frequency column it produces is non-negative and non-decreasing.
+    and the frequency column it produces is non-negative and runs in one
+    direction (ascending or descending — Touchstone allows either).
 
     That test alone is ambiguous, and not rarely. A width's value count is
     `k * N^2` complex pairs, and the same total often fits another width: a
@@ -350,12 +358,16 @@ def _choose_port_count(numbers: list[float], declared: int, suffix: int) -> int:
     points: the correct width is the one that loses the least information. The
     order is:
 
-      1. the declared width, if it passes;
-      2. the `.sNp` suffix width, if it passes;
-      3. the only candidate, if there is just one;
-      4. otherwise the candidates cutting the most points, narrowed by the same
-         declared-then-suffix preference and finally by the widest;
-      5. no candidate at all -> 0, and the caller falls back to suffix then 2.
+      1. drop width 1 from the pool when anything else survives — a one-port
+         reading keeps only S11 and discards the entire matrix, so it is the
+         most destructive way to be wrong, and `1 + 2*1^2 = 3` divides almost
+         any value count;
+      2. the declared width, if it is in the pool;
+      3. the `.sNp` suffix width, if it is in the pool;
+      4. the only pool member, if there is just one;
+      5. otherwise the pool members cutting the most points, narrowed by the
+         same declared-then-suffix preference and finally by the widest;
+      6. no candidate at all -> 0, and the caller falls back to suffix then 2.
 
     Declaration before suffix: both are metadata, but the declaration sits
     next to the data and is written by whoever generated it, while the name is
@@ -366,16 +378,18 @@ def _choose_port_count(numbers: list[float], declared: int, suffix: int) -> int:
     candidates = _inferred_port_counts(numbers)
     if not candidates:
         return 0
-    if declared in candidates:
+    # A genuine one-port file has no other candidate, so it is unaffected.
+    pool = [port_count for port_count in candidates if port_count != 1] or candidates
+    if declared in pool:
         return declared
-    if suffix in candidates:
+    if suffix in pool:
         return suffix
-    if len(candidates) == 1:
-        return candidates[0]
-    most_points = max(_points_at(numbers, port_count) for port_count in candidates)
+    if len(pool) == 1:
+        return pool[0]
+    most_points = max(_points_at(numbers, port_count) for port_count in pool)
     top = [
         port_count
-        for port_count in candidates
+        for port_count in pool
         if _points_at(numbers, port_count) == most_points
     ]
     if declared in top:
@@ -395,10 +409,11 @@ def touchstone_port_count(path: Path, *, text: str | None = None) -> int:
 
     Content first, and content means the data, not just the header: a width is
     used only when slicing the numbers at it yields a frequency column that is
-    non-negative and non-decreasing. The file's own declaration
-    (`[Number of Ports]`, then the `! Port[n] = ...` lines AEDT writes) is tried
-    first among those widths; when it fails the data test the data decides.
-    See `_choose_port_count` for how ambiguous widths are resolved.
+    non-negative and monotonic in one direction — ascending or descending, since
+    Touchstone does not require a particular sweep order. The file's own
+    declaration (`[Number of Ports]`, then the `! Port[n] = ...` lines AEDT
+    writes) is tried first among those widths; when it fails the data test the
+    data decides. See `_choose_port_count` for how ambiguous widths are resolved.
 
     The `.sNp` suffix is the fallback for files whose data supports no width,
     and 2 remains the last resort so callers that relied on that default keep
