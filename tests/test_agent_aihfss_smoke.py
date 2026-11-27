@@ -711,6 +711,138 @@ def test_clearing_leaves_other_stems_and_files_alone(tmp_path: Path):
     assert (artifacts / "channel_1ghz.s4p").is_file()
 
 
+def _fail_unlink_for(monkeypatch, name: str) -> None:
+    """Make `Path.unlink` raise for one file name, as a held AEDT handle does.
+
+    Deliberately not the Windows read-only attribute: that only reproduces on
+    Windows, and this branch has to be exercised everywhere.
+    """
+    real_unlink = Path.unlink
+
+    def _unlink(self: Path, *args, **kwargs):
+        if self.name == name:
+            raise PermissionError(13, "the file is held open by another process", str(self))
+        return real_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", _unlink)
+
+
+def test_undeletable_leftover_is_excluded_and_reported(tmp_path: Path, monkeypatch):
+    """A leftover that cannot be deleted is still not this round's artifact.
+
+    The clear fails (a resident AEDT session holding the previous round's file
+    makes `unlink` raise), and this round's export writes nothing. The node must
+    report no file — not the leftover it just failed to remove — and say both
+    things in the warnings.
+    """
+
+    class _NoPorts(_FakeLayout):
+        @property
+        def port_list(self) -> list[str]:
+            raise RuntimeError("GetAllPortsList failed")
+
+    class _WritesNothing(_NoPorts):
+        def export_touchstone(self, *, setup: str, sweep: str, output_file: str) -> str:
+            self.exported_to = Path(output_file)
+            return str(output_file)
+
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir(parents=True)
+    leftover = artifacts / "channel_1ghz.s4p"
+    leftover.write_text(REAL_S4P.read_text(encoding="utf-8"), encoding="utf-8")
+    _fail_unlink_for(monkeypatch, "channel_1ghz.s4p")
+
+    layout = _WritesNothing(ports=[], file_port_count=4)
+    result = _run_node(tmp_path, layout, {})
+    assert result["status"] == "succeeded", result
+    payload = result["output_payload"]
+    assert payload["touchstone_exists"] is False
+    assert payload["touchstone_kind"] == "unknown"
+    assert payload["touchstone_port_count"] == 0
+    assert payload["touchstone_points"] == 0
+    assert Path(payload["touchstone_path"]).name == "channel_1ghz.touchstone"
+    warnings = payload["touchstone_parse_warnings"]
+    assert any(
+        "could not delete" in warning and "channel_1ghz.s4p" in warning
+        for warning in warnings
+    ), warnings
+    assert any("no file was found" in warning for warning in warnings), warnings
+    # It is still there — nothing pretends otherwise.
+    assert leftover.is_file()
+
+
+def test_undeletable_leftover_does_not_block_the_new_export(tmp_path: Path, monkeypatch):
+    """The fresh file is adopted by its own width; the stuck file stays behind."""
+
+    class _NoPorts(_FakeLayout):
+        @property
+        def port_list(self) -> list[str]:
+            raise RuntimeError("GetAllPortsList failed")
+
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir(parents=True)
+    stuck = artifacts / "channel_1ghz.s2p"
+    stuck.write_text("stale two-port from an earlier round", encoding="utf-8")
+    _fail_unlink_for(monkeypatch, "channel_1ghz.s2p")
+
+    # The fake writes the provisional `.touchstone` name it is handed; the node
+    # then renames it to the width the file declares.
+    layout = _NoPorts(ports=[], file_port_count=4)
+    result = _run_node(tmp_path, layout, {})
+    assert result["status"] == "succeeded", result
+    payload = result["output_payload"]
+    assert payload["touchstone_exists"] is True
+    assert payload["touchstone_kind"] == "s4p"
+    assert payload["touchstone_port_count"] == 4
+    assert payload["touchstone_points"] == 1
+    assert payload["touchstone_renamed_from"] == "channel_1ghz.touchstone"
+    assert Path(payload["touchstone_path"]).name == "channel_1ghz.s4p"
+    warnings = payload["touchstone_parse_warnings"]
+    assert any(
+        "could not delete" in warning and "channel_1ghz.s2p" in warning
+        for warning in warnings
+    ), warnings
+    assert stuck.is_file(), "the stuck file is left alone, not silently replaced"
+    assert stuck.read_text(encoding="utf-8") == "stale two-port from an earlier round"
+    assert (artifacts / "channel_1ghz.s4p").is_file()
+
+
+def test_stuck_file_on_the_final_name_keeps_the_provisional_name_and_warns(
+    tmp_path: Path, monkeypatch
+):
+    """The one case the clear cannot win: the stuck file IS the target name.
+
+    A `.s4p` that cannot be deleted also cannot be renamed over, so this round's
+    file stays under the provisional `.touchstone` name. It is still this round's
+    file and its width is still reported, but the caller has to be told the name
+    on disk is not the `.sNp` one — downstream scoring reads the suffix.
+    """
+
+    class _NoPorts(_FakeLayout):
+        @property
+        def port_list(self) -> list[str]:
+            raise RuntimeError("GetAllPortsList failed")
+
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir(parents=True)
+    stuck = artifacts / "channel_1ghz.s4p"
+    stuck.write_text(REAL_S4P.read_text(encoding="utf-8"), encoding="utf-8")
+    _fail_unlink_for(monkeypatch, "channel_1ghz.s4p")
+
+    layout = _NoPorts(ports=[], file_port_count=4)
+    result = _run_node(tmp_path, layout, {})
+    assert result["status"] == "succeeded", result
+    payload = result["output_payload"]
+    assert payload["touchstone_exists"] is True
+    assert payload["touchstone_port_count"] == 4
+    assert payload["touchstone_points"] == 1
+    assert Path(payload["touchstone_path"]).name == "channel_1ghz.touchstone"
+    assert payload["touchstone_renamed_from"] == ""
+    warnings = payload["touchstone_parse_warnings"]
+    assert any("could not delete" in warning for warning in warnings), warnings
+    assert any("could not rename" in warning for warning in warnings), warnings
+
+
 def test_explicit_name_is_never_deleted_from_a_reused_directory(tmp_path: Path):
     """A user-named export is theirs: the clear never runs on its behalf."""
 

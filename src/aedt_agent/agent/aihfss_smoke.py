@@ -122,6 +122,7 @@ def _solve_layout_point(context: GraphNodeExecutionContext) -> dict[str, Any]:
         # an honest placeholder.
         design_port_count = _design_port_count(layout)
         stem = f"channel_{frequency_ghz:g}ghz"
+        clear_warnings: list[str] = []
         if requested_touchstone_name:
             # A user-supplied name is theirs: nothing is cleared on its behalf and
             # the exact path is reported as found, as it always has been. The
@@ -133,8 +134,17 @@ def _solve_layout_point(context: GraphNodeExecutionContext) -> dict[str, Any]:
             # The artifact directory outlives a round: clear this stem's earlier
             # export first so whatever lands here afterwards is this run's file.
             # Only this exact stem is touched; other frequencies stay.
-            _clear_previous_exports(artifact_dir, stem)
-            stale_names = set()
+            _, undeleted = _clear_previous_exports(artifact_dir, stem)
+            # A file we could not delete is still an earlier round's result — a
+            # resident AEDT session holding its handle makes `unlink` fail on
+            # Windows. It must be excluded from the glob exactly like one we did
+            # delete, or the fallback would adopt the very file we tried to clear.
+            stale_names = set(undeleted)
+            for name in undeleted:
+                clear_warnings.append(
+                    f"could not delete the earlier export {name}; it is not adopted "
+                    f"as this round's touchstone"
+                )
             if design_port_count:
                 touchstone = artifact_dir / f"{stem}.s{design_port_count}p"
             else:
@@ -168,14 +178,14 @@ def _solve_layout_point(context: GraphNodeExecutionContext) -> dict[str, Any]:
                 or _touchstone_nports_from_data(data)
                 or 0
             )
-            warnings = list(parsed["warnings"])
+            warnings = clear_warnings + list(parsed["warnings"])
         else:
             # Nothing was written: report no file-derived fact at all. The
             # solution data may still know the width, but claiming it here would
             # hand the caller a `s4p`/`points: 1` for a file that does not exist.
             points = 0
             port_count = 0
-            warnings = [
+            warnings = clear_warnings + [
                 f"export reported success but no file was found at {touchstone}; "
                 f"no port count or point count is reported"
             ]
@@ -500,16 +510,21 @@ def _sibling_names(path: Path) -> set[str]:
         return set()
 
 
-def _clear_previous_exports(artifact_dir: Path, stem: str) -> list[str]:
-    """Delete this stem's earlier exports, returning the names removed.
+def _clear_previous_exports(artifact_dir: Path, stem: str) -> tuple[list[str], list[str]]:
+    """Delete this stem's earlier exports, returning `(removed, failed)`.
 
     The artifact directory is reused across rounds. Clearing the exact stem
     (`channel_1ghz.s4p`, `channel_1ghz.touchstone`, ...) before exporting means a
     later `_resolve_exported_file` glob can only find a file this run wrote. Other
-    stems — a different frequency, an unrelated export — are left alone, and a
-    file that cannot be removed is reported rather than silently skipped.
+    stems — a different frequency, an unrelated export — are left alone.
+
+    A file that cannot be removed is returned in `failed`, never silently
+    skipped: a resident AEDT session holding the previous round's `.sNp` makes
+    `unlink` raise on Windows, and that file is exactly the one the glob must
+    not adopt. The caller puts those names in `stale_names` and warns.
     """
     removed: list[str] = []
+    failed: list[str] = []
     for candidate in sorted(artifact_dir.glob(f"{stem}.*")):
         if not candidate.is_file():
             continue
@@ -518,9 +533,10 @@ def _clear_previous_exports(artifact_dir: Path, stem: str) -> list[str]:
         try:
             candidate.unlink()
         except OSError:
+            failed.append(candidate.name)
             continue
         removed.append(candidate.name)
-    return removed
+    return removed, failed
 
 
 def _resolve_exported_file(path: Path, *, stale_names: set[str] | None = None) -> Path:
