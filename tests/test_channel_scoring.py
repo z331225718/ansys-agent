@@ -1,4 +1,5 @@
 import json
+import math
 import shutil
 import subprocess
 import sys
@@ -537,3 +538,122 @@ def test_inferred_widths_match_the_data_shape(tmp_path):
 
         assert touchstone_port_count(path) == port_count
         assert len(parse_touchstone(path)) == points
+
+
+# ── an ambiguous width must keep the most points, not the most ports ────────
+#
+# `1 + 2N^2` overlaps: a two-port 33-point sweep is 297 values, which is also
+# exactly seven ports at three points (99 per point). Both slices produce a
+# monotonic axis, so "the data supports it" is true of both. Choosing the wider
+# width reads 33 real points as 3, drops 264 values, and reported a positive
+# insertion loss on a correctly named file.
+
+def _ads_sweep_with(points: int, name: str, tmp_path: Path) -> Path:
+    """The real ADS export cut to its first `points` frequency points."""
+    lines = REAL_ADS_S2P.read_text(encoding="utf-8").splitlines()
+    header = [line for line in lines if line.startswith("#")]
+    data = [line for line in lines if line.strip() and not line.startswith(("#", "!"))]
+    assert len(data) >= points, f"fixture only has {len(data)} points"
+    path = tmp_path / name
+    path.write_text("\n".join(header + data[:points]) + "\n", encoding="utf-8")
+    return path
+
+
+def test_a_33_point_two_port_sweep_is_not_read_as_seven_ports(tmp_path):
+    """The regression this round exists for: 297 values fit 7 ports x 3 points."""
+    path = _ads_sweep_with(33, "ads33.s2p", tmp_path)
+
+    assert touchstone_port_count(path) == 2
+    samples = parse_touchstone(path)
+    assert len(samples) == 33
+    frequencies = [sample["frequency_ghz"] for sample in samples]
+    assert frequencies[0] == 0.0
+    assert frequencies[1] == 0.05
+    assert all(later >= earlier for earlier, later in zip(frequencies, frequencies[1:]))
+    assert "sdd11_db" not in samples[0]
+
+
+def test_the_same_33_point_sweep_reads_the_same_under_any_name(tmp_path):
+    """The overlap is in the data, so the name must not be able to swing it."""
+    as_s2p = _ads_sweep_with(33, "ads33.s2p", tmp_path)
+    as_bare = _ads_sweep_with(33, "ads33.touchstone", tmp_path)
+
+    for path in (as_s2p, as_bare):
+        assert touchstone_port_count(path) == 2, path.name
+        samples = parse_touchstone(path)
+        assert len(samples) == 33, path.name
+        assert samples[0]["port_count"] == 2, path.name
+
+
+def _four_port_channel(points: int) -> str:
+    """A plausible channel: through magnitude decays, return magnitude grows."""
+    rows = ["# GHz S MA R 50"]
+    for index in range(points):
+        frequency = index * 0.85
+        loss = math.exp(-0.02 * frequency)
+        reflection = 0.05 + 0.35 * (frequency / 27.2) ** 2
+        values = [f"{frequency:.9g}"]
+        for row in range(4):
+            for column in range(4):
+                if row == column:
+                    magnitude, angle = reflection, 10.0
+                elif (row, column) in {(0, 2), (1, 3), (2, 0), (3, 1)}:
+                    magnitude, angle = loss, -frequency * 1.5
+                else:
+                    magnitude, angle = 0.01, 0.0
+                values += [f"{magnitude:.9g}", f"{angle:.9g}"]
+        rows.append(" ".join(values))
+    return "\n".join(rows) + "\n"
+
+
+def test_a_correctly_named_four_port_sweep_keeps_all_its_points(tmp_path):
+    """The bug hit correctly named files too — 33 points became 11."""
+    path = tmp_path / "chan.s4p"
+    path.write_text(_four_port_channel(33), encoding="utf-8")
+    tdr = tmp_path / "tdr.csv"
+    tdr.write_text("time_ps,impedance_ohm\n0,100\n10,104\n20,92\n30,101\n", encoding="utf-8")
+
+    assert touchstone_port_count(path) == 4
+    samples = parse_touchstone(path)
+    assert len(samples) == 33
+
+    score = score_channel_result(path, tdr, frequency_stop_ghz=28.0, tdr_target_ohm=100)
+    assert score["sparameter_mode"] == "differential"
+    assert score["touchstone_kind"] == "s4p"
+    # Physics, not just metadata: insertion loss and return loss are negative.
+    assert score["insertion_worst_db_in_band"] < 0
+    assert score["rl_worst_db"] < 0
+
+
+def test_sixteen_ports_are_not_capped_away(tmp_path):
+    """A 1026-value file: a fixed ceiling of 8 dropped it back to two ports."""
+    path = tmp_path / "wide.touchstone"
+    path.write_text(_synthetic_touchstone(16, 2), encoding="utf-8")
+
+    assert touchstone_port_count(path) == 16
+    samples = parse_touchstone(path)
+    assert len(samples) == 2
+    assert samples[0]["port_count"] == 16
+
+
+def test_a_single_point_file_is_decided_by_its_shape_not_by_the_default(tmp_path):
+    """One point makes "non-decreasing" vacuous, so the count decides.
+
+    33 values cannot be two ports (9 does not divide 33) and only four ports
+    fit, so the answer is 4 — the two-port default must not override that.
+    """
+    wide = tmp_path / "one_point_four_port.touchstone"
+    wide.write_text(_synthetic_touchstone(4, 1), encoding="utf-8")
+    assert touchstone_port_count(wide) == 4
+    assert len(parse_touchstone(wide)) == 1
+
+    three = tmp_path / "one_point_three_port.touchstone"
+    three.write_text(_synthetic_touchstone(3, 1), encoding="utf-8")
+    assert touchstone_port_count(three) == 3
+
+    # Nine values is genuinely ambiguous and keeps the documented fallback.
+    ambiguous = tmp_path / "nine_values.touchstone"
+    ambiguous.write_text(
+        "# GHz S MA R 50\n1.0 0.10 0 0.80 0 0.80 0 0.10 0\n", encoding="utf-8"
+    )
+    assert touchstone_port_count(ambiguous) == 2

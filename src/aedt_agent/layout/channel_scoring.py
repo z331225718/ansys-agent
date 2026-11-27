@@ -274,7 +274,6 @@ def _touchstone_numbers(text: str) -> list[float]:
     return numbers
 
 
-_MAX_INFERRED_PORTS = 8
 _FREQUENCY_TOLERANCE = 1e-9
 
 
@@ -282,10 +281,14 @@ def _step_tolerance(value: float) -> float:
     return _FREQUENCY_TOLERANCE * max(1.0, abs(value))
 
 
+def _width(port_count: int) -> int:
+    """Numbers per frequency point for a `port_count`-port file."""
+    return 1 + (2 * port_count * port_count)
+
+
 def _frequency_axis(numbers: list[float], port_count: int) -> list[float]:
     """The frequency column a slice at `port_count` would produce."""
-    width = 1 + (2 * port_count * port_count)
-    return numbers[0::width]
+    return numbers[0::_width(port_count)]
 
 
 def _is_plausible_axis(frequencies: list[float]) -> bool:
@@ -303,51 +306,88 @@ def _is_plausible_axis(frequencies: list[float]) -> bool:
     )
 
 
-def _is_uniform_axis(frequencies: list[float]) -> bool:
-    """At least two points, all evenly spaced — the shape of a real sweep."""
-    if len(frequencies) < 2:
-        return False
-    steps = [later - earlier for earlier, later in zip(frequencies, frequencies[1:])]
-    largest = max(abs(step) for step in steps)
-    return max(steps) - min(steps) <= _step_tolerance(largest)
+def _max_candidate_ports(numbers: list[float]) -> int:
+    """The widest width the number count could possibly describe.
+
+    Derived from the data rather than capped at a constant: `1 + 2N^2 <= len`
+    means `N <= sqrt((len - 1) / 2)`. A fixed ceiling silently dropped a
+    16-port file (1026 values) back to the two-port default.
+    """
+    if len(numbers) < 3:
+        return 0
+    return math.isqrt((len(numbers) - 1) // 2)
 
 
 def _inferred_port_counts(numbers: list[float]) -> list[int]:
     """Every port count whose slice of `numbers` yields a plausible sweep."""
     return [
         port_count
-        for port_count in range(1, _MAX_INFERRED_PORTS + 1)
-        if len(numbers) % (1 + 2 * port_count * port_count) == 0
+        for port_count in range(1, _max_candidate_ports(numbers) + 1)
+        if len(numbers) % _width(port_count) == 0
         and _is_plausible_axis(_frequency_axis(numbers, port_count))
     ]
 
 
-def _choose_port_count(numbers: list[float], declared: int) -> int:
+def _points_at(numbers: list[float], port_count: int) -> int:
+    return len(numbers) // _width(port_count)
+
+
+def _choose_port_count(numbers: list[float], declared: int, suffix: int) -> int:
     """The width to slice at, or 0 when the data supports no width at all.
 
-    A declaration is a candidate, not a fact: a file that keeps one of its four
-    `! Port[n]` lines still holds four ports, and trusting the declaration there
-    slices the data one port wide — S values become frequencies again. So the
-    declaration wins only if the data agrees with it.
+    A width counts only if the data agrees: `1 + 2N^2` divides the value count
+    and the frequency column it produces is non-negative and non-decreasing.
 
-    When several widths all produce a plausible sweep, prefer the ones on a
-    uniform grid (a real export is evenly sampled) and then the widest, because
-    a narrower width slices a wider file into pieces that also happen to look
-    monotonic.
+    That test alone is ambiguous, and not rarely. A width's value count is
+    `k * N^2` complex pairs, and the same total often fits another width: a
+    two-port 33-point sweep is 297 values, which is also exactly 7 ports at 3
+    points (99 per point). Both slices give a monotonic axis, so the data
+    "supports" both. Picking the widest there reads 33 real points as 3 and
+    throws away 264 values, and on a correctly named `.s4p` it produced a
+    positive insertion loss — physically impossible.
+
+    So when several widths pass, prefer the one that keeps the most frequency
+    points: the correct width is the one that loses the least information. The
+    order is:
+
+      1. the declared width, if it passes;
+      2. the `.sNp` suffix width, if it passes;
+      3. the only candidate, if there is just one;
+      4. otherwise the candidates cutting the most points, narrowed by the same
+         declared-then-suffix preference and finally by the widest;
+      5. no candidate at all -> 0, and the caller falls back to suffix then 2.
+
+    Declaration before suffix: both are metadata, but the declaration sits
+    next to the data and is written by whoever generated it, while the name is
+    chosen by whoever saved it. Either order was measured to be correct on the
+    conflicting-metadata cases, because a wrong declaration fails the data test
+    before this ranking is reached.
     """
     candidates = _inferred_port_counts(numbers)
     if not candidates:
         return 0
     if declared in candidates:
         return declared
+    if suffix in candidates:
+        return suffix
     if len(candidates) == 1:
         return candidates[0]
-    uniform = [
+    most_points = max(_points_at(numbers, port_count) for port_count in candidates)
+    top = [
         port_count
         for port_count in candidates
-        if _is_uniform_axis(_frequency_axis(numbers, port_count))
+        if _points_at(numbers, port_count) == most_points
     ]
-    return max(uniform or candidates)
+    if declared in top:
+        return declared
+    if suffix in top:
+        return suffix
+    return max(top)
+
+
+def _suffix_port_count(path: Path) -> int:
+    match = re.search(r"\.s([1-9][0-9]*)p$", str(path), re.IGNORECASE)
+    return int(match.group(1)) if match else 0
 
 
 def touchstone_port_count(path: Path, *, text: str | None = None) -> int:
@@ -358,6 +398,7 @@ def touchstone_port_count(path: Path, *, text: str | None = None) -> int:
     non-negative and non-decreasing. The file's own declaration
     (`[Number of Ports]`, then the `! Port[n] = ...` lines AEDT writes) is tried
     first among those widths; when it fails the data test the data decides.
+    See `_choose_port_count` for how ambiguous widths are resolved.
 
     The `.sNp` suffix is the fallback for files whose data supports no width,
     and 2 remains the last resort so callers that relied on that default keep
@@ -371,12 +412,15 @@ def touchstone_port_count(path: Path, *, text: str | None = None) -> int:
             text = Path(path).read_text(encoding="utf-8", errors="replace")
         except OSError:
             text = ""
-    declared = _declared_port_count(text)
-    chosen = _choose_port_count(_touchstone_numbers(text), declared)
+    suffix = _suffix_port_count(path)
+    chosen = _choose_port_count(
+        _touchstone_numbers(text),
+        _declared_port_count(text),
+        suffix,
+    )
     if chosen:
         return chosen
-    match = re.search(r"\.s([1-9][0-9]*)p$", str(path), re.IGNORECASE)
-    return int(match.group(1)) if match else 2
+    return suffix or 2
 
 
 def _touchstone_sample(
