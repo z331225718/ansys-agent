@@ -112,19 +112,33 @@ def _solve_layout_point(context: GraphNodeExecutionContext) -> dict[str, Any]:
 
         # The layout decides the export width: a 4-port differential cut writes
         # `.s4p`, and only a genuine single-port design writes `.s1p`. An explicit
-        # payload name always wins; the port count is then reported from the file.
+        # payload name always wins and is never renamed; the port count is then
+        # reported from the file.
+        #
+        # When the layout cannot name its own width (no usable `port_list`), the
+        # file is exported under a provisional name that claims no port count and
+        # renamed once the file says how wide it is. Downstream reads the width
+        # from the `.sNp` suffix, so leaving a wrong suffix on disk is worse than
+        # an honest placeholder.
         design_port_count = _design_port_count(layout)
-        touchstone_name = requested_touchstone_name or (
-            f"channel_{frequency_ghz:g}ghz.s{design_port_count or 1}p"
-        )
-        touchstone = artifact_dir / touchstone_name
+        if requested_touchstone_name:
+            touchstone = artifact_dir / requested_touchstone_name
+        elif design_port_count:
+            touchstone = artifact_dir / f"channel_{frequency_ghz:g}ghz.s{design_port_count}p"
+        else:
+            touchstone = artifact_dir / f"channel_{frequency_ghz:g}ghz.touchstone"
         exported = layout.export_touchstone(
             setup=setup_name,
             sweep=sweep_name,
             output_file=str(touchstone),
         )
+        # AEDT may append its own `.sNp` extension to a name it does not
+        # recognise, so adopt the file it actually wrote rather than reporting a
+        # path that does not exist.
+        touchstone = _resolve_exported_file(touchstone)
         # `get_touchstone_data` returns one TouchstoneData per variation, so its
         # `len` is a variation count. Ask the object for its own frequency axis.
+        data: Any = None
         points = 0
         try:
             data = layout.get_touchstone_data(setup=setup_name, sweep=sweep_name)
@@ -134,9 +148,44 @@ def _solve_layout_point(context: GraphNodeExecutionContext) -> dict[str, Any]:
         parsed = _parse_touchstone(touchstone)
         if points <= 0:
             points = parsed["point_count"]
-        port_count = int(parsed["port_count"] or design_port_count or 0)
+        port_count = int(
+            parsed["port_count"]
+            or design_port_count
+            or _touchstone_nports_from_data(data)
+            or 0
+        )
         touchstone_kind = f"s{port_count}p" if port_count else "unknown"
         warnings = list(parsed["warnings"])
+        if not touchstone.is_file():
+            warnings.append(
+                f"export reported success but no file was found at {touchstone}; "
+                f"the name was not adjusted"
+            )
+        renamed_from = ""
+        if not requested_touchstone_name and touchstone.is_file():
+            wanted_suffix = f".s{port_count}p" if port_count else ""
+            if wanted_suffix and touchstone.suffix.lower() != wanted_suffix:
+                renamed = touchstone.with_name(
+                    f"channel_{frequency_ghz:g}ghz{wanted_suffix}"
+                )
+                try:
+                    if renamed.exists():
+                        renamed.unlink()  # a stale file from an earlier run
+                    touchstone.rename(renamed)
+                except OSError as exc:  # noqa: BLE001 - keep the file, say why
+                    warnings.append(
+                        f"could not rename {touchstone.name} to {renamed.name}: {exc}"
+                    )
+                else:
+                    # The on-disk name before the rename, whichever name AEDT
+                    # settled on, so the trail never claims a file that never was.
+                    renamed_from = touchstone.name
+                    touchstone = renamed
+            elif not wanted_suffix:
+                warnings.append(
+                    f"exported file width is unknown; kept the provisional name "
+                    f"{touchstone.name}"
+                )
         if requested_touchstone_name and port_count:
             requested_kind = _touchstone_suffix_kind(Path(requested_touchstone_name))
             if requested_kind and requested_kind != touchstone_kind:
@@ -158,6 +207,7 @@ def _solve_layout_point(context: GraphNodeExecutionContext) -> dict[str, Any]:
             "touchstone_points": points,
             "touchstone_port_count": port_count,
             "touchstone_kind": touchstone_kind,
+            "touchstone_renamed_from": renamed_from,
             "touchstone_frequencies_ghz": parsed["frequencies_ghz"],
             "touchstone_data_format": parsed["data_format"],
             "touchstone_frequency_unit": parsed["frequency_unit"],
@@ -421,16 +471,47 @@ def _touchstone_frequencies(path: Path) -> list[float]:
     return list(_parse_touchstone(path)["frequencies_ghz"])
 
 
+def _resolve_exported_file(path: Path) -> Path:
+    """The file AEDT actually wrote for `path`.
+
+    AEDT honours a `.sNp` name as given, but may append its own extension when
+    the name carries none (our provisional name). Prefer the exact path, then a
+    single `.sNp` sibling, and otherwise keep the requested path so the caller
+    reports a missing artifact rather than inventing one.
+    """
+    if path.is_file():
+        return path
+    siblings = sorted(path.parent.glob(f"{path.stem}.s*p"))
+    return siblings[0] if len(siblings) == 1 else path
+
+
 def _design_port_count(layout: Any) -> int:
     """Port count of the solved design, or 0 when AEDT cannot report it."""
     try:
         ports = layout.port_list
-    except Exception:  # noqa: BLE001 - the file fallback still names the file
+    except Exception:  # noqa: BLE001 - the exported file is the fallback
         return 0
     try:
         return len(ports)
     except TypeError:
         return 0
+
+
+def _touchstone_nports_from_data(data: Any) -> int:
+    """Port count on a `get_touchstone_data` result, or 0 when it cannot say.
+
+    Used only when the exported file does not declare its own width, so that the
+    file can still be named after the network it holds.
+    """
+    if data is None:
+        return 0
+    entries = data if isinstance(data, (list, tuple)) else [data]
+    for entry in entries:
+        try:
+            return int(entry.nports)
+        except Exception:  # noqa: BLE001 - unknown object shape
+            continue
+    return 0
 
 
 def _touchstone_points_from_data(data: Any) -> int:

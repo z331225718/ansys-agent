@@ -17,6 +17,7 @@ from aedt_agent.agent.aihfss_smoke import (
     _design_port_count,
     _parse_touchstone,
     _touchstone_frequencies,
+    _touchstone_nports_from_data,
     _touchstone_point_count,
     _touchstone_points_from_data,
 )
@@ -210,10 +211,11 @@ class _FakeNetwork:
 
 
 class _FakeTouchstoneData:
-    """Mirrors pyaedt's TouchstoneData: a skrf Network with an `f` array."""
+    """Mirrors pyaedt's TouchstoneData: a skrf Network with `f` and `nports`."""
 
-    def __init__(self, points: int) -> None:
+    def __init__(self, points: int, nports: int = 4) -> None:
         self.f = _FakeNetwork(points).f
+        self.nports = nports
 
     def __len__(self) -> int:
         return 4  # nports, not points — the trap the old code fell into
@@ -251,6 +253,13 @@ class _FakeSetup:
         self.sweeps = [_FakeSweep(name) for name in sweeps]
 
 
+def _one_point_touchstone(port_count: int) -> str:
+    """A one-point Touchstone body declaring `port_count` ports."""
+    ports = "".join(f"! Port[{index}] = p{index}\n" for index in range(1, port_count + 1))
+    values = " ".join("0.1 0" for _ in range(port_count * port_count))
+    return f"{ports}# GHz S MA R 50\n1 {values}\n"
+
+
 class _FakeLayout:
     """The narrow slice of Hfss3dLayout the solve node touches."""
 
@@ -258,18 +267,17 @@ class _FakeLayout:
         self,
         *,
         ports: list[str],
-        touchstone_source: Path,
-        export_as: str,
+        file_port_count: int,
         points: int = 1,
         data_raises: bool = False,
     ) -> None:
         self.design_name = "fake_design"
         self._ports = ports
-        self._source = touchstone_source
-        self._export_as = export_as
+        self._file_port_count = file_port_count
         self._points = points
         self._data_raises = data_raises
         self.exported_to: Path | None = None
+        self.export_calls: list[Path] = []
 
     @property
     def port_list(self) -> list[str]:
@@ -282,18 +290,21 @@ class _FakeLayout:
         return True
 
     def export_touchstone(self, *, setup: str, sweep: str, output_file: str) -> str:
+        """Write whatever the requested name is — AEDT honours the path given."""
         target = Path(output_file)
         self.exported_to = target
-        text = self._source.read_text(encoding="utf-8")
-        if self._export_as != target.name:
-            text = text.replace("! Port[4] = ", "! Port[2] = ")
+        self.export_calls.append(target)
+        if self._file_port_count == 4:
+            text = REAL_S4P.read_text(encoding="utf-8")
+        else:
+            text = _one_point_touchstone(self._file_port_count)
         target.write_text(text, encoding="utf-8")
         return str(target)
 
     def get_touchstone_data(self, *, setup: str, sweep: str):
         if self._data_raises:
             raise RuntimeError("AEDT could not build the solution data")
-        return [_FakeTouchstoneData(self._points)]
+        return [_FakeTouchstoneData(self._points, self._file_port_count)]
 
 
 def _run_node(tmp_path: Path, layout: _FakeLayout, payload: dict) -> dict:
@@ -342,11 +353,7 @@ def _run_node(tmp_path: Path, layout: _FakeLayout, payload: dict) -> dict:
 
 
 def test_four_port_design_exports_s4p_by_default(tmp_path: Path):
-    layout = _FakeLayout(
-        ports=["Port1", "Port2", "Port3", "Port4"],
-        touchstone_source=REAL_S4P,
-        export_as="channel_1ghz.s4p",
-    )
+    layout = _FakeLayout(ports=["Port1", "Port2", "Port3", "Port4"], file_port_count=4)
     result = _run_node(tmp_path, layout, {})
     assert result["status"] == "succeeded", result
     payload = result["output_payload"]
@@ -357,18 +364,14 @@ def test_four_port_design_exports_s4p_by_default(tmp_path: Path):
     assert payload["touchstone_points"] == 1
     assert payload["touchstone_frequencies_ghz"] == [1.0]
     assert payload["touchstone_parse_warnings"] == []
+    assert payload["touchstone_renamed_from"] == ""
+    assert Path(payload["touchstone_path"]).name == "channel_1ghz.s4p"
     written = json.loads((tmp_path / "artifacts" / "solve_point_result.json").read_text(encoding="utf-8"))
     assert written["touchstone_kind"] == "s4p"
 
 
 def test_single_port_design_still_exports_s1p(tmp_path: Path):
-    single = tmp_path / "one.s1p"
-    single.write_text("# GHz S MA R 50\n1 0.5 10\n", encoding="utf-8")
-    layout = _FakeLayout(
-        ports=["Port1"],
-        touchstone_source=single,
-        export_as="channel_1ghz.s1p",
-    )
+    layout = _FakeLayout(ports=["Port1"], file_port_count=1)
     result = _run_node(tmp_path, layout, {})
     assert result["status"] == "succeeded", result
     payload = result["output_payload"]
@@ -377,55 +380,242 @@ def test_single_port_design_still_exports_s1p(tmp_path: Path):
     assert payload["touchstone_kind"] == "s1p"
     assert payload["touchstone_port_count"] == 1
     assert payload["touchstone_points"] == 1
+    assert payload["touchstone_renamed_from"] == ""
 
 
 def test_explicit_touchstone_name_wins_and_mismatch_is_flagged(tmp_path: Path):
     """A user name is honoured, but a wrong suffix is reported, not hidden."""
-    layout = _FakeLayout(
-        ports=["Port1", "Port2", "Port3", "Port4"],
-        touchstone_source=REAL_S4P,
-        export_as="custom.s1p",
-    )
+    layout = _FakeLayout(ports=["Port1", "Port2", "Port3", "Port4"], file_port_count=4)
     result = _run_node(tmp_path, layout, {"touchstone_name": "custom.s1p"})
     assert result["status"] == "succeeded", result
     payload = result["output_payload"]
     assert layout.exported_to is not None
     assert layout.exported_to.name == "custom.s1p"
+    # The user's name is never rewritten, even though the suffix is wrong.
+    assert (tmp_path / "artifacts" / "custom.s1p").is_file()
+    assert not (tmp_path / "artifacts" / "custom.s4p").exists()
+    assert Path(payload["touchstone_path"]).name == "custom.s1p"
+    assert payload["touchstone_renamed_from"] == ""
     assert payload["touchstone_kind"] == "s4p"
     assert payload["touchstone_port_count"] == 4
     assert any("does not match" in warning for warning in payload["touchstone_parse_warnings"])
 
 
-def test_port_list_failure_falls_back_to_the_file_width(tmp_path: Path):
-    """If AEDT cannot report ports, the export still gets a file and is parsed."""
+def test_port_list_failure_still_lands_on_the_real_port_count(tmp_path: Path):
+    """`port_list` raising must not leave a 4-port export named `.s1p`.
+
+    Downstream (`brd_channel_score`) picks differential mode from the file
+    suffix, so a wrong suffix would silently downgrade a differential channel to
+    single-ended. The export goes to a provisional name and is renamed once the
+    file declares its width.
+    """
 
     class _NoPorts(_FakeLayout):
         @property
         def port_list(self) -> list[str]:
             raise RuntimeError("GetAllPortsList failed")
 
-    layout = _NoPorts(
-        ports=[],
-        touchstone_source=REAL_S4P,
-        export_as="channel_1ghz.s1p",
-    )
+    layout = _NoPorts(ports=[], file_port_count=4)
     result = _run_node(tmp_path, layout, {})
     assert result["status"] == "succeeded", result
     payload = result["output_payload"]
-    # No port count is known before the export, so the name keeps the old
-    # single-port default; the parsed file then reports the true width.
+    artifacts = tmp_path / "artifacts"
     assert layout.exported_to is not None
-    assert layout.exported_to.name == "channel_1ghz.s1p"
+    # AEDT wrote the provisional name; the node then renamed it.
+    assert layout.exported_to.name == "channel_1ghz.touchstone"
+    assert not (artifacts / "channel_1ghz.touchstone").exists()
+    assert (artifacts / "channel_1ghz.s4p").is_file()
+    assert Path(payload["touchstone_path"]).name == "channel_1ghz.s4p"
+    assert payload["touchstone_renamed_from"] == "channel_1ghz.touchstone"
     assert payload["touchstone_port_count"] == 4
     assert payload["touchstone_kind"] == "s4p"
     assert payload["touchstone_points"] == 1
+    assert payload["touchstone_parse_warnings"] == []
+
+
+def test_port_list_failure_on_a_single_port_design_lands_on_s1p(tmp_path: Path):
+    """The rename follows the file, not a guess: a 1-port export becomes `.s1p`."""
+
+    class _NoPorts(_FakeLayout):
+        @property
+        def port_list(self) -> list[str]:
+            raise RuntimeError("GetAllPortsList failed")
+
+    layout = _NoPorts(ports=[], file_port_count=1)
+    result = _run_node(tmp_path, layout, {})
+    assert result["status"] == "succeeded", result
+    payload = result["output_payload"]
+    assert (tmp_path / "artifacts" / "channel_1ghz.s1p").is_file()
+    assert Path(payload["touchstone_path"]).name == "channel_1ghz.s1p"
+    assert payload["touchstone_kind"] == "s1p"
+    assert payload["touchstone_port_count"] == 1
+
+
+def test_rename_replaces_a_stale_file_from_an_earlier_run(tmp_path: Path):
+    """A leftover `.s4p` from a previous round is overwritten, not duplicated."""
+
+    class _NoPorts(_FakeLayout):
+        @property
+        def port_list(self) -> list[str]:
+            raise RuntimeError("GetAllPortsList failed")
+
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir(parents=True)
+    (artifacts / "channel_1ghz.s4p").write_text("stale", encoding="utf-8")
+    layout = _NoPorts(ports=[], file_port_count=4)
+    result = _run_node(tmp_path, layout, {})
+    assert result["status"] == "succeeded", result
+    text = (artifacts / "channel_1ghz.s4p").read_text(encoding="utf-8")
+    assert "stale" not in text
+    assert "! Port[4]" in text
+
+
+def test_unknown_width_keeps_the_provisional_name_with_a_warning(tmp_path: Path):
+    """No port list and no readable width: keep the placeholder, say why."""
+
+    class _NoPorts(_FakeLayout):
+        @property
+        def port_list(self) -> list[str]:
+            raise RuntimeError("GetAllPortsList failed")
+
+    class _Blank(_NoPorts):
+        def export_touchstone(self, *, setup: str, sweep: str, output_file: str) -> str:
+            target = Path(output_file)
+            self.exported_to = target
+            target.write_text("# GHz S MA R 50\n", encoding="utf-8")
+            return str(target)
+
+        def get_touchstone_data(self, *, setup: str, sweep: str):
+            raise RuntimeError("no solution data either")
+
+    layout = _Blank(ports=[], file_port_count=4)
+    result = _run_node(tmp_path, layout, {})
+    assert result["status"] == "succeeded", result
+    payload = result["output_payload"]
+    assert Path(payload["touchstone_path"]).name == "channel_1ghz.touchstone"
+    assert (tmp_path / "artifacts" / "channel_1ghz.touchstone").is_file()
+    assert payload["touchstone_kind"] == "unknown"
+    assert payload["touchstone_port_count"] == 0
+    assert payload["touchstone_renamed_from"] == ""
+    assert any("width is unknown" in warning for warning in payload["touchstone_parse_warnings"])
+
+
+def test_port_count_falls_back_to_the_touchstone_data(tmp_path: Path):
+    """A file with no width declarations is still named from TouchstoneData.nports."""
+
+    class _NoPorts(_FakeLayout):
+        @property
+        def port_list(self) -> list[str]:
+            raise RuntimeError("GetAllPortsList failed")
+
+    class _Undeclared(_NoPorts):
+        def export_touchstone(self, *, setup: str, sweep: str, output_file: str) -> str:
+            target = Path(output_file)
+            self.exported_to = target
+            # Valid 4-port data, but no `! Port[n]` lines and no usable suffix.
+            target.write_text(
+                "# GHz S MA R 50\n1 " + " ".join(["0.1 0"] * 16) + "\n",
+                encoding="utf-8",
+            )
+            return str(target)
+
+    layout = _Undeclared(ports=[], file_port_count=4)
+    result = _run_node(tmp_path, layout, {})
+    assert result["status"] == "succeeded", result
+    payload = result["output_payload"]
+    assert Path(payload["touchstone_path"]).name == "channel_1ghz.s4p"
+    assert payload["touchstone_port_count"] == 4
+    assert payload["touchstone_kind"] == "s4p"
+
+
+def test_extension_appended_by_aedt_is_adopted(tmp_path: Path):
+    """AEDT may append its own `.sNp` to a name it does not recognise."""
+
+    class _NoPorts(_FakeLayout):
+        @property
+        def port_list(self) -> list[str]:
+            raise RuntimeError("GetAllPortsList failed")
+
+    class _AppendsSuffix(_NoPorts):
+        def export_touchstone(self, *, setup: str, sweep: str, output_file: str) -> str:
+            target = Path(output_file).with_suffix(".s4p")
+            self.exported_to = target
+            self.export_calls.append(target)
+            target.write_text(REAL_S4P.read_text(encoding="utf-8"), encoding="utf-8")
+            return str(target)
+
+    layout = _AppendsSuffix(ports=[], file_port_count=4)
+    result = _run_node(tmp_path, layout, {})
+    assert result["status"] == "succeeded", result
+    payload = result["output_payload"]
+    # Already correctly named by AEDT: nothing to rename, nothing to warn about.
+    assert Path(payload["touchstone_path"]).name == "channel_1ghz.s4p"
+    assert payload["touchstone_exists"] is True
+    assert payload["touchstone_kind"] == "s4p"
+    assert payload["touchstone_renamed_from"] == ""
+    assert payload["touchstone_parse_warnings"] == []
+
+
+def test_missing_export_file_is_reported_not_disguised(tmp_path: Path):
+    """An export that writes nothing must say so; no rename can invent a file."""
+
+    class _NoPorts(_FakeLayout):
+        @property
+        def port_list(self) -> list[str]:
+            raise RuntimeError("GetAllPortsList failed")
+
+    class _WritesNothing(_NoPorts):
+        def export_touchstone(self, *, setup: str, sweep: str, output_file: str) -> str:
+            self.exported_to = Path(output_file)
+            return str(output_file)
+
+    layout = _WritesNothing(ports=[], file_port_count=4)
+    result = _run_node(tmp_path, layout, {})
+    assert result["status"] == "succeeded", result
+    payload = result["output_payload"]
+    assert payload["touchstone_exists"] is False
+    # The solution data still knows the width, so the payload can report it —
+    # but `touchstone_exists: false` keeps the missing artifact visible.
+    assert payload["touchstone_kind"] == "s4p"
+    assert Path(payload["touchstone_path"]).name == "channel_1ghz.touchstone"
+    assert payload["touchstone_renamed_from"] == ""
+    assert any(
+        "no file was found" in warning for warning in payload["touchstone_parse_warnings"]
+    )
+
+
+def test_missing_export_file_without_solution_data_reports_unknown(tmp_path: Path):
+    """Neither the file nor the solution data can name the width: say unknown."""
+
+    class _NoPorts(_FakeLayout):
+        @property
+        def port_list(self) -> list[str]:
+            raise RuntimeError("GetAllPortsList failed")
+
+    class _WritesNothing(_NoPorts):
+        def export_touchstone(self, *, setup: str, sweep: str, output_file: str) -> str:
+            self.exported_to = Path(output_file)
+            return str(output_file)
+
+        def get_touchstone_data(self, *, setup: str, sweep: str):
+            raise RuntimeError("no solution data")
+
+    layout = _WritesNothing(ports=[], file_port_count=4)
+    result = _run_node(tmp_path, layout, {})
+    assert result["status"] == "succeeded", result
+    payload = result["output_payload"]
+    assert payload["touchstone_exists"] is False
+    assert payload["touchstone_kind"] == "unknown"
+    assert payload["touchstone_port_count"] == 0
+    assert Path(payload["touchstone_path"]).name == "channel_1ghz.touchstone"
+    warnings = payload["touchstone_parse_warnings"]
+    assert any("no file was found" in warning for warning in warnings)
 
 
 def test_get_touchstone_data_failure_falls_back_to_the_file(tmp_path: Path):
     layout = _FakeLayout(
         ports=["Port1", "Port2", "Port3", "Port4"],
-        touchstone_source=REAL_S4P,
-        export_as="channel_1ghz.s4p",
+        file_port_count=4,
         data_raises=True,
     )
     result = _run_node(tmp_path, layout, {})
@@ -447,3 +637,11 @@ def test_design_port_count_is_bounded():
     assert _design_port_count(_Boom()) == 0
     assert _design_port_count(_List()) == 4
     assert _design_port_count(object()) == 0
+
+
+def test_touchstone_nports_from_data_is_bounded():
+    assert _touchstone_nports_from_data(None) == 0
+    assert _touchstone_nports_from_data([]) == 0
+    assert _touchstone_nports_from_data([object()]) == 0
+    assert _touchstone_nports_from_data([_FakeTouchstoneData(1, nports=4)]) == 4
+    assert _touchstone_nports_from_data(_FakeTouchstoneData(1, nports=2)) == 2
