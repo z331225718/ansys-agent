@@ -19,6 +19,13 @@ reviewed 4-port differential layout, `.s1p` only for a genuine single port), and
 the read-back parser honours the Touchstone spec: one frequency point spans
 `1 + 2*N*N` numbers, so a 4-port point is nine numbers plus eight more rows.
 
+The node also guards the session it borrows. AEDT identifies an open project by
+NAME, and every task's working copy is a copy of the same reviewed source, so
+the names collide across tasks: the node closes the project it opened (and only
+that one) and refuses to solve unless the app is proven to be bound to this
+run's working copy. Without that, a second task in the same process would export
+the first task's S-parameters while reporting success.
+
 Nothing here starts or advances a mission graph; that stays with the task service.
 """
 from __future__ import annotations
@@ -38,6 +45,12 @@ from aedt_agent.agent.mission import NodeRunStatus
 
 HANDLER_SOLVE_POINT = "aihfss.smoke.layout_solve_point"
 PROJECT_SUFFIX = ".aedt"
+# A run that cannot prove AEDT bound the working copy it asked for must stop.
+# AEDT keys open projects by project NAME, and every task's working copy is a
+# copy of the same reviewed source, so the names collide across tasks: without
+# this check the second task in a process would solve and export the FIRST
+# task's project while reporting success.
+ERROR_PROJECT_BINDING_MISMATCH = "aedt/project-binding-mismatch"
 RESULT_FILE = "solve_point_result.json"
 MAX_TOUCHSTONE_POINTS = 4096
 _TOUCHSTONE_SUFFIX = re.compile(r"\.s([1-9][0-9]*)p$", re.IGNORECASE)
@@ -78,10 +91,22 @@ def _solve_layout_point(context: GraphNodeExecutionContext) -> dict[str, Any]:
 
     prepared = _prepare_working_copy(source, working, reset=reset)
     desktop = None
+    # Names this run opened, and only those, so `finally` never closes a
+    # same-name project that another task or session already had open.
+    opened_here: list[str] = []
     try:
         from ansys.aedt.core import Desktop, Hfss3dLayout  # type: ignore
 
         desktop = Desktop(new_desktop=False, non_graphical=True)
+        # Snapshot before opening: AEDT identifies open projects by NAME, and the
+        # working copies of different tasks share a name (same reviewed source),
+        # so "is it open?" alone cannot tell whose project it is.
+        #
+        # If the session cannot list its projects, nothing is recorded and so
+        # nothing is closed: ownership is unprovable, and the binding check
+        # below still refuses to use the wrong project. Leaving one open only
+        # costs the next run a loud failure, never a wrong artifact.
+        open_before = _open_project_names(desktop)
         desktop.load_project(str(working))
         layout = Hfss3dLayout(
             project=str(working),
@@ -89,6 +114,22 @@ def _solve_layout_point(context: GraphNodeExecutionContext) -> dict[str, Any]:
             new_desktop=False,
             non_graphical=True,
         )
+        # Recorded before the binding check so a mismatched run still closes the
+        # project it opened instead of leaving it to poison the next task. Only
+        # names absent from the pre-open snapshot count, so a project somebody
+        # else had open is never touched.
+        opened_here = _owned_project_names(open_before, layout, working)
+        # Prove AEDT bound the copy this run asked for before touching it. A
+        # stem-only match in `load_project` silently reuses an already-open
+        # project of the same name, and exporting that would hand the caller
+        # another task's S-parameters under this task's name.
+        binding_error = _project_binding_error(
+            working,
+            _bound_project_directory(layout),
+            elapsed=round(time.perf_counter() - started, 1),
+        )
+        if binding_error is not None:
+            return binding_error
         resolved_design = getattr(layout, "design_name", design_name)
         setup = layout.get_setup(setup_name)
         if setup is None:
@@ -262,11 +303,111 @@ def _solve_layout_point(context: GraphNodeExecutionContext) -> dict[str, Any]:
         return _failed(f"{type(exc).__name__}: {exc}", elapsed=round(time.perf_counter() - started, 1))
     finally:
         if desktop is not None:
+            _close_own_project(desktop, opened_here)
             try:
-                # Keep other AEDT sessions alive: never close projects or the desktop.
+                # Keep other AEDT sessions alive: the desktop itself is shared.
                 desktop.release_desktop(close_projects=False, close_on_exit=False)
             except Exception:  # noqa: BLE001
                 pass
+
+
+def _open_project_names(desktop: Any) -> set[str] | None:
+    """Names of the projects already open in this AEDT session.
+
+    ``None`` means the session could not say, which is treated as "cannot prove
+    the project was mine" — the caller then never closes it.
+    """
+    try:
+        names = desktop.project_list
+    except Exception:  # noqa: BLE001 - a fake or a stale session may not have it
+        return None
+    try:
+        return {str(name) for name in names}
+    except TypeError:
+        return None
+
+
+def _owned_project_names(open_before: set[str] | None, layout: Any, working: Path) -> list[str]:
+    """The project names this run opened, and may therefore close.
+
+    Only a name that was NOT open before the run counts. A name that was already
+    open belongs to another task or another operator's session; closing it would
+    pull the model out from under them. When AEDT bound the wrong project this
+    returns ``[]`` on its own, because that project's name is in the snapshot.
+    """
+    if open_before is None:
+        return []
+    try:
+        name = str(layout.project_name or "")
+    except Exception:  # noqa: BLE001 - fall back to the file stem
+        name = ""
+    if not name:
+        name = working.stem
+    if name in open_before:
+        return []
+    return [name]
+
+
+def _bound_project_directory(layout: Any) -> str:
+    """The directory of the project the layout object is actually bound to.
+
+    ``project_path`` is a directory (``oProject.GetPath``), not the ``.aedt``
+    file, and it is compared as such so a trailing separator cannot make a
+    correctly bound project look wrong.
+    """
+    try:
+        value = layout.project_path
+    except Exception:  # noqa: BLE001 - an app that cannot say is not bound
+        return ""
+    return str(value or "")
+
+
+def _project_binding_error(
+    working: Path, bound_directory: str, *, elapsed: float | None = None
+) -> dict[str, Any] | None:
+    """A failure payload when AEDT is not bound to `working`, else ``None``."""
+    expected = working.parent.resolve()
+    try:
+        actual = Path(bound_directory).resolve() if bound_directory else None
+    except (OSError, ValueError):
+        actual = None
+    if actual == expected:
+        return None
+    return _failed(
+        f"AEDT is bound to {str(actual) if actual else '<unknown>'} instead of the "
+        f"working copy {expected}; refusing to solve or export another project's data",
+        elapsed=elapsed,
+        code=ERROR_PROJECT_BINDING_MISMATCH,
+        details={
+            "expected_project_path": str(expected),
+            "bound_project_path": str(actual) if actual else "",
+            "working_project_path": str(working),
+        },
+    )
+
+
+def _close_own_project(desktop: Any, project_names: list[str]) -> None:
+    """Close the projects this run opened, and only those.
+
+    A project left open is what makes the NEXT task's ``load_project`` reuse it
+    by name, so leaving it open is how one task's S-parameters end up in
+    another task's artifact. PyAEDT 1.9.0's ``Desktop`` has no
+    ``close_project``, so the native call is used. Everything is guarded: a
+    session that cannot close must still let ``release_desktop`` run.
+    """
+    if not project_names:
+        return
+    try:
+        native = getattr(desktop, "odesktop", None)
+        if native is None:
+            return
+        for name in project_names:
+            try:
+                native.CloseProject(name)
+            except Exception:  # noqa: BLE001 - one failure must not skip the rest
+                continue
+    except Exception:  # noqa: BLE001 - best effort; the binding check is the guard
+        pass
 
 
 def _prepare_working_copy(source: Path, working: Path, *, reset: bool) -> bool:
@@ -295,13 +436,22 @@ def _prepare_working_copy(source: Path, working: Path, *, reset: bool) -> bool:
     return True
 
 
-def _failed(message: str, *, elapsed: float | None = None) -> dict[str, Any]:
+def _failed(
+    message: str,
+    *,
+    elapsed: float | None = None,
+    code: str = "aihfss/solve-point",
+    details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    error: dict[str, Any] = {"code": code, "message": message}
+    if details:
+        error["details"] = dict(details)
     return {
         "status": NodeRunStatus.FAILED.value,
         "outcome": "layout_solve_point_failed",
         "output_payload": {"error": message, "elapsed_seconds": elapsed},
         "artifact_refs": [],
-        "error": {"code": "aihfss/solve-point", "message": message},
+        "error": error,
     }
 
 

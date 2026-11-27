@@ -272,12 +272,21 @@ class _FakeLayout:
         data_raises: bool = False,
     ) -> None:
         self.design_name = "fake_design"
+        # `oProject.GetName()`: what AEDT calls the project the app is on.
+        self.project_name = ""
         self._ports = ports
         self._file_port_count = file_port_count
         self._points = points
         self._data_raises = data_raises
         self.exported_to: Path | None = None
         self.export_calls: list[Path] = []
+        # The directory of the project this app is bound to. The fake session
+        # sets it when the app is created, exactly as PyAEDT reads
+        # `oProject.GetPath()` (a directory, not the `.aedt` file).
+        self.project_path = ""
+        # Written into the export as its `File:` line, so a test can read back
+        # whose project the artifact came from.
+        self.project_label = ""
 
     @property
     def port_list(self) -> list[str]:
@@ -290,7 +299,12 @@ class _FakeLayout:
         return True
 
     def export_touchstone(self, *, setup: str, sweep: str, output_file: str) -> str:
-        """Write whatever the requested name is — AEDT honours the path given."""
+        """Write whatever the requested name is — AEDT honours the path given.
+
+        The body carries a ``! File:`` line naming the project this app is bound
+        to, as a real export does. That is what makes "whose data is this?"
+        answerable from the artifact alone.
+        """
         target = Path(output_file)
         self.exported_to = target
         self.export_calls.append(target)
@@ -298,6 +312,8 @@ class _FakeLayout:
             text = REAL_S4P.read_text(encoding="utf-8")
         else:
             text = _one_point_touchstone(self._file_port_count)
+        if self.project_label:
+            text = f"!        File:           {self.project_label}\n{text}"
         target.write_text(text, encoding="utf-8")
         return str(target)
 
@@ -307,8 +323,98 @@ class _FakeLayout:
         return [_FakeTouchstoneData(self._points, self._file_port_count)]
 
 
-def _run_node(tmp_path: Path, layout: _FakeLayout, payload: dict) -> dict:
-    """Run the solve node against a fake Hfss3dLayout, with no AEDT import."""
+class _FakeNativeDesktop:
+    """``oDesktop``: the native handle PyAEDT's ``Desktop`` wraps."""
+
+    def __init__(self, session: "_FakeDesktopSession") -> None:
+        self._session = session
+
+    def GetProjectList(self) -> list[str]:
+        return list(self._session.open_projects)
+
+    def CloseProject(self, name: str) -> bool:
+        self._session.close_calls.append(str(name))
+        self._session.open_projects.pop(str(name), None)
+        return True
+
+
+class _FakeDesktopSession:
+    """One AEDT session, shared by every ``Desktop()`` a process creates.
+
+    It reproduces the behaviour the defect turns on: AEDT identifies an open
+    project by NAME, and PyAEDT 1.9.0's ``Desktop.load_project`` reuses the
+    already-open project of that name, ignoring the path it was given.
+    """
+
+    def __init__(self) -> None:
+        # Project name -> the directory it was opened from.
+        self.open_projects: dict[str, str] = {}
+        self.close_calls: list[str] = []
+        self.release_calls: list[dict] = []
+        self.odesktop = _FakeNativeDesktop(self)
+        # AEDT renames a project when a same-name one is already open; this maps
+        # the requested stem to the name it ends up under.
+        self.rename_on_open: dict[str, str] = {}
+
+    def open_elsewhere(self, path: Path) -> None:
+        """Pretend another task already opened a same-name project."""
+        path = Path(path)
+        self.open_projects[path.stem] = str(path.parent)
+
+
+class _FakeDesktop:
+    """The PyAEDT ``Desktop`` wrapper the node calls."""
+
+    def __init__(self, session: _FakeDesktopSession) -> None:
+        self._session = session
+
+    @property
+    def odesktop(self) -> _FakeNativeDesktop:
+        return self._session.odesktop
+
+    @property
+    def project_list(self) -> list[str]:
+        return self._session.odesktop.GetProjectList()
+
+    def load_project(self, path: str) -> bool:
+        """Stem-only: an open project of this name is reused, not rebound."""
+        target = Path(path)
+        renamed = self._session.rename_on_open.get(target.stem)
+        if renamed:
+            # AEDT opened the file under a different name to avoid a collision.
+            self._session.open_projects[renamed] = str(target.parent)
+            return True
+        if target.stem not in self._session.open_projects:
+            self._session.open_projects[target.stem] = str(target.parent)
+        return True
+
+    def release_desktop(self, **kwargs) -> None:
+        self._session.release_calls.append(dict(kwargs))
+
+
+def _run_node(
+    tmp_path: Path,
+    layout: _FakeLayout,
+    payload: dict,
+    *,
+    session: _FakeDesktopSession | None = None,
+    bound_directory: str | None = None,
+    stamp_project: bool = False,
+    desktop_type: type | None = None,
+    reported_project_name: str | None = None,
+) -> dict:
+    """Run the solve node against a fake Hfss3dLayout, with no AEDT import.
+
+    Pass the same `session` to two calls to model two tasks running in one
+    server process. `bound_directory` overrides where the app claims to be
+    bound, for the case where AEDT cannot report its own path. `stamp_project`
+    writes the bound project into the export's `File:` line, so a test can read
+    back whose data the artifact holds. `desktop_type` swaps the wrapper for a
+    session whose project list is unreadable. `reported_project_name` overrides
+    the name the app says it is on, for the case where AEDT renamed the project
+    when it opened it.
+    """
+    session = session if session is not None else _FakeDesktopSession()
     source = tmp_path / "source.aedt"
     source.write_text("fake project", encoding="utf-8")
     request = {
@@ -322,18 +428,28 @@ def _run_node(tmp_path: Path, layout: _FakeLayout, payload: dict) -> dict:
     class _Context:
         input_payload = request
 
-    class _Desktop:
-        def __init__(self, *args, **kwargs) -> None:
-            pass
-
-        def load_project(self, path: str) -> bool:
-            return True
-
-        def release_desktop(self, **kwargs) -> None:
-            pass
-
     def _layout_factory(*args, **kwargs) -> _FakeLayout:
+        stem = Path(str(kwargs.get("project") or request["working_project_path"])).stem
+        resolved = session.rename_on_open.get(stem) or stem
+        if bound_directory is not None:
+            layout.project_path = bound_directory
+        else:
+            layout.project_path = session.open_projects.get(resolved, "")
+        # The project NAME the app reports: the open project's name, which is the
+        # same as the working copy's stem unless AEDT renamed it on open.
+        layout.project_name = reported_project_name or resolved
+        if stamp_project:
+            layout.project_label = (
+                f"{layout.project_path}/{Path(request['working_project_path']).name}"
+                if layout.project_path
+                else ""
+            )
         return layout
+
+    wrapper = desktop_type or _FakeDesktop
+
+    def _desktop_factory(*args, **kwargs) -> _FakeDesktop:
+        return wrapper(session)
 
     monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setitem(
@@ -342,7 +458,7 @@ def _run_node(tmp_path: Path, layout: _FakeLayout, payload: dict) -> dict:
         type(
             "FakeAedtCore",
             (),
-            {"Desktop": _Desktop, "Hfss3dLayout": _layout_factory},
+            {"Desktop": _desktop_factory, "Hfss3dLayout": _layout_factory},
         ),
     )
     try:
@@ -921,3 +1037,196 @@ def test_touchstone_nports_from_data_is_bounded():
     assert _touchstone_nports_from_data([object()]) == 0
     assert _touchstone_nports_from_data([_FakeTouchstoneData(1, nports=4)]) == 4
     assert _touchstone_nports_from_data(_FakeTouchstoneData(1, nports=2)) == 2
+
+
+# ── project binding: two tasks in one process must not share a project ──────
+
+
+def _second_task_root(tmp_path: Path, name: str) -> Path:
+    """A second task's directory, whose working copy has the SAME project name."""
+    root = tmp_path / name
+    (root / "working").mkdir(parents=True)
+    return root
+
+
+def test_two_tasks_in_one_process_each_export_their_own_working_copy(tmp_path: Path):
+    """Two runs against one AEDT session must not hand back the same project.
+
+    AEDT identifies an open project by name, and every task's working copy is a
+    copy of the same reviewed source, so both are named ``source``. If the
+    second run silently reuses the first task's project, the export would hold
+    the first task's S-parameters while the node reports success — fabricated
+    data. Either the second run rebinds to its own copy or it fails loudly.
+    """
+    session = _FakeDesktopSession()
+
+    first_root = tmp_path / "task-a"
+    (first_root / "working").mkdir(parents=True)
+    first = _run_node(
+        first_root,
+        _FakeLayout(ports=["Port1", "Port2", "Port3", "Port4"], file_port_count=4),
+        {},
+        session=session,
+        stamp_project=True,
+    )
+    assert first["status"] == "succeeded", first
+    first_file = Path(first["output_payload"]["touchstone_path"])
+
+    second_root = _second_task_root(tmp_path, "task-b")
+    second = _run_node(
+        second_root,
+        _FakeLayout(ports=["Port1", "Port2", "Port3", "Port4"], file_port_count=4),
+        {},
+        session=session,
+        stamp_project=True,
+    )
+
+    # The first run closed the project it opened, so the second run can bind its
+    # own copy — and must say so.
+    assert second["status"] == "succeeded", second
+    payload = second["output_payload"]
+    second_working = Path(payload["working_project_path"])
+    second_file = Path(payload["touchstone_path"])
+    assert second_working.parent == (second_root / "working").resolve()
+    assert second_file != first_file
+    header = [
+        line for line in second_file.read_text(encoding="utf-8").splitlines()
+        if "File:" in line
+    ][0]
+    assert str(second_working.parent).casefold() in header.casefold(), header
+    assert str(first_file.parent).casefold() not in header.casefold(), header
+    assert session.close_calls == ["source", "source"]
+
+
+def test_second_run_fails_instead_of_exporting_the_first_tasks_project(tmp_path: Path):
+    """With the first project still open, the second run must refuse.
+
+    This is the exact real-machine shape of the defect: the first task's project
+    is still open when the second task starts, `load_project` matches it by name,
+    and the app ends up bound to the wrong directory. No artifact may be written.
+    """
+    session = _FakeDesktopSession()
+    first_root = tmp_path / "task-a"
+    (first_root / "working").mkdir(parents=True)
+    first_working = first_root / "working" / "source.aedt"
+    # Another task left a same-name project open: the node did not open it.
+    session.open_elsewhere(first_working)
+
+    second_root = _second_task_root(tmp_path, "task-b")
+    second = _run_node(
+        second_root,
+        _FakeLayout(ports=["Port1", "Port2", "Port3", "Port4"], file_port_count=4),
+        {},
+        session=session,
+        stamp_project=True,
+    )
+
+    assert second["status"] == "failed", second
+    assert second["error"]["code"] == aihfss_smoke.ERROR_PROJECT_BINDING_MISMATCH
+    message = second["error"]["message"]
+    assert str((second_root / "working").resolve()) in message
+    assert str((first_root / "working").resolve()) in message
+    details = second["error"]["details"]
+    assert details["expected_project_path"] == str((second_root / "working").resolve())
+    assert details["bound_project_path"] == str((first_root / "working").resolve())
+    # Nothing was solved, exported or written as this run's result.
+    assert not (second_root / "artifacts" / "channel_1ghz.s4p").exists()
+    assert not (second_root / "artifacts" / "solve_point_result.json").exists()
+    assert session.close_calls == [], "a project this run did not open must not be closed"
+
+
+def test_binding_check_fails_when_aedt_reports_another_directory(tmp_path: Path):
+    """The self-check stands on its own, even if the session looks clean."""
+    session = _FakeDesktopSession()
+    elsewhere = tmp_path / "somebody-elses-project"
+    elsewhere.mkdir()
+    result = _run_node(
+        tmp_path,
+        _FakeLayout(ports=["Port1", "Port2", "Port3", "Port4"], file_port_count=4),
+        {},
+        session=session,
+        bound_directory=str(elsewhere),
+    )
+    assert result["status"] == "failed", result
+    assert result["error"]["code"] == aihfss_smoke.ERROR_PROJECT_BINDING_MISMATCH
+    details = result["error"]["details"]
+    assert details["bound_project_path"] == str(elsewhere.resolve())
+    assert details["expected_project_path"] == str((tmp_path / "working").resolve())
+    assert details["working_project_path"] == str(tmp_path / "working" / "source.aedt")
+    assert not (tmp_path / "artifacts" / "channel_1ghz.s4p").exists()
+
+
+def test_unreportable_binding_fails_closed(tmp_path: Path):
+    """An app that cannot name its project is treated as unbound, not as fine."""
+    result = _run_node(
+        tmp_path,
+        _FakeLayout(ports=["Port1", "Port2", "Port3", "Port4"], file_port_count=4),
+        {},
+        bound_directory="",
+    )
+    assert result["status"] == "failed", result
+    assert result["error"]["code"] == aihfss_smoke.ERROR_PROJECT_BINDING_MISMATCH
+    assert result["error"]["details"]["bound_project_path"] == ""
+    assert "<unknown>" in result["error"]["message"]
+
+
+def test_only_the_project_this_run_opened_is_closed(tmp_path: Path):
+    """A same-name project that was open before this run is never closed.
+
+    It belongs to someone else; closing it would pull the model out from under
+    another task or another operator's AEDT session.
+    """
+    session = _FakeDesktopSession()
+    other_root = tmp_path / "other-task"
+    (other_root / "working").mkdir(parents=True)
+    session.open_elsewhere(other_root / "working" / "source.aedt")
+
+    # A DIFFERENT project name: this run opens it, so it may close it.
+    result = _run_node(
+        tmp_path,
+        _FakeLayout(ports=["Port1", "Port2", "Port3", "Port4"], file_port_count=4),
+        {"working_project_path": str(tmp_path / "working" / "other_source.aedt")},
+        session=session,
+    )
+    assert result["status"] == "succeeded", result
+    assert session.close_calls == ["other_source"]
+    assert "source" in session.open_projects, "the pre-existing project is still open"
+
+
+def test_a_project_aedt_renamed_on_open_is_closed_under_its_new_name(tmp_path: Path):
+    """AEDT may rename on open; the name it actually used is the one to close.
+
+    Closing by the file stem would leave the renamed project open, and the next
+    task's ``load_project`` would find it — the defect comes straight back.
+    """
+    session = _FakeDesktopSession()
+    session.rename_on_open["source"] = "source_1"
+    result = _run_node(
+        tmp_path,
+        _FakeLayout(ports=["Port1", "Port2", "Port3", "Port4"], file_port_count=4),
+        {},
+        session=session,
+    )
+    assert result["status"] == "succeeded", result
+    assert session.close_calls == ["source_1"]
+    assert session.open_projects == {}
+
+
+def test_finally_does_not_close_when_the_project_list_is_unreadable(tmp_path: Path):
+    """A session that cannot list its projects cannot prove ownership: close none."""
+
+    class _BlindDesktop(_FakeDesktop):
+        @property
+        def project_list(self):
+            raise RuntimeError("GetProjectList failed")
+
+    session = _FakeDesktopSession()
+    result = _run_node(
+        tmp_path,
+        _FakeLayout(ports=["Port1", "Port2", "Port3", "Port4"], file_port_count=4),
+        {},
+        session=session,
+        desktop_type=_BlindDesktop,
+    )
+    assert result["status"] == "succeeded", result
+    assert session.close_calls == []
