@@ -763,3 +763,60 @@ def test_one_port_data_under_a_two_port_name_still_reads_one_port(tmp_path):
 
     assert touchstone_port_count(path) == 1
     assert len(parse_touchstone(path)) == 5
+
+
+# ── the file's own name outranks the one-port demotion ──────────────────────
+#
+# Demoting width 1 is a tie-break for the data-only path. Applying it before
+# the declaration and suffix checks threw away what a `.s1p` name already said
+# and handed an unambiguous one-port file to the most-points tie-break: 18 of
+# the first 40 point counts came back as two or more ports.
+
+def _one_port_file(points: int, *, header: str = "") -> str:
+    rows = [line for line in (header,) if line]
+    rows.append("# GHz S MA R 50")
+    for index in range(points):
+        rows.append(f"{index * 0.25:.9g} 0.5 30")
+    return "\n".join(rows) + "\n"
+
+
+def test_a_one_port_s1p_is_never_widened_at_any_point_count(tmp_path):
+    """Every point count from 1 to 40: the name says one port, so it is one."""
+    for points in range(1, 41):
+        path = tmp_path / f"one_port_{points}.s1p"
+        path.write_text(_one_port_file(points), encoding="utf-8")
+
+        assert touchstone_port_count(path) == 1, f"{points} points"
+        assert len(parse_touchstone(path)) == points, f"{points} points"
+
+
+def test_a_one_port_file_with_a_number_of_ports_declaration_stays_one(tmp_path):
+    path = tmp_path / "declared.s1p"
+    path.write_text(_one_port_file(5, header="[Number of Ports] 1"), encoding="utf-8")
+
+    assert touchstone_port_count(path) == 1
+    assert len(parse_touchstone(path)) == 5
+
+
+def test_a_one_port_file_with_a_port_declaration_stays_one(tmp_path):
+    path = tmp_path / "declared.s1p"
+    path.write_text(_one_port_file(5, header="! Port[1] = p1"), encoding="utf-8")
+
+    assert touchstone_port_count(path) == 1
+    assert len(parse_touchstone(path)) == 5
+
+
+def test_a_descending_one_port_sweep_stays_one(tmp_path):
+    """Descending and genuinely one-port: both fixes have to hold together."""
+    rows = ["# GHz S MA R 50"]
+    for index in range(33):
+        rows.append(f"{40.0 - index * 1.25:.9g} 0.5 30")
+    path = tmp_path / "descending_one_port.s1p"
+    path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+    assert touchstone_port_count(path) == 1
+    samples = parse_touchstone(path)
+    assert len(samples) == 33
+    frequencies = [sample["frequency_ghz"] for sample in samples]
+    assert frequencies[0] == 40.0
+    assert all(later <= earlier for earlier, later in zip(frequencies, frequencies[1:]))

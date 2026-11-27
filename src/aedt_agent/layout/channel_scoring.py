@@ -358,32 +358,45 @@ def _choose_port_count(numbers: list[float], declared: int, suffix: int) -> int:
     points: the correct width is the one that loses the least information. The
     order is:
 
-      1. drop width 1 from the pool when anything else survives — a one-port
+      1. the declared width, if it passes;
+      2. the `.sNp` suffix width, if it passes;
+      3. drop width 1 from the pool when anything else survives — a one-port
          reading keeps only S11 and discards the entire matrix, so it is the
          most destructive way to be wrong, and `1 + 2*1^2 = 3` divides almost
          any value count;
-      2. the declared width, if it is in the pool;
-      3. the `.sNp` suffix width, if it is in the pool;
       4. the only pool member, if there is just one;
-      5. otherwise the pool members cutting the most points, narrowed by the
-         same declared-then-suffix preference and finally by the widest;
+      5. otherwise the pool members cutting the most points, and among those
+         the widest;
       6. no candidate at all -> 0, and the caller falls back to suffix then 2.
+
+    Steps 1 and 2 have already returned by step 5, so neither metadata signal
+    can reappear there.
 
     Declaration before suffix: both are metadata, but the declaration sits
     next to the data and is written by whoever generated it, while the name is
     chosen by whoever saved it. Either order was measured to be correct on the
     conflicting-metadata cases, because a wrong declaration fails the data test
     before this ranking is reached.
+
+    Steps 1 and 2 come BEFORE step 3 deliberately. Demoting width 1 is a
+    tie-break for the data-only path; it must not overrule the file's own name.
+    A correctly named `.s1p` says `1`, and dropping 1 from the pool first threw
+    that away and handed an unambiguous one-port file to the most-points
+    tie-break, which read 18 of the first 40 point counts as two or more ports.
     """
     candidates = _inferred_port_counts(numbers)
     if not candidates:
         return 0
-    # A genuine one-port file has no other candidate, so it is unaffected.
-    pool = [port_count for port_count in candidates if port_count != 1] or candidates
-    if declared in pool:
+    # Metadata is checked first, on the full candidate set: the file's own name
+    # and declaration outrank an inference heuristic.
+    if declared in candidates:
         return declared
-    if suffix in pool:
+    if suffix in candidates:
         return suffix
+    # Only the data-only path demotes width 1. A genuine one-port file that has
+    # neither a declaration nor a suffix still lands here with 1 as its sole
+    # candidate, so `or candidates` keeps it.
+    pool = [port_count for port_count in candidates if port_count != 1] or candidates
     if len(pool) == 1:
         return pool[0]
     most_points = max(_points_at(numbers, port_count) for port_count in pool)
@@ -392,10 +405,6 @@ def _choose_port_count(numbers: list[float], declared: int, suffix: int) -> int:
         for port_count in pool
         if _points_at(numbers, port_count) == most_points
     ]
-    if declared in top:
-        return declared
-    if suffix in top:
-        return suffix
     return max(top)
 
 
