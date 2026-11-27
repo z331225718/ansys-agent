@@ -252,15 +252,116 @@ def _declared_port_count(text: str) -> int:
     return declared or declarations
 
 
+def _touchstone_numbers(text: str) -> list[float]:
+    """Every data number in the file, in order — the same numbers the parser slices.
+
+    Option lines (`#`), keyword lines (`[...]`), and comments are skipped exactly
+    as `parse_touchstone` skips them, so a width inferred here lines up with the
+    width the parser will use. A line that does not parse is skipped rather than
+    raising: this runs before parsing and must not turn an unreadable file into
+    an exception where the caller previously got a number back.
+    """
+    numbers: list[float] = []
+    for raw_line in text.splitlines():
+        line = raw_line.split("!", 1)[0].strip()
+        if not line or line.startswith("#") or line.startswith("["):
+            continue
+        try:
+            line_numbers = [float(item) for item in line.split()]
+        except ValueError:
+            continue
+        numbers.extend(line_numbers)
+    return numbers
+
+
+_MAX_INFERRED_PORTS = 8
+_FREQUENCY_TOLERANCE = 1e-9
+
+
+def _step_tolerance(value: float) -> float:
+    return _FREQUENCY_TOLERANCE * max(1.0, abs(value))
+
+
+def _frequency_axis(numbers: list[float], port_count: int) -> list[float]:
+    """The frequency column a slice at `port_count` would produce."""
+    width = 1 + (2 * port_count * port_count)
+    return numbers[0::width]
+
+
+def _is_plausible_axis(frequencies: list[float]) -> bool:
+    """A frequency sweep is non-negative and never goes backwards.
+
+    This is what separates a correct width from a wrong one. At the wrong width
+    the "frequencies" are S values, and S values go negative (a dB angle, a
+    magnitude of 0.008) — the exact signature of the bug this guards against.
+    """
+    if any(frequency < -_FREQUENCY_TOLERANCE for frequency in frequencies):
+        return False
+    return all(
+        later >= earlier - _step_tolerance(earlier)
+        for earlier, later in zip(frequencies, frequencies[1:])
+    )
+
+
+def _is_uniform_axis(frequencies: list[float]) -> bool:
+    """At least two points, all evenly spaced — the shape of a real sweep."""
+    if len(frequencies) < 2:
+        return False
+    steps = [later - earlier for earlier, later in zip(frequencies, frequencies[1:])]
+    largest = max(abs(step) for step in steps)
+    return max(steps) - min(steps) <= _step_tolerance(largest)
+
+
+def _inferred_port_counts(numbers: list[float]) -> list[int]:
+    """Every port count whose slice of `numbers` yields a plausible sweep."""
+    return [
+        port_count
+        for port_count in range(1, _MAX_INFERRED_PORTS + 1)
+        if len(numbers) % (1 + 2 * port_count * port_count) == 0
+        and _is_plausible_axis(_frequency_axis(numbers, port_count))
+    ]
+
+
+def _choose_port_count(numbers: list[float], declared: int) -> int:
+    """The width to slice at, or 0 when the data supports no width at all.
+
+    A declaration is a candidate, not a fact: a file that keeps one of its four
+    `! Port[n]` lines still holds four ports, and trusting the declaration there
+    slices the data one port wide — S values become frequencies again. So the
+    declaration wins only if the data agrees with it.
+
+    When several widths all produce a plausible sweep, prefer the ones on a
+    uniform grid (a real export is evenly sampled) and then the widest, because
+    a narrower width slices a wider file into pieces that also happen to look
+    monotonic.
+    """
+    candidates = _inferred_port_counts(numbers)
+    if not candidates:
+        return 0
+    if declared in candidates:
+        return declared
+    if len(candidates) == 1:
+        return candidates[0]
+    uniform = [
+        port_count
+        for port_count in candidates
+        if _is_uniform_axis(_frequency_axis(numbers, port_count))
+    ]
+    return max(uniform or candidates)
+
+
 def touchstone_port_count(path: Path, *, text: str | None = None) -> int:
     """How many ports the Touchstone at `path` holds.
 
-    Content first: the file's own declaration decides, because the name is
-    metadata a caller can get wrong — an export renamed to `.touchstone` (or
-    `.s1p`) still holds four ports, and slicing it as a two-port file turns S
-    values into frequencies. The `.sNp` suffix is the fallback for files that
-    declare nothing, and 2 remains the last resort so callers that relied on
-    that default keep working.
+    Content first, and content means the data, not just the header: a width is
+    used only when slicing the numbers at it yields a frequency column that is
+    non-negative and non-decreasing. The file's own declaration
+    (`[Number of Ports]`, then the `! Port[n] = ...` lines AEDT writes) is tried
+    first among those widths; when it fails the data test the data decides.
+
+    The `.sNp` suffix is the fallback for files whose data supports no width,
+    and 2 remains the last resort so callers that relied on that default keep
+    working.
 
     `text` lets a caller that already read the file pass it in, so `parse_touchstone`
     does not read it twice.
@@ -271,8 +372,9 @@ def touchstone_port_count(path: Path, *, text: str | None = None) -> int:
         except OSError:
             text = ""
     declared = _declared_port_count(text)
-    if declared:
-        return declared
+    chosen = _choose_port_count(_touchstone_numbers(text), declared)
+    if chosen:
+        return chosen
     match = re.search(r"\.s([1-9][0-9]*)p$", str(path), re.IGNORECASE)
     return int(match.group(1)) if match else 2
 

@@ -13,7 +13,9 @@ from aedt_agent.layout.channel_scoring import (
 )
 from aedt_agent.reporting.channel_scoring_report import render_channel_score_html
 
-REAL_S4P = Path(__file__).resolve().parent / "fixtures" / "touchstone" / "channel_1ghz.s4p"
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "touchstone"
+REAL_S4P = FIXTURES / "channel_1ghz.s4p"
+REAL_ADS_S2P = FIXTURES / "ads2027_rlgc_0_40ghz_dc.s2p"
 
 
 def test_parse_touchstone_reads_s2p_magnitude_angle_samples(tmp_path):
@@ -433,3 +435,105 @@ def test_score_channel_result_agrees_across_names_for_the_same_data(tmp_path):
         "reference_impedance_ohm",
     ):
         assert score_bare[key] == score_s4p[key], key
+
+
+# ── a declaration is a candidate, not a fact ────────────────────────────────
+#
+# Trusting `! Port[n]` outright is the same bug as trusting the suffix, moved
+# one level in: a file that keeps one of its four port lines still holds four
+# ports, and slicing it one port wide reads S values as frequencies.
+
+def _s4p_with_declarations(kept: int | None) -> str:
+    """The real AEDT export with `kept` port declarations left (None = all)."""
+    lines = REAL_S4P.read_text(encoding="utf-8").splitlines()
+    declarations = [line for line in lines if line.startswith("! Port[")]
+    if kept is None:
+        return "\n".join(lines) + "\n"
+    kept_names = set(declarations[:kept])
+    return "\n".join(
+        line for line in lines if not line.startswith("! Port[") or line in kept_names
+    ) + "\n"
+
+
+def test_one_port_declaration_does_not_narrow_a_four_port_export(tmp_path):
+    """The data says four ports; one stray declaration must not win."""
+    path = tmp_path / "channel_1ghz.s4p"
+    path.write_text(_s4p_with_declarations(1), encoding="utf-8")
+
+    assert touchstone_port_count(path) == 4
+    samples = parse_touchstone(path)
+    assert len(samples) == 1
+    assert samples[0]["port_count"] == 4
+    assert "sdd11_db" in samples[0]
+    assert samples[0]["frequency_ghz"] == 1.0
+
+
+def test_three_port_declarations_do_not_truncate_a_four_port_export(tmp_path):
+    """33 numbers do not divide by 1+2*3^2, so three ports would drop data."""
+    path = tmp_path / "channel_1ghz.s4p"
+    path.write_text(_s4p_with_declarations(3), encoding="utf-8")
+
+    assert touchstone_port_count(path) == 4
+    samples = parse_touchstone(path)
+    assert len(samples) == 1
+    assert samples[0]["port_count"] == 4
+    assert samples[0]["frequency_ghz"] == 1.0
+
+
+def test_four_port_data_with_no_declaration_at_all_still_reads_four(tmp_path):
+    """Nothing in the file names a width: the data has to decide."""
+    path = tmp_path / "channel_1ghz.touchstone"
+    path.write_text(_s4p_with_declarations(0), encoding="utf-8")
+
+    assert touchstone_port_count(path) == 4
+    samples = parse_touchstone(path)
+    assert len(samples) == 1
+    assert samples[0]["port_count"] == 4
+    assert "sdd11_db" in samples[0]
+    assert "sdd21_db" in samples[0]
+    assert samples[0]["frequency_ghz"] == 1.0
+
+
+def test_real_two_port_ads_export_keeps_every_point(tmp_path):
+    """A real third-party export: 801 points, no declaration, evenly sampled."""
+    path = tmp_path / "ads2027_rlgc_0_40ghz_dc.s2p"
+    shutil.copyfile(REAL_ADS_S2P, path)
+
+    assert touchstone_port_count(path) == 2
+    samples = parse_touchstone(path)
+    assert len(samples) == 801
+    assert samples[0]["port_count"] == 2
+    frequencies = [sample["frequency_ghz"] for sample in samples]
+    assert frequencies[0] == 0.0
+    assert frequencies[-1] == 40.0
+    assert all(
+        later >= earlier for earlier, later in zip(frequencies, frequencies[1:])
+    )
+    assert "sdd11_db" not in samples[0]
+
+
+def test_a_two_port_export_without_a_suffix_or_declaration_reads_two(tmp_path):
+    """Same real data, named so neither suffix nor declaration can help."""
+    path = tmp_path / "ads.touchstone"
+    shutil.copyfile(REAL_ADS_S2P, path)
+
+    assert touchstone_port_count(path) == 2
+    assert len(parse_touchstone(path)) == 801
+
+
+def _synthetic_touchstone(port_count: int, points: int) -> str:
+    rows = ["# GHz S MA R 50"]
+    for index in range(points):
+        values = [f"{index * 0.1:.6f}"] + ["0.1 0"] * (port_count * port_count)
+        rows.append(" ".join(values))
+    return "\n".join(rows) + "\n"
+
+
+def test_inferred_widths_match_the_data_shape(tmp_path):
+    """The inference has to land on the shape, not on a preferred default."""
+    for port_count, points in ((4, 4), (8, 2), (3, 3), (2, 40)):
+        path = tmp_path / f"synthetic_{port_count}p.s{port_count}p"
+        path.write_text(_synthetic_touchstone(port_count, points), encoding="utf-8")
+
+        assert touchstone_port_count(path) == port_count
+        assert len(parse_touchstone(path)) == points
