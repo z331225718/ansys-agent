@@ -135,7 +135,11 @@ def test_ansys_embedded_preset_is_light_and_carries_the_aedt_contract():
         "tool-web",
         "tool-ask-user",
         "tool-todo",
-        "tool-presentation",
+        # DSH 0.2.2 renamed the module: `dsh-tool-executor-ptc` replaces
+        # `dsh-agent-tool-presentation` with `mode: ptc` (that module's ptc mode
+        # was removed). The bundle row is now `tool-executor-ptc`, so the
+        # assertion follows the bundle instead of the removed id.
+        "tool-executor-ptc",
     ):
         assert required in plugins, required
     for forbidden in ("tool-goal", "production-guard", "plan-mode", "tool-workflow", "workflow-ptc", "tool-ralph"):

@@ -14,11 +14,24 @@ The node is deliberately narrow:
 * it exports a touchstone into the task's artifact directory and reports the
   point count read back, so the caller can assert data flowed.
 
+The exported file name follows the design's real port count (`.s4p` for the
+reviewed 4-port differential layout, `.s1p` only for a genuine single port), and
+the read-back parser honours the Touchstone spec: one frequency point spans
+`1 + 2*N*N` numbers, so a 4-port point is nine numbers plus eight more rows.
+
+The node also guards the session it borrows. AEDT identifies an open project by
+NAME, and every task's working copy is a copy of the same reviewed source, so
+the names collide across tasks: the node closes the project it opened (and only
+that one) and refuses to solve unless the app is proven to be bound to this
+run's working copy. Without that, a second task in the same process would export
+the first task's S-parameters while reporting success.
+
 Nothing here starts or advances a mission graph; that stays with the task service.
 """
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import time
 from pathlib import Path
@@ -32,7 +45,18 @@ from aedt_agent.agent.mission import NodeRunStatus
 
 HANDLER_SOLVE_POINT = "aihfss.smoke.layout_solve_point"
 PROJECT_SUFFIX = ".aedt"
+# A run that cannot prove AEDT bound the working copy it asked for must stop.
+# AEDT keys open projects by project NAME, and every task's working copy is a
+# copy of the same reviewed source, so the names collide across tasks: without
+# this check the second task in a process would solve and export the FIRST
+# task's project while reporting success.
+ERROR_PROJECT_BINDING_MISMATCH = "aedt/project-binding-mismatch"
 RESULT_FILE = "solve_point_result.json"
+MAX_TOUCHSTONE_POINTS = 4096
+_TOUCHSTONE_SUFFIX = re.compile(r"\.s([1-9][0-9]*)p$", re.IGNORECASE)
+_PORT_DECLARATION = re.compile(r"^\s*!\s*port\[[^\]]*\]\s*=", re.IGNORECASE)
+_NUMBER_OF_PORTS = re.compile(r"\[\s*number of ports\s*\]\s*([0-9]+)", re.IGNORECASE)
+_FREQUENCY_UNITS = frozenset({"HZ", "KHZ", "MHZ", "GHZ"})
 
 
 def register_aihfss_handlers(registry: Any) -> None:
@@ -62,15 +86,27 @@ def _solve_layout_point(context: GraphNodeExecutionContext) -> dict[str, Any]:
     setup_name = str(payload.get("setup_name") or "Setup1").strip()
     frequency_ghz = float(payload.get("frequency_ghz") or 1.0)
     sweep_name = str(payload.get("smoke_sweep_name") or f"AIHFSS_{frequency_ghz:g}GHz").strip()
-    touchstone_name = str(payload.get("touchstone_name") or f"channel_{frequency_ghz:g}ghz.s1p").strip()
+    requested_touchstone_name = str(payload.get("touchstone_name") or "").strip()
     reset = bool(payload.get("reset_working_project"))
 
     prepared = _prepare_working_copy(source, working, reset=reset)
     desktop = None
+    # Names this run opened, and only those, so `finally` never closes a
+    # same-name project that another task or session already had open.
+    opened_here: list[str] = []
     try:
         from ansys.aedt.core import Desktop, Hfss3dLayout  # type: ignore
 
         desktop = Desktop(new_desktop=False, non_graphical=True)
+        # Snapshot before opening: AEDT identifies open projects by NAME, and the
+        # working copies of different tasks share a name (same reviewed source),
+        # so "is it open?" alone cannot tell whose project it is.
+        #
+        # If the session cannot list its projects, nothing is recorded and so
+        # nothing is closed: ownership is unprovable, and the binding check
+        # below still refuses to use the wrong project. Leaving one open only
+        # costs the next run a loud failure, never a wrong artifact.
+        open_before = _open_project_names(desktop)
         desktop.load_project(str(working))
         layout = Hfss3dLayout(
             project=str(working),
@@ -78,6 +114,22 @@ def _solve_layout_point(context: GraphNodeExecutionContext) -> dict[str, Any]:
             new_desktop=False,
             non_graphical=True,
         )
+        # Recorded before the binding check so a mismatched run still closes the
+        # project it opened instead of leaving it to poison the next task. Only
+        # names absent from the pre-open snapshot count, so a project somebody
+        # else had open is never touched.
+        opened_here = _owned_project_names(open_before, layout, working)
+        # Prove AEDT bound the copy this run asked for before touching it. A
+        # stem-only match in `load_project` silently reuses an already-open
+        # project of the same name, and exporting that would hand the caller
+        # another task's S-parameters under this task's name.
+        binding_error = _project_binding_error(
+            working,
+            _bound_project_directory(layout),
+            elapsed=round(time.perf_counter() - started, 1),
+        )
+        if binding_error is not None:
+            return binding_error
         resolved_design = getattr(layout, "design_name", design_name)
         setup = layout.get_setup(setup_name)
         if setup is None:
@@ -99,19 +151,120 @@ def _solve_layout_point(context: GraphNodeExecutionContext) -> dict[str, Any]:
         if not solved:
             return _failed(f"analyze_setup({setup_name!r}) did not complete")
 
-        touchstone = artifact_dir / touchstone_name
+        # The layout decides the export width: a 4-port differential cut writes
+        # `.s4p`, and only a genuine single-port design writes `.s1p`. An explicit
+        # payload name always wins and is never renamed; the port count is then
+        # reported from the file.
+        #
+        # When the layout cannot name its own width (no usable `port_list`), the
+        # file is exported under a provisional name that claims no port count and
+        # renamed once the file says how wide it is. Downstream reads the width
+        # from the `.sNp` suffix, so leaving a wrong suffix on disk is worse than
+        # an honest placeholder.
+        design_port_count = _design_port_count(layout)
+        stem = f"channel_{frequency_ghz:g}ghz"
+        clear_warnings: list[str] = []
+        if requested_touchstone_name:
+            # A user-supplied name is theirs: nothing is cleared on its behalf and
+            # the exact path is reported as found, as it always has been. The
+            # sibling names are still remembered, because the glob fallback below
+            # must not adopt an earlier round's file if AEDT re-extends the name.
+            touchstone = artifact_dir / requested_touchstone_name
+            stale_names = _sibling_names(touchstone)
+        else:
+            # The artifact directory outlives a round: clear this stem's earlier
+            # export first so whatever lands here afterwards is this run's file.
+            # Only this exact stem is touched; other frequencies stay.
+            _, undeleted = _clear_previous_exports(artifact_dir, stem)
+            # A file we could not delete is still an earlier round's result — a
+            # resident AEDT session holding its handle makes `unlink` fail on
+            # Windows. It must be excluded from the glob exactly like one we did
+            # delete, or the fallback would adopt the very file we tried to clear.
+            stale_names = set(undeleted)
+            for name in undeleted:
+                clear_warnings.append(
+                    f"could not delete the earlier export {name}; it is not adopted "
+                    f"as this round's touchstone"
+                )
+            if design_port_count:
+                touchstone = artifact_dir / f"{stem}.s{design_port_count}p"
+            else:
+                touchstone = artifact_dir / f"{stem}.touchstone"
         exported = layout.export_touchstone(
             setup=setup_name,
             sweep=sweep_name,
             output_file=str(touchstone),
         )
+        # AEDT may append its own `.sNp` extension to a name it does not
+        # recognise, so adopt the file it actually wrote rather than reporting a
+        # path that does not exist. Files that predate the export are never
+        # adopted: this node reports this round's artifact or nothing.
+        touchstone = _resolve_exported_file(touchstone, stale_names=stale_names)
+        # `get_touchstone_data` returns one TouchstoneData per variation, so its
+        # `len` is a variation count. Ask the object for its own frequency axis.
+        data: Any = None
         points = 0
         try:
             data = layout.get_touchstone_data(setup=setup_name, sweep=sweep_name)
-            points = len(data) if isinstance(data, list) else 0
+            points = _touchstone_points_from_data(data)
         except Exception:  # noqa: BLE001 - the file itself is the artifact
-            points = _touchstone_point_count(touchstone)
-        frequencies = _touchstone_frequencies(touchstone)
+            points = 0
+        parsed = _parse_touchstone(touchstone)
+        if touchstone.is_file():
+            if points <= 0:
+                points = parsed["point_count"]
+            port_count = int(
+                parsed["port_count"]
+                or design_port_count
+                or _touchstone_nports_from_data(data)
+                or 0
+            )
+            warnings = clear_warnings + list(parsed["warnings"])
+        else:
+            # Nothing was written: report no file-derived fact at all. The
+            # solution data may still know the width, but claiming it here would
+            # hand the caller a `s4p`/`points: 1` for a file that does not exist.
+            points = 0
+            port_count = 0
+            warnings = clear_warnings + [
+                f"export reported success but no file was found at {touchstone}; "
+                f"no port count or point count is reported"
+            ]
+        touchstone_kind = f"s{port_count}p" if port_count else "unknown"
+        renamed_from = ""
+        if not requested_touchstone_name and touchstone.is_file():
+            wanted_suffix = f".s{port_count}p" if port_count else ""
+            if wanted_suffix and touchstone.suffix.lower() != wanted_suffix:
+                renamed = touchstone.with_name(
+                    f"channel_{frequency_ghz:g}ghz{wanted_suffix}"
+                )
+                try:
+                    # Only this run's file may occupy the final name; anything
+                    # left there predates the export and was already cleared.
+                    if renamed.exists():
+                        renamed.unlink()
+                    touchstone.rename(renamed)
+                except OSError as exc:  # noqa: BLE001 - keep the file, say why
+                    warnings.append(
+                        f"could not rename {touchstone.name} to {renamed.name}: {exc}"
+                    )
+                else:
+                    # The on-disk name before the rename, whichever name AEDT
+                    # settled on, so the trail never claims a file that never was.
+                    renamed_from = touchstone.name
+                    touchstone = renamed
+            elif not wanted_suffix:
+                warnings.append(
+                    f"exported file width is unknown; kept the provisional name "
+                    f"{touchstone.name}"
+                )
+        if requested_touchstone_name and port_count:
+            requested_kind = _touchstone_suffix_kind(Path(requested_touchstone_name))
+            if requested_kind and requested_kind != touchstone_kind:
+                warnings.append(
+                    f"touchstone_name suffix {requested_kind} does not match the exported "
+                    f"{touchstone_kind} data"
+                )
 
         result_payload = {
             "status": "solved",
@@ -124,7 +277,13 @@ def _solve_layout_point(context: GraphNodeExecutionContext) -> dict[str, Any]:
             "touchstone_exists": touchstone.is_file(),
             "touchstone_bytes": touchstone.stat().st_size if touchstone.is_file() else 0,
             "touchstone_points": points,
-            "touchstone_frequencies_ghz": frequencies,
+            "touchstone_port_count": port_count,
+            "touchstone_kind": touchstone_kind,
+            "touchstone_renamed_from": renamed_from,
+            "touchstone_frequencies_ghz": parsed["frequencies_ghz"],
+            "touchstone_data_format": parsed["data_format"],
+            "touchstone_frequency_unit": parsed["frequency_unit"],
+            "touchstone_parse_warnings": warnings,
             "export_returned": str(exported),
             "working_project_path": str(working),
             "source_project_path": str(source),
@@ -144,11 +303,111 @@ def _solve_layout_point(context: GraphNodeExecutionContext) -> dict[str, Any]:
         return _failed(f"{type(exc).__name__}: {exc}", elapsed=round(time.perf_counter() - started, 1))
     finally:
         if desktop is not None:
+            _close_own_project(desktop, opened_here)
             try:
-                # Keep other AEDT sessions alive: never close projects or the desktop.
+                # Keep other AEDT sessions alive: the desktop itself is shared.
                 desktop.release_desktop(close_projects=False, close_on_exit=False)
             except Exception:  # noqa: BLE001
                 pass
+
+
+def _open_project_names(desktop: Any) -> set[str] | None:
+    """Names of the projects already open in this AEDT session.
+
+    ``None`` means the session could not say, which is treated as "cannot prove
+    the project was mine" — the caller then never closes it.
+    """
+    try:
+        names = desktop.project_list
+    except Exception:  # noqa: BLE001 - a fake or a stale session may not have it
+        return None
+    try:
+        return {str(name) for name in names}
+    except TypeError:
+        return None
+
+
+def _owned_project_names(open_before: set[str] | None, layout: Any, working: Path) -> list[str]:
+    """The project names this run opened, and may therefore close.
+
+    Only a name that was NOT open before the run counts. A name that was already
+    open belongs to another task or another operator's session; closing it would
+    pull the model out from under them. When AEDT bound the wrong project this
+    returns ``[]`` on its own, because that project's name is in the snapshot.
+    """
+    if open_before is None:
+        return []
+    try:
+        name = str(layout.project_name or "")
+    except Exception:  # noqa: BLE001 - fall back to the file stem
+        name = ""
+    if not name:
+        name = working.stem
+    if name in open_before:
+        return []
+    return [name]
+
+
+def _bound_project_directory(layout: Any) -> str:
+    """The directory of the project the layout object is actually bound to.
+
+    ``project_path`` is a directory (``oProject.GetPath``), not the ``.aedt``
+    file, and it is compared as such so a trailing separator cannot make a
+    correctly bound project look wrong.
+    """
+    try:
+        value = layout.project_path
+    except Exception:  # noqa: BLE001 - an app that cannot say is not bound
+        return ""
+    return str(value or "")
+
+
+def _project_binding_error(
+    working: Path, bound_directory: str, *, elapsed: float | None = None
+) -> dict[str, Any] | None:
+    """A failure payload when AEDT is not bound to `working`, else ``None``."""
+    expected = working.parent.resolve()
+    try:
+        actual = Path(bound_directory).resolve() if bound_directory else None
+    except (OSError, ValueError):
+        actual = None
+    if actual == expected:
+        return None
+    return _failed(
+        f"AEDT is bound to {str(actual) if actual else '<unknown>'} instead of the "
+        f"working copy {expected}; refusing to solve or export another project's data",
+        elapsed=elapsed,
+        code=ERROR_PROJECT_BINDING_MISMATCH,
+        details={
+            "expected_project_path": str(expected),
+            "bound_project_path": str(actual) if actual else "",
+            "working_project_path": str(working),
+        },
+    )
+
+
+def _close_own_project(desktop: Any, project_names: list[str]) -> None:
+    """Close the projects this run opened, and only those.
+
+    A project left open is what makes the NEXT task's ``load_project`` reuse it
+    by name, so leaving it open is how one task's S-parameters end up in
+    another task's artifact. PyAEDT 1.9.0's ``Desktop`` has no
+    ``close_project``, so the native call is used. Everything is guarded: a
+    session that cannot close must still let ``release_desktop`` run.
+    """
+    if not project_names:
+        return
+    try:
+        native = getattr(desktop, "odesktop", None)
+        if native is None:
+            return
+        for name in project_names:
+            try:
+                native.CloseProject(name)
+            except Exception:  # noqa: BLE001 - one failure must not skip the rest
+                continue
+    except Exception:  # noqa: BLE001 - best effort; the binding check is the guard
+        pass
 
 
 def _prepare_working_copy(source: Path, working: Path, *, reset: bool) -> bool:
@@ -177,58 +436,327 @@ def _prepare_working_copy(source: Path, working: Path, *, reset: bool) -> bool:
     return True
 
 
-def _failed(message: str, *, elapsed: float | None = None) -> dict[str, Any]:
+def _failed(
+    message: str,
+    *,
+    elapsed: float | None = None,
+    code: str = "aihfss/solve-point",
+    details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    error: dict[str, Any] = {"code": code, "message": message}
+    if details:
+        error["details"] = dict(details)
     return {
         "status": NodeRunStatus.FAILED.value,
         "outcome": "layout_solve_point_failed",
         "output_payload": {"error": message, "elapsed_seconds": elapsed},
         "artifact_refs": [],
-        "error": {"code": "aihfss/solve-point", "message": message},
+        "error": error,
     }
 
 
-def _touchstone_point_count(path: Path) -> int:
+def _touchstone_suffix_kind(path: Path) -> str:
+    match = _TOUCHSTONE_SUFFIX.search(str(path))
+    return f"s{int(match.group(1))}p" if match else ""
+
+
+def _parse_touchstone(path: Path) -> dict[str, Any]:
+    """Read a Touchstone file the way the spec defines it.
+
+    One frequency point is `1 + 2*N*N` numbers (N = port count): the frequency,
+    then N*N complex S values. A writer may break a point across rows, so the
+    numbers are streamed and sliced — never one frequency per line, which would
+    read S values as frequencies on a 4-port file.
+
+    Every failure mode is bounded: a missing, truncated, comment-only, or
+    port-count-mismatched file yields zero points and a warning instead of an
+    exception. Only the frequency axis and counts are returned; the S values
+    stay in the artifact.
+    """
+    parsed: dict[str, Any] = {
+        "point_count": 0,
+        "port_count": 0,
+        "frequencies_ghz": [],
+        "data_format": "MA",
+        "frequency_unit": "GHZ",
+        "warnings": [],
+    }
+    warnings: list[str] = parsed["warnings"]
     if not path.is_file():
-        return 0
-    count = 0
-    for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith(("!", "#")):
+        warnings.append("touchstone file is missing")
+        return parsed
+
+    suffix_port_count = 0
+    declared = _touchstone_suffix_kind(path)
+    if declared:
+        suffix_port_count = int(declared[1:-1])
+    port_count = suffix_port_count
+    frequency_unit = "GHZ"
+    data_format = "MA"
+    declared_ports = 0
+    numbers: list[float] = []
+    frequencies: list[float] = []
+    truncated = False
+    bad_rows = 0
+
+    try:
+        lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except OSError as exc:  # noqa: BLE001 - bounded read failure
+        warnings.append(f"touchstone file is unreadable: {exc}")
+        return parsed
+
+    for raw_line in lines:
+        line = raw_line.split("!", 1)[0].strip()
+        if not line:
             continue
-        count += 1
-    return count
+        if line.startswith("#"):
+            # Option line, e.g. `# GHz S MA R 50`. The unit is optional, so only
+            # a recognised unit token may set it — otherwise `# S MA R 50` would
+            # report "S" as the frequency unit.
+            parts = line[1:].split()
+            upper = [part.upper() for part in parts]
+            if parts and upper[0] in _FREQUENCY_UNITS:
+                frequency_unit = upper[0]
+            if "RI" in upper:
+                data_format = "RI"
+            elif "DB" in upper:
+                data_format = "DB"
+            elif "MA" in upper:
+                data_format = "MA"
+            continue
+        if line.startswith("["):
+            match = _NUMBER_OF_PORTS.match(line)
+            if match:
+                declared_ports = int(match.group(1))
+            continue
+        for item in line.replace(",", " ").split():
+            try:
+                numbers.append(float(item))
+            except ValueError:
+                bad_rows += 1
+
+    # The `! Port[n] = ...` comment lines are stripped above, so count them here.
+    comment_ports = sum(1 for raw in lines if _PORT_DECLARATION.match(raw))
+    if not port_count:
+        port_count = declared_ports or comment_ports
+    else:
+        # The suffix names the data width; the file's own declarations are the
+        # evidence. A disagreement means the two cannot both describe one
+        # network, so report it and read nothing rather than guess a stride.
+        mismatched = next(
+            (
+                (source, value)
+                for source, value in (
+                    ("[Number of Ports]", declared_ports),
+                    ("! Port[n] declarations", comment_ports),
+                )
+                if value and value != port_count
+            ),
+            None,
+        )
+        if mismatched is not None:
+            source, value = mismatched
+            warnings.append(
+                f"{source} report {value} ports but the {declared} suffix says "
+                f"{port_count}; refusing to parse a file whose width is ambiguous"
+            )
+            parsed.update(
+                {
+                    "point_count": 0,
+                    "port_count": value,
+                    "frequencies_ghz": [],
+                    "data_format": data_format,
+                    "frequency_unit": frequency_unit,
+                }
+            )
+            return parsed
+
+    if not numbers:
+        warnings.append("touchstone file has no data rows")
+        parsed.update(
+            {
+                "point_count": 0,
+                "port_count": port_count,
+                "frequencies_ghz": [],
+                "data_format": data_format,
+                "frequency_unit": frequency_unit,
+            }
+        )
+        return parsed
+
+    if not port_count:
+        warnings.append("port count is unknown: no .sNp suffix and no port declarations")
+        parsed.update(
+            {
+                "point_count": 0,
+                "port_count": 0,
+                "frequencies_ghz": [],
+                "data_format": data_format,
+                "frequency_unit": frequency_unit,
+            }
+        )
+        return parsed
+
+    expected = 1 + 2 * port_count * port_count
+    point_count = len(numbers) // expected
+    if len(numbers) % expected:
+        truncated = True
+    for index in range(point_count):
+        start = index * expected
+        try:
+            frequency = float(numbers[start])
+        except (TypeError, ValueError):
+            truncated = True
+            break
+        frequencies.append(round(frequency * _frequency_unit_scale(frequency_unit), 6))
+        if len(frequencies) >= MAX_TOUCHSTONE_POINTS:
+            break
+    if truncated:
+        warnings.append(
+            f"touchstone data is truncated: {len(numbers)} numbers is not a whole "
+            f"number of {expected}-number points for {port_count} ports"
+        )
+    if bad_rows:
+        warnings.append(f"{bad_rows} touchstone rows held non-numeric values and were skipped")
+
+    parsed.update(
+        {
+            "point_count": len(frequencies),
+            "port_count": port_count,
+            "frequencies_ghz": frequencies,
+            "data_format": data_format,
+            "frequency_unit": frequency_unit,
+        }
+    )
+    return parsed
+
+
+def _frequency_unit_scale(unit: str) -> float:
+    lowered = unit.strip().lower()
+    if lowered == "mhz":
+        return 1e-3
+    if lowered == "khz":
+        return 1e-6
+    if lowered == "hz":
+        return 1e-9
+    return 1.0
+
+
+def _touchstone_point_count(path: Path) -> int:
+    """Frequency points in a Touchstone file (0 when it cannot be read)."""
+    return int(_parse_touchstone(path)["point_count"])
 
 
 def _touchstone_frequencies(path: Path) -> list[float]:
-    """Bounded frequency read-out (the first numeric column of each data row)."""
-    frequencies: list[float] = []
-    if not path.is_file():
-        return frequencies
-    unit_scale = 1.0
-    for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-        stripped = line.strip()
-        if not stripped:
+    """Frequency axis in GHz (empty when the file cannot be read)."""
+    return list(_parse_touchstone(path)["frequencies_ghz"])
+
+
+def _sibling_names(path: Path) -> set[str]:
+    """Names of the `.sNp` files already beside `path`, before an export."""
+    try:
+        return {item.name for item in path.parent.glob(f"{path.stem}.s*p") if item.is_file()}
+    except OSError:
+        return set()
+
+
+def _clear_previous_exports(artifact_dir: Path, stem: str) -> tuple[list[str], list[str]]:
+    """Delete this stem's earlier exports, returning `(removed, failed)`.
+
+    The artifact directory is reused across rounds. Clearing the exact stem
+    (`channel_1ghz.s4p`, `channel_1ghz.touchstone`, ...) before exporting means a
+    later `_resolve_exported_file` glob can only find a file this run wrote. Other
+    stems — a different frequency, an unrelated export — are left alone.
+
+    A file that cannot be removed is returned in `failed`, never silently
+    skipped: a resident AEDT session holding the previous round's `.sNp` makes
+    `unlink` raise on Windows, and that file is exactly the one the glob must
+    not adopt. The caller puts those names in `stale_names` and warns.
+    """
+    removed: list[str] = []
+    failed: list[str] = []
+    for candidate in sorted(artifact_dir.glob(f"{stem}.*")):
+        if not candidate.is_file():
             continue
-        if stripped.startswith("#"):
-            lowered = stripped.lower()
-            if "ghz" in lowered:
-                unit_scale = 1.0
-            elif "mhz" in lowered:
-                unit_scale = 1e-3
-            elif "khz" in lowered:
-                unit_scale = 1e-6
-            elif "hz" in lowered:
-                unit_scale = 1e-9
-            continue
-        if stripped.startswith("!"):
-            continue
-        parts = stripped.replace(",", " ").split()
-        if not parts:
+        if not _TOUCHSTONE_SUFFIX.search(candidate.name) and candidate.suffix.lower() != ".touchstone":
             continue
         try:
-            frequencies.append(round(float(parts[0]) * unit_scale, 6))
-        except ValueError:
+            candidate.unlink()
+        except OSError:
+            failed.append(candidate.name)
             continue
-        if len(frequencies) >= 4096:
-            break
-    return frequencies
+        removed.append(candidate.name)
+    return removed, failed
+
+
+def _resolve_exported_file(path: Path, *, stale_names: set[str] | None = None) -> Path:
+    """The file AEDT actually wrote for `path`.
+
+    AEDT honours a `.sNp` name as given, but may append its own extension when
+    the name carries none (our provisional name). Prefer the exact path, then a
+    single `.sNp` sibling, and otherwise keep the requested path so the caller
+    reports a missing artifact rather than inventing one.
+
+    `stale_names` are files that existed beside `path` before the export. They
+    are never adopted: an artifact directory reused across rounds holds earlier
+    results, and reporting one of those as this round's output would be worse
+    than reporting nothing.
+    """
+    if path.is_file():
+        return path
+    stale = stale_names or set()
+    siblings = [
+        item
+        for item in sorted(path.parent.glob(f"{path.stem}.s*p"))
+        if item.is_file() and item.name not in stale
+    ]
+    return siblings[0] if len(siblings) == 1 else path
+
+
+def _design_port_count(layout: Any) -> int:
+    """Port count of the solved design, or 0 when AEDT cannot report it."""
+    try:
+        ports = layout.port_list
+    except Exception:  # noqa: BLE001 - the exported file is the fallback
+        return 0
+    try:
+        return len(ports)
+    except TypeError:
+        return 0
+
+
+def _touchstone_nports_from_data(data: Any) -> int:
+    """Port count on a `get_touchstone_data` result, or 0 when it cannot say.
+
+    Used only when the exported file does not declare its own width, so that the
+    file can still be named after the network it holds.
+    """
+    if data is None:
+        return 0
+    entries = data if isinstance(data, (list, tuple)) else [data]
+    for entry in entries:
+        try:
+            return int(entry.nports)
+        except Exception:  # noqa: BLE001 - unknown object shape
+            continue
+    return 0
+
+
+def _touchstone_points_from_data(data: Any) -> int:
+    """Frequency points on a `get_touchstone_data` result.
+
+    pyaedt returns `list[TouchstoneData]` — one entry per variation — so the
+    list length is a variation count. Each TouchstoneData is a scikit-rf
+    Network, whose `f` array is the frequency axis; that length is the point
+    count. Anything unexpected yields 0 so the caller falls back to the file.
+    """
+    if data is None:
+        return 0
+    entries = data if isinstance(data, (list, tuple)) else [data]
+    points = 0
+    for entry in entries:
+        try:
+            points = max(points, len(entry.f))
+        except Exception:  # noqa: BLE001 - unknown object shape
+            continue
+    return points

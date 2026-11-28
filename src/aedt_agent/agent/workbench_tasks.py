@@ -43,6 +43,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import quote
 
 WORKSPACE_SCHEMA = "aihfss-workspace/v1"
 TASK_SCHEMA = "aihfss-task/v1"
@@ -127,6 +128,100 @@ def _is_within(child: Path, parent: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def _task_artifact_roots(task_dir: Path) -> list[Path]:
+    """The directories of a task whose files may be served read-only.
+
+    ``artifacts/`` holds the exports (touchstone, TDR, plots, evidence) and the
+    configured ``report_dir`` holds the progress report and history CSV.
+    ``runs/`` as a whole is deliberately NOT served: it also holds the working
+    copy of the reviewed AEDT project, which must never be downloadable.
+    """
+    roots = [(task_dir / "artifacts").resolve()]
+    report_dir: Path | None = None
+    try:
+        loop = _read_json(task_dir / LOOP_FILE)
+    except (OSError, json.JSONDecodeError, TaskError):
+        loop = {}
+    configured = str(loop.get("report_dir") or "").strip()
+    if configured:
+        candidate = Path(configured)
+        if not candidate.is_absolute():
+            candidate = task_dir / candidate
+        report_dir = candidate.resolve()
+    if report_dir is None:
+        report_dir = (task_dir / "runs" / "optimization_progress").resolve()
+    # A hand-edited loop.json must not widen the served roots past the task.
+    if report_dir != task_dir and _is_within(report_dir, task_dir):
+        roots.append(report_dir)
+    return roots
+
+
+def _task_artifact_target(
+    task_dir: Path, name: str, *, roots: list[Path] | None = None
+) -> Path | None:
+    """Resolve `name` to a servable file of this task, or None.
+
+    A name is tried relative to each served root first, then relative to the
+    task directory, so ``channel_1ghz.s4p`` (in ``artifacts/``) and
+    ``optimization_progress.html`` (in ``report_dir``) both work, as does a
+    fully task-relative ``runs/optimization_progress/...``.
+
+    `roots` lets a caller that resolves many names in a row read ``loop.json``
+    once instead of once per name; the snapshot rewrites every artifact link on
+    a 5-second poll.
+    """
+    from aedt_agent.agent.workbench import artifact_suffix_allowed
+
+    task_root = task_dir.resolve()
+    served = _task_artifact_roots(task_dir) if roots is None else roots
+    candidate = Path(name)
+    if not name or candidate.is_absolute():
+        return None
+    for raw in [*(root / candidate for root in served), task_root / candidate]:
+        target = raw.resolve()
+        if target == task_root or not _is_within(target, task_root):
+            continue
+        if not any(_is_within(target, root) for root in served):
+            continue
+        if not artifact_suffix_allowed(target) or not target.is_file():
+            continue
+        return target
+    return None
+
+
+def _task_artifact_urls(task_id: str, task_dir: Path, paths: list[str]) -> dict[str, str]:
+    """Task-scoped URL per artifact path, or "" when the task does not own it.
+
+    A URL uses the shortest name that resolves back to the same file, so an
+    ``artifacts/`` export is just its file name. Blank beats a dead link: a file
+    outside the served roots still appears in the list with its path, but gets
+    no URL rather than one that fails.
+    """
+    task_root = task_dir.resolve()
+    roots = _task_artifact_roots(task_dir)
+    urls: dict[str, str] = {}
+    for path in paths:
+        url = ""
+        if path:
+            try:
+                resolved = Path(path).resolve()
+                names = [resolved.relative_to(task_root).as_posix()]
+            except (OSError, ValueError):
+                resolved, names = None, []
+            for root in roots:
+                try:
+                    names.append(resolved.relative_to(root).as_posix())
+                except (AttributeError, ValueError):
+                    continue
+            # Shortest first, and only if it resolves back to this exact file.
+            for name in sorted(set(names), key=lambda value: (value.count("/"), value)):
+                if _task_artifact_target(task_dir, name, roots=roots) == resolved:
+                    url = f"/api/workbench/tasks/{task_id}/artifact/{quote(name, safe='/')}"
+                    break
+        urls[path] = url
+    return urls
 
 
 def _rel(path: Path, base: Path) -> str:
@@ -594,12 +689,27 @@ class TaskService:
         payload = workbench_snapshot(runtime, str(task["graph_run_id"]))
         payload["task"] = task
         payload["driver"] = self.driver_state(task_id)
+        # `workbench_snapshot` builds `/api/artifacts/file?mission_id=...` links,
+        # which are checked against the MAIN database's artifact manifests. A
+        # task's mission lives in its own `missions.db`, so that allowlist is
+        # always empty and every link 403s. Rewrite them to the task-scoped
+        # route, which resolves the file against this task's served roots.
+        artifacts_dir = workspace.tasks_dir / task_id / "artifacts"
+        artifacts = payload.get("artifacts")
+        if isinstance(artifacts, list):
+            records = [record for record in artifacts if isinstance(record, dict)]
+            urls = _task_artifact_urls(
+                task_id,
+                workspace.tasks_dir / task_id,
+                [str(record.get("path") or "") for record in records],
+            )
+            for record in records:
+                record["view_url"] = urls.get(str(record.get("path") or ""), "")
         # The legacy read-only projection reports workflow_* false; this task
         # surface is where those actions ARE allowed (the workbench owns the
         # strict workflow), so state it explicitly instead of overloading it.
         from aedt_agent.agent.aihfss_inventory import STACKUP_PLOT_FILE, STACKUP_PLOT_META_FILE
 
-        artifacts_dir = workspace.tasks_dir / task_id / "artifacts"
         plot_path = artifacts_dir / STACKUP_PLOT_FILE
         plot_info: dict[str, Any] = {}
         meta_path = artifacts_dir / STACKUP_PLOT_META_FILE
@@ -630,17 +740,31 @@ class TaskService:
         return payload
 
     def artifact_file(self, task_id: str, name: str) -> Path:
-        """Return one whitelisted artifact file of a task (read-only)."""
-        from aedt_agent.agent.aihfss_inventory import STACKUP_PLOT_FILE
+        """Return one servable artifact file of a task (read-only).
 
-        allowed = {STACKUP_PLOT_FILE}
-        if name not in allowed:
-            raise TaskError("task/artifact-not-allowed", f"artifact {name!r} is not served", task_id=task_id)
+        The task, not the main dashboard database, owns these files: each task
+        has its own ``missions.db``, so the mission-id allowlist that
+        ``/api/artifacts/file`` consults against the main runtime was always
+        empty and every link the snapshot offered came back 403. Scoping the
+        route to the task directory keeps the boundary explicit and needs no
+        guessing about which database a mission lives in.
+
+        ``name`` is relative to the task directory and must land inside one of
+        the served roots: ``artifacts/`` (touchstone, TDR, plots, evidence) and
+        the configured ``report_dir`` (progress report, history CSV). A bare
+        file name keeps meaning "in ``artifacts/``", which is what the stackup
+        plot URL has always used. Anything else -- ``..`` segments, absolute
+        paths, denied suffixes, missing files -- is reported as "not served", so
+        a caller learns nothing about what exists outside those roots.
+        """
         _, task_dir, _task = self._resolve_task(task_id)
-        artifacts_dir = (task_dir / "artifacts").resolve()
-        target = (artifacts_dir / name).resolve()
-        if target.parent != artifacts_dir or not target.is_file():
-            raise TaskError("task/artifact-not-found", f"artifact {name!r} was not found", task_id=task_id)
+        target = _task_artifact_target(task_dir, name)
+        if target is None:
+            raise TaskError(
+                "task/artifact-not-allowed",
+                f"artifact {name!r} is not served",
+                task_id=task_id,
+            )
         return target
 
     def list_approvals(self, task_id: str) -> list[dict[str, Any]]:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -140,3 +141,26 @@ def test_brd_channel_score_worker_rejects_missing_artifacts(tmp_path):
 
     with pytest.raises(ValueError, match="touchstone_path does not exist"):
         run_brd_channel_score_worker(job, WorkerContext("worker-1"))
+
+
+REAL_S4P = Path(__file__).resolve().parent / "fixtures" / "touchstone" / "channel_1ghz.s4p"
+
+
+def test_score_reference_impedance_reads_the_ports_not_the_suffix(tmp_path):
+    """A four-port export named `.touchstone` still gets the differential target.
+
+    Reading the suffix here returned `None`, so `score_channel_result` renormalised
+    nothing and the whole score was computed as if the channel were single-ended.
+    """
+    from aedt_agent.agent.workers.brd_channel_score import _score_reference_impedance
+    from aedt_agent.layout.channel_scoring import touchstone_port_count
+
+    bare = tmp_path / "channel_1ghz.touchstone"
+    shutil.copyfile(REAL_S4P, bare)
+    payload = {"touchstone_path": str(bare), "sparameter_mode": "auto"}
+
+    assert touchstone_port_count(bare) == 4
+    assert _score_reference_impedance(payload, 100.0, port_count=4) == 100.0
+    # Without the width it is still a single-ended decision — the caller's job
+    # to pass the real count, which `run_brd_channel_score_worker` now does.
+    assert _score_reference_impedance(payload, 100.0, port_count=2) is None

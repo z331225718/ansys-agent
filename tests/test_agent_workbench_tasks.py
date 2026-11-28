@@ -400,3 +400,167 @@ def test_snapshot_and_artifact_route_expose_the_stackup_plot(api: TaskService, t
         "GET", f"/api/workbench/tasks/{task_id}/artifact/other_plot.png", b""
     )
     assert status == 400
+
+def _task_with_artifact(
+    api: TaskService,
+    tmp_path: Path,
+    *,
+    name: str = "artifact-task",
+    artifact_name: str = "channel_1ghz.s4p",
+) -> tuple[str, Path]:
+    """Create a task and register one real touchstone as its artifact."""
+    from aedt_agent.agent.mission import ArtifactManifest
+
+    status, payload = _call("POST", "/api/workbench/workspaces", {"root": str(tmp_path / name)})
+    assert status == 201
+    workspace_id = payload["workspace"]["workspace_id"]
+    status, payload = _call(
+        "POST",
+        f"/api/workbench/workspaces/{workspace_id}/tasks",
+        {"goal": "artifact task", "template_id": "test_program_graph"},
+    )
+    assert status == 201
+    task_id = payload["task"]["task_id"]
+    artifacts = tmp_path / name / SYSTEM_DIR_NAME / "tasks" / task_id / "artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    source = Path(__file__).resolve().parent / "fixtures" / "touchstone" / "channel_1ghz.s4p"
+    target = artifacts / artifact_name
+    target.write_bytes(source.read_bytes())
+    task = api.get_task(task_id)
+    runtime = api._task_runtime(task_id, task)
+    runtime.store.create_artifact_manifest(
+        ArtifactManifest.create(
+            artifact_id="artifact-real-s4p",
+            mission_id=str(task["mission_id"]),
+            producer_kind="job",
+            producer_id="job-real-s4p",
+            path=str(target),
+            kind="touchstone",
+            sha256="",
+            size_bytes=target.stat().st_size,
+        )
+    )
+    return task_id, target
+
+
+def test_snapshot_view_url_serves_a_real_touchstone(api: TaskService, tmp_path: Path) -> None:
+    """done-means #4: the link the snapshot offers must actually open.
+
+    The task's mission lives in its own `missions.db`, so the legacy
+    `/api/artifacts/file?mission_id=...` allowlist (resolved against the MAIN
+    database) was always empty and every link 403'd.
+    """
+    from aedt_agent.agent.web import _handle_workbench_tasks
+
+    task_id, target = _task_with_artifact(api, tmp_path)
+
+    status, payload = _call("GET", f"/api/workbench/tasks/{task_id}")
+    assert status == 200
+    artifacts = [a for a in payload["artifacts"] if a["path"] == str(target)]
+    assert len(artifacts) == 1
+    record = artifacts[0]
+    assert record["kind"] == "touchstone"
+    assert record["view_url"].startswith(f"/api/workbench/tasks/{task_id}/artifact/")
+    assert record["view_url"].endswith("channel_1ghz.s4p")
+
+    status, headers, body = _handle_workbench_tasks("GET", record["view_url"], b"")
+    assert status == 200
+    assert headers["content-type"] == "application/octet-stream"
+    assert body == target.read_bytes()
+    assert body.startswith(b"!")  # a Touchstone header, not an error page
+
+
+def test_task_artifact_route_refuses_a_file_outside_the_task(api: TaskService, tmp_path: Path) -> None:
+    from aedt_agent.agent.web import _handle_workbench_tasks
+
+    task_id, _target = _task_with_artifact(api, tmp_path, name="escape-task")
+    # A real file that exists on this host but is not this task's artifact.
+    outside = tmp_path / "escape-task" / "outside.s4p"
+    outside.write_text("! not this task's artifact" + chr(10), encoding="utf-8")
+    assert outside.is_file()
+
+    status, _headers, body = _handle_workbench_tasks(
+        "GET", f"/api/workbench/tasks/{task_id}/artifact/outside.s4p", b""
+    )
+    assert status == 400
+    assert json.loads(body.decode("utf-8"))["code"] == "task/artifact-not-allowed"
+
+    # A sibling task's artifact is equally out of bounds. Its name differs on
+    # purpose: with the same name the route would correctly resolve the file
+    # that lives in THIS task's own artifacts/ directory.
+    other_id, other_target = _task_with_artifact(
+        api, tmp_path, name="other-task", artifact_name="sibling_only.s4p"
+    )
+    assert other_id != task_id
+    assert other_target.is_file()
+    status, _headers, body = _handle_workbench_tasks(
+        "GET", f"/api/workbench/tasks/{task_id}/artifact/{other_target.name}", b""
+    )
+    assert status == 400
+    assert json.loads(body.decode("utf-8"))["code"] == "task/artifact-not-allowed"
+
+
+def test_task_artifact_route_rejects_path_traversal(api: TaskService, tmp_path: Path) -> None:
+    from aedt_agent.agent.web import _handle_workbench_tasks
+
+    task_id, _target = _task_with_artifact(api, tmp_path, name="traversal-task")
+    task_dir = tmp_path / "traversal-task" / SYSTEM_DIR_NAME / "tasks" / task_id
+    assert (task_dir / "missions.db").is_file()
+
+    for name in (
+        "../missions.db",
+        "..%2Fmissions.db",
+        "../../../workspaces.json",
+        str(task_dir / "missions.db"),
+    ):
+        status, _headers, body = _handle_workbench_tasks(
+            "GET", f"/api/workbench/tasks/{task_id}/artifact/{name}", b""
+        )
+        assert status == 400, name
+        assert json.loads(body.decode("utf-8"))["code"] == "task/artifact-not-allowed", name
+
+
+def test_task_artifact_route_serves_the_report_but_not_the_working_project(
+    api: TaskService, tmp_path: Path
+) -> None:
+    """The progress report is in `report_dir`; the working AEDT copy must not leak."""
+    from aedt_agent.agent.web import _handle_workbench_tasks
+
+    task_id, _target = _task_with_artifact(api, tmp_path, name="report-task")
+    task_dir = tmp_path / "report-task" / SYSTEM_DIR_NAME / "tasks" / task_id
+    report_dir = task_dir / "runs" / "optimization_progress"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    report = report_dir / "optimization_progress.html"
+    report.write_text("<html><body>real report</body></html>", encoding="utf-8")
+    working = task_dir / "runs" / "working" / "reviewed.aedt"
+    working.parent.mkdir(parents=True, exist_ok=True)
+    working.write_text("reviewed project", encoding="utf-8")
+
+    status, headers, body = _handle_workbench_tasks(
+        "GET", f"/api/workbench/tasks/{task_id}/artifact/optimization_progress.html", b""
+    )
+    assert status == 200
+    assert "text/html" in headers["content-type"]
+    assert b"real report" in body
+
+    status, _headers, body = _handle_workbench_tasks(
+        "GET", f"/api/workbench/tasks/{task_id}/artifact/runs/working/reviewed.aedt", b""
+    )
+    assert status == 400
+    assert json.loads(body.decode("utf-8"))["code"] == "task/artifact-not-allowed"
+
+
+def test_mission_list_says_it_only_covers_the_main_database(api: TaskService, tmp_path: Path) -> None:
+    """The Mission panel must not read as "no work" when tasks live elsewhere."""
+    from aedt_agent.agent.workbench import workbench_missions
+    from aedt_agent.agent.orchestrator import AgentRuntime
+    from aedt_agent.infrastructure import SQLiteMissionStore
+
+    task_id, _target = _task_with_artifact(api, tmp_path, name="missions-task")
+    main_runtime = AgentRuntime(SQLiteMissionStore(tmp_path / "main" / "missions.db"))
+    payload = workbench_missions(main_runtime)
+    assert payload["missions"] == []
+    assert payload["scope"] == "main_database"
+    assert "工作区" in payload["note"]
+    # The task exists, and its own database does hold a mission.
+    assert api.get_task(task_id)["mission_id"]

@@ -15,11 +15,15 @@ def parse_touchstone(
     frequency_unit = "GHZ"
     data_format = "MA"
     source_reference_impedance_ohm = 50.0
-    port_count = _touchstone_port_count(path)
+    text = Path(path).read_text(encoding="utf-8", errors="replace")
+    # The width has to be settled BEFORE any slicing: `expected_number_count`
+    # decides where one frequency point ends. Reading the declaration only when
+    # the loop reaches it would slice the earlier points at the wrong width.
+    port_count = touchstone_port_count(path, text=text)
     expected_number_count = 1 + (2 * port_count * port_count)
     pending_numbers: list[float] = []
     samples: list[dict[str, float]] = []
-    for raw_line in Path(path).read_text(encoding="utf-8", errors="replace").splitlines():
+    for raw_line in text.splitlines():
         line = raw_line.split("!", 1)[0].strip()
         if not line:
             continue
@@ -35,10 +39,8 @@ def parse_touchstone(
             )
             continue
         if line.startswith("["):
-            match = re.match(r"\[Number of Ports\]\s+([0-9]+)", line, re.IGNORECASE)
-            if match:
-                port_count = int(match.group(1))
-                expected_number_count = 1 + (2 * port_count * port_count)
+            # Already accounted for by the pre-scan above; re-slicing here would
+            # misalign every point buffered so far.
             continue
         pending_numbers.extend(float(item) for item in line.split())
         while len(pending_numbers) >= expected_number_count:
@@ -102,8 +104,8 @@ def score_channel_result(
     trace_config = _trace_config(sparameters, sparameter_mode)
     rl_key = trace_config["return_loss_key"]
     il_key = trace_config["insertion_loss_key"]
-    touchstone_port_count = int(sparameters[0].get("port_count", 0))
-    touchstone_kind = f"s{touchstone_port_count}p" if touchstone_port_count else "unknown"
+    sample_port_count = int(sparameters[0].get("port_count", 0))
+    touchstone_kind = f"s{sample_port_count}p" if sample_port_count else "unknown"
     tdr_samples = parse_tdr_csv(tdr_path)
     if not tdr_samples:
         raise ValueError("TDR artifact contains no samples")
@@ -219,9 +221,230 @@ def _complex_value(first: float, second: float, data_format: str) -> complex:
     return complex(first * math.cos(angle), first * math.sin(angle))
 
 
-def _touchstone_port_count(path: Path) -> int:
+_PORT_DECLARATION = re.compile(r"^\s*!\s*port\[[^\]]*\]\s*=", re.IGNORECASE)
+_NUMBER_OF_PORTS = re.compile(r"\[\s*number of ports\s*\]\s*([0-9]+)", re.IGNORECASE)
+
+
+def _declared_port_count(text: str) -> int:
+    """The width the file declares about itself, or 0 if it declares none.
+
+    `[Number of Ports] N` is the keyword form; `! Port[n] = ...` lines are what
+    AEDT actually writes, and their count is the width. A file that names itself
+    `.touchstone` has no suffix to read, so these are the only honest sources —
+    guessing from the data would mean inferring the width from the row length.
+    """
+    declared = 0
+    declarations = 0
+    for raw_line in text.splitlines():
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("["):
+            match = _NUMBER_OF_PORTS.match(stripped)
+            if match:
+                declared = int(match.group(1))
+            continue
+        if _PORT_DECLARATION.match(stripped):
+            declarations += 1
+    # A file can carry both; they agree in every export seen. Prefer the
+    # explicit keyword when present, and never let a stray `! Port[..]` line
+    # outvote it.
+    return declared or declarations
+
+
+def _touchstone_numbers(text: str) -> list[float]:
+    """Every data number in the file, in order — the same numbers the parser slices.
+
+    Option lines (`#`), keyword lines (`[...]`), and comments are skipped exactly
+    as `parse_touchstone` skips them, so a width inferred here lines up with the
+    width the parser will use. A line that does not parse is skipped rather than
+    raising: this runs before parsing and must not turn an unreadable file into
+    an exception where the caller previously got a number back.
+    """
+    numbers: list[float] = []
+    for raw_line in text.splitlines():
+        line = raw_line.split("!", 1)[0].strip()
+        if not line or line.startswith("#") or line.startswith("["):
+            continue
+        try:
+            line_numbers = [float(item) for item in line.split()]
+        except ValueError:
+            continue
+        numbers.extend(line_numbers)
+    return numbers
+
+
+_FREQUENCY_TOLERANCE = 1e-9
+
+
+def _step_tolerance(value: float) -> float:
+    return _FREQUENCY_TOLERANCE * max(1.0, abs(value))
+
+
+def _width(port_count: int) -> int:
+    """Numbers per frequency point for a `port_count`-port file."""
+    return 1 + (2 * port_count * port_count)
+
+
+def _frequency_axis(numbers: list[float], port_count: int) -> list[float]:
+    """The frequency column a slice at `port_count` would produce."""
+    return numbers[0::_width(port_count)]
+
+
+def _is_plausible_axis(frequencies: list[float]) -> bool:
+    """A frequency sweep is non-negative and runs in one direction.
+
+    This is what separates a correct width from a wrong one. At the wrong width
+    the "frequencies" are S values, and S values go negative (a dB angle, a
+    magnitude of 0.008) — the exact signature of the bug this guards against.
+
+    Either direction counts. Touchstone does not require an ascending sweep, and
+    a descending one (40 GHz down to 0, as ADS and some instruments export, or a
+    hand-reversed sweep) is entirely legal. Requiring ascending rejected the
+    correct width for every descending file and left only a width that read S
+    values as frequencies. A sweep that reverses mid-file is still rejected.
+    """
+    if any(frequency < -_FREQUENCY_TOLERANCE for frequency in frequencies):
+        return False
+    pairs = list(zip(frequencies, frequencies[1:]))
+    ascending = all(later >= earlier - _step_tolerance(earlier) for earlier, later in pairs)
+    if ascending:
+        return True
+    return all(later <= earlier + _step_tolerance(earlier) for earlier, later in pairs)
+
+
+def _max_candidate_ports(numbers: list[float]) -> int:
+    """The widest width the number count could possibly describe.
+
+    Derived from the data rather than capped at a constant: `1 + 2N^2 <= len`
+    means `N <= sqrt((len - 1) / 2)`. A fixed ceiling silently dropped a
+    16-port file (1026 values) back to the two-port default.
+    """
+    if len(numbers) < 3:
+        return 0
+    return math.isqrt((len(numbers) - 1) // 2)
+
+
+def _inferred_port_counts(numbers: list[float]) -> list[int]:
+    """Every port count whose slice of `numbers` yields a plausible sweep."""
+    return [
+        port_count
+        for port_count in range(1, _max_candidate_ports(numbers) + 1)
+        if len(numbers) % _width(port_count) == 0
+        and _is_plausible_axis(_frequency_axis(numbers, port_count))
+    ]
+
+
+def _points_at(numbers: list[float], port_count: int) -> int:
+    return len(numbers) // _width(port_count)
+
+
+def _choose_port_count(numbers: list[float], declared: int, suffix: int) -> int:
+    """The width to slice at, or 0 when the data supports no width at all.
+
+    A width counts only if the data agrees: `1 + 2N^2` divides the value count
+    and the frequency column it produces is non-negative and runs in one
+    direction (ascending or descending — Touchstone allows either).
+
+    That test alone is ambiguous, and not rarely. A width's value count is
+    `k * N^2` complex pairs, and the same total often fits another width: a
+    two-port 33-point sweep is 297 values, which is also exactly 7 ports at 3
+    points (99 per point). Both slices give a monotonic axis, so the data
+    "supports" both. Picking the widest there reads 33 real points as 3 and
+    throws away 264 values, and on a correctly named `.s4p` it produced a
+    positive insertion loss — physically impossible.
+
+    So when several widths pass, prefer the one that keeps the most frequency
+    points: the correct width is the one that loses the least information. The
+    order is:
+
+      1. the declared width, if it passes;
+      2. the `.sNp` suffix width, if it passes;
+      3. drop width 1 from the pool when anything else survives — a one-port
+         reading keeps only S11 and discards the entire matrix, so it is the
+         most destructive way to be wrong, and `1 + 2*1^2 = 3` divides almost
+         any value count;
+      4. the only pool member, if there is just one;
+      5. otherwise the pool members cutting the most points, and among those
+         the widest;
+      6. no candidate at all -> 0, and the caller falls back to suffix then 2.
+
+    Steps 1 and 2 have already returned by step 5, so neither metadata signal
+    can reappear there.
+
+    Declaration before suffix: both are metadata, but the declaration sits
+    next to the data and is written by whoever generated it, while the name is
+    chosen by whoever saved it. Either order was measured to be correct on the
+    conflicting-metadata cases, because a wrong declaration fails the data test
+    before this ranking is reached.
+
+    Steps 1 and 2 come BEFORE step 3 deliberately. Demoting width 1 is a
+    tie-break for the data-only path; it must not overrule the file's own name.
+    A correctly named `.s1p` says `1`, and dropping 1 from the pool first threw
+    that away and handed an unambiguous one-port file to the most-points
+    tie-break, which read 18 of the first 40 point counts as two or more ports.
+    """
+    candidates = _inferred_port_counts(numbers)
+    if not candidates:
+        return 0
+    # Metadata is checked first, on the full candidate set: the file's own name
+    # and declaration outrank an inference heuristic.
+    if declared in candidates:
+        return declared
+    if suffix in candidates:
+        return suffix
+    # Only the data-only path demotes width 1. A genuine one-port file that has
+    # neither a declaration nor a suffix still lands here with 1 as its sole
+    # candidate, so `or candidates` keeps it.
+    pool = [port_count for port_count in candidates if port_count != 1] or candidates
+    if len(pool) == 1:
+        return pool[0]
+    most_points = max(_points_at(numbers, port_count) for port_count in pool)
+    top = [
+        port_count
+        for port_count in pool
+        if _points_at(numbers, port_count) == most_points
+    ]
+    return max(top)
+
+
+def _suffix_port_count(path: Path) -> int:
     match = re.search(r"\.s([1-9][0-9]*)p$", str(path), re.IGNORECASE)
-    return int(match.group(1)) if match else 2
+    return int(match.group(1)) if match else 0
+
+
+def touchstone_port_count(path: Path, *, text: str | None = None) -> int:
+    """How many ports the Touchstone at `path` holds.
+
+    Content first, and content means the data, not just the header: a width is
+    used only when slicing the numbers at it yields a frequency column that is
+    non-negative and monotonic in one direction — ascending or descending, since
+    Touchstone does not require a particular sweep order. The file's own
+    declaration (`[Number of Ports]`, then the `! Port[n] = ...` lines AEDT
+    writes) is tried first among those widths; when it fails the data test the
+    data decides. See `_choose_port_count` for how ambiguous widths are resolved.
+
+    The `.sNp` suffix is the fallback for files whose data supports no width,
+    and 2 remains the last resort so callers that relied on that default keep
+    working.
+
+    `text` lets a caller that already read the file pass it in, so `parse_touchstone`
+    does not read it twice.
+    """
+    if text is None:
+        try:
+            text = Path(path).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            text = ""
+    suffix = _suffix_port_count(path)
+    chosen = _choose_port_count(
+        _touchstone_numbers(text),
+        _declared_port_count(text),
+        suffix,
+    )
+    if chosen:
+        return chosen
+    return suffix or 2
 
 
 def _touchstone_sample(
@@ -321,7 +544,7 @@ def _score_reference_impedance(
     mode = sparameter_mode.strip().casefold()
     if mode in {"differential", "diff", "mixed_mode"}:
         return float(tdr_target_ohm)
-    if mode == "auto" and _touchstone_port_count(touchstone_path) >= 4:
+    if mode == "auto" and touchstone_port_count(touchstone_path) >= 4:
         return float(tdr_target_ohm)
     return None
 

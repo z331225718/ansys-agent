@@ -8,7 +8,11 @@ from typing import Any
 from aedt_agent.agent.evaluation import build_sparameter_evidence
 from aedt_agent.agent.mission import JobRecord
 from aedt_agent.agent.workers.registry import WorkerContext
-from aedt_agent.layout.channel_scoring import parse_touchstone, score_channel_result
+from aedt_agent.layout.channel_scoring import (
+    touchstone_port_count,
+    parse_touchstone,
+    score_channel_result,
+)
 from aedt_agent.reporting.channel_plots import write_channel_plot_artifacts
 
 
@@ -66,7 +70,14 @@ def run_brd_channel_score_worker(job: JobRecord, context: WorkerContext) -> dict
     tdr_tolerance_ohm = float(payload.get("tdr_tolerance_ohm", 5.0))
     sparameter_mode = str(payload.get("sparameter_mode") or "auto")
     tdr_observation_port = str(payload.get("tdr_observation_port") or "")
-    reference_impedance_ohm = _score_reference_impedance(payload, tdr_target_ohm)
+    # The width is a property of the file, not of its name: read it once here so
+    # both the reference-impedance decision and the scoring below agree.
+    port_count = touchstone_port_count(touchstone_path)
+    reference_impedance_ohm = _score_reference_impedance(
+        payload,
+        tdr_target_ohm,
+        port_count=port_count,
+    )
     bucket_count = int(payload.get("bucket_count", 128))
     tdr_plot_time_stop_ps = float(payload.get("tdr_plot_time_stop_ps", 120.0))
 
@@ -268,7 +279,16 @@ def _evidence_sample(
 def _score_reference_impedance(
     payload: dict[str, Any],
     tdr_target_ohm: float,
+    *,
+    port_count: int = 0,
 ) -> float | None:
+    """The differential reference impedance to renormalise a 4-port export to.
+
+    The port count comes from the file's own content (`parse_touchstone`), never
+    from its suffix: an export named `.touchstone` or `.s1p` still holds four
+    ports, and reading the name here would quietly score it single-ended.
+    `port_count` is passed in so the file is not parsed twice.
+    """
     explicit = payload.get("reference_impedance_ohm")
     if explicit is None:
         explicit = payload.get("sparameter_reference_impedance_ohm")
@@ -276,8 +296,9 @@ def _score_reference_impedance(
         value = float(explicit)
         return value if value > 0 else None
     mode = str(payload.get("sparameter_mode") or "auto").casefold()
-    touchstone_name = str(payload.get("touchstone_path") or "")
-    if mode in {"differential", "diff", "mixed_mode"} or touchstone_name.lower().endswith(".s4p"):
+    if mode in {"differential", "diff", "mixed_mode"}:
+        return float(tdr_target_ohm)
+    if mode == "auto" and port_count >= 4:
         return float(tdr_target_ohm)
     return None
 
